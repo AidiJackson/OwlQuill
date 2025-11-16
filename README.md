@@ -70,6 +70,8 @@ OwlQuill/
 
 ## Getting Started
 
+> **🚀 Quick Start with Replit**: See [DEV_SETUP.md](./DEV_SETUP.md) for one-button setup in Replit!
+
 ### Prerequisites
 
 - Python 3.11+
@@ -142,6 +144,19 @@ OwlQuill/
 5. Access the app at: `http://localhost:5173`
 
 ### Quick Start (Both Services)
+
+**Option 1: Unified Script (Recommended)**
+```bash
+# One-time setup
+cd backend && pip install -r requirements.txt && alembic upgrade head
+cd ../frontend && npm install
+cd ..
+
+# Run both services with one command
+./start-dev.sh
+```
+
+**Option 2: Separate Terminals**
 
 Backend (Terminal 1):
 ```bash
