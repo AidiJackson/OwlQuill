@@ -13,6 +13,33 @@ from app.schemas.post import Post, PostCreate
 router = APIRouter()
 
 
+@router.get("/feed", response_model=List[Post])
+def get_feed(
+    skip: int = 0,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> List[Post]:
+    """Get feed of posts from realms the user is a member of."""
+    # Get all realm IDs where user is a member
+    memberships = db.query(RealmMembershipModel).filter(
+        RealmMembershipModel.user_id == current_user.id
+    ).all()
+
+    realm_ids = [m.realm_id for m in memberships]
+
+    if not realm_ids:
+        # User is not a member of any realms, return empty list
+        return []
+
+    # Get posts from those realms
+    posts = db.query(PostModel).filter(
+        PostModel.realm_id.in_(realm_ids)
+    ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
+
+    return posts
+
+
 @router.post("/realms/{realm_id}/posts", response_model=Post, status_code=status.HTTP_201_CREATED)
 def create_post_in_realm(
     realm_id: int,

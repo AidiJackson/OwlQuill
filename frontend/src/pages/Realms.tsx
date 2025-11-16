@@ -10,8 +10,10 @@ export default function Realms() {
   const [newRealm, setNewRealm] = useState({
     name: '',
     slug: '',
+    tagline: '',
     description: '',
     genre: '',
+    banner_url: '',
     is_public: true,
   });
 
@@ -35,10 +37,11 @@ export default function Realms() {
     try {
       await apiClient.createRealm(newRealm);
       setShowCreateForm(false);
-      setNewRealm({ name: '', slug: '', description: '', genre: '', is_public: true });
+      setNewRealm({ name: '', slug: '', tagline: '', description: '', genre: '', banner_url: '', is_public: true });
       await loadRealms();
     } catch (error) {
       console.error('Failed to create realm:', error);
+      alert('Failed to create realm. Please try again.');
     }
   };
 
@@ -92,11 +95,31 @@ export default function Realms() {
               />
             </div>
             <div>
+              <label className="block text-sm font-medium mb-2">Tagline</label>
+              <input
+                type="text"
+                value={newRealm.tagline}
+                onChange={(e) => setNewRealm({ ...newRealm, tagline: e.target.value })}
+                className="input"
+                placeholder="A short catchy description"
+              />
+            </div>
+            <div>
               <label className="block text-sm font-medium mb-2">Description</label>
               <textarea
                 value={newRealm.description}
                 onChange={(e) => setNewRealm({ ...newRealm, description: e.target.value })}
                 className="textarea"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Banner URL</label>
+              <input
+                type="url"
+                value={newRealm.banner_url}
+                onChange={(e) => setNewRealm({ ...newRealm, banner_url: e.target.value })}
+                className="input"
+                placeholder="https://..."
               />
             </div>
             <div>
@@ -126,26 +149,47 @@ export default function Realms() {
 
       <div className="grid gap-4">
         {realms.map((realm) => (
-          <div key={realm.id} className="card">
-            <div className="flex justify-between items-start">
-              <div className="flex-1">
-                <h3 className="text-xl font-semibold">{realm.name}</h3>
-                <p className="text-sm text-gray-500 mb-2">/{realm.slug}</p>
-                {realm.description && (
-                  <p className="text-gray-300 mb-2">{realm.description}</p>
-                )}
-                {realm.genre && (
-                  <span className="inline-block px-2 py-1 bg-owl-900 text-owl-300 text-xs rounded">
-                    {realm.genre}
-                  </span>
-                )}
+          <div key={realm.id} className="card overflow-hidden p-0">
+            {realm.banner_url && (
+              <div className="h-32 bg-gradient-to-r from-owl-900 to-owl-700">
+                <img
+                  src={realm.banner_url}
+                  alt={realm.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
               </div>
-              <button
-                onClick={() => handleJoinRealm(realm.id)}
-                className="btn btn-primary"
-              >
-                Join
-              </button>
+            )}
+            <div className="p-6">
+              <div className="flex justify-between items-start">
+                <Link to={`/realms/${realm.id}`} className="flex-1 group">
+                  <h3 className="text-xl font-semibold group-hover:text-owl-300 transition-colors">
+                    {realm.name}
+                  </h3>
+                  {realm.tagline && (
+                    <p className="text-sm text-owl-400 italic mb-1">{realm.tagline}</p>
+                  )}
+                  <p className="text-xs text-gray-500 mb-2">
+                    /{realm.slug} • {realm.is_public ? 'Public' : 'Private'}
+                  </p>
+                  {realm.description && (
+                    <p className="text-gray-300 mb-2">{realm.description}</p>
+                  )}
+                  {realm.genre && (
+                    <span className="inline-block px-2 py-1 bg-owl-900 text-owl-300 text-xs rounded">
+                      {realm.genre}
+                    </span>
+                  )}
+                </Link>
+                <button
+                  onClick={() => handleJoinRealm(realm.id)}
+                  className="btn btn-primary ml-4"
+                >
+                  Join
+                </button>
+              </div>
             </div>
           </div>
         ))}

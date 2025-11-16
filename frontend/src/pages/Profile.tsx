@@ -31,9 +31,29 @@ export default function Profile() {
       <h1 className="text-3xl font-bold mb-8">Profile</h1>
 
       <div className="card">
-        <div className="mb-6">
-          <p className="text-sm text-gray-500">Username</p>
-          <p className="text-lg">@{user.username}</p>
+        {/* Avatar display section */}
+        <div className="flex items-center gap-6 mb-8 pb-6 border-b border-gray-700">
+          <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-700 flex-shrink-0">
+            {(editing ? formData.avatar_url : user.avatar_url) ? (
+              <img
+                src={editing ? formData.avatar_url : user.avatar_url || ''}
+                alt="Avatar"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.src = '';
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-3xl text-gray-500">
+                {user.username.charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold">{user.display_name || user.username}</h2>
+            <p className="text-gray-400">@{user.username}</p>
+          </div>
         </div>
 
         <div className="mb-6">
@@ -56,16 +76,6 @@ export default function Profile() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">Bio</label>
-              <textarea
-                value={formData.bio}
-                onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
-                className="textarea"
-                placeholder="Tell us about yourself..."
-              />
-            </div>
-
-            <div>
               <label className="block text-sm font-medium mb-2">Avatar URL</label>
               <input
                 type="url"
@@ -75,6 +85,19 @@ export default function Profile() {
                 }
                 className="input"
                 placeholder="https://..."
+              />
+              {formData.avatar_url && (
+                <p className="text-xs text-gray-500 mt-1">Preview updated above</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Bio</label>
+              <textarea
+                value={formData.bio}
+                onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                className="textarea"
+                placeholder="Tell us about yourself..."
               />
             </div>
 
@@ -100,13 +123,8 @@ export default function Profile() {
         ) : (
           <>
             <div className="mb-6">
-              <p className="text-sm text-gray-500">Display Name</p>
-              <p className="text-lg">{user.display_name || 'Not set'}</p>
-            </div>
-
-            <div className="mb-6">
               <p className="text-sm text-gray-500">Bio</p>
-              <p className="text-gray-300">{user.bio || 'No bio yet'}</p>
+              <p className="text-gray-300 whitespace-pre-wrap">{user.bio || 'No bio yet'}</p>
             </div>
 
             <button onClick={() => setEditing(true)} className="btn btn-primary">
