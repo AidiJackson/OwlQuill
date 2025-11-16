@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
-    # CORS
-    BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # CORS - allow all origins in dev mode for Replit compatibility
+    BACKEND_CORS_ORIGINS: list[str] = ["*"]  # Restrict in production via .env
 
     # Redis (stubbed for now)
     REDIS_URL: str = "redis://localhost:6379/0"

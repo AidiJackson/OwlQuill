@@ -14,7 +14,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Note: lib/ and lib64/ are typically Python venv dirs, but we need frontend/src/lib/
+# So we'll ignore them only in specific contexts
+backend/lib/
+backend/lib64/
 lib64/
 parts/
 sdist/
