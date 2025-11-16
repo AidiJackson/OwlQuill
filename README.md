@@ -6,12 +6,22 @@ OwlQuill is a full-stack web application designed for role-players, fanfic write
 
 ## Features
 
+### Phase 2 - Playable Social MVP (Current)
+- **User Profiles with Avatars**: Display and edit user avatars
+- **Enhanced Characters**: Create RP sheets with role, era, and character portraits
+- **Rich Realms**: Worlds with taglines, banners, and visual identity
+- **Post Type System**: In-Character (IC), Out-of-Character (OOC), and Narration posting
+- **Personalized Feed**: Home feed showing posts from your joined realms
+- **Realm Detail Pages**: View realm info, browse posts, and create content in-world
+- **Enhanced AI**: Character bio generation uses role and era for contextual descriptions
+
+### Core Features
 - **User Authentication**: Secure JWT-based registration and login
 - **Character Creation**: Build detailed OC/RP characters with AI-assisted bio generation
 - **Realms**: Create and join roleplay worlds/groups organized by genre and theme
-- **In-Character Posting**: Share story snippets, scenes, and threads
+- **In-Character Posting**: Share story snippets, scenes, and threads with post type badges
 - **Community Interaction**: Comment, react, and build ongoing narratives with others
-- **AI Assistance**: Generate character bios, scenes, and story continuations (MVP uses stub)
+- **AI Assistance**: Generate character bios using name, species, role, era, and tags (stub implementation)
 
 ## Tech Stack
 
@@ -190,15 +200,34 @@ Once the backend is running, visit `http://localhost:8000/docs` for interactive 
 
 ### Key Endpoints
 
+**Authentication**
 - `POST /auth/register` - Create new user
 - `POST /auth/login` - Login and get JWT token
 - `GET /auth/me` - Get current user
+
+**Users**
+- `PATCH /users/me` - Update user profile (display name, bio, avatar)
+
+**Characters**
 - `GET /characters/` - List user's characters
-- `POST /characters/` - Create character
+- `POST /characters/` - Create character with role, era, and portrait
+- `PATCH /characters/{id}` - Update character
+- `DELETE /characters/{id}` - Delete character
+
+**Realms**
 - `GET /realms/` - List realms
+- `GET /realms/{id}` - Get realm details
+- `POST /realms/` - Create realm with tagline and banner
 - `POST /realms/{id}/join` - Join realm
-- `POST /posts/realms/{id}/posts` - Create post in realm
-- `POST /ai/character-bio` - Generate character bio (AI stub)
+
+**Posts**
+- `GET /posts/feed` - Get personalized feed from joined realms (NEW in Phase 2)
+- `GET /posts/realms/{id}/posts` - Get posts in a specific realm
+- `POST /posts/realms/{id}/posts` - Create post in realm with IC/OOC/Narration type
+- `DELETE /posts/{id}` - Delete post
+
+**AI**
+- `POST /ai/character-bio` - Generate character bio using role, era, and tags (stub)
 
 ## Deployment
 

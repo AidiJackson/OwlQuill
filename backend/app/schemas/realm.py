@@ -8,8 +8,10 @@ class RealmBase(BaseModel):
     """Base realm schema."""
     name: str = Field(..., min_length=1, max_length=100)
     slug: str = Field(..., min_length=1, max_length=100)
+    tagline: Optional[str] = None
     description: Optional[str] = None
     genre: Optional[str] = None
+    banner_url: Optional[str] = None
     is_public: bool = True
 
 
@@ -21,8 +23,10 @@ class RealmCreate(RealmBase):
 class RealmUpdate(BaseModel):
     """Realm update schema."""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
+    tagline: Optional[str] = None
     description: Optional[str] = None
     genre: Optional[str] = None
+    banner_url: Optional[str] = None
     is_public: Optional[bool] = None
 
 

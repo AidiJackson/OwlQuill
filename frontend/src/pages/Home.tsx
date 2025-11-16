@@ -1,26 +1,27 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/apiClient';
-import type { Post, Realm } from '@/lib/types';
+import type { Post, Realm, Character } from '@/lib/types';
 
 export default function Home() {
   const [realms, setRealms] = useState<Realm[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const realmsData = await apiClient.getRealms();
-        setRealms(realmsData);
+        // Load feed posts from realms the user is a member of
+        const feedPosts = await apiClient.getFeed();
+        setPosts(feedPosts);
 
-        if (realmsData.length > 0) {
-          const allPosts = await Promise.all(
-            realmsData.slice(0, 3).map((realm) => apiClient.getRealmPosts(realm.id))
-          );
-          setPosts(allPosts.flat().sort((a, b) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          ));
-        }
+        // Load realms and characters for display mapping
+        const [realmsData, charactersData] = await Promise.all([
+          apiClient.getRealms(),
+          apiClient.getCharacters()
+        ]);
+        setRealms(realmsData);
+        setCharacters(charactersData);
       } catch (error) {
         console.error('Failed to load data:', error);
       } finally {
@@ -30,6 +31,32 @@ export default function Home() {
 
     loadData();
   }, []);
+
+  const getRealmName = (realmId?: number): string => {
+    if (!realmId) return 'Unknown Realm';
+    const realm = realms.find(r => r.id === realmId);
+    return realm?.name || 'Unknown Realm';
+  };
+
+  const getCharacterName = (characterId?: number): string | null => {
+    if (!characterId) return null;
+    const character = characters.find(c => c.id === characterId);
+    return character?.name || null;
+  };
+
+  const getPostTypeBadge = (contentType: string) => {
+    const badges = {
+      ic: { label: 'IC', className: 'bg-purple-600 text-white' },
+      ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
+      narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' }
+    };
+    const badge = badges[contentType as keyof typeof badges] || badges.ic;
+    return (
+      <span className={`px-2 py-1 text-xs font-semibold rounded ${badge.className}`}>
+        {badge.label}
+      </span>
+    );
+  };
 
   if (loading) {
     return (
@@ -52,17 +79,35 @@ export default function Home() {
         </div>
       ) : (
         <div className="space-y-4">
-          {posts.map((post) => (
-            <div key={post.id} className="card">
-              {post.title && (
-                <h3 className="text-xl font-semibold mb-2">{post.title}</h3>
-              )}
-              <p className="text-gray-300 whitespace-pre-wrap">{post.content}</p>
-              <div className="mt-4 text-sm text-gray-500">
-                {new Date(post.created_at).toLocaleDateString()}
+          {posts.map((post) => {
+            const characterName = getCharacterName(post.character_id);
+            const realmName = getRealmName(post.realm_id);
+
+            return (
+              <div key={post.id} className="card">
+                {/* Post header with metadata */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    {getPostTypeBadge(post.content_type)}
+                    <span className="text-sm text-gray-400">
+                      {characterName && <span className="font-medium text-owl-400">{characterName}</span>}
+                      {characterName && ' in '}
+                      <span className="text-owl-300">{realmName}</span>
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    {new Date(post.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+
+                {/* Post content */}
+                {post.title && (
+                  <h3 className="text-xl font-semibold mb-2">{post.title}</h3>
+                )}
+                <p className="text-gray-300 whitespace-pre-wrap">{post.content}</p>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

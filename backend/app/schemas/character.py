@@ -12,9 +12,12 @@ class CharacterBase(BaseModel):
     alias: Optional[str] = None
     age: Optional[str] = None
     species: Optional[str] = None
+    role: Optional[str] = None
+    era: Optional[str] = None
     short_bio: Optional[str] = None
     long_bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    portrait_url: Optional[str] = None
     tags: Optional[str] = None
     visibility: VisibilityEnum = VisibilityEnum.PUBLIC
 
@@ -30,9 +33,12 @@ class CharacterUpdate(BaseModel):
     alias: Optional[str] = None
     age: Optional[str] = None
     species: Optional[str] = None
+    role: Optional[str] = None
+    era: Optional[str] = None
     short_bio: Optional[str] = None
     long_bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    portrait_url: Optional[str] = None
     tags: Optional[str] = None
     visibility: Optional[VisibilityEnum] = None
 

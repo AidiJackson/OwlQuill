@@ -7,6 +7,8 @@ class CharacterBioRequest(BaseModel):
     """Request schema for AI character bio generation."""
     name: str = Field(..., min_length=1)
     species: Optional[str] = None
+    role: Optional[str] = None
+    era: Optional[str] = None
     tags: list[str] = Field(default_factory=list, max_length=5)
 
 

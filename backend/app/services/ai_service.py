@@ -11,24 +11,32 @@ class FakeAIClient:
     """Fake AI client for MVP. Replace with real AI integration later."""
 
     def generate_character_bio(self, request: CharacterBioRequest) -> CharacterBioResponse:
-        """Generate fake character bio."""
+        """Generate fake character bio with enhanced RP details."""
         name = request.name
         species = request.species or "mysterious being"
-        tags_str = ", ".join(request.tags) if request.tags else "unknown"
+        role = request.role or "wanderer"
+        era = request.era or "unknown era"
+        tags_str = ", ".join(request.tags) if request.tags else "enigmatic"
 
         short_bio = (
-            f"{name} is a {species} with a compelling presence. "
-            f"Known for being {tags_str}, they navigate their world with unique flair."
+            f"{name} is a {species} {role} from the {era}. "
+            f"Characterized by {tags_str} traits, they move through their world "
+            f"with purpose and complexity."
         )
 
         long_bio = (
-            f"{name} is a {species} whose story is still being written. "
-            f"Their journey has been marked by {tags_str} moments that have shaped who they are today. "
-            f"With a past shrouded in mystery and a future full of possibilities, {name} stands at "
-            f"the crossroads of destiny. Their relationships are complex, their motivations deep, "
-            f"and their impact on those around them undeniable. Every choice they make ripples "
-            f"through their world, creating new paths and closing others. The tale of {name} is "
-            f"one of transformation, challenge, and the eternal search for meaning in a vast universe."
+            f"{name}, a {species} {role} navigating the {era}, carries a story "
+            f"woven with {tags_str} threads. Their past is marked by defining moments "
+            f"that shaped their path as a {role}. In the context of the {era}, they face "
+            f"challenges unique to their time and circumstance.\n\n"
+            f"As a {species}, {name} possesses qualities that set them apart, while their "
+            f"role as a {role} defines how they interact with the world around them. "
+            f"Their relationships are layered, their motivations run deep, and every choice "
+            f"they make sends ripples through their reality.\n\n"
+            f"The tale of {name} is one of growth, conflict, and the search for purpose "
+            f"in a world filled with both wonder and danger. Whether facing allies or "
+            f"adversaries, {name} remains true to their nature as a {tags_str} {role}, "
+            f"leaving an indelible mark on all they encounter."
         )
 
         return CharacterBioResponse(short_bio=short_bio, long_bio=long_bio)

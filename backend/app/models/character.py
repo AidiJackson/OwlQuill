@@ -25,9 +25,12 @@ class Character(Base):
     alias = Column(String, nullable=True)
     age = Column(String, nullable=True)
     species = Column(String, nullable=True)
+    role = Column(String, nullable=True)  # e.g., "assassin", "healer", "detective"
+    era = Column(String, nullable=True)  # e.g., "modern", "medieval", "sci-fi future"
     short_bio = Column(Text, nullable=True)
     long_bio = Column(Text, nullable=True)
     avatar_url = Column(String, nullable=True)
+    portrait_url = Column(String, nullable=True)  # Character portrait for RP sheets
     tags = Column(String, nullable=True)  # Stored as comma-separated for MVP
     visibility = Column(SQLEnum(VisibilityEnum), default=VisibilityEnum.PUBLIC, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

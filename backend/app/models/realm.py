@@ -15,8 +15,10 @@ class Realm(Base):
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     slug = Column(String, unique=True, index=True, nullable=False)
+    tagline = Column(String, nullable=True)  # Short catchy description
     description = Column(Text, nullable=True)
     genre = Column(String, nullable=True)
+    banner_url = Column(String, nullable=True)  # Header/banner image URL
     is_public = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
