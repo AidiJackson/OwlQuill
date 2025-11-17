@@ -7,6 +7,7 @@ export interface User {
   display_name?: string;
   bio?: string;
   avatar_url?: string;
+  avatar_media_url?: string;
   created_at: string;
   updated_at: string;
 }
@@ -23,6 +24,7 @@ export interface Character {
   short_bio?: string;
   long_bio?: string;
   avatar_url?: string;
+  avatar_media_url?: string;
   portrait_url?: string;
   tags?: string;
   visibility: 'public' | 'friends' | 'private';
@@ -52,6 +54,7 @@ export interface Post {
   title?: string;
   content: string;
   content_type: 'ic' | 'ooc' | 'narration';
+  image_media_url?: string;
   created_at: string;
   updated_at: string;
 }
