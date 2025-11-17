@@ -45,6 +45,12 @@ export default function Layout() {
             Characters
           </Link>
           <Link
+            to="/scenes"
+            className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            Scenes
+          </Link>
+          <Link
             to="/profile"
             className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
           >

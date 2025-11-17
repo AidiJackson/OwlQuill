@@ -1,4 +1,4 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, Block, Report } from './types';
+import type { User, Character, Realm, Post, Comment, Reaction, Token, Scene, ScenePost } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -196,59 +196,39 @@ class ApiClient {
   }
 
   // Scenes
-  async getScenes(createdByMe = false): Promise<Scene[]> {
-    const params = createdByMe ? '?created_by_me=true' : '';
-    return this.request<Scene[]>(`/scenes/${params}`);
+  async getScenes(realmId?: number): Promise<Scene[]> {
+    const params = new URLSearchParams();
+    if (realmId !== undefined) {
+      params.append('realm_id', realmId.toString());
+    }
+    const query = params.toString();
+    return this.request<Scene[]>(`/scenes/${query ? `?${query}` : ''}`);
   }
 
-  async getScene(sceneId: number): Promise<Scene> {
-    return this.request<Scene>(`/scenes/${sceneId}`);
+  async getScene(id: number): Promise<{ scene: Scene; posts: ScenePost[] }> {
+    return this.request<{ scene: Scene; posts: ScenePost[] }>(`/scenes/${id}`);
   }
 
-  async createScene(data: { title: string; description?: string; visibility?: 'public' | 'unlisted' | 'private' }): Promise<Scene> {
+  async createScene(data: {
+    title: string;
+    summary?: string;
+    realm_id?: number;
+    tags?: string;
+    visibility?: 'public' | 'friends' | 'private';
+    is_nsfw?: boolean;
+    has_violence?: boolean;
+  }): Promise<Scene> {
     return this.request<Scene>('/scenes/', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async getScenePosts(sceneId: number): Promise<ScenePost[]> {
-    return this.request<ScenePost[]>(`/scenes/${sceneId}/posts`);
-  }
-
-  async createScenePost(sceneId: number, data: { content: string; character_id?: number; reply_to_id?: number }): Promise<ScenePost> {
+  async createScenePost(sceneId: number, data: {
+    character_id: number;
+    content: string;
+  }): Promise<ScenePost> {
     return this.request<ScenePost>(`/scenes/${sceneId}/posts`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  // Blocks
-  async getBlocks(): Promise<Block[]> {
-    return this.request<Block[]>('/blocks/');
-  }
-
-  async createBlock(userId: number): Promise<Block> {
-    return this.request<Block>('/blocks/', {
-      method: 'POST',
-      body: JSON.stringify({ blocked_id: userId }),
-    });
-  }
-
-  async deleteBlock(userId: number): Promise<void> {
-    return this.request<void>(`/blocks/${userId}`, {
-      method: 'DELETE',
-    });
-  }
-
-  // Reports
-  async createReport(data: {
-    target_type: 'post' | 'scene_post';
-    target_id: number;
-    reason: 'harassment' | 'nsfw' | 'spam' | 'other';
-    details?: string;
-  }): Promise<Report> {
-    return this.request<Report>('/reports/', {
       method: 'POST',
       body: JSON.stringify(data),
     });
