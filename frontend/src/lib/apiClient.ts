@@ -1,4 +1,4 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token } from './types';
+import type { User, Character, Realm, Post, Comment, Reaction, Token, Scene, ScenePost } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -192,6 +192,45 @@ class ApiClient {
     return this.request('/ai/scene', {
       method: 'POST',
       body: JSON.stringify({ characters, setting, mood, prompt }),
+    });
+  }
+
+  // Scenes
+  async getScenes(realmId?: number): Promise<Scene[]> {
+    const params = new URLSearchParams();
+    if (realmId !== undefined) {
+      params.append('realm_id', realmId.toString());
+    }
+    const query = params.toString();
+    return this.request<Scene[]>(`/scenes/${query ? `?${query}` : ''}`);
+  }
+
+  async getScene(id: number): Promise<{ scene: Scene; posts: ScenePost[] }> {
+    return this.request<{ scene: Scene; posts: ScenePost[] }>(`/scenes/${id}`);
+  }
+
+  async createScene(data: {
+    title: string;
+    summary?: string;
+    realm_id?: number;
+    tags?: string;
+    visibility?: 'public' | 'friends' | 'private';
+    is_nsfw?: boolean;
+    has_violence?: boolean;
+  }): Promise<Scene> {
+    return this.request<Scene>('/scenes/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async createScenePost(sceneId: number, data: {
+    character_id: number;
+    content: string;
+  }): Promise<ScenePost> {
+    return this.request<ScenePost>(`/scenes/${sceneId}/posts`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 }

@@ -74,6 +74,32 @@ export interface Reaction {
   created_at: string;
 }
 
+export interface Scene {
+  id: number;
+  owner_id: number;
+  title: string;
+  summary?: string;
+  realm_id?: number;
+  realm?: Realm;
+  tags?: string;
+  visibility: 'public' | 'friends' | 'private';
+  is_nsfw?: boolean;
+  has_violence?: boolean;
+  created_at: string;
+  updated_at: string;
+  last_activity_at?: string;
+}
+
+export interface ScenePost {
+  id: number;
+  scene_id: number;
+  character_id: number;
+  character?: Character;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Token {
   access_token: string;
   token_type: string;
