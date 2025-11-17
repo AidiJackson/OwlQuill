@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     AI_PROVIDER: Literal["fake", "openai", "anthropic"] = "fake"
     AI_API_KEY: str = ""
 
+    # Media uploads
+    MEDIA_ROOT: str = "./media"
+    MEDIA_BASE_URL: str = "/media"
+    MAX_IMAGE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MB
+    ALLOWED_IMAGE_CONTENT_TYPES: list[str] = [
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/webp"
+    ]
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
