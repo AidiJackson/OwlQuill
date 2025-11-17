@@ -98,3 +98,22 @@ export interface ScenePost {
   reply_to_id?: number;
   created_at: string;
 }
+
+export interface Block {
+  id: number;
+  blocker_id: number;
+  blocked_id: number;
+  created_at: string;
+}
+
+export interface Report {
+  id: number;
+  reporter_id: number;
+  target_type: 'post' | 'scene_post';
+  target_id: number;
+  reason: 'harassment' | 'nsfw' | 'spam' | 'other';
+  details?: string;
+  status: 'open' | 'reviewed' | 'dismissed';
+  created_at: string;
+  updated_at: string;
+}

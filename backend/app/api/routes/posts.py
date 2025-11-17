@@ -8,6 +8,7 @@ from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.post import Post as PostModel
 from app.models.realm import RealmMembership as RealmMembershipModel
+from app.models.block import UserBlock
 from app.schemas.post import Post, PostCreate
 
 router = APIRouter()
@@ -32,10 +33,21 @@ def get_feed(
         # User is not a member of any realms, return empty list
         return []
 
-    # Get posts from those realms
-    posts = db.query(PostModel).filter(
+    # Get blocked user IDs
+    blocked_users = db.query(UserBlock.blocked_id).filter(
+        UserBlock.blocker_id == current_user.id
+    ).all()
+    blocked_user_ids = [b[0] for b in blocked_users]
+
+    # Get posts from those realms, excluding blocked users
+    query = db.query(PostModel).filter(
         PostModel.realm_id.in_(realm_ids)
-    ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
+    )
+
+    if blocked_user_ids:
+        query = query.filter(PostModel.author_user_id.notin_(blocked_user_ids))
+
+    posts = query.order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
 
     return posts
 
@@ -76,12 +88,25 @@ def list_realm_posts(
     realm_id: int,
     skip: int = 0,
     limit: int = 50,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ) -> List[Post]:
     """List posts in a realm."""
-    posts = db.query(PostModel).filter(
+    # Get blocked user IDs
+    blocked_users = db.query(UserBlock.blocked_id).filter(
+        UserBlock.blocker_id == current_user.id
+    ).all()
+    blocked_user_ids = [b[0] for b in blocked_users]
+
+    # Query posts, excluding blocked users
+    query = db.query(PostModel).filter(
         PostModel.realm_id == realm_id
-    ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
+    )
+
+    if blocked_user_ids:
+        query = query.filter(PostModel.author_user_id.notin_(blocked_user_ids))
+
+    posts = query.order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
     return posts
 
 

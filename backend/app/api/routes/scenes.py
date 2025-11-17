@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.scene import Scene as SceneModel, ScenePost as ScenePostModel, SceneVisibilityEnum
+from app.models.block import UserBlock
 from app.schemas.scene import Scene, SceneCreate, SceneUpdate, ScenePost, ScenePostCreate
 
 router = APIRouter()
@@ -41,6 +42,12 @@ def list_scenes(
     - If created_by_me=True, return only scenes created by current user
     - Otherwise, return all public scenes
     """
+    # Get blocked user IDs
+    blocked_users = db.query(UserBlock.blocked_id).filter(
+        UserBlock.blocker_id == current_user.id
+    ).all()
+    blocked_user_ids = [b[0] for b in blocked_users]
+
     query = db.query(SceneModel)
 
     if created_by_me:
@@ -48,6 +55,9 @@ def list_scenes(
     else:
         # Only show public scenes in general listing
         query = query.filter(SceneModel.visibility == SceneVisibilityEnum.PUBLIC)
+        # Exclude scenes created by blocked users
+        if blocked_user_ids:
+            query = query.filter(SceneModel.created_by_user_id.notin_(blocked_user_ids))
 
     scenes = query.order_by(SceneModel.created_at.desc()).all()
     return scenes
@@ -103,9 +113,21 @@ def list_scene_posts(
                 detail="You don't have access to this private scene"
             )
 
-    posts = db.query(ScenePostModel).filter(
+    # Get blocked user IDs
+    blocked_users = db.query(UserBlock.blocked_id).filter(
+        UserBlock.blocker_id == current_user.id
+    ).all()
+    blocked_user_ids = [b[0] for b in blocked_users]
+
+    # Query posts, excluding blocked users
+    query = db.query(ScenePostModel).filter(
         ScenePostModel.scene_id == scene_id
-    ).order_by(ScenePostModel.created_at.asc()).all()
+    )
+
+    if blocked_user_ids:
+        query = query.filter(ScenePostModel.author_user_id.notin_(blocked_user_ids))
+
+    posts = query.order_by(ScenePostModel.created_at.asc()).all()
 
     return posts
 

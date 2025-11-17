@@ -30,3 +30,6 @@ class User(Base):
     reactions = relationship("Reaction", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     created_scenes = relationship("Scene", back_populates="creator", cascade="all, delete-orphan")
+    blocking = relationship("UserBlock", foreign_keys="UserBlock.blocker_id", back_populates="blocker", cascade="all, delete-orphan")
+    blocked_by = relationship("UserBlock", foreign_keys="UserBlock.blocked_id", back_populates="blocked_user", cascade="all, delete-orphan")
+    reports_filed = relationship("ContentReport", back_populates="reporter", cascade="all, delete-orphan")

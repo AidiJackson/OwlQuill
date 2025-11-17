@@ -7,6 +7,8 @@ from app.models.comment import Comment
 from app.models.reaction import Reaction
 from app.models.notification import Notification
 from app.models.scene import Scene, ScenePost, SceneVisibilityEnum
+from app.models.block import UserBlock
+from app.models.report import ContentReport, ReportReasonEnum, ReportStatusEnum
 
 __all__ = [
     "User",
@@ -22,4 +24,8 @@ __all__ = [
     "Scene",
     "ScenePost",
     "SceneVisibilityEnum",
+    "UserBlock",
+    "ContentReport",
+    "ReportReasonEnum",
+    "ReportStatusEnum",
 ]

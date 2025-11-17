@@ -1,4 +1,4 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token, Scene, ScenePost } from './types';
+import type { User, Character, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, Block, Report } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -218,6 +218,37 @@ class ApiClient {
 
   async createScenePost(sceneId: number, data: { content: string; character_id?: number; reply_to_id?: number }): Promise<ScenePost> {
     return this.request<ScenePost>(`/scenes/${sceneId}/posts`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Blocks
+  async getBlocks(): Promise<Block[]> {
+    return this.request<Block[]>('/blocks/');
+  }
+
+  async createBlock(userId: number): Promise<Block> {
+    return this.request<Block>('/blocks/', {
+      method: 'POST',
+      body: JSON.stringify({ blocked_id: userId }),
+    });
+  }
+
+  async deleteBlock(userId: number): Promise<void> {
+    return this.request<void>(`/blocks/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Reports
+  async createReport(data: {
+    target_type: 'post' | 'scene_post';
+    target_id: number;
+    reason: 'harassment' | 'nsfw' | 'spam' | 'other';
+    details?: string;
+  }): Promise<Report> {
+    return this.request<Report>('/reports/', {
       method: 'POST',
       body: JSON.stringify(data),
     });
