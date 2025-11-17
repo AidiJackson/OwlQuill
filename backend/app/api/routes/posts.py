@@ -2,12 +2,14 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.post import Post as PostModel
 from app.models.realm import RealmMembership as RealmMembershipModel
+from app.models.connection import Connection as ConnectionModel
 from app.schemas.post import Post, PostCreate
 
 router = APIRouter()
@@ -20,21 +22,40 @@ def get_feed(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> List[Post]:
-    """Get feed of posts from realms the user is a member of."""
+    """Get feed of posts from realms the user is a member of and users they're connected to."""
     # Get all realm IDs where user is a member
     memberships = db.query(RealmMembershipModel).filter(
         RealmMembershipModel.user_id == current_user.id
     ).all()
-
     realm_ids = [m.realm_id for m in memberships]
 
-    if not realm_ids:
-        # User is not a member of any realms, return empty list
+    # Get all user IDs the current user is connected to (following)
+    connections = db.query(ConnectionModel).filter(
+        ConnectionModel.follower_id == current_user.id
+    ).all()
+    connected_user_ids = [c.followee_id for c in connections]
+
+    # Build query conditions
+    conditions = []
+
+    # Include posts from realms user is a member of
+    if realm_ids:
+        conditions.append(PostModel.realm_id.in_(realm_ids))
+
+    # Include posts from connected users
+    if connected_user_ids:
+        conditions.append(PostModel.author_user_id.in_(connected_user_ids))
+
+    # Include user's own posts
+    conditions.append(PostModel.author_user_id == current_user.id)
+
+    if not conditions:
+        # No content to show
         return []
 
-    # Get posts from those realms
+    # Get posts matching any of the conditions
     posts = db.query(PostModel).filter(
-        PostModel.realm_id.in_(realm_ids)
+        or_(*conditions)
     ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
 
     return posts

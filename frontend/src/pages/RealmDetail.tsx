@@ -3,12 +3,18 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { Realm, Post, Character } from '@/lib/types';
 
+interface PostReaction {
+  count: number;
+  user_reacted: boolean;
+}
+
 export default function RealmDetail() {
   const { realmId } = useParams<{ realmId: string }>();
   const navigate = useNavigate();
   const [realm, setRealm] = useState<Realm | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [reactions, setReactions] = useState<Record<number, PostReaction>>({});
   const [loading, setLoading] = useState(true);
   const [showPostForm, setShowPostForm] = useState(false);
   const [newPost, setNewPost] = useState({
@@ -31,6 +37,20 @@ export default function RealmDetail() {
         setRealm(realmData);
         setPosts(postsData);
         setCharacters(charactersData);
+
+        // Load reactions for all posts
+        const reactionsData: Record<number, PostReaction> = {};
+        await Promise.all(
+          postsData.map(async (post) => {
+            try {
+              const reactionData = await apiClient.getPostReactions(post.id);
+              reactionsData[post.id] = reactionData;
+            } catch (error) {
+              reactionsData[post.id] = { count: 0, user_reacted: false };
+            }
+          })
+        );
+        setReactions(reactionsData);
       } catch (error) {
         console.error('Failed to load realm:', error);
       } finally {
@@ -60,6 +80,7 @@ export default function RealmDetail() {
     try {
       const createdPost = await apiClient.createPost(Number(realmId), newPost);
       setPosts([createdPost, ...posts]);
+      setReactions(prev => ({ ...prev, [createdPost.id]: { count: 0, user_reacted: false } }));
       setNewPost({
         title: '',
         content: '',
@@ -70,6 +91,18 @@ export default function RealmDetail() {
     } catch (error) {
       console.error('Failed to create post:', error);
       alert('Failed to create post. Make sure you are a member of this realm.');
+    }
+  };
+
+  const handleToggleReaction = async (postId: number) => {
+    try {
+      const result = await apiClient.toggleReaction(postId);
+      setReactions(prev => ({
+        ...prev,
+        [postId]: { count: result.count, user_reacted: result.user_reacted }
+      }));
+    } catch (error) {
+      console.error('Failed to toggle reaction:', error);
     }
   };
 
@@ -284,7 +317,22 @@ export default function RealmDetail() {
 
                   {/* Post content */}
                   {post.title && <h3 className="text-xl font-semibold mb-2">{post.title}</h3>}
-                  <p className="text-gray-300 whitespace-pre-wrap">{post.content}</p>
+                  <p className="text-gray-300 whitespace-pre-wrap mb-4">{post.content}</p>
+
+                  {/* Post actions */}
+                  <div className="flex items-center gap-4 pt-3 border-t border-gray-700">
+                    <button
+                      onClick={() => handleToggleReaction(post.id)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded transition ${
+                        reactions[post.id]?.user_reacted
+                          ? 'bg-pink-600 text-white'
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                    >
+                      <span className="text-lg">{reactions[post.id]?.user_reacted ? '♥' : '♡'}</span>
+                      <span className="text-sm font-medium">{reactions[post.id]?.count || 0}</span>
+                    </button>
+                  </div>
                 </div>
               );
             })}

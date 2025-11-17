@@ -174,6 +174,43 @@ class ApiClient {
     });
   }
 
+  async toggleReaction(postId: number): Promise<{ action: string; count: number; user_reacted: boolean }> {
+    return this.request(`/reactions/posts/${postId}/react`, {
+      method: 'POST',
+    });
+  }
+
+  async getPostReactions(postId: number): Promise<{ count: number; user_reacted: boolean }> {
+    return this.request(`/reactions/posts/${postId}/reactions`, {
+      method: 'GET',
+    });
+  }
+
+  // Connections
+  async connectToUser(userId: number): Promise<{ message: string }> {
+    return this.request(`/users/${userId}/connect`, {
+      method: 'POST',
+    });
+  }
+
+  async disconnectFromUser(userId: number): Promise<void> {
+    return this.request(`/users/${userId}/connect`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getMyConnections(): Promise<{ id: number; username: string; display_name?: string; avatar_url?: string }[]> {
+    return this.request('/users/me/connections', {
+      method: 'GET',
+    });
+  }
+
+  async getConnectionStatus(userId: number): Promise<{ is_connected: boolean }> {
+    return this.request(`/users/${userId}/connection-status`, {
+      method: 'GET',
+    });
+  }
+
   // AI
   async generateCharacterBio(
     name: string,
