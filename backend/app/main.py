@@ -1,9 +1,11 @@
 """OwlQuill FastAPI application."""
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai
+from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, media
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -29,6 +31,12 @@ app.include_router(posts.router, prefix="/posts", tags=["posts"])
 app.include_router(comments.router, prefix="/comments", tags=["comments"])
 app.include_router(reactions.router, prefix="/reactions", tags=["reactions"])
 app.include_router(ai.router, prefix="/ai", tags=["ai"])
+app.include_router(media.router, prefix="/media", tags=["media"])
+
+# Mount static files for media uploads
+media_root = Path(settings.MEDIA_ROOT)
+media_root.mkdir(parents=True, exist_ok=True)
+app.mount(settings.MEDIA_BASE_URL, StaticFiles(directory=str(media_root)), name="media")
 
 
 @app.get("/health")
