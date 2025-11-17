@@ -29,3 +29,5 @@ class User(Base):
     comments = relationship("Comment", back_populates="author_user", cascade="all, delete-orphan")
     reactions = relationship("Reaction", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    dm_participations = relationship("ConversationParticipant", back_populates="user", cascade="all, delete-orphan")
+    messages_sent = relationship("Message", back_populates="sender", cascade="all, delete-orphan")
