@@ -29,7 +29,8 @@ class Character(Base):
     era = Column(String, nullable=True)  # e.g., "modern", "medieval", "sci-fi future"
     short_bio = Column(Text, nullable=True)
     long_bio = Column(Text, nullable=True)
-    avatar_url = Column(String, nullable=True)
+    avatar_url = Column(String, nullable=True)  # Legacy/external URL support
+    avatar_media_id = Column(Integer, ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True)
     portrait_url = Column(String, nullable=True)  # Character portrait for RP sheets
     tags = Column(String, nullable=True)  # Stored as comma-separated for MVP
     visibility = Column(SQLEnum(VisibilityEnum), default=VisibilityEnum.PUBLIC, nullable=False)
@@ -38,5 +39,6 @@ class Character(Base):
 
     # Relationships
     owner = relationship("User", back_populates="characters")
+    avatar_media = relationship("MediaAsset", foreign_keys=[avatar_media_id], post_update=True)
     posts = relationship("Post", back_populates="character")
     comments = relationship("Comment", back_populates="character")

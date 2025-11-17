@@ -26,6 +26,7 @@ class Post(Base):
     title = Column(String, nullable=True)
     content = Column(Text, nullable=False)
     content_type = Column(SQLEnum(ContentTypeEnum), default=ContentTypeEnum.IC, nullable=False)
+    image_media_id = Column(Integer, ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -33,5 +34,6 @@ class Post(Base):
     realm = relationship("Realm", back_populates="posts")
     author_user = relationship("User", back_populates="posts")
     character = relationship("Character", back_populates="posts")
+    image_media = relationship("MediaAsset", foreign_keys=[image_media_id], post_update=True)
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     reactions = relationship("Reaction", back_populates="post", cascade="all, delete-orphan")

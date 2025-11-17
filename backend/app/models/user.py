@@ -1,6 +1,6 @@
 """User model."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -17,11 +17,13 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     display_name = Column(String, nullable=True)
     bio = Column(String, nullable=True)
-    avatar_url = Column(String, nullable=True)
+    avatar_url = Column(String, nullable=True)  # Legacy/external URL support
+    avatar_media_id = Column(Integer, ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
+    avatar_media = relationship("MediaAsset", foreign_keys=[avatar_media_id], post_update=True)
     characters = relationship("Character", back_populates="owner", cascade="all, delete-orphan")
     owned_realms = relationship("Realm", back_populates="owner", cascade="all, delete-orphan")
     realm_memberships = relationship("RealmMembership", back_populates="user", cascade="all, delete-orphan")

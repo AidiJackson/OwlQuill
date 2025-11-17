@@ -6,6 +6,7 @@ from app.models.post import Post, ContentTypeEnum
 from app.models.comment import Comment
 from app.models.reaction import Reaction
 from app.models.notification import Notification
+from app.models.media import MediaAsset, MediaKind
 
 __all__ = [
     "User",
@@ -18,4 +19,6 @@ __all__ = [
     "Comment",
     "Reaction",
     "Notification",
+    "MediaAsset",
+    "MediaKind",
 ]
