@@ -29,3 +29,5 @@ class User(Base):
     comments = relationship("Comment", back_populates="author_user", cascade="all, delete-orphan")
     reactions = relationship("Reaction", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    following = relationship("UserConnection", foreign_keys="UserConnection.follower_id", back_populates="follower", cascade="all, delete-orphan")
+    followers = relationship("UserConnection", foreign_keys="UserConnection.following_id", back_populates="following", cascade="all, delete-orphan")

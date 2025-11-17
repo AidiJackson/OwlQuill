@@ -78,3 +78,23 @@ export interface Token {
   access_token: string;
   token_type: string;
 }
+
+export interface Notification {
+  id: number;
+  user_id: number;
+  type: 'reaction' | 'connection' | 'scene_post' | 'realm_join';
+  data: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface NotificationUnreadCount {
+  count: number;
+}
+
+export interface Connection {
+  id: number;
+  follower_id: number;
+  following_id: number;
+  created_at: string;
+}

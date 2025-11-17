@@ -1,5 +1,6 @@
 import { Link, Outlet, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
+import NotificationBell from './NotificationBell';
 
 export default function Layout() {
   const { user, logout } = useAuthStore();
@@ -12,14 +13,19 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex">
-      <aside className="w-64 bg-gray-900 border-r border-gray-800 p-4">
+      <aside className="w-64 bg-gray-900 border-r border-gray-800 p-4 flex flex-col">
         <div className="mb-8">
           <Link to="/" className="text-2xl font-bold text-owl-500">
             OwlQuill
           </Link>
         </div>
 
-        <nav className="space-y-2">
+        {/* Notification Bell */}
+        <div className="mb-4 px-2">
+          <NotificationBell />
+        </div>
+
+        <nav className="space-y-2 flex-1">
           <Link
             to="/"
             className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
@@ -37,6 +43,12 @@ export default function Layout() {
             className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
           >
             Characters
+          </Link>
+          <Link
+            to="/discover"
+            className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            Discover
           </Link>
           <Link
             to="/profile"

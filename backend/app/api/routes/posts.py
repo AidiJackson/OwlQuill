@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.post import Post as PostModel
 from app.models.realm import RealmMembership as RealmMembershipModel
 from app.schemas.post import Post, PostCreate
+from app.services.notification_service import create_scene_post_notifications
 
 router = APIRouter()
 
@@ -66,6 +67,16 @@ def create_post_in_realm(
         author_user_id=current_user.id
     )
     db.add(db_post)
+    db.flush()
+
+    # Create notifications for realm members
+    create_scene_post_notifications(
+        db=db,
+        realm_id=realm_id,
+        post_id=db_post.id,
+        author_id=current_user.id
+    )
+
     db.commit()
     db.refresh(db_post)
     return db_post

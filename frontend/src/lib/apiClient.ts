@@ -1,4 +1,7 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token } from './types';
+import type {
+  User, Character, Realm, Post, Comment, Reaction, Token,
+  Notification, NotificationUnreadCount, Connection
+} from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -193,6 +196,69 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ characters, setting, mood, prompt }),
     });
+  }
+
+  // Notifications
+  async getNotifications(onlyUnread = false, skip = 0, limit = 20): Promise<Notification[]> {
+    const params = new URLSearchParams();
+    if (onlyUnread) params.append('only_unread', 'true');
+    params.append('skip', skip.toString());
+    params.append('limit', limit.toString());
+    return this.request<Notification[]>(`/notifications/?${params}`);
+  }
+
+  async markNotificationsRead(ids: number[]): Promise<void> {
+    return this.request<void>('/notifications/mark-read', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  }
+
+  async getUnreadCount(): Promise<NotificationUnreadCount> {
+    return this.request<NotificationUnreadCount>('/notifications/unread-count');
+  }
+
+  // Connections
+  async followUser(userId: number): Promise<Connection> {
+    return this.request<Connection>('/connections/', {
+      method: 'POST',
+      body: JSON.stringify({ following_id: userId }),
+    });
+  }
+
+  async unfollowUser(userId: number): Promise<void> {
+    return this.request<void>(`/connections/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getFollowing(): Promise<Connection[]> {
+    return this.request<Connection[]>('/connections/following');
+  }
+
+  async getFollowers(): Promise<Connection[]> {
+    return this.request<Connection[]>('/connections/followers');
+  }
+
+  async getConnectionStatus(userId: number): Promise<{ is_following: boolean }> {
+    return this.request<{ is_following: boolean }>(`/connections/status/${userId}`);
+  }
+
+  // Discovery
+  async discoverUsers(search?: string, skip = 0, limit = 20): Promise<User[]> {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    params.append('skip', skip.toString());
+    params.append('limit', limit.toString());
+    return this.request<User[]>(`/discovery/users?${params}`);
+  }
+
+  async discoverRealms(search?: string, skip = 0, limit = 20): Promise<Realm[]> {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    params.append('skip', skip.toString());
+    params.append('limit', limit.toString());
+    return this.request<Realm[]>(`/discovery/realms?${params}`);
   }
 }
 

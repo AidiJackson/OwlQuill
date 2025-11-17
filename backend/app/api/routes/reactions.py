@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.reaction import Reaction as ReactionModel
 from app.models.post import Post as PostModel
 from app.schemas.reaction import Reaction, ReactionCreate
+from app.services.notification_service import create_reaction_notification
 
 router = APIRouter()
 
@@ -44,6 +45,16 @@ def create_reaction(
         user_id=current_user.id
     )
     db.add(db_reaction)
+    db.flush()
+
+    # Create notification for post author
+    create_reaction_notification(
+        db=db,
+        post_author_id=post.author_user_id,
+        reactor_id=current_user.id,
+        post_id=post_id
+    )
+
     db.commit()
     db.refresh(db_reaction)
     return db_reaction
