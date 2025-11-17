@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAuthStore } from '@/lib/store';
 import { apiClient } from '@/lib/apiClient';
 
@@ -6,11 +6,49 @@ export default function Profile() {
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
   const [editing, setEditing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     display_name: user?.display_name || '',
     bio: user?.bio || '',
     avatar_url: user?.avatar_url || '',
   });
+
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Please select an image file');
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError('File size must be less than 5MB');
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+
+    try {
+      await apiClient.uploadUserAvatar(file);
+      // Refresh user data
+      const updated = await apiClient.getMe();
+      setUser(updated);
+    } catch (error) {
+      console.error('Failed to upload avatar:', error);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
 
   const handleSave = async () => {
     try {
@@ -34,9 +72,9 @@ export default function Profile() {
         {/* Avatar display section */}
         <div className="flex items-center gap-6 mb-8 pb-6 border-b border-gray-700">
           <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-700 flex-shrink-0">
-            {(editing ? formData.avatar_url : user.avatar_url) ? (
+            {(user.avatar_media_url || user.avatar_url) ? (
               <img
-                src={editing ? formData.avatar_url : user.avatar_url || ''}
+                src={user.avatar_media_url || user.avatar_url || ''}
                 alt="Avatar"
                 className="w-full h-full object-cover"
                 onError={(e) => {
@@ -50,9 +88,28 @@ export default function Profile() {
               </div>
             )}
           </div>
-          <div>
+          <div className="flex-1">
             <h2 className="text-2xl font-bold">{user.display_name || user.username}</h2>
-            <p className="text-gray-400">@{user.username}</p>
+            <p className="text-gray-400 mb-2">@{user.username}</p>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarUpload}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="btn btn-sm btn-secondary"
+              >
+                {uploading ? 'Uploading...' : 'Upload Avatar'}
+              </button>
+              {uploadError && (
+                <p className="text-red-400 text-sm mt-1">{uploadError}</p>
+              )}
+            </div>
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
 
@@ -7,6 +7,8 @@ export default function Characters() {
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [generatingBio, setGeneratingBio] = useState(false);
+  const [uploadingCharacterId, setUploadingCharacterId] = useState<number | null>(null);
+  const fileInputRefs = useRef<{[key: number]: HTMLInputElement | null}>({});
   const [newCharacter, setNewCharacter] = useState({
     name: '',
     species: '',
@@ -60,6 +62,39 @@ export default function Characters() {
       alert('Failed to generate bio. Please try again.');
     } finally {
       setGeneratingBio(false);
+    }
+  };
+
+  const handleAvatarUpload = async (characterId: number, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size must be less than 5MB');
+      return;
+    }
+
+    setUploadingCharacterId(characterId);
+
+    try {
+      await apiClient.uploadCharacterAvatar(characterId, file);
+      // Refresh characters
+      await loadCharacters();
+    } catch (error) {
+      console.error('Failed to upload avatar:', error);
+      alert('Failed to upload avatar. Please try again.');
+    } finally {
+      setUploadingCharacterId(null);
+      if (fileInputRefs.current[characterId]) {
+        fileInputRefs.current[characterId]!.value = '';
+      }
     }
   };
 
@@ -219,25 +254,50 @@ export default function Characters() {
       <div className="grid gap-4">
         {characters.map((character) => (
           <div key={character.id} className="card flex gap-4">
-            {character.portrait_url && (
-              <div className="flex-shrink-0">
+            <div className="flex-shrink-0">
+              {(character.avatar_media_url || character.avatar_url || character.portrait_url) ? (
                 <img
-                  src={character.portrait_url}
+                  src={character.avatar_media_url || character.avatar_url || character.portrait_url || ''}
                   alt={character.name}
-                  className="w-24 h-24 rounded-lg object-cover"
+                  className="w-24 h-24 rounded-lg object-cover bg-gray-700"
                   onError={(e) => {
+                    e.currentTarget.src = '';
                     e.currentTarget.style.display = 'none';
                   }}
                 />
-              </div>
-            )}
-            <div className="flex-1">
-              <h3 className="text-xl font-semibold">{character.name}</h3>
-              {(character.species || character.role || character.era) && (
-                <p className="text-sm text-gray-400">
-                  {[character.species, character.role, character.era].filter(Boolean).join(' • ')}
-                </p>
+              ) : (
+                <div className="w-24 h-24 rounded-lg bg-gray-700 flex items-center justify-center text-2xl text-gray-500">
+                  {character.name.charAt(0).toUpperCase()}
+                </div>
               )}
+            </div>
+            <div className="flex-1">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-xl font-semibold">{character.name}</h3>
+                  {(character.species || character.role || character.era) && (
+                    <p className="text-sm text-gray-400">
+                      {[character.species, character.role, character.era].filter(Boolean).join(' • ')}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <input
+                    ref={(el) => (fileInputRefs.current[character.id] = el)}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleAvatarUpload(character.id, e)}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRefs.current[character.id]?.click()}
+                    disabled={uploadingCharacterId === character.id}
+                    className="btn btn-sm btn-secondary"
+                  >
+                    {uploadingCharacterId === character.id ? 'Uploading...' : '📷'}
+                  </button>
+                </div>
+              </div>
               {character.short_bio && (
                 <p className="text-gray-300 mt-2">{character.short_bio}</p>
               )}
