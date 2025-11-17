@@ -20,7 +20,8 @@ class Post(Base):
     __tablename__ = "posts"
 
     id = Column(Integer, primary_key=True, index=True)
-    realm_id = Column(Integer, ForeignKey("realms.id", ondelete="CASCADE"), nullable=True)
+    scene_id = Column(Integer, ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False)
+    realm_id = Column(Integer, ForeignKey("realms.id", ondelete="CASCADE"), nullable=False)  # Denormalized for query performance
     author_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     character_id = Column(Integer, ForeignKey("characters.id", ondelete="SET NULL"), nullable=True)
     title = Column(String, nullable=True)
@@ -30,6 +31,7 @@ class Post(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
+    scene = relationship("Scene", back_populates="posts")
     realm = relationship("Realm", back_populates="posts")
     author_user = relationship("User", back_populates="posts")
     character = relationship("Character", back_populates="posts")

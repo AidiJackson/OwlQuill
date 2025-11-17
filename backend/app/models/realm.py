@@ -26,6 +26,7 @@ class Realm(Base):
     # Relationships
     owner = relationship("User", back_populates="owned_realms")
     memberships = relationship("RealmMembership", back_populates="realm", cascade="all, delete-orphan")
+    scenes = relationship("Scene", back_populates="realm", cascade="all, delete-orphan")
     posts = relationship("Post", back_populates="realm", cascade="all, delete-orphan")
 
 

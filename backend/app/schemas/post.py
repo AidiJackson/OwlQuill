@@ -29,7 +29,8 @@ class PostUpdate(BaseModel):
 class Post(PostBase):
     """Post schema."""
     id: int
-    realm_id: Optional[int] = None
+    scene_id: int
+    realm_id: int
     author_user_id: int
     created_at: datetime
     updated_at: datetime

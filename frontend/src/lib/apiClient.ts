@@ -1,4 +1,4 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token } from './types';
+import type { User, Character, Realm, Scene, Post, Comment, Reaction, Token } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -117,6 +117,10 @@ class ApiClient {
     return this.request<Realm[]>(`/realms/?${params}`);
   }
 
+  async getMyRealms(): Promise<Realm[]> {
+    return this.request<Realm[]>('/realms/my-realms');
+  }
+
   async createRealm(data: Partial<Realm>): Promise<Realm> {
     return this.request<Realm>('/realms/', {
       method: 'POST',
@@ -134,17 +138,46 @@ class ApiClient {
     });
   }
 
+  // Scenes
+  async getRealmScenes(realmId: number, skip = 0, limit = 50): Promise<Scene[]> {
+    return this.request<Scene[]>(`/scenes/realms/${realmId}/scenes?skip=${skip}&limit=${limit}`);
+  }
+
+  async createScene(realmId: number, data: Partial<Scene>): Promise<Scene> {
+    return this.request<Scene>(`/scenes/realms/${realmId}/scenes`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getScene(id: number): Promise<Scene> {
+    return this.request<Scene>(`/scenes/${id}`);
+  }
+
+  async updateScene(id: number, data: Partial<Scene>): Promise<Scene> {
+    return this.request<Scene>(`/scenes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteScene(id: number): Promise<void> {
+    return this.request<void>(`/scenes/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Posts
   async getFeed(skip = 0, limit = 50): Promise<Post[]> {
     return this.request<Post[]>(`/posts/feed?skip=${skip}&limit=${limit}`);
   }
 
-  async getRealmPosts(realmId: number, skip = 0, limit = 50): Promise<Post[]> {
-    return this.request<Post[]>(`/posts/realms/${realmId}/posts?skip=${skip}&limit=${limit}`);
+  async getScenePosts(sceneId: number, skip = 0, limit = 50): Promise<Post[]> {
+    return this.request<Post[]>(`/posts/scenes/${sceneId}/posts?skip=${skip}&limit=${limit}`);
   }
 
-  async createPost(realmId: number, data: Partial<Post>): Promise<Post> {
-    return this.request<Post>(`/posts/realms/${realmId}/posts`, {
+  async createPost(sceneId: number, data: Partial<Post>): Promise<Post> {
+    return this.request<Post>(`/posts/scenes/${sceneId}/posts`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -152,6 +185,12 @@ class ApiClient {
 
   async getPost(id: number): Promise<Post> {
     return this.request<Post>(`/posts/${id}`);
+  }
+
+  async deletePost(id: number): Promise<void> {
+    return this.request<void>(`/posts/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   // Comments

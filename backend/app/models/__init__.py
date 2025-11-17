@@ -2,6 +2,7 @@
 from app.models.user import User
 from app.models.character import Character, VisibilityEnum
 from app.models.realm import Realm, RealmMembership
+from app.models.scene import Scene
 from app.models.post import Post, ContentTypeEnum
 from app.models.comment import Comment
 from app.models.reaction import Reaction
@@ -13,6 +14,7 @@ __all__ = [
     "VisibilityEnum",
     "Realm",
     "RealmMembership",
+    "Scene",
     "Post",
     "ContentTypeEnum",
     "Comment",

@@ -1,21 +1,18 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
-import type { Realm, Post, Character } from '@/lib/types';
+import type { Realm, Scene } from '@/lib/types';
 
 export default function RealmDetail() {
   const { realmId } = useParams<{ realmId: string }>();
   const navigate = useNavigate();
   const [realm, setRealm] = useState<Realm | null>(null);
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [characters, setCharacters] = useState<Character[]>([]);
+  const [scenes, setScenes] = useState<Scene[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showPostForm, setShowPostForm] = useState(false);
-  const [newPost, setNewPost] = useState({
+  const [showSceneForm, setShowSceneForm] = useState(false);
+  const [newScene, setNewScene] = useState({
     title: '',
-    content: '',
-    content_type: 'ic' as 'ic' | 'ooc' | 'narration',
-    character_id: undefined as number | undefined,
+    description: '',
   });
 
   useEffect(() => {
@@ -23,14 +20,12 @@ export default function RealmDetail() {
       if (!realmId) return;
 
       try {
-        const [realmData, postsData, charactersData] = await Promise.all([
+        const [realmData, scenesData] = await Promise.all([
           apiClient.getRealm(Number(realmId)),
-          apiClient.getRealmPosts(Number(realmId)),
-          apiClient.getCharacters(),
+          apiClient.getRealmScenes(Number(realmId)),
         ]);
         setRealm(realmData);
-        setPosts(postsData);
-        setCharacters(charactersData);
+        setScenes(scenesData);
       } catch (error) {
         console.error('Failed to load realm:', error);
       } finally {
@@ -46,7 +41,6 @@ export default function RealmDetail() {
 
     try {
       await apiClient.joinRealm(Number(realmId));
-      // Reload realm to update membership status (or show success message)
       alert('Successfully joined realm!');
     } catch (error) {
       console.error('Failed to join realm:', error);
@@ -54,43 +48,21 @@ export default function RealmDetail() {
     }
   };
 
-  const handleCreatePost = async () => {
-    if (!realmId || !newPost.content.trim()) return;
+  const handleCreateScene = async () => {
+    if (!realmId || !newScene.title.trim()) return;
 
     try {
-      const createdPost = await apiClient.createPost(Number(realmId), newPost);
-      setPosts([createdPost, ...posts]);
-      setNewPost({
+      const createdScene = await apiClient.createScene(Number(realmId), newScene);
+      setScenes([createdScene, ...scenes]);
+      setNewScene({
         title: '',
-        content: '',
-        content_type: 'ic',
-        character_id: undefined,
+        description: '',
       });
-      setShowPostForm(false);
+      setShowSceneForm(false);
     } catch (error) {
-      console.error('Failed to create post:', error);
-      alert('Failed to create post. Make sure you are a member of this realm.');
+      console.error('Failed to create scene:', error);
+      alert('Failed to create scene. Make sure you are a member of this realm.');
     }
-  };
-
-  const getCharacterName = (characterId?: number): string | null => {
-    if (!characterId) return null;
-    const character = characters.find((c) => c.id === characterId);
-    return character?.name || null;
-  };
-
-  const getPostTypeBadge = (contentType: string) => {
-    const badges = {
-      ic: { label: 'IC', className: 'bg-purple-600 text-white' },
-      ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
-      narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' },
-    };
-    const badge = badges[contentType as keyof typeof badges] || badges.ic;
-    return (
-      <span className={`px-2 py-1 text-xs font-semibold rounded ${badge.className}`}>
-        {badge.label}
-      </span>
-    );
   };
 
   if (loading) {
@@ -157,91 +129,48 @@ export default function RealmDetail() {
         </div>
       </div>
 
-      {/* Create post section */}
+      {/* Create scene section */}
       <div className="mb-6">
-        {!showPostForm ? (
-          <button onClick={() => setShowPostForm(true)} className="btn btn-primary w-full">
-            + New Post
+        {!showSceneForm ? (
+          <button onClick={() => setShowSceneForm(true)} className="btn btn-primary w-full">
+            + New Scene
           </button>
         ) : (
           <div className="card">
-            <h3 className="text-xl font-semibold mb-4">Create Post</h3>
+            <h3 className="text-xl font-semibold mb-4">Create New Scene</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Title (optional)</label>
+                <label className="block text-sm font-medium mb-2">Title *</label>
                 <input
                   type="text"
-                  value={newPost.title}
-                  onChange={(e) => setNewPost({ ...newPost, title: e.target.value })}
+                  value={newScene.title}
+                  onChange={(e) => setNewScene({ ...newScene, title: e.target.value })}
                   className="input"
-                  placeholder="Post title..."
+                  placeholder="The Dark Forest, The Grand Ball, etc."
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Content</label>
+                <label className="block text-sm font-medium mb-2">Description</label>
                 <textarea
-                  value={newPost.content}
-                  onChange={(e) => setNewPost({ ...newPost, content: e.target.value })}
+                  value={newScene.description}
+                  onChange={(e) => setNewScene({ ...newScene, description: e.target.value })}
                   className="textarea"
-                  placeholder="Write your post..."
-                  rows={6}
+                  placeholder="Describe the setting and context for this scene..."
+                  rows={4}
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Post Type</label>
-                  <select
-                    value={newPost.content_type}
-                    onChange={(e) =>
-                      setNewPost({
-                        ...newPost,
-                        content_type: e.target.value as 'ic' | 'ooc' | 'narration',
-                      })
-                    }
-                    className="input"
-                  >
-                    <option value="ic">In-Character (IC)</option>
-                    <option value="ooc">Out-of-Character (OOC)</option>
-                    <option value="narration">Narration</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">Character (optional)</label>
-                  <select
-                    value={newPost.character_id || ''}
-                    onChange={(e) =>
-                      setNewPost({
-                        ...newPost,
-                        character_id: e.target.value ? Number(e.target.value) : undefined,
-                      })
-                    }
-                    className="input"
-                  >
-                    <option value="">None</option>
-                    {characters.map((char) => (
-                      <option key={char.id} value={char.id}>
-                        {char.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
               </div>
 
               <div className="flex gap-4">
-                <button onClick={handleCreatePost} className="btn btn-primary">
-                  Post
+                <button onClick={handleCreateScene} className="btn btn-primary">
+                  Create Scene
                 </button>
                 <button
                   onClick={() => {
-                    setShowPostForm(false);
-                    setNewPost({
+                    setShowSceneForm(false);
+                    setNewScene({
                       title: '',
-                      content: '',
-                      content_type: 'ic',
-                      character_id: undefined,
+                      description: '',
                     });
                   }}
                   className="btn btn-secondary"
@@ -254,40 +183,40 @@ export default function RealmDetail() {
         )}
       </div>
 
-      {/* Posts list */}
+      {/* Scenes list */}
       <div>
-        <h2 className="text-2xl font-bold mb-4">Posts</h2>
-        {posts.length === 0 ? (
+        <h2 className="text-2xl font-bold mb-4">Scenes</h2>
+        {scenes.length === 0 ? (
           <div className="card text-center">
-            <p className="text-gray-400">No posts yet in this realm.</p>
-            <p className="text-sm text-gray-500 mt-2">Be the first to post!</p>
+            <p className="text-gray-400">No scenes yet in this realm.</p>
+            <p className="text-sm text-gray-500 mt-2">Create the first scene to start roleplaying!</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {posts.map((post) => {
-              const characterName = getCharacterName(post.character_id);
-
-              return (
-                <div key={post.id} className="card">
-                  {/* Post header */}
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      {getPostTypeBadge(post.content_type)}
-                      {characterName && (
-                        <span className="text-sm font-medium text-owl-400">{characterName}</span>
-                      )}
-                    </div>
+            {scenes.map((scene) => (
+              <Link
+                key={scene.id}
+                to={`/scenes/${scene.id}`}
+                className="card block hover:border-owl-500 transition-colors"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h3 className="text-xl font-semibold text-owl-300 group-hover:text-owl-200 mb-2">
+                      {scene.title}
+                    </h3>
+                    {scene.description && (
+                      <p className="text-gray-300 text-sm mb-2">{scene.description}</p>
+                    )}
                     <span className="text-xs text-gray-500">
-                      {new Date(post.created_at).toLocaleDateString()}
+                      Created {new Date(scene.created_at).toLocaleDateString()}
                     </span>
                   </div>
-
-                  {/* Post content */}
-                  {post.title && <h3 className="text-xl font-semibold mb-2">{post.title}</h3>}
-                  <p className="text-gray-300 whitespace-pre-wrap">{post.content}</p>
+                  <div className="ml-4">
+                    <span className="text-owl-400 text-sm">→</span>
+                  </div>
                 </div>
-              );
-            })}
+              </Link>
+            ))}
           </div>
         )}
       </div>

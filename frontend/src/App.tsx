@@ -7,6 +7,7 @@ import Register from '@/pages/Register';
 import Home from '@/pages/Home';
 import Realms from '@/pages/Realms';
 import RealmDetail from '@/pages/RealmDetail';
+import SceneDetail from '@/pages/SceneDetail';
 import Characters from '@/pages/Characters';
 import Profile from '@/pages/Profile';
 
@@ -47,6 +48,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/realms" element={<Realms />} />
           <Route path="/realms/:realmId" element={<RealmDetail />} />
+          <Route path="/scenes/:sceneId" element={<SceneDetail />} />
           <Route path="/characters" element={<Characters />} />
           <Route path="/profile" element={<Profile />} />
         </Route>

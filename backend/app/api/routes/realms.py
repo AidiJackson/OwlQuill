@@ -66,6 +66,27 @@ def list_realms(
     return realms
 
 
+@router.get("/my-realms", response_model=List[Realm])
+def get_my_realms(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> List[Realm]:
+    """Get realms the current user is a member of."""
+    memberships = db.query(RealmMembershipModel).filter(
+        RealmMembershipModel.user_id == current_user.id
+    ).all()
+
+    realm_ids = [m.realm_id for m in memberships]
+
+    if not realm_ids:
+        return []
+
+    realms = db.query(RealmModel).filter(
+        RealmModel.id.in_(realm_ids)
+    ).all()
+    return realms
+
+
 @router.get("/{realm_id}", response_model=Realm)
 def get_realm(
     realm_id: int,

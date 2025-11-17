@@ -44,9 +44,20 @@ export interface Realm {
   updated_at: string;
 }
 
+export interface Scene {
+  id: number;
+  realm_id: number;
+  created_by: number;
+  title: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Post {
   id: number;
-  realm_id?: number;
+  scene_id: number;
+  realm_id: number;
   author_user_id: number;
   character_id?: number;
   title?: string;

@@ -25,6 +25,7 @@ class User(Base):
     characters = relationship("Character", back_populates="owner", cascade="all, delete-orphan")
     owned_realms = relationship("Realm", back_populates="owner", cascade="all, delete-orphan")
     realm_memberships = relationship("RealmMembership", back_populates="user", cascade="all, delete-orphan")
+    created_scenes = relationship("Scene", back_populates="creator", cascade="all, delete-orphan")
     posts = relationship("Post", back_populates="author_user", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="author_user", cascade="all, delete-orphan")
     reactions = relationship("Reaction", back_populates="user", cascade="all, delete-orphan")

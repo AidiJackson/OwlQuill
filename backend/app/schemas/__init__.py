@@ -2,6 +2,7 @@
 from app.schemas.user import User, UserCreate, UserUpdate, Token, TokenData
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate
 from app.schemas.realm import Realm, RealmCreate, RealmUpdate, RealmMembership, RealmMembershipCreate
+from app.schemas.scene import Scene, SceneCreate, SceneUpdate
 from app.schemas.post import Post, PostCreate, PostUpdate
 from app.schemas.comment import Comment, CommentCreate, CommentUpdate
 from app.schemas.reaction import Reaction, ReactionCreate
@@ -21,6 +22,9 @@ __all__ = [
     "RealmUpdate",
     "RealmMembership",
     "RealmMembershipCreate",
+    "Scene",
+    "SceneCreate",
+    "SceneUpdate",
     "Post",
     "PostCreate",
     "PostUpdate",
