@@ -285,6 +285,20 @@ export default function RealmDetail() {
                   {/* Post content */}
                   {post.title && <h3 className="text-xl font-semibold mb-2">{post.title}</h3>}
                   <p className="text-gray-300 whitespace-pre-wrap">{post.content}</p>
+
+                  {/* Post image */}
+                  {post.image_media_url && (
+                    <div className="mt-4">
+                      <img
+                        src={post.image_media_url}
+                        alt="Post attachment"
+                        className="rounded-xl max-h-96 w-auto object-contain bg-gray-800"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}
