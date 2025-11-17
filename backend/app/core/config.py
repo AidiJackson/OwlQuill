@@ -26,9 +26,11 @@ class Settings(BaseSettings):
     # Redis (stubbed for now)
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # AI (stubbed)
+    # AI Configuration
+    AI_ENABLED: bool = True  # Master switch for AI features
     AI_PROVIDER: Literal["fake", "openai", "anthropic"] = "fake"
     AI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4"  # Used when AI_PROVIDER=openai
 
     model_config = SettingsConfigDict(
         env_file=".env",
