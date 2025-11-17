@@ -1,4 +1,7 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token } from './types';
+import type {
+  User, Character, Realm, Post, Comment, Reaction, Token,
+  UserProfile, CharacterProfile, SearchResponse
+} from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -193,6 +196,41 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ characters, setting, mood, prompt }),
     });
+  }
+
+  // Profiles
+  async getUserProfile(username: string): Promise<UserProfile> {
+    return this.request<UserProfile>(`/profile/users/${username}`);
+  }
+
+  async getCurrentUserProfile(): Promise<UserProfile> {
+    return this.request<UserProfile>('/profile/me');
+  }
+
+  async getCharacterProfile(characterId: number): Promise<CharacterProfile> {
+    return this.request<CharacterProfile>(`/profile/characters/${characterId}`);
+  }
+
+  // Discovery
+  async search(params: { q: string; type?: 'all' | 'user' | 'character' | 'realm'; limit?: number }): Promise<SearchResponse> {
+    const searchParams = new URLSearchParams();
+    searchParams.append('q', params.q);
+    if (params.type) searchParams.append('type', params.type);
+    if (params.limit) searchParams.append('limit', params.limit.toString());
+    return this.request<SearchResponse>(`/discovery/search?${searchParams}`);
+  }
+
+  // Analytics
+  async logEvent(eventType: string, payload?: Record<string, any>): Promise<void> {
+    try {
+      await this.request('/analytics/events', {
+        method: 'POST',
+        body: JSON.stringify({ event_type: eventType, payload }),
+      });
+    } catch (error) {
+      // Silently fail analytics events to not break UI
+      console.debug('Analytics event failed:', error);
+    }
   }
 }
 

@@ -2,6 +2,109 @@
 
 All notable changes to the OwlQuill project will be documented in this file.
 
+## [Phase 7] - 2025-11-17 - Profiles, Discovery & Mobile Readiness
+
+### Added
+
+#### Backend
+- **Profile API**
+  - New `/profile/users/{username}` endpoint for public user profiles
+  - New `/profile/me` endpoint for current user's own profile
+  - New `/profile/characters/{character_id}` endpoint for character profiles
+  - Profile responses include stats (posts, realms, followers/following)
+  - Profile responses include recent posts with full context (realm, character, author)
+
+- **Discovery & Search**
+  - New `/discovery/search` endpoint with universal search
+  - Search supports filtering by type: all, user, character, realm
+  - Case-insensitive ILIKE pattern matching across names and descriptions
+  - Configurable result limits (1-50 results)
+  - Discriminated union response types for different result categories
+
+- **Analytics Events**
+  - New `AnalyticsEvent` model for tracking user interactions
+  - New `/analytics/events` endpoint for logging events
+  - Whitelisted event types: profile_view, character_view, realm_view, post_view, search
+  - Events support optional JSON payload for context
+  - Non-authenticated event logging supported (user_id is nullable)
+
+- **Database Migration**
+  - Created Alembic migration `a1b2c3d4e5f6` for analytics_events table
+  - Table includes indexed event_type and created_at columns for efficient querying
+
+- **New Schemas**
+  - `profile.py` schemas: UserProfile, CharacterProfile, PostSummary, etc.
+  - `discovery.py` schemas: SearchResponse, UserSearchResult, CharacterSearchResult, RealmSearchResult
+  - `analytics.py` schemas: AnalyticsEventCreate, AnalyticsEvent
+
+- **Tests**
+  - `test_profile.py`: User and character profile endpoint tests
+  - `test_discovery.py`: Search and discovery tests across all resource types
+  - `test_analytics.py`: Analytics event logging tests
+
+#### Frontend
+- **User Profile Pages** (`/u/:username`)
+  - Display user avatar, display name, username, bio
+  - Show stats: posts, realms joined, followers, following
+  - Recent posts section with post cards
+  - Responsive layout for mobile and desktop
+  - Analytics event logging on page view
+
+- **Character Profile Pages** (`/c/:characterId`)
+  - Full character sheet with all attributes (species, role, era, age)
+  - Short and long bio sections
+  - Tags display with styled pills
+  - Owner information with link to user profile
+  - Character stats: posts count, realms count
+  - Recent posts by character
+  - Respects character privacy settings
+  - Responsive mobile-friendly layout
+  - Analytics event logging on page view
+
+- **Discover Page** (`/discover`)
+  - Universal search bar with query input
+  - Filter pills for all/user/character/realm
+  - Result cards with type-specific styling (purple for users, pink for characters, blue for realms)
+  - Quick navigation to full profiles from results
+  - Empty state messaging
+  - Search analytics event logging
+  - Fully responsive design
+
+- **Navigation Enhancement**
+  - Added "Discover" link to main navigation
+  - Navigation now horizontally scrolls on mobile
+  - Vertical sidebar layout maintained on desktop
+
+- **Mobile Responsiveness**
+  - Layout component updated with responsive flex direction (column on mobile, row on desktop)
+  - All new pages use responsive padding (`p-4 md:p-8`)
+  - Profile pages stack elements vertically on small screens
+  - Typography adjusts with responsive text sizes
+  - Touch-friendly button and link sizes
+
+- **API Client Extensions**
+  - New `getUserProfile(username)` method
+  - New `getCurrentUserProfile()` method
+  - New `getCharacterProfile(characterId)` method
+  - New `search({ q, type, limit })` method
+  - New `logEvent(eventType, payload)` method with silent failure handling
+
+- **TypeScript Types**
+  - Added Profile types: UserProfile, CharacterProfile, PostSummary, etc.
+  - Added Discovery types: SearchResponse, SearchResult, UserSearchResult, etc.
+  - Added Analytics types: AnalyticsEventCreate
+
+### Changed
+- Layout component now responsive with mobile-first design
+- Navigation items now include whitespace-nowrap for better mobile UX
+- User info section in nav hidden on mobile for cleaner layout
+
+### Technical Improvements
+- All profile and discovery endpoints use proper eager loading with `joinedload` to avoid N+1 queries
+- Optional authentication support added with `get_current_user_optional` dependency
+- Analytics events fail gracefully with console.debug() instead of breaking UI
+- Search results limited and paginated to prevent performance issues
+
 ## [Phase 2] - 2025-11-16 - Playable Social MVP
 
 ### Added
