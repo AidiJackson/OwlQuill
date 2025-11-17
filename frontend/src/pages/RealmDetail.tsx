@@ -11,6 +11,9 @@ export default function RealmDetail() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPostForm, setShowPostForm] = useState(false);
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiSummarizing, setAiSummarizing] = useState(false);
+  const [sceneSummary, setSceneSummary] = useState<string | null>(null);
   const [newPost, setNewPost] = useState({
     title: '',
     content: '',
@@ -70,6 +73,48 @@ export default function RealmDetail() {
     } catch (error) {
       console.error('Failed to create post:', error);
       alert('Failed to create post. Make sure you are a member of this realm.');
+    }
+  };
+
+  const handleAiSuggestPost = async () => {
+    setAiSuggesting(true);
+    try {
+      const characterName = newPost.character_id
+        ? getCharacterName(newPost.character_id)
+        : undefined;
+
+      const recentPosts = posts.slice(0, 5).map((p) => p.content);
+
+      const result = await apiClient.suggestPostReply({
+        realm_name: realm?.name,
+        character_name: characterName || undefined,
+        recent_posts: recentPosts,
+        tone_hint: newPost.content_type === 'ic' ? 'in-character' : undefined,
+      });
+
+      setNewPost({ ...newPost, content: result.suggested_text });
+    } catch (error) {
+      console.error('Failed to get AI suggestion:', error);
+      alert('AI suggestion failed. The AI service may be unavailable. Please write manually.');
+    } finally {
+      setAiSuggesting(false);
+    }
+  };
+
+  const handleAiSummarizeScene = async () => {
+    setAiSummarizing(true);
+    try {
+      const postContents = posts.map((p) => p.content);
+      const result = await apiClient.summarizeScene({
+        realm_name: realm?.name,
+        posts: postContents,
+      });
+      setSceneSummary(result.summary);
+    } catch (error) {
+      console.error('Failed to summarize scene:', error);
+      alert('AI summarization failed. The AI service may be unavailable.');
+    } finally {
+      setAiSummarizing(false);
     }
   };
 
@@ -179,7 +224,17 @@ export default function RealmDetail() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Content</label>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-medium">Content</label>
+                  <button
+                    type="button"
+                    onClick={handleAiSuggestPost}
+                    disabled={aiSuggesting}
+                    className="text-sm text-owl-500 hover:text-owl-400 disabled:opacity-50"
+                  >
+                    {aiSuggesting ? 'Suggesting...' : '✨ AI Suggest Reply'}
+                  </button>
+                </div>
                 <textarea
                   value={newPost.content}
                   onChange={(e) => setNewPost({ ...newPost, content: e.target.value })}
@@ -256,7 +311,35 @@ export default function RealmDetail() {
 
       {/* Posts list */}
       <div>
-        <h2 className="text-2xl font-bold mb-4">Posts</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold">Posts</h2>
+          {posts.length > 0 && (
+            <button
+              onClick={handleAiSummarizeScene}
+              disabled={aiSummarizing}
+              className="btn btn-secondary text-sm"
+            >
+              {aiSummarizing ? 'Summarizing...' : '✨ AI Summarize Scene'}
+            </button>
+          )}
+        </div>
+
+        {/* AI Summary Display */}
+        {sceneSummary && (
+          <div className="card mb-4 bg-owl-900/50 border border-owl-700">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-lg font-semibold text-owl-300">AI Scene Summary</h3>
+              <button
+                onClick={() => setSceneSummary(null)}
+                className="text-gray-500 hover:text-gray-300"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-gray-300 whitespace-pre-wrap">{sceneSummary}</p>
+          </div>
+        )}
+
         {posts.length === 0 ? (
           <div className="card text-center">
             <p className="text-gray-400">No posts yet in this realm.</p>

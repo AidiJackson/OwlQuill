@@ -188,6 +188,29 @@ class ApiClient {
     });
   }
 
+  async suggestPostReply(data: {
+    realm_name?: string;
+    character_name?: string;
+    recent_posts?: string[];
+    tone_hint?: string;
+  }): Promise<{ suggested_text: string }> {
+    return this.request('/ai/posts/suggest', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async summarizeScene(data: {
+    realm_name?: string;
+    posts: string[];
+  }): Promise<{ summary: string }> {
+    return this.request('/ai/scenes/summary', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Legacy scene generation
   async generateScene(characters: string[], setting: string, mood?: string, prompt = ''): Promise<{ scene: string; dialogue: string }> {
     return this.request('/ai/scene', {
       method: 'POST',
