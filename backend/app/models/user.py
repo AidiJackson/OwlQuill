@@ -29,3 +29,4 @@ class User(Base):
     comments = relationship("Comment", back_populates="author_user", cascade="all, delete-orphan")
     reactions = relationship("Reaction", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    created_scenes = relationship("Scene", back_populates="creator", cascade="all, delete-orphan")

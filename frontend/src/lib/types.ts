@@ -78,3 +78,23 @@ export interface Token {
   access_token: string;
   token_type: string;
 }
+
+export interface Scene {
+  id: number;
+  title: string;
+  description?: string;
+  visibility: 'public' | 'unlisted' | 'private';
+  created_by_user_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScenePost {
+  id: number;
+  scene_id: number;
+  author_user_id: number;
+  character_id?: number;
+  content: string;
+  reply_to_id?: number;
+  created_at: string;
+}
