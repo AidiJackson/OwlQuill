@@ -2,6 +2,112 @@
 
 All notable changes to the OwlQuill project will be documented in this file.
 
+## [Phase 8] - 2025-11-17 - AI Layer (Foundations)
+
+### Added
+
+#### Backend
+- **AI Abstraction Layer**
+  - Created `AIClient` abstract base class in `app/services/ai/base.py`
+  - Implemented `FakeAIProvider` for local development with deterministic responses
+  - Added `OpenAIProvider` stub for future real AI integration
+  - Created AI provider factory pattern in `app/services/ai/factory.py`
+  - Singleton AI client management with `get_ai_client()` and `reset_ai_client()`
+
+- **AI Endpoints**
+  - Enhanced `/api/ai/character-bio` with new abstraction layer
+  - New `/api/ai/posts/suggest` for AI-powered post reply suggestions
+  - New `/api/ai/scenes/summary` for scene summarization
+  - Legacy `/api/ai/scene` endpoint maintained for backward compatibility
+  - All endpoints check `AI_ENABLED` flag and return HTTP 503 when disabled
+
+- **Configuration**
+  - Added `AI_ENABLED` boolean setting (default: true)
+  - Added `OPENAI_MODEL` setting for OpenAI model selection (default: gpt-4)
+  - Enhanced `AI_PROVIDER` with better typing and validation
+  - Comprehensive environment variable support via Pydantic Settings
+
+- **Schemas**
+  - Created `PostSuggestionRequest` and `PostSuggestionResponse` schemas
+  - Created `SceneSummaryRequest` and `SceneSummaryResponse` schemas
+  - Enhanced existing character bio schemas with better documentation
+  - All schemas use Pydantic Field with descriptions
+
+- **Tests**
+  - Created comprehensive test suite in `tests/test_ai.py`
+  - Tests for character bio generation (full, minimal, unauthorized)
+  - Tests for post suggestions and scene summaries
+  - Test for AI disabled state (503 responses)
+  - AI client reset fixture for test isolation
+
+#### Frontend
+- **API Client Enhancements**
+  - Added `suggestPostReply(data)` method to API client
+  - Added `summarizeScene(data)` method to API client
+  - Consistent error handling and TypeScript types for all AI methods
+
+- **Realm Detail Page AI Features**
+  - "✨ AI Suggest Reply" button in post composer
+  - Integrates realm name, character, and recent posts for context
+  - AI suggestions populate content field for user editing
+  - "✨ AI Summarize Scene" button above posts list
+  - Scene summary displayed in dismissible panel
+  - Loading states and error handling for all AI features
+
+- **Character Creation AI Enhancement**
+  - Existing "✨ AI Suggest Bio" feature maintained and enhanced
+  - Updated to use new backend abstraction layer
+  - Better error handling and user feedback
+
+#### Documentation
+- **Comprehensive Phase 8 Docs** (`docs/PHASE_8_AI_LAYER.md`)
+  - Complete architecture overview
+  - API endpoint documentation with examples
+  - Configuration guide with environment variables
+  - Usage guide for development and production
+  - Testing instructions
+  - Future enhancement roadmap
+  - Troubleshooting guide
+  - Security considerations
+
+- **AI Services README** (`backend/app/services/ai/README.md`)
+  - Quick start guide for developers
+  - Provider configuration instructions
+  - Guide for adding new providers
+  - Guide for adding new AI methods
+  - Best practices and troubleshooting
+
+### Changed
+- Migrated from monolithic `ai_service.py` to modular AI services architecture
+- AI features now fail gracefully when disabled or unavailable
+- Enhanced error messages with actionable guidance
+- Improved type safety across AI-related code
+
+### Technical Details
+- Provider abstraction allows easy swapping between AI backends
+- FakeAIProvider requires no external dependencies or API keys
+- All AI features work without real AI configured (development-friendly)
+- Clean separation between AI interface, implementation, and routing
+- Dependency injection pattern for AI client in FastAPI routes
+- Comprehensive error handling prevents AI issues from breaking core features
+
+### Security & Privacy
+- No API keys hard-coded anywhere in codebase
+- All credentials configured via environment variables
+- AI features opt-in via user clicks (no automatic AI use)
+- No new data storage for AI interactions (Phase 8)
+- Clear labeling of AI-generated content with ✨ emoji
+
+### Future (Phase 9+)
+- Implement OpenAI provider methods
+- Add Anthropic Claude provider
+- DM conversation summarization
+- AI NPCs and auto-responses
+- Collaborative scene planning
+- Content moderation tools
+- User preference for AI on/off
+- Rate limiting and cost tracking
+
 ## [Phase 2] - 2025-11-16 - Playable Social MVP
 
 ### Added
