@@ -1,4 +1,4 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token } from './types';
+import type { User, Character, Realm, Post, Comment, Reaction, Token, ConversationSummary, ConversationDetail, DMMessage } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -192,6 +192,40 @@ class ApiClient {
     return this.request('/ai/scene', {
       method: 'POST',
       body: JSON.stringify({ characters, setting, mood, prompt }),
+    });
+  }
+
+  // Direct Messaging
+  async listConversations(): Promise<ConversationSummary[]> {
+    return this.request<ConversationSummary[]>('/dm/conversations');
+  }
+
+  async getConversation(conversationId: number, skip = 0, limit = 50): Promise<ConversationDetail> {
+    return this.request<ConversationDetail>(`/dm/conversations/${conversationId}?skip=${skip}&limit=${limit}`);
+  }
+
+  async startConversation(targetUsernameOrId: string | number): Promise<ConversationDetail> {
+    const payload = typeof targetUsernameOrId === 'number'
+      ? { target_user_id: targetUsernameOrId }
+      : { target_username: targetUsernameOrId };
+
+    return this.request<ConversationDetail>('/dm/start', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async sendMessage(conversationId: number, content: string): Promise<DMMessage> {
+    return this.request<DMMessage>(`/dm/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  async markConversationRead(conversationId: number, lastReadMessageId?: number): Promise<void> {
+    return this.request<void>(`/dm/conversations/${conversationId}/read`, {
+      method: 'POST',
+      body: JSON.stringify({ last_read_message_id: lastReadMessageId }),
     });
   }
 }

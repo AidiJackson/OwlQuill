@@ -78,3 +78,38 @@ export interface Token {
   access_token: string;
   token_type: string;
 }
+
+// Direct Messaging types
+export interface DMMessage {
+  id: number;
+  conversation_id: number;
+  sender_id: number;
+  content: string;
+  created_at: string;
+  edited_at?: string;
+}
+
+export interface ConversationUserInfo {
+  id: number;
+  username: string;
+  display_name?: string;
+  avatar_url?: string;
+}
+
+export interface ConversationSummary {
+  id: number;
+  other_participant: ConversationUserInfo;
+  last_message?: DMMessage;
+  last_message_at?: string;
+  unread_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationDetail {
+  id: number;
+  participants: ConversationUserInfo[];
+  messages: DMMessage[];
+  created_at: string;
+  updated_at: string;
+}
