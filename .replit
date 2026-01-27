@@ -16,9 +16,8 @@ run = "bash start-dev.sh"
 run = ["sh", "-c", "bash start-dev.sh"]
 deploymentTarget = "cloudrun"
 
-# Port configuration - frontend is primary
 [[ports]]
-localPort = 5173
+localPort = 5000
 externalPort = 80
 exposeLocalhost = true
 
@@ -45,3 +44,6 @@ pattern = "**/{*.js,*.jsx,*.ts,*.tsx}"
 
 [languages.javascript.languageServer]
 start = "typescript-language-server --stdio"
+
+[agent]
+expertMode = true

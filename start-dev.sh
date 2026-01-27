@@ -35,15 +35,15 @@ for i in {1..30}; do
 done
 
 # Start frontend
-echo -e "${GREEN}Starting Vite frontend on port 5173...${NC}"
+echo -e "${GREEN}Starting Vite frontend on port 5000...${NC}"
 cd ../frontend
-npm run dev -- --host 0.0.0.0 &
+npm run dev -- --host 0.0.0.0 --port 5000 &
 FRONTEND_PID=$!
 
 echo ""
 echo -e "${GREEN}🎉 OwlQuill is running!${NC}"
 echo ""
-echo -e "  ${BLUE}Frontend:${NC} http://localhost:5173"
+echo -e "  ${BLUE}Frontend:${NC} http://localhost:5000"
 echo -e "  ${BLUE}Backend API:${NC} http://localhost:8000"
 echo -e "  ${BLUE}API Docs:${NC} http://localhost:8000/docs"
 echo ""
