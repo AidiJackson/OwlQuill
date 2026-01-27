@@ -44,6 +44,21 @@ export default function Layout() {
           >
             Profile
           </Link>
+
+          <div className="border-t border-gray-800 my-4"></div>
+
+          <Link
+            to="/pricing"
+            className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors text-gray-400"
+          >
+            Pricing
+          </Link>
+          <Link
+            to="/no-ads"
+            className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors text-gray-400"
+          >
+            No Ads
+          </Link>
         </nav>
 
         {user && (

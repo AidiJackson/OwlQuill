@@ -9,6 +9,8 @@ import Realms from '@/pages/Realms';
 import RealmDetail from '@/pages/RealmDetail';
 import Characters from '@/pages/Characters';
 import Profile from '@/pages/Profile';
+import Pricing from '@/pages/Pricing';
+import NoAds from '@/pages/NoAds';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -36,6 +38,8 @@ function App() {
       <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <Login />} />
         <Route path="/register" element={isAuthenticated ? <Navigate to="/" /> : <Register />} />
+        <Route path="/pricing" element={<Pricing />} />
+        <Route path="/no-ads" element={<NoAds />} />
 
         <Route
           element={

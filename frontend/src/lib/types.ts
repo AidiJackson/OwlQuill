@@ -78,3 +78,40 @@ export interface Token {
   access_token: string;
   token_type: string;
 }
+
+// Monetization types
+export interface PlanFeature {
+  name: string;
+  included: boolean;
+  limit?: string;
+}
+
+export interface Plan {
+  id: string;
+  name: string;
+  price_monthly: number | null;
+  price_label: string;
+  description: string;
+  ai_credits_monthly: number;
+  features: PlanFeature[];
+  is_popular: boolean;
+}
+
+export interface CreditPack {
+  id: string;
+  name: string;
+  credits: number;
+  price_label: string;
+}
+
+export interface PlansResponse {
+  plans: Plan[];
+  payments_enabled: boolean;
+  credit_packs: CreditPack[];
+}
+
+export interface CreditsResponse {
+  balance: number;
+  monthly_allowance: number;
+  plan: string;
+}

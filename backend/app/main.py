@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai
+from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, monetization
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -29,6 +29,7 @@ app.include_router(posts.router, prefix="/posts", tags=["posts"])
 app.include_router(comments.router, prefix="/comments", tags=["comments"])
 app.include_router(reactions.router, prefix="/reactions", tags=["reactions"])
 app.include_router(ai.router, prefix="/ai", tags=["ai"])
+app.include_router(monetization.router, prefix="/monetization", tags=["monetization"])
 
 
 @app.get("/health")

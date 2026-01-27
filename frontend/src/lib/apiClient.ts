@@ -1,4 +1,4 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token } from './types';
+import type { User, Character, Realm, Post, Comment, Reaction, Token, PlansResponse, CreditsResponse } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -193,6 +193,15 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ characters, setting, mood, prompt }),
     });
+  }
+
+  // Monetization
+  async getPlans(): Promise<PlansResponse> {
+    return this.request<PlansResponse>('/monetization/plans');
+  }
+
+  async getCredits(): Promise<CreditsResponse> {
+    return this.request<CreditsResponse>('/monetization/credits');
   }
 }
 
