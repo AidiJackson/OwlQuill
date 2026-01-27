@@ -18,6 +18,10 @@ deploymentTarget = "cloudrun"
 
 [[ports]]
 localPort = 5000
+externalPort = 5000
+
+[[ports]]
+localPort = 5173
 externalPort = 80
 exposeLocalhost = true
 
@@ -47,3 +51,27 @@ start = "typescript-language-server --stdio"
 
 [agent]
 expertMode = true
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "OwlQuill Dev Server"
+
+[[workflows.workflow]]
+name = "OwlQuill Dev Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash start-dev.sh"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
