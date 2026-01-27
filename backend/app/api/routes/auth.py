@@ -1,18 +1,25 @@
 """Authentication routes."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.core.dependencies import get_current_user
 from app.models.user import User as UserModel
-from app.schemas.user import UserCreate, User, Token
+from app.schemas.user import UserCreate, User, Token, LoginRequest
 
 router = APIRouter()
 
+# Rate limiter for auth endpoints (in-memory, per-IP)
+limiter = Limiter(key_func=get_remote_address)
+
 
 @router.post("/register", response_model=User, status_code=status.HTTP_201_CREATED)
-def register(user_data: UserCreate, db: Session = Depends(get_db)) -> User:
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)) -> User:
     """Register a new user."""
     # Check if email exists
     existing_user = db.query(UserModel).filter(UserModel.email == user_data.email).first()
@@ -45,11 +52,15 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)) -> User:
 
 
 @router.post("/login", response_model=Token)
-def login(email: str, password: str, db: Session = Depends(get_db)) -> Token:
-    """Login with email and password."""
-    user = db.query(UserModel).filter(UserModel.email == email).first()
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)) -> Token:
+    """Login with email and password via JSON body.
 
-    if not user or not verify_password(password, user.hashed_password):
+    Security: Credentials must be sent in request body, not query parameters.
+    """
+    user = db.query(UserModel).filter(UserModel.email == login_data.email).first()
+
+    if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
