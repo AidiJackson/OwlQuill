@@ -1,5 +1,11 @@
 """Pytest configuration and fixtures."""
 import os
+
+# Set test environment variables BEFORE any app imports
+# This ensures Settings() sees these values when instantiated at import time
+os.environ["SECRET_KEY"] = "test-secret-key-not-for-prod"
+os.environ.setdefault("DEBUG", "true")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
