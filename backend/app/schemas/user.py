@@ -40,6 +40,12 @@ class User(UserInDB):
     pass
 
 
+class LoginRequest(BaseModel):
+    """Login request schema."""
+    email: EmailStr
+    password: str = Field(..., min_length=1)
+
+
 class Token(BaseModel):
     """Token response schema."""
     access_token: str

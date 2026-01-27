@@ -56,9 +56,9 @@ class ApiClient {
   }
 
   async login(email: string, password: string): Promise<Token> {
-    const params = new URLSearchParams({ email, password });
-    const token = await this.request<Token>(`/auth/login?${params}`, {
+    const token = await this.request<Token>('/auth/login', {
       method: 'POST',
+      body: JSON.stringify({ email, password }),
     });
     this.setToken(token.access_token);
     return token;

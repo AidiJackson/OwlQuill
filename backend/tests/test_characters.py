@@ -14,7 +14,7 @@ def get_auth_token(client: TestClient) -> str:
     )
     response = client.post(
         "/auth/login",
-        params={
+        json={
             "email": "test@example.com",
             "password": "testpassword123"
         }

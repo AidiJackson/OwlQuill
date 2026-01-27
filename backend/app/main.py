@@ -1,6 +1,8 @@
 """OwlQuill FastAPI application."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
 from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai
@@ -11,10 +13,14 @@ app = FastAPI(
     debug=settings.DEBUG
 )
 
-# Configure CORS
+# Add rate limiter state and exception handler
+app.state.limiter = auth.limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Configure CORS - uses parsed origins from settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origins=settings.get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
