@@ -1,7 +1,7 @@
 """OwlQuill FastAPI application."""
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -48,6 +48,18 @@ app.include_router(posts.router, prefix="/posts", tags=["posts"])
 app.include_router(comments.router, prefix="/comments", tags=["comments"])
 app.include_router(reactions.router, prefix="/reactions", tags=["reactions"])
 app.include_router(ai.router, prefix="/ai", tags=["ai"])
+
+# Mirror all routes under /api/* prefix
+api_router = APIRouter(prefix="/api")
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(characters.router, prefix="/characters", tags=["characters"])
+api_router.include_router(realms.router, prefix="/realms", tags=["realms"])
+api_router.include_router(posts.router, prefix="/posts", tags=["posts"])
+api_router.include_router(comments.router, prefix="/comments", tags=["comments"])
+api_router.include_router(reactions.router, prefix="/reactions", tags=["reactions"])
+api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
+app.include_router(api_router)
 
 
 @app.get("/health")
