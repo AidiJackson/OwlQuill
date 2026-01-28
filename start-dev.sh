@@ -4,6 +4,11 @@
 
 set -e
 
+# Load DATABASE_URL from backend/.env if it exists (overrides Replit secrets for rotated credentials)
+if [ -f "$(dirname "$0")/backend/.env" ]; then
+    export $(grep -E '^DATABASE_URL=' "$(dirname "$0")/backend/.env" | xargs)
+fi
+
 echo "🦉 Starting OwlQuill Dev Environment..."
 
 # Colors for output

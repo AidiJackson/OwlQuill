@@ -1,16 +1,29 @@
 """OwlQuill FastAPI application."""
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
+from app.core.admin_seed import ensure_admin_user
 from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler."""
+    # Startup
+    ensure_admin_user()
+    yield
+    # Shutdown (nothing to do)
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    debug=settings.DEBUG
+    debug=settings.DEBUG,
+    lifespan=lifespan
 )
 
 # Add rate limiter state and exception handler
