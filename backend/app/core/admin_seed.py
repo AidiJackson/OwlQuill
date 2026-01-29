@@ -54,6 +54,5 @@ def ensure_admin_user() -> None:
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to ensure admin user: {e}")
-        raise
     finally:
         db.close()
