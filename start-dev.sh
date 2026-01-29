@@ -24,15 +24,24 @@ cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
 BACKEND_PID=$!
 
-# Wait for backend to be ready
+# Wait for backend to be ready (fail fast if it doesn't start)
 echo "Waiting for backend to be ready..."
+BACKEND_READY=false
 for i in {1..30}; do
-    if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+    if curl -s http://127.0.0.1:8000/health > /dev/null 2>&1; then
         echo -e "${GREEN}✓ Backend is ready!${NC}"
+        BACKEND_READY=true
         break
     fi
     sleep 1
 done
+
+if [ "$BACKEND_READY" = false ]; then
+    echo -e "\033[0;31m✗ ERROR: Backend failed to start within 30 seconds!${NC}"
+    echo -e "\033[0;31m  Check the logs above for errors (database connection, missing env vars, etc.)${NC}"
+    echo -e "\033[0;31m  Backend health check failed: http://127.0.0.1:8000/health${NC}"
+    exit 1
+fi
 
 # Start frontend
 echo -e "${GREEN}Starting Vite frontend on port 5000...${NC}"
