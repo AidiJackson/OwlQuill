@@ -27,7 +27,12 @@
       "Bash(else echo \"NEON_API_KEY is NOT set\")",
       "Bash(psql:*)",
       "Bash(replit:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(find:*)",
+      "Bash(tree:*)",
+      "Bash(python -m alembic:*)",
+      "Bash(ls:*)"
     ]
   }
 }
