@@ -101,10 +101,10 @@ export default function UserProfile() {
       </div>
 
       <div className="max-w-4xl mx-auto px-6">
-        <div className="relative -mt-28 mb-6">
-          <div className="flex justify-end mb-6">
+        <div className="relative -mt-20 mb-6">
+          <div className="flex justify-end mb-2">
             <div className="relative">
-              <div className="w-40 h-40 sm:w-44 sm:h-44 rounded-full ring-4 ring-gray-950 shadow-2xl overflow-hidden bg-gray-800">
+              <div className="w-36 h-36 sm:w-40 sm:h-40 rounded-full ring-4 ring-gray-950 shadow-2xl overflow-hidden bg-gray-800">
                 {profile.avatar_url ? (
                   <img
                     src={profile.avatar_url}
