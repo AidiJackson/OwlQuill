@@ -32,7 +32,9 @@
       "Bash(find:*)",
       "Bash(tree:*)",
       "Bash(python -m alembic:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite build:*)"
     ]
   }
 }

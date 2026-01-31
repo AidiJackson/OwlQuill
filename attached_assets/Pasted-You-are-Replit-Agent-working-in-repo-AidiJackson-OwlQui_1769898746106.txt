@@ -1,0 +1,112 @@
+You are Replit Agent working in repo AidiJackson/OwlQuill on branch feature/profile-redesign.
+Goal: implement the Profile page to match the provided Figma-generated UserProfileView.tsx as close to exact as possible.
+
+NON-NEGOTIABLE RULES
+
+Do not change architecture or project structure.
+No new frameworks, no port changes, no workflow changes, no route system rewrite.
+
+Only the Profile view gets the Figma “full-width” experience.
+All other pages keep existing sidebar/layout.
+
+Do not invent UI. Do not “interpret”.
+UserProfileView.tsx is the source of truth for layout, spacing, and structure.
+
+Do not paste the entire reference file into OwlQuill unchanged.
+Port the layout into OwlQuill using existing patterns and components, but the result must look the same.
+
+No secrets printed. No .env committed.
+
+WHAT YOU MUST IMPLEMENT (MATCH Figma)
+
+A) Profile page must fill the screen width (hero first impression)
+
+Cover banner spans full available width on the Profile view
+
+Avatar overlaps cover and is positioned to the right side like the reference
+
+Action buttons cluster matches the reference placement (Message/Follow/Share or equivalents)
+
+Stats row matches placement (Posts/Characters/Realms/Followers)
+
+B) Sidebar must NOT be visible on Profile page
+
+Implement a Profile-only layout override (do not alter global layout for other pages).
+
+The Profile view should have the top icon bar (or equivalent) as per reference.
+
+C) Tabs must match the reference file
+
+Use the exact tab labels/ordering present in UserProfileView.tsx
+
+Timeline default tab
+
+Empty states for other tabs must look like reference
+
+D) Data wiring
+
+Use existing frontend API client methods:
+
+getUserProfile(username)
+
+getUserTimeline(username, limit)
+
+Profile header uses getUserProfile
+
+Timeline uses getUserTimeline and renders mixed items:
+
+type=post → reuse existing post card + reactions/comments where available (but keep styling consistent)
+
+type=scene → render a scene card matching reference style, link to /scenes/:id
+
+E) Composer
+
+If the reference file includes a composer on Timeline, include it.
+
+Posting functionality can remain disabled unless OwlQuill already supports creating posts cleanly without hacks.
+
+Do NOT silently post to Commons “under the hood” unless explicitly shown in the reference.
+
+FILE SCOPE (ONLY TOUCH THESE UNLESS ABSOLUTELY NECESSARY)
+
+frontend/src/pages/UserProfile.tsx (main implementation)
+
+frontend/src/App.tsx (only if route needs adjustment; keep /u/:username)
+
+frontend/src/components/Layout.tsx (only for Profile link target or to allow hiding sidebar on Profile route)
+
+Add one new component if needed for the profile-only chrome:
+
+frontend/src/components/Profile/ProfileLayout.tsx (preferred)
+
+DELIVERABLES
+
+The profile at /u/:username visually matches UserProfileView.tsx:
+
+full-width cover
+
+avatar right aligned
+
+no sidebar on profile
+
+tabs + timeline layout match
+
+No regressions: Home, Realms, Scenes, /profile settings page still work.
+
+Run:
+
+npx tsc --noEmit
+
+npx vite build
+
+Create a single commit with message:
+Profile: Figma-exact home base layout (profile-only chrome)
+
+STOP CONDITIONS
+
+If you cannot reliably match layout due to missing shared UI components, stop and report:
+
+what is missing
+
+what you need from Aidan
+Do not “approximate.”
