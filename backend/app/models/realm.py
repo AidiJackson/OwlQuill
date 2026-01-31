@@ -20,6 +20,7 @@ class Realm(Base):
     genre = Column(String, nullable=True)
     banner_url = Column(String, nullable=True)  # Header/banner image URL
     is_public = Column(Boolean, default=True, nullable=False)
+    is_commons = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

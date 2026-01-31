@@ -148,7 +148,7 @@ export default function Realms() {
       )}
 
       <div className="grid gap-4">
-        {realms.map((realm) => (
+        {realms.filter((r) => !r.is_commons).map((realm) => (
           <div key={realm.id} className="card overflow-hidden p-0">
             {realm.banner_url && (
               <div className="h-32 bg-gradient-to-r from-owl-900 to-owl-700">

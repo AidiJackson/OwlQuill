@@ -1,20 +1,41 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
-import type { Realm, Post, Character } from '@/lib/types';
+import { useAuthStore } from '@/lib/store';
+import type { Realm, Post, Character, Scene, SceneVisibility } from '@/lib/types';
+import CommentSection from '@/components/CommentSection';
+import ReactionBar from '@/components/ReactionBar';
 
 export default function RealmDetail() {
   const { realmId } = useParams<{ realmId: string }>();
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
   const [realm, setRealm] = useState<Realm | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPostForm, setShowPostForm] = useState(false);
+
+  // Scenes state
+  const [scenes, setScenes] = useState<Scene[]>([]);
+  const [showSceneForm, setShowSceneForm] = useState(false);
+  const [newScene, setNewScene] = useState({
+    title: '',
+    openingContent: '',
+    visibility: 'PUBLIC' as SceneVisibility,
+    character_id: undefined as number | undefined,
+  });
+  const [sceneCreating, setSceneCreating] = useState(false);
+
+  // Open-starter "Request to Join" state
+  const [joinLoading, setJoinLoading] = useState<Record<number, boolean>>({});
+  const [joinSent, setJoinSent] = useState<Record<number, boolean>>({});
+  const [joinError, setJoinError] = useState<Record<number, string>>({});
   const [newPost, setNewPost] = useState({
     title: '',
     content: '',
     content_type: 'ic' as 'ic' | 'ooc' | 'narration',
+    post_kind: 'general' as 'general' | 'open_starter' | 'finished_piece',
     character_id: undefined as number | undefined,
   });
 
@@ -23,14 +44,16 @@ export default function RealmDetail() {
       if (!realmId) return;
 
       try {
-        const [realmData, postsData, charactersData] = await Promise.all([
+        const [realmData, postsData, charactersData, scenesData] = await Promise.all([
           apiClient.getRealm(Number(realmId)),
           apiClient.getRealmPosts(Number(realmId)),
           apiClient.getCharacters(),
+          apiClient.listScenes(Number(realmId)).catch(() => [] as Scene[]),
         ]);
         setRealm(realmData);
         setPosts(postsData);
         setCharacters(charactersData);
+        setScenes(scenesData);
       } catch (error) {
         console.error('Failed to load realm:', error);
       } finally {
@@ -64,6 +87,7 @@ export default function RealmDetail() {
         title: '',
         content: '',
         content_type: 'ic',
+        post_kind: 'general',
         character_id: undefined,
       });
       setShowPostForm(false);
@@ -79,6 +103,49 @@ export default function RealmDetail() {
     return character?.name || null;
   };
 
+  const requestToJoin = async (postId: number) => {
+    if (!user?.username) {
+      setJoinError(m => ({ ...m, [postId]: 'You must be logged in.' }));
+      return;
+    }
+    setJoinLoading(m => ({ ...m, [postId]: true }));
+    setJoinError(m => { const { [postId]: _, ...rest } = m; return rest; });
+    try {
+      await apiClient.createComment(postId, {
+        content: `@${user.username} requested to join this starter.`,
+        content_type: 'ooc',
+      });
+      setJoinSent(m => ({ ...m, [postId]: true }));
+    } catch (e) {
+      setJoinError(m => ({ ...m, [postId]: 'Failed to send request. Please try again.' }));
+      console.error(e);
+    } finally {
+      setJoinLoading(m => ({ ...m, [postId]: false }));
+    }
+  };
+
+  const handleCreateScene = async () => {
+    if (!realmId || !newScene.title.trim() || !newScene.openingContent.trim()) return;
+    setSceneCreating(true);
+    try {
+      const scene = await apiClient.createScene({
+        realm_id: Number(realmId),
+        title: newScene.title.trim(),
+        visibility: newScene.visibility,
+      });
+      await apiClient.createScenePost(scene.id, {
+        content: newScene.openingContent.trim(),
+        character_id: newScene.character_id,
+      });
+      navigate(`/scenes/${scene.id}`);
+    } catch (err) {
+      console.error('Failed to create scene:', err);
+      alert('Failed to create scene. Make sure you are a member of this realm.');
+    } finally {
+      setSceneCreating(false);
+    }
+  };
+
   const getPostTypeBadge = (contentType: string) => {
     const badges = {
       ic: { label: 'IC', className: 'bg-purple-600 text-white' },
@@ -89,6 +156,21 @@ export default function RealmDetail() {
     return (
       <span className={`px-2 py-1 text-xs font-semibold rounded ${badge.className}`}>
         {badge.label}
+      </span>
+    );
+  };
+
+  const getPostKindBadge = (postKind?: string) => {
+    if (!postKind || postKind === 'general') return null;
+    const kinds: Record<string, { label: string; className: string }> = {
+      open_starter: { label: 'Open Starter', className: 'bg-teal-700 text-white' },
+      finished_piece: { label: 'Finished Piece', className: 'bg-rose-700 text-white' },
+    };
+    const kind = kinds[postKind];
+    if (!kind) return null;
+    return (
+      <span className={`px-2 py-1 text-xs font-semibold rounded ${kind.className}`}>
+        {kind.label}
       </span>
     );
   };
@@ -138,9 +220,11 @@ export default function RealmDetail() {
               <span className={`px-3 py-1 text-sm rounded ${realm.is_public ? 'bg-green-600' : 'bg-gray-600'}`}>
                 {realm.is_public ? 'Public' : 'Private'}
               </span>
-              <button onClick={handleJoinRealm} className="btn btn-primary">
-                Join Realm
-              </button>
+              {!realm.is_commons && (
+                <button onClick={handleJoinRealm} className="btn btn-primary">
+                  Join Realm
+                </button>
+              )}
             </div>
           </div>
 
@@ -157,10 +241,123 @@ export default function RealmDetail() {
         </div>
       </div>
 
+      {/* Scenes section */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-2xl font-bold">Scenes</h2>
+          <button
+            onClick={() => setShowSceneForm(!showSceneForm)}
+            className="btn btn-primary text-sm"
+          >
+            {showSceneForm ? 'Cancel' : '+ New Scene'}
+          </button>
+        </div>
+
+        {showSceneForm && (
+          <div className="card mb-4">
+            <h3 className="text-lg font-semibold mb-3">Create Open Starter Scene</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Title</label>
+                <input
+                  type="text"
+                  value={newScene.title}
+                  onChange={(e) => setNewScene({ ...newScene, title: e.target.value })}
+                  className="input"
+                  placeholder="Scene title..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Opening Post</label>
+                <textarea
+                  value={newScene.openingContent}
+                  onChange={(e) => setNewScene({ ...newScene, openingContent: e.target.value })}
+                  className="textarea"
+                  placeholder="Write the opening turn..."
+                  rows={4}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Visibility</label>
+                  <select
+                    value={newScene.visibility}
+                    onChange={(e) => setNewScene({ ...newScene, visibility: e.target.value as SceneVisibility })}
+                    className="input"
+                  >
+                    <option value="PUBLIC">Public</option>
+                    <option value="UNLISTED">Unlisted</option>
+                    <option value="PRIVATE">Private</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Character (optional)</label>
+                  <select
+                    value={newScene.character_id ?? ''}
+                    onChange={(e) => setNewScene({ ...newScene, character_id: e.target.value ? Number(e.target.value) : undefined })}
+                    className="input"
+                  >
+                    <option value="">Post as yourself</option>
+                    {characters.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <button
+                onClick={handleCreateScene}
+                disabled={sceneCreating || !newScene.title.trim() || !newScene.openingContent.trim()}
+                className="btn btn-primary"
+              >
+                {sceneCreating ? 'Creating...' : 'Create Scene'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {scenes.length === 0 ? (
+          <div className="card text-center">
+            <p className="text-gray-400 text-sm">No scenes yet. Create one to start a collaborative story!</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {scenes.map((s) => (
+              <div
+                key={s.id}
+                className="card flex items-center justify-between cursor-pointer hover:border-owl-500 transition-colors"
+                onClick={() => navigate(`/scenes/${s.id}`)}
+              >
+                <div>
+                  <span className="font-semibold">{s.title}</span>
+                  <span className="text-xs text-gray-500 ml-2">
+                    {s.post_count} {s.post_count === 1 ? 'turn' : 'turns'}
+                  </span>
+                </div>
+                <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
+                  s.visibility === 'PUBLIC' ? 'bg-green-600 text-white'
+                    : s.visibility === 'UNLISTED' ? 'bg-yellow-600 text-white'
+                    : 'bg-red-600 text-white'
+                }`}>
+                  {s.visibility === 'PUBLIC' ? 'Public' : s.visibility === 'UNLISTED' ? 'Unlisted' : 'Private'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Create post section */}
       <div className="mb-6">
         {!showPostForm ? (
-          <button onClick={() => setShowPostForm(true)} className="btn btn-primary w-full">
+          <button
+            onClick={() => {
+              if (realm.is_commons) {
+                setNewPost((prev) => ({ ...prev, content_type: 'ooc' }));
+              }
+              setShowPostForm(true);
+            }}
+            className="btn btn-primary w-full"
+          >
             + New Post
           </button>
         ) : (
@@ -191,7 +388,7 @@ export default function RealmDetail() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2">Post Type</label>
+                  <label className="block text-sm font-medium mb-2">Voice</label>
                   <select
                     value={newPost.content_type}
                     onChange={(e) =>
@@ -202,12 +399,32 @@ export default function RealmDetail() {
                     }
                     className="input"
                   >
-                    <option value="ic">In-Character (IC)</option>
                     <option value="ooc">Out-of-Character (OOC)</option>
+                    <option value="ic">In-Character (IC)</option>
                     <option value="narration">Narration</option>
                   </select>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium mb-2">Post Kind</label>
+                  <select
+                    value={newPost.post_kind}
+                    onChange={(e) =>
+                      setNewPost({
+                        ...newPost,
+                        post_kind: e.target.value as 'general' | 'open_starter' | 'finished_piece',
+                      })
+                    }
+                    className="input"
+                  >
+                    <option value="general">General</option>
+                    <option value="open_starter">Open Starter</option>
+                    <option value="finished_piece">Finished Piece</option>
+                  </select>
+                </div>
+              </div>
+
+              {!realm.is_commons && (
                 <div>
                   <label className="block text-sm font-medium mb-2">Character (optional)</label>
                   <select
@@ -228,7 +445,7 @@ export default function RealmDetail() {
                     ))}
                   </select>
                 </div>
-              </div>
+              )}
 
               <div className="flex gap-4">
                 <button onClick={handleCreatePost} className="btn btn-primary">
@@ -241,6 +458,7 @@ export default function RealmDetail() {
                       title: '',
                       content: '',
                       content_type: 'ic',
+                      post_kind: 'general',
                       character_id: undefined,
                     });
                   }}
@@ -273,9 +491,12 @@ export default function RealmDetail() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       {getPostTypeBadge(post.content_type)}
-                      {characterName && (
+                      {getPostKindBadge(post.post_kind)}
+                      {characterName ? (
                         <span className="text-sm font-medium text-owl-400">{characterName}</span>
-                      )}
+                      ) : post.author_username ? (
+                        <span className="text-sm text-gray-400">@{post.author_username}</span>
+                      ) : null}
                     </div>
                     <span className="text-xs text-gray-500">
                       {new Date(post.created_at).toLocaleDateString()}
@@ -285,6 +506,33 @@ export default function RealmDetail() {
                   {/* Post content */}
                   {post.title && <h3 className="text-xl font-semibold mb-2">{post.title}</h3>}
                   <p className="text-gray-300 whitespace-pre-wrap">{post.content}</p>
+
+                  {post.post_kind === 'open_starter' && (
+                    <div className="mt-3 p-3 bg-teal-900/30 border border-teal-800 rounded-lg">
+                      <p className="text-xs text-teal-300 mb-2">
+                        Open Starter — use comments for OOC. Roleplay continues in a Scene.
+                      </p>
+                      <button
+                        onClick={() => requestToJoin(post.id)}
+                        disabled={joinLoading[post.id] || joinSent[post.id]}
+                        className={`text-xs px-3 py-1 rounded ${
+                          joinSent[post.id]
+                            ? 'bg-green-700 text-green-200 cursor-default'
+                            : joinLoading[post.id]
+                              ? 'bg-gray-700 text-gray-400 cursor-wait'
+                              : 'bg-teal-700 text-white hover:bg-teal-600 transition-colors'
+                        }`}
+                      >
+                        {joinLoading[post.id] ? 'Sending\u2026' : joinSent[post.id] ? 'Request Sent' : 'Request to Join'}
+                      </button>
+                      {joinError[post.id] && (
+                        <p className="text-red-400 text-xs mt-1">{joinError[post.id]}</p>
+                      )}
+                    </div>
+                  )}
+
+                  <ReactionBar postId={post.id} />
+                  <CommentSection postId={post.id} characters={characters} defaultExpanded={joinSent[post.id]} />
                 </div>
               );
             })}

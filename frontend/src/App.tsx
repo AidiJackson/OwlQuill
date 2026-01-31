@@ -9,6 +9,7 @@ import Realms from '@/pages/Realms';
 import RealmDetail from '@/pages/RealmDetail';
 import Characters from '@/pages/Characters';
 import Profile from '@/pages/Profile';
+import SceneDetail from '@/pages/SceneDetail';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -48,6 +49,7 @@ function App() {
           <Route path="/realms" element={<Realms />} />
           <Route path="/realms/:realmId" element={<RealmDetail />} />
           <Route path="/characters" element={<Characters />} />
+          <Route path="/scenes/:sceneId" element={<SceneDetail />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
       </Routes>

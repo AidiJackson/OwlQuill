@@ -34,6 +34,7 @@ class Realm(RealmBase):
     """Realm schema."""
     id: int
     owner_id: int
+    is_commons: bool = False
     created_at: datetime
     updated_at: datetime
 

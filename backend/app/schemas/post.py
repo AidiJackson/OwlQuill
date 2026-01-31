@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from app.models.post import ContentTypeEnum
+from app.models.post import ContentTypeEnum, PostKindEnum
 
 
 class PostBase(BaseModel):
@@ -11,6 +11,7 @@ class PostBase(BaseModel):
     title: Optional[str] = None
     content: str = Field(..., min_length=1)
     content_type: ContentTypeEnum = ContentTypeEnum.IC
+    post_kind: PostKindEnum = PostKindEnum.GENERAL
     character_id: Optional[int] = None
 
 
@@ -31,6 +32,7 @@ class Post(PostBase):
     id: int
     realm_id: Optional[int] = None
     author_user_id: int
+    author_username: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

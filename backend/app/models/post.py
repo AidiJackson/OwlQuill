@@ -14,6 +14,13 @@ class ContentTypeEnum(str, enum.Enum):
     NARRATION = "narration"
 
 
+class PostKindEnum(str, enum.Enum):
+    """Post kind / purpose."""
+    GENERAL = "general"
+    OPEN_STARTER = "open_starter"
+    FINISHED_PIECE = "finished_piece"
+
+
 class Post(Base):
     """Post model for story snippets and scenes."""
 
@@ -26,6 +33,7 @@ class Post(Base):
     title = Column(String, nullable=True)
     content = Column(Text, nullable=False)
     content_type = Column(SQLEnum(ContentTypeEnum), default=ContentTypeEnum.IC, nullable=False)
+    post_kind = Column(String, default="general", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -35,3 +43,10 @@ class Post(Base):
     character = relationship("Character", back_populates="posts")
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     reactions = relationship("Reaction", back_populates="post", cascade="all, delete-orphan")
+
+    @property
+    def author_username(self) -> str | None:
+        """Return the author's username for OOC attribution."""
+        if self.author_user:
+            return self.author_user.username
+        return None

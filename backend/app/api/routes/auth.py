@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.core.dependencies import get_current_user
+from app.core.admin_seed import auto_join_commons
 from app.models.user import User as UserModel
 from app.schemas.user import UserCreate, User, Token, LoginRequest
 
@@ -47,6 +48,9 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+
+    # Auto-join The Commons
+    auto_join_commons(db_user.id, db)
 
     return db_user
 

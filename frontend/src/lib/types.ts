@@ -40,6 +40,7 @@ export interface Realm {
   genre?: string;
   banner_url?: string;
   is_public: boolean;
+  is_commons?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -48,10 +49,12 @@ export interface Post {
   id: number;
   realm_id?: number;
   author_user_id: number;
+  author_username?: string;
   character_id?: number;
   title?: string;
   content: string;
   content_type: 'ic' | 'ooc' | 'narration';
+  post_kind?: 'general' | 'open_starter' | 'finished_piece';
   created_at: string;
   updated_at: string;
 }
@@ -62,6 +65,7 @@ export interface Comment {
   author_user_id: number;
   character_id?: number;
   content: string;
+  content_type?: 'ic' | 'ooc' | 'narration';
   created_at: string;
   updated_at: string;
 }
@@ -77,4 +81,31 @@ export interface Reaction {
 export interface Token {
   access_token: string;
   token_type: string;
+}
+
+// Scenes
+export type SceneVisibility = 'PUBLIC' | 'UNLISTED' | 'PRIVATE';
+
+export interface Scene {
+  id: number;
+  realm_id?: number;
+  title: string;
+  description?: string;
+  visibility: SceneVisibility;
+  created_by_user_id: number;
+  created_at: string;
+  updated_at: string;
+  post_count: number;
+}
+
+export interface ScenePost {
+  id: number;
+  scene_id: number;
+  author_user_id: number;
+  author_username?: string;
+  character_id?: number;
+  character_name?: string;
+  content: string;
+  reply_to_id?: number;
+  created_at: string;
 }

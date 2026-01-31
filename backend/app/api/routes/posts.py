@@ -1,13 +1,14 @@
 """Post routes."""
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.admin_seed import auto_join_commons
 from app.models.user import User
 from app.models.post import Post as PostModel
-from app.models.realm import RealmMembership as RealmMembershipModel
+from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
 from app.schemas.post import Post, PostCreate
 
 router = APIRouter()
@@ -21,6 +22,9 @@ def get_feed(
     db: Session = Depends(get_db)
 ) -> List[Post]:
     """Get feed of posts from realms the user is a member of."""
+    # Fallback: ensure user is a member of The Commons
+    auto_join_commons(current_user.id, db)
+
     # Get all realm IDs where user is a member
     memberships = db.query(RealmMembershipModel).filter(
         RealmMembershipModel.user_id == current_user.id
@@ -29,11 +33,12 @@ def get_feed(
     realm_ids = [m.realm_id for m in memberships]
 
     if not realm_ids:
-        # User is not a member of any realms, return empty list
         return []
 
-    # Get posts from those realms
-    posts = db.query(PostModel).filter(
+    # Get posts from those realms, eager-load author for username
+    posts = db.query(PostModel).options(
+        selectinload(PostModel.author_user)
+    ).filter(
         PostModel.realm_id.in_(realm_ids)
     ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
 
@@ -79,7 +84,9 @@ def list_realm_posts(
     db: Session = Depends(get_db)
 ) -> List[Post]:
     """List posts in a realm."""
-    posts = db.query(PostModel).filter(
+    posts = db.query(PostModel).options(
+        selectinload(PostModel.author_user)
+    ).filter(
         PostModel.realm_id == realm_id
     ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
     return posts
@@ -91,7 +98,9 @@ def get_post(
     db: Session = Depends(get_db)
 ) -> Post:
     """Get a single post."""
-    post = db.query(PostModel).filter(PostModel.id == post_id).first()
+    post = db.query(PostModel).options(
+        selectinload(PostModel.author_user)
+    ).filter(PostModel.id == post_id).first()
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
