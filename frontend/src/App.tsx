@@ -9,6 +9,7 @@ import Realms from '@/pages/Realms';
 import RealmDetail from '@/pages/RealmDetail';
 import Characters from '@/pages/Characters';
 import Profile from '@/pages/Profile';
+import UserProfile from '@/pages/UserProfile';
 import SceneDetail from '@/pages/SceneDetail';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -50,6 +51,7 @@ function App() {
           <Route path="/realms/:realmId" element={<RealmDetail />} />
           <Route path="/characters" element={<Characters />} />
           <Route path="/scenes/:sceneId" element={<SceneDetail />} />
+          <Route path="/u/:username" element={<UserProfile />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
       </Routes>
