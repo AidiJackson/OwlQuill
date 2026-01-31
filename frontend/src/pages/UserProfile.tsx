@@ -90,109 +90,121 @@ export default function UserProfile() {
 
   return (
     <div className="min-h-screen">
-      <div className="relative h-80 sm:h-96 w-full overflow-hidden bg-gradient-to-br from-owl-600/30 via-owl-900/40 to-gray-900">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-gray-950/90" />
+      {/* ── Cover Banner ── */}
+      <div className="relative h-72 sm:h-80 md:h-96 w-full overflow-hidden bg-gradient-to-br from-owl-600/30 via-owl-900/40 to-gray-900">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-gray-950/95" />
+
+        {/* Avatar — right-aligned in cover zone */}
+        <div className="absolute bottom-0 right-6 sm:right-10 translate-y-1/3 z-20">
+          <div className="relative">
+            <div className="w-40 h-40 sm:w-44 sm:h-44 md:w-48 md:h-48 rounded-full ring-[5px] ring-gray-950 shadow-[0_0_40px_rgba(139,92,246,0.25)] overflow-hidden bg-gray-800">
+              <div className="absolute inset-[5px] rounded-full ring-2 ring-owl-500/40 z-10 pointer-events-none" />
+              {profile.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt={`${displayName}'s avatar`}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-5xl font-bold text-white/80 bg-gradient-to-br from-owl-500 to-owl-700">
+                  {profile.username.charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+            {isOwnProfile && (
+              <button className="absolute bottom-3 right-3 w-10 h-10 rounded-full bg-owl-600 hover:bg-owl-500 shadow-lg shadow-owl-600/30 flex items-center justify-center transition-colors z-20 ring-2 ring-gray-950">
+                <Camera className="w-4 h-4 text-white" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Edit Cover — top-right so it doesn't clash with avatar */}
         {isOwnProfile && (
-          <button className="absolute bottom-4 right-4 glass-strong border border-white/20 text-white hover:bg-white/20 px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-colors">
-            <Camera className="w-4 h-4" />
+          <button className="absolute top-4 right-4 glass border border-white/20 text-white/80 hover:text-white hover:bg-white/20 px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs transition-colors z-20">
+            <Camera className="w-3.5 h-3.5" />
             Edit Cover
           </button>
         )}
       </div>
 
-      <div className="max-w-4xl mx-auto px-6">
-        <div className="relative -mt-20 mb-6">
-          <div className="flex justify-end mb-2">
-            <div className="relative">
-              <div className="w-36 h-36 sm:w-40 sm:h-40 rounded-full ring-4 ring-gray-950 shadow-2xl overflow-hidden bg-gray-800">
-                {profile.avatar_url ? (
-                  <img
-                    src={profile.avatar_url}
-                    alt={`${displayName}'s avatar`}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-5xl font-bold text-gray-500 bg-gradient-to-br from-owl-500 to-owl-700">
-                    {profile.username.charAt(0).toUpperCase()}
+      {/* ── Unified Profile Bar ── */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6">
+        <div className="relative -mt-6 mb-6">
+          <div className="glass-strong rounded-2xl border border-white/[0.06] overflow-hidden">
+            {/* Top section: identity + actions */}
+            <div className="px-6 sm:px-8 pt-6 sm:pt-8 pb-5">
+              <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                {/* Left: name, handle, bio, tags, meta */}
+                <div className="flex-1 min-w-0 pr-0 sm:pr-48 md:pr-56">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-white truncate">
+                    {displayName}
+                  </h1>
+                  <p className="text-white/50 text-sm mt-0.5">@{profile.username}</p>
+
+                  {profile.bio && (
+                    <p className="text-white/80 text-sm leading-relaxed mt-3 whitespace-pre-wrap line-clamp-3">
+                      {profile.bio}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {['Fantasy', 'Dark Academia', 'Romance'].map((focus, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-owl-600/15 text-owl-400 border border-owl-500/20 rounded-full text-xs"
+                      >
+                        <Feather className="w-3 h-3" />
+                        {focus}
+                      </span>
+                    ))}
                   </div>
-                )}
-              </div>
-              {isOwnProfile && (
-                <button className="absolute bottom-2 right-2 w-11 h-11 rounded-full bg-owl-600 hover:bg-owl-700 shadow-lg flex items-center justify-center transition-colors">
-                  <Camera className="w-5 h-5 text-white" />
-                </button>
-              )}
-            </div>
-          </div>
 
-          <div className="glass-strong rounded-2xl p-8">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6 mb-6">
-              <div className="flex-1">
-                <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">
-                  {displayName}
-                </h1>
-                <p className="text-white/60 mb-4">@{profile.username}</p>
-
-                {profile.bio && (
-                  <p className="text-white/90 mb-5 max-w-2xl leading-relaxed whitespace-pre-wrap">
-                    {profile.bio}
-                  </p>
-                )}
-
-                <div className="flex flex-wrap gap-2 mb-5">
-                  {['Fantasy', 'Dark Academia', 'Romance'].map((focus, idx) => (
-                    <span
-                      key={idx}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-owl-600/20 text-owl-400 border border-owl-500/30 rounded-full text-sm hover:bg-owl-600/30 transition-colors"
-                    >
-                      <Feather className="w-3 h-3" />
-                      {focus}
+                  <div className="flex items-center gap-5 mt-3 text-xs text-white/50">
+                    <span className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5" />
+                      Creative Realm
                     </span>
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-6 text-sm text-white/60">
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4" />
-                    <span>Creative Realm</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    <span>Joined {joinDate}</span>
+                    <span className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5" />
+                      Joined {joinDate}
+                    </span>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex gap-3 flex-shrink-0">
-                {isOwnProfile ? (
-                  <button
-                    onClick={() => navigate('/profile')}
-                    className="btn btn-secondary flex items-center gap-2"
-                  >
-                    Edit Profile
-                  </button>
-                ) : (
-                  <>
-                    <button className="btn btn-secondary flex items-center gap-2">
-                      <MessageCircle className="w-4 h-4" />
-                      Message
+                {/* Right: action buttons */}
+                <div className="flex gap-2 flex-shrink-0 sm:mt-1">
+                  {isOwnProfile ? (
+                    <button
+                      onClick={() => navigate('/profile')}
+                      className="btn btn-secondary text-sm flex items-center gap-2"
+                    >
+                      Edit Profile
                     </button>
-                    <button className="btn btn-primary flex items-center gap-2 glow-hover">
-                      <Heart className="w-4 h-4" />
-                      Follow
-                    </button>
-                    <button className="btn btn-secondary p-2.5">
-                      <Share2 className="w-4 h-4" />
-                    </button>
-                  </>
-                )}
+                  ) : (
+                    <>
+                      <button className="btn btn-secondary text-sm flex items-center gap-1.5">
+                        <MessageCircle className="w-4 h-4" />
+                        Message
+                      </button>
+                      <button className="btn btn-primary text-sm flex items-center gap-1.5 glow-hover">
+                        <Heart className="w-4 h-4" />
+                        Follow
+                      </button>
+                      <button className="btn btn-secondary p-2">
+                        <Share2 className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-8 pt-6 border-t border-white/10">
+            {/* Stats row */}
+            <div className="px-6 sm:px-8 py-3 border-t border-white/[0.06] flex items-center gap-8">
               {[
                 { label: 'Posts', value: stats.posts },
                 { label: 'Characters', value: stats.characters },
@@ -203,24 +215,25 @@ export default function UserProfile() {
                   key={stat.label}
                   className="text-center hover:opacity-80 transition-opacity"
                 >
-                  <div className="text-xl font-semibold text-white mb-1">
+                  <span className="text-lg font-semibold text-white">
                     {stat.value.toLocaleString()}
-                  </div>
-                  <div className="text-white/60 text-sm">{stat.label}</div>
+                  </span>
+                  <span className="text-white/50 text-sm ml-1.5">{stat.label}</span>
                 </button>
               ))}
             </div>
 
-            <div className="mt-6 glass rounded-xl p-1">
+            {/* Tabs */}
+            <div className="px-6 sm:px-8 py-2 border-t border-white/[0.06]">
               <div className="flex gap-1">
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
+                    className={`py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
                       activeTab === tab.id
-                        ? 'bg-owl-600 text-white'
-                        : 'text-white/60 hover:text-white hover:bg-white/10'
+                        ? 'bg-owl-600 text-white shadow-sm shadow-owl-600/20'
+                        : 'text-white/50 hover:text-white hover:bg-white/10'
                     }`}
                   >
                     {tab.label}
