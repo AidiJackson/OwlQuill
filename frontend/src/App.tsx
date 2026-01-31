@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
 import Layout from '@/components/Layout';
+import ProfileLayout from '@/components/Profile/ProfileLayout';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import Home from '@/pages/Home';
@@ -51,8 +52,17 @@ function App() {
           <Route path="/realms/:realmId" element={<RealmDetail />} />
           <Route path="/characters" element={<Characters />} />
           <Route path="/scenes/:sceneId" element={<SceneDetail />} />
-          <Route path="/u/:username" element={<UserProfile />} />
           <Route path="/profile" element={<Profile />} />
+        </Route>
+
+        <Route
+          element={
+            <ProtectedRoute>
+              <ProfileLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/u/:username" element={<UserProfile />} />
         </Route>
       </Routes>
     </BrowserRouter>

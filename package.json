@@ -1,0 +1,16 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "> A roleplay-first social network for creative storytellers and character enthusiasts",
+  "main": "index.js",
+  "dependencies": {
+    "lucide-react": "^0.563.0",
+    "undici-types": "^7.16.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

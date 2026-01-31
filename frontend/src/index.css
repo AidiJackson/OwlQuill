@@ -32,4 +32,20 @@
   .textarea {
     @apply w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-owl-600 min-h-[100px];
   }
+
+  .glass {
+    @apply bg-gray-900/80 backdrop-blur-md;
+  }
+
+  .glass-strong {
+    @apply bg-gray-900/90 backdrop-blur-xl;
+  }
+
+  .gradient-primary {
+    @apply bg-gradient-to-r from-owl-500 to-owl-700;
+  }
+
+  .glow-hover {
+    @apply hover:shadow-lg hover:shadow-owl-500/25 transition-shadow;
+  }
 }
