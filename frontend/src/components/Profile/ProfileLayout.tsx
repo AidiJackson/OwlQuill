@@ -16,10 +16,10 @@ export default function ProfileLayout() {
   const user = useAuthStore((s) => s.user);
 
   return (
-    <div className="min-h-screen bg-gray-950 relative">
-      <div className="fixed inset-0 bg-gradient-to-br from-gray-950 via-gray-900 to-owl-900/20 pointer-events-none" />
+    <div className="min-h-screen bg-gray-950">
+      <div className="fixed inset-0 bg-gradient-to-br from-gray-950 via-gray-900 to-owl-900/20 pointer-events-none z-0" />
 
-      <div className="fixed top-0 left-0 right-0 z-50 glass-strong border-b border-white/10 shadow-lg shadow-gray-950/50">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-gray-950/[0.97] backdrop-blur-xl border-b border-white/10 shadow-lg shadow-gray-950/50">
         <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <button
@@ -70,9 +70,9 @@ export default function ProfileLayout() {
             )}
           </div>
         </div>
-      </div>
+      </header>
 
-      <main className="relative z-10 pt-16">
+      <main className="relative z-10 pt-[60px]">
         <Outlet />
       </main>
     </div>

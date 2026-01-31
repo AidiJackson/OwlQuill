@@ -90,14 +90,25 @@ export default function UserProfile() {
 
   return (
     <div className="min-h-screen">
-      {/* ── Cover Banner ── */}
-      <div className="relative h-72 sm:h-80 md:h-96 w-full overflow-hidden bg-gradient-to-br from-owl-600/30 via-owl-900/40 to-gray-900">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-gray-950/95" />
+      {/* ── Hero zone (overflow-visible so avatar is never clipped) ── */}
+      <div className="relative">
+        {/* Cover gradient — overflow-hidden is safe here, avatar lives outside */}
+        <div className="h-64 sm:h-72 md:h-80 w-full overflow-hidden bg-gradient-to-br from-owl-600/30 via-owl-900/40 to-gray-900">
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-gray-950/95" />
 
-        {/* Avatar — right-aligned in cover zone */}
-        <div className="absolute bottom-0 right-6 sm:right-10 translate-y-1/3 z-20">
+          {/* Edit Cover — top-right of cover, above avatar */}
+          {isOwnProfile && (
+            <button className="absolute top-4 right-4 glass border border-white/20 text-white/80 hover:text-white hover:bg-white/20 px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs transition-colors z-20">
+              <Camera className="w-3.5 h-3.5" />
+              Edit Cover
+            </button>
+          )}
+        </div>
+
+        {/* Avatar — positioned relative to hero zone, outside overflow-hidden cover */}
+        <div className="absolute bottom-0 right-6 sm:right-10 md:right-16 translate-y-1/2 z-30">
           <div className="relative">
-            <div className="w-40 h-40 sm:w-44 sm:h-44 md:w-48 md:h-48 rounded-full ring-[5px] ring-gray-950 shadow-[0_0_40px_rgba(139,92,246,0.25)] overflow-hidden bg-gray-800">
+            <div className="w-36 h-36 sm:w-40 sm:h-40 md:w-48 md:h-48 rounded-full ring-[5px] ring-gray-950 shadow-[0_0_40px_rgba(139,92,246,0.25)] overflow-hidden bg-gray-800">
               <div className="absolute inset-[5px] rounded-full ring-2 ring-owl-500/40 z-10 pointer-events-none" />
               {profile.avatar_url ? (
                 <img
@@ -121,129 +132,121 @@ export default function UserProfile() {
             )}
           </div>
         </div>
-
-        {/* Edit Cover — top-right so it doesn't clash with avatar */}
-        {isOwnProfile && (
-          <button className="absolute top-4 right-4 glass border border-white/20 text-white/80 hover:text-white hover:bg-white/20 px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs transition-colors z-20">
-            <Camera className="w-3.5 h-3.5" />
-            Edit Cover
-          </button>
-        )}
       </div>
 
-      {/* ── Unified Profile Bar ── */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6">
-        <div className="relative -mt-6 mb-6">
-          <div className="glass-strong rounded-2xl border border-white/[0.06] overflow-hidden">
-            {/* Top section: identity + actions */}
-            <div className="px-6 sm:px-8 pt-6 sm:pt-8 pb-5">
-              <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                {/* Left: name, handle, bio, tags, meta */}
-                <div className="flex-1 min-w-0 pr-0 sm:pr-48 md:pr-56">
-                  <h1 className="text-2xl sm:text-3xl font-bold text-white truncate">
-                    {displayName}
-                  </h1>
-                  <p className="text-white/50 text-sm mt-0.5">@{profile.username}</p>
+      {/* ── Full-width Profile Bar ── */}
+      <div className="relative z-10 bg-gray-900/[0.92] backdrop-blur-xl border-b border-white/[0.06]">
+        {/* Identity + actions */}
+        <div className="max-w-6xl mx-auto px-6 pt-6 pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+            <div className="flex-1 min-w-0 pr-0 sm:pr-44 md:pr-56">
+              <h1 className="text-2xl sm:text-3xl font-bold text-white truncate">
+                {displayName}
+              </h1>
+              <p className="text-white/50 text-sm mt-0.5">@{profile.username}</p>
 
-                  {profile.bio && (
-                    <p className="text-white/80 text-sm leading-relaxed mt-3 whitespace-pre-wrap line-clamp-3">
-                      {profile.bio}
-                    </p>
-                  )}
+              {profile.bio && (
+                <p className="text-white/80 text-sm leading-relaxed mt-3 whitespace-pre-wrap line-clamp-3">
+                  {profile.bio}
+                </p>
+              )}
 
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {['Fantasy', 'Dark Academia', 'Romance'].map((focus, idx) => (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-owl-600/15 text-owl-400 border border-owl-500/20 rounded-full text-xs"
-                      >
-                        <Feather className="w-3 h-3" />
-                        {focus}
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center gap-5 mt-3 text-xs text-white/50">
-                    <span className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5" />
-                      Creative Realm
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5" />
-                      Joined {joinDate}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Right: action buttons */}
-                <div className="flex gap-2 flex-shrink-0 sm:mt-1">
-                  {isOwnProfile ? (
-                    <button
-                      onClick={() => navigate('/profile')}
-                      className="btn btn-secondary text-sm flex items-center gap-2"
-                    >
-                      Edit Profile
-                    </button>
-                  ) : (
-                    <>
-                      <button className="btn btn-secondary text-sm flex items-center gap-1.5">
-                        <MessageCircle className="w-4 h-4" />
-                        Message
-                      </button>
-                      <button className="btn btn-primary text-sm flex items-center gap-1.5 glow-hover">
-                        <Heart className="w-4 h-4" />
-                        Follow
-                      </button>
-                      <button className="btn btn-secondary p-2">
-                        <Share2 className="w-4 h-4" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Stats row */}
-            <div className="px-6 sm:px-8 py-3 border-t border-white/[0.06] flex items-center gap-8">
-              {[
-                { label: 'Posts', value: stats.posts },
-                { label: 'Characters', value: stats.characters },
-                { label: 'Realms', value: stats.realms },
-                { label: 'Followers', value: stats.followers },
-              ].map((stat) => (
-                <button
-                  key={stat.label}
-                  className="text-center hover:opacity-80 transition-opacity"
-                >
-                  <span className="text-lg font-semibold text-white">
-                    {stat.value.toLocaleString()}
-                  </span>
-                  <span className="text-white/50 text-sm ml-1.5">{stat.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Tabs */}
-            <div className="px-6 sm:px-8 py-2 border-t border-white/[0.06]">
-              <div className="flex gap-1">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-                      activeTab === tab.id
-                        ? 'bg-owl-600 text-white shadow-sm shadow-owl-600/20'
-                        : 'text-white/50 hover:text-white hover:bg-white/10'
-                    }`}
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {['Fantasy', 'Dark Academia', 'Romance'].map((focus, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-owl-600/15 text-owl-400 border border-owl-500/20 rounded-full text-xs"
                   >
-                    {tab.label}
-                  </button>
+                    <Feather className="w-3 h-3" />
+                    {focus}
+                  </span>
                 ))}
               </div>
+
+              <div className="flex items-center gap-5 mt-3 text-xs text-white/50">
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5" />
+                  Creative Realm
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5" />
+                  Joined {joinDate}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 flex-shrink-0 sm:mt-1">
+              {isOwnProfile ? (
+                <button
+                  onClick={() => navigate('/profile')}
+                  className="btn btn-secondary text-sm flex items-center gap-2"
+                >
+                  Edit Profile
+                </button>
+              ) : (
+                <>
+                  <button className="btn btn-secondary text-sm flex items-center gap-1.5">
+                    <MessageCircle className="w-4 h-4" />
+                    Message
+                  </button>
+                  <button className="btn btn-primary text-sm flex items-center gap-1.5 glow-hover">
+                    <Heart className="w-4 h-4" />
+                    Follow
+                  </button>
+                  <button className="btn btn-secondary p-2">
+                    <Share2 className="w-4 h-4" />
+                  </button>
+                </>
+              )}
             </div>
           </div>
+        </div>
 
-          <div className="pb-12 mt-6">
+        {/* Stats row */}
+        <div className="border-t border-white/[0.06]">
+          <div className="max-w-6xl mx-auto px-6 py-3 flex items-center gap-8">
+            {[
+              { label: 'Posts', value: stats.posts },
+              { label: 'Characters', value: stats.characters },
+              { label: 'Realms', value: stats.realms },
+              { label: 'Followers', value: stats.followers },
+            ].map((stat) => (
+              <button
+                key={stat.label}
+                className="text-center hover:opacity-80 transition-opacity"
+              >
+                <span className="text-lg font-semibold text-white">
+                  {stat.value.toLocaleString()}
+                </span>
+                <span className="text-white/50 text-sm ml-1.5">{stat.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tabs — part of the same bar */}
+        <div className="border-t border-white/[0.06]">
+          <div className="max-w-6xl mx-auto px-6 py-2 flex gap-1">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-owl-600 text-white shadow-sm shadow-owl-600/20'
+                    : 'text-white/50 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tab Content ── */}
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="pb-12 mt-6">
             {activeTab === 'timeline' && (
               <div className="space-y-6">
                 {timeline.length === 0 ? (
@@ -308,7 +311,6 @@ export default function UserProfile() {
           </div>
         </div>
       </div>
-    </div>
   );
 }
 
