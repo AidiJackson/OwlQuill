@@ -109,3 +109,22 @@ export interface ScenePost {
   reply_to_id?: number;
   created_at: string;
 }
+
+// Profile
+
+export interface PublicUserProfile {
+  id: number;
+  username: string;
+  display_name?: string;
+  bio?: string;
+  avatar_url?: string;
+  created_at: string;
+}
+
+export interface ProfileTimelineItem {
+  type: 'post' | 'scene';
+  created_at: string;
+  realm_id?: number;
+  realm_name?: string;
+  payload: Record<string, unknown>;
+}

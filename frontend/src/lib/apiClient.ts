@@ -1,4 +1,4 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token, Scene, ScenePost } from './types';
+import type { User, Character, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -78,6 +78,14 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+  }
+
+  async getUserProfile(username: string): Promise<PublicUserProfile> {
+    return this.request<PublicUserProfile>(`/users/${encodeURIComponent(username)}`);
+  }
+
+  async getUserTimeline(username: string, limit = 20): Promise<ProfileTimelineItem[]> {
+    return this.request<ProfileTimelineItem[]>(`/users/${encodeURIComponent(username)}/timeline?limit=${limit}`);
   }
 
   // Characters
