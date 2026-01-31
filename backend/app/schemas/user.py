@@ -55,3 +55,25 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     """Token payload schema."""
     user_id: Optional[int] = None
+
+# --- Profile / Public schemas ---
+
+class PublicUserProfile(BaseModel):
+    """Public-facing user profile (no email)."""
+    id: int
+    username: str
+    display_name: Optional[str] = None
+    bio: Optional[str] = None
+    avatar_url: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ProfileTimelineItem(BaseModel):
+    """Mixed timeline item for a user's profile."""
+    type: str  # "post" | "scene"
+    created_at: datetime
+    realm_id: Optional[int] = None
+    realm_name: Optional[str] = None
+    payload: dict
