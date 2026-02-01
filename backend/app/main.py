@@ -9,7 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
-from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes
+from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual
 
 
 @asynccontextmanager
@@ -55,6 +55,7 @@ app.include_router(comments.router, prefix="/comments", tags=["comments"])
 app.include_router(reactions.router, prefix="/reactions", tags=["reactions"])
 app.include_router(ai.router, prefix="/ai", tags=["ai"])
 app.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
+app.include_router(character_visual.router, prefix="/characters", tags=["character-visual"])
 
 # Mirror all routes under /api/* prefix
 api_router = APIRouter(prefix="/api")
@@ -67,6 +68,7 @@ api_router.include_router(comments.router, prefix="/comments", tags=["comments"]
 api_router.include_router(reactions.router, prefix="/reactions", tags=["reactions"])
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
+api_router.include_router(character_visual.router, prefix="/characters", tags=["character-visual"])
 app.include_router(api_router)
 
 

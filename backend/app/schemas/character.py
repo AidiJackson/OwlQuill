@@ -47,6 +47,7 @@ class Character(CharacterBase):
     """Character schema."""
     id: int
     owner_id: int
+    visual_locked: bool = False
     created_at: datetime
     updated_at: datetime
 
