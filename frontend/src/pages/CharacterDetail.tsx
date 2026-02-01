@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Globe, Users, Lock, Feather } from 'lucide-react';
+import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
+import { generateMomentImage, resolveImageUrl } from '@/features/characterCreation/shared/api';
+import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 
 const VISIBILITY_ICONS = {
   public: Globe,
@@ -20,6 +22,24 @@ export default function CharacterDetail() {
   const [error, setError] = useState('');
 
   const justCreated = searchParams.get('created') === '1';
+
+  const [momentImage, setMomentImage] = useState<CharacterImageRead | null>(null);
+  const [momentLoading, setMomentLoading] = useState(false);
+  const [momentError, setMomentError] = useState('');
+
+  const handleGenerateMoment = async () => {
+    if (!id) return;
+    setMomentLoading(true);
+    setMomentError('');
+    try {
+      const img = await generateMomentImage(Number(id), {});
+      setMomentImage(img);
+    } catch (err) {
+      setMomentError(err instanceof Error ? err.message : 'Could not generate image.');
+    } finally {
+      setMomentLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -140,6 +160,51 @@ export default function CharacterDetail() {
                 {tag.trim()}
               </span>
             ))}
+          </div>
+        )}
+
+        {/* Moment generation (post-lock) */}
+        {character.visual_locked && (
+          <div className="border-t border-gray-800 pt-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-gray-300">New moment</h2>
+              <button
+                className="btn btn-primary text-sm flex items-center gap-2"
+                onClick={handleGenerateMoment}
+                disabled={momentLoading}
+              >
+                {momentLoading ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Generating…
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    Generate new moment
+                  </>
+                )}
+              </button>
+            </div>
+
+            {momentError && (
+              <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2">
+                {momentError}
+              </p>
+            )}
+
+            {momentImage && (
+              <div className="rounded-lg overflow-hidden border border-gray-800 bg-gray-900 inline-block">
+                <img
+                  src={resolveImageUrl(momentImage.url)}
+                  alt="Latest moment"
+                  className="max-w-xs w-full"
+                />
+                <div className="px-3 py-2">
+                  <span className="text-xs text-gray-400">Latest moment</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
