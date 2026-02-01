@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Share2,
   BookOpen,
+  UserPlus,
 } from 'lucide-react';
 
 type Tab = 'timeline' | 'stories' | 'media' | 'mentions';
@@ -50,8 +51,8 @@ export default function UserProfile() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-owl-500/30 border-t-owl-500 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400">Loading profile...</p>
+          <div className="w-12 h-12 border-4 border-quill-500/30 border-t-quill-500 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-[#E8ECEF]/60">Loading profile...</p>
         </div>
       </div>
     );
@@ -60,7 +61,7 @@ export default function UserProfile() {
   if (error || !profile) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center">
-        <p className="text-gray-400 mb-4">{error || 'User not found'}</p>
+        <p className="text-[#E8ECEF]/60 mb-4">{error || 'User not found'}</p>
         <button onClick={() => navigate('/')} className="btn btn-secondary">
           Go Home
         </button>
@@ -89,36 +90,33 @@ export default function UserProfile() {
   ];
 
   return (
-    <div className="min-h-screen">
-      {/* === PROFILE COMMAND DASHBOARD === */}
-      <div className="w-full">
+    <div className="min-h-screen bg-[#0F1419]">
+      {/* === HERO SECTION — cover fills behind the fixed nav === */}
+      <div className="relative h-[380px] sm:h-[440px] md:h-[500px] w-full overflow-hidden bg-gradient-to-br from-quill-700 via-quill-600 to-quill-500">
+        {/* Gradient Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#1A1D23]/30 via-transparent to-[#1A1D23]/90" />
 
-        {/* Cover Section -- overflow-visible parent so avatar is never clipped */}
-        <section className="relative">
-          {/* Cover image/gradient -- overflow-hidden only on this inner div */}
-          <div className="h-56 sm:h-64 md:h-72 w-full overflow-hidden bg-gradient-to-br from-owl-600/30 via-owl-900/40 to-gray-900">
-            {/* Bottom fade seamlessly into the info bar */}
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-gray-900" />
-          </div>
+        {/* Subtle Pattern Overlay */}
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          }}
+        />
 
-          {/* Edit Cover -- inside cover area, top-right */}
+        {/* Hero Right: Avatar with Edit Cover above / Edit Profile below */}
+        <div className="absolute right-4 sm:right-8 md:right-12 top-1/2 -translate-y-1/2 pt-[36px] z-20 flex flex-col items-center gap-3 sm:gap-4">
           {isOwnProfile && (
-            <button className="absolute top-4 right-4 z-30 glass border border-white/20 text-white/80 hover:text-white hover:bg-white/20 px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs transition-colors">
-              <Camera className="w-3.5 h-3.5" />
-              Edit Cover
+            <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl">
+              <Camera className="w-4 h-4" />
+              <span className="hidden sm:inline">Edit Cover</span>
             </button>
           )}
 
-          {/* Avatar -- right-aligned, straddles cover/bar boundary */}
-          <div className="absolute bottom-0 right-6 sm:right-10 md:right-16 translate-y-1/2 z-30">
-            <div className="relative">
-              <div
-                className="w-32 h-32 sm:w-40 sm:h-40 md:w-44 md:h-44 rounded-full
-                  ring-[5px] ring-gray-900
-                  shadow-[0_0_50px_rgba(139,92,246,0.3),0_0_100px_rgba(139,92,246,0.1)]
-                  overflow-hidden bg-gray-800"
-              >
-                <div className="absolute inset-[5px] rounded-full ring-2 ring-owl-400/40 z-10 pointer-events-none" />
+          {/* Avatar with premium frame */}
+          <div className="relative">
+            <div className="w-28 h-28 sm:w-36 sm:h-36 md:w-44 md:h-44 rounded-2xl bg-gradient-to-br from-quill-500 to-quill-700 p-1 sm:p-1.5 shadow-2xl shadow-quill-700/40">
+              <div className="w-full h-full rounded-xl overflow-hidden ring-4 ring-[#1A1D23]/40 bg-[#2D3139]">
                 {profile.avatar_url ? (
                   <img
                     src={profile.avatar_url}
@@ -129,192 +127,212 @@ export default function UserProfile() {
                     }}
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-4xl sm:text-5xl font-bold text-white/80 bg-gradient-to-br from-owl-500 to-owl-700">
+                  <div className="w-full h-full flex items-center justify-center text-3xl sm:text-4xl md:text-5xl font-bold text-white/80 bg-gradient-to-br from-quill-500 to-quill-700">
                     {profile.username.charAt(0).toUpperCase()}
                   </div>
                 )}
               </div>
-              {isOwnProfile && (
-                <button className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-owl-600 hover:bg-owl-500 shadow-lg shadow-owl-600/30 flex items-center justify-center transition-colors z-20 ring-2 ring-gray-900">
-                  <Camera className="w-4 h-4 text-white" />
-                </button>
-              )}
             </div>
+            {isOwnProfile && (
+              <button className="absolute -bottom-1 -right-1 sm:bottom-1 sm:right-1 w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-quill-500 hover:bg-quill-400 shadow-lg shadow-quill-500/30 flex items-center justify-center transition-all border border-white/10">
+                <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+              </button>
+            )}
           </div>
-        </section>
 
-        {/* === UNIFIED INFO BAR === */}
-        <section className="w-full bg-gray-900 border-b border-white/[0.08]">
-          <div className="max-w-6xl mx-auto px-6">
+          {isOwnProfile && (
+            <button
+              onClick={() => navigate('/profile')}
+              className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
+            >
+              <span className="hidden sm:inline">Edit Profile</span>
+              <span className="sm:hidden">Edit</span>
+            </button>
+          )}
+        </div>
 
-            {/* Row 1: Identity + Actions */}
-            <div className="pt-5 pb-4 flex flex-col sm:flex-row sm:items-start gap-4">
-              <div className="flex-1 min-w-0 pr-0 sm:pr-48 md:pr-56">
-                <h1 className="text-2xl sm:text-3xl font-bold text-white truncate">
-                  {displayName}
-                </h1>
-                <p className="text-white/50 text-sm mt-0.5">@{profile.username}</p>
+        {/* Profile Info Bar — anchored to bottom of cover */}
+        <div className="absolute bottom-0 left-0 right-0 z-10">
+          <div className="max-w-[1400px] mx-auto px-4 sm:px-8">
+            <div className="pb-6 sm:pb-8">
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 sm:gap-8">
+                {/* Left: Name, Stats, Tabs — right padding reserves space for the avatar group */}
+                <div className="flex-1 min-w-0 pr-36 sm:pr-48 md:pr-56">
+                  <div className="mb-3 sm:mb-4">
+                    <h1 className="text-xl sm:text-2xl md:text-[32px] font-bold text-white tracking-tight truncate">
+                      {displayName}
+                    </h1>
+                    <p className="text-[#E8ECEF]/60 text-sm sm:text-base md:text-lg mt-0.5">
+                      @{profile.username}
+                    </p>
+                  </div>
 
-                {profile.bio && (
-                  <p className="text-white/80 text-sm leading-relaxed mt-3 whitespace-pre-wrap line-clamp-3">
-                    {profile.bio}
-                  </p>
-                )}
+                  {/* Stats Row */}
+                  <div className="flex flex-wrap items-center gap-4 sm:gap-6 md:gap-8 mb-3 sm:mb-6">
+                    {[
+                      { label: 'Posts', value: stats.posts },
+                      { label: 'Characters', value: stats.characters },
+                      { label: 'Realms', value: stats.realms },
+                      { label: 'Followers', value: stats.followers },
+                    ].map((stat) => (
+                      <button
+                        key={stat.label}
+                        className="flex items-baseline gap-1 sm:gap-2 hover:opacity-80 transition-opacity"
+                      >
+                        <span className="text-base sm:text-lg md:text-xl font-semibold text-white tracking-tight">
+                          {stat.value.toLocaleString()}
+                        </span>
+                        <span className="text-[#E8ECEF]/60 text-xs sm:text-sm">
+                          {stat.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
 
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {['Fantasy', 'Dark Academia', 'Romance'].map((focus, idx) => (
-                    <span
-                      key={idx}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-owl-600/15 text-owl-400 border border-owl-500/20 rounded-full text-xs"
-                    >
-                      <Feather className="w-3 h-3" />
-                      {focus}
-                    </span>
-                  ))}
+                  {/* Tabs */}
+                  <div className="flex items-center gap-1">
+                    {tabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
+                          activeTab === tab.id
+                            ? 'bg-quill-500 text-white shadow-lg shadow-quill-500/20'
+                            : 'text-[#E8ECEF]/70 hover:text-white hover:bg-[#2D3139]/40'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-5 mt-3 text-xs text-white/50">
-                  <span className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5" />
-                    Creative Realm
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5" />
-                    Joined {joinDate}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex gap-2 flex-shrink-0 sm:mt-1">
-                {isOwnProfile ? (
-                  <button
-                    onClick={() => navigate('/profile')}
-                    className="btn btn-secondary text-sm flex items-center gap-2"
-                  >
-                    Edit Profile
-                  </button>
-                ) : (
-                  <>
-                    <button className="btn btn-secondary text-sm flex items-center gap-1.5">
+                {/* Right: Action Buttons (non-own profile only) */}
+                {!isOwnProfile && (
+                  <div className="flex items-center gap-2 sm:gap-3 pb-0 sm:pb-2 flex-shrink-0">
+                    <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg">
                       <MessageCircle className="w-4 h-4" />
-                      Message
+                      <span className="hidden sm:inline">Message</span>
                     </button>
-                    <button className="btn btn-primary text-sm flex items-center gap-1.5 glow-hover">
-                      <Heart className="w-4 h-4" />
+                    <button className="bg-gradient-to-r from-quill-500 to-quill-400 text-white hover:from-quill-400 hover:to-quill-500 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-quill-500/30 border border-white/10">
+                      <UserPlus className="w-4 h-4" />
                       Follow
                     </button>
-                    <button className="btn btn-secondary p-2">
+                    <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 p-2 sm:p-2.5 rounded-lg transition-all shadow-lg">
                       <Share2 className="w-4 h-4" />
                     </button>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
-
-            {/* Row 2: Stats */}
-            <div className="border-t border-white/[0.06] py-2.5 flex items-center gap-6">
-              {[
-                { label: 'Posts', value: stats.posts },
-                { label: 'Characters', value: stats.characters },
-                { label: 'Realms', value: stats.realms },
-                { label: 'Followers', value: stats.followers },
-              ].map((stat) => (
-                <button
-                  key={stat.label}
-                  className="text-center hover:opacity-80 transition-opacity"
-                >
-                  <span className="text-lg font-semibold text-white">
-                    {stat.value.toLocaleString()}
-                  </span>
-                  <span className="text-white/50 text-sm ml-1.5">{stat.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Row 3: Tabs */}
-            <div className="border-t border-white/[0.06] py-2 flex gap-1">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === tab.id
-                      ? 'bg-owl-600 text-white shadow-sm shadow-owl-600/20'
-                      : 'text-white/50 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
           </div>
-        </section>
+        </div>
       </div>
 
-      {/* === TIMELINE CONTENT === */}
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
-        <div className="pb-12">
-          {activeTab === 'timeline' && (
-            <div className="space-y-6">
-              {timeline.length === 0 ? (
-                <div className="glass-strong rounded-2xl p-12 text-center">
-                  <Feather className="w-12 h-12 text-white/40 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-white mb-2">
-                    No Posts Yet
-                  </h3>
-                  <p className="text-white/60">
-                    {isOwnProfile
-                      ? 'Share your first post to get started.'
-                      : `When ${profile.username} posts, it will appear here.`}
-                  </p>
-                </div>
-              ) : (
-                timeline.map((item, idx) => (
-                  <TimelineItemCard
+      {/* === CONTENT AREA === */}
+      <div className="bg-[#0F1419]">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-8 py-8 sm:py-12">
+          {/* Bio Section */}
+          <div className="mb-8 max-w-3xl">
+            {profile.bio && (
+              <p className="text-[#E8ECEF]/90 text-base sm:text-lg leading-relaxed mb-6">
+                {profile.bio}
+              </p>
+            )}
+
+            {/* Writing Focus & Meta */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
+              <div className="flex items-center gap-2 flex-wrap">
+                {['Fantasy', 'Dark Academia', 'Romance'].map((focus, idx) => (
+                  <span
                     key={idx}
-                    item={item}
-                    profile={profile}
-                  />
-                ))
-              )}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-quill-500/20 text-quill-400 border border-quill-500/30 rounded-full text-xs hover:bg-quill-500/30 transition-all"
+                  >
+                    <Feather className="w-3 h-3" />
+                    {focus}
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-5 text-[#E8ECEF]/60">
+                <span className="flex items-center gap-2 text-sm">
+                  <MapPin className="w-4 h-4" />
+                  Creative Realm
+                </span>
+                <span className="flex items-center gap-2 text-sm">
+                  <Calendar className="w-4 h-4" />
+                  Joined {joinDate}
+                </span>
+              </div>
             </div>
-          )}
+          </div>
 
-          {activeTab === 'stories' && (
-            <div className="glass-strong rounded-2xl p-12 text-center">
-              <BookOpen className="w-12 h-12 text-white/40 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-white mb-2">
-                No Stories Yet
-              </h3>
-              <p className="text-white/60">
-                Your long-form stories and campaigns will appear here
-              </p>
-            </div>
-          )}
+          {/* Separator */}
+          <div className="h-px bg-gradient-to-r from-transparent via-[#2D3139] to-transparent mb-8" />
 
-          {activeTab === 'media' && (
-            <div className="glass-strong rounded-2xl p-12 text-center">
-              <Camera className="w-12 h-12 text-white/40 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-white mb-2">
-                No Media Yet
-              </h3>
-              <p className="text-white/60">
-                Images and moodboards you've shared will appear here
-              </p>
-            </div>
-          )}
+          {/* Tab Content */}
+          <div className="pb-12">
+            {activeTab === 'timeline' && (
+              <div className="space-y-6">
+                {timeline.length === 0 ? (
+                  <div className="rounded-2xl p-12 sm:p-16 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
+                    <Feather className="w-12 h-12 sm:w-14 sm:h-14 text-[#E8ECEF]/30 mx-auto mb-4 sm:mb-5" />
+                    <h3 className="text-white text-xl font-semibold mb-2">
+                      No Posts Yet
+                    </h3>
+                    <p className="text-[#E8ECEF]/60">
+                      {isOwnProfile
+                        ? 'Share your first post to get started.'
+                        : `When ${profile.username} posts, it will appear here.`}
+                    </p>
+                  </div>
+                ) : (
+                  timeline.map((item, idx) => (
+                    <TimelineItemCard
+                      key={idx}
+                      item={item}
+                      profile={profile}
+                    />
+                  ))
+                )}
+              </div>
+            )}
 
-          {activeTab === 'mentions' && (
-            <div className="glass-strong rounded-2xl p-12 text-center">
-              <MessageCircle className="w-12 h-12 text-white/40 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-white mb-2">
-                No Mentions Yet
-              </h3>
-              <p className="text-white/60">
-                Posts where you've been mentioned will appear here
-              </p>
-            </div>
-          )}
+            {activeTab === 'stories' && (
+              <div className="rounded-2xl p-12 sm:p-16 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
+                <BookOpen className="w-12 h-12 sm:w-14 sm:h-14 text-[#E8ECEF]/30 mx-auto mb-4 sm:mb-5" />
+                <h3 className="text-white text-xl font-semibold mb-2">
+                  No Stories Yet
+                </h3>
+                <p className="text-[#E8ECEF]/60">
+                  Your long-form stories and campaigns will appear here
+                </p>
+              </div>
+            )}
+
+            {activeTab === 'media' && (
+              <div className="rounded-2xl p-12 sm:p-16 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
+                <Camera className="w-12 h-12 sm:w-14 sm:h-14 text-[#E8ECEF]/30 mx-auto mb-4 sm:mb-5" />
+                <h3 className="text-white text-xl font-semibold mb-2">
+                  No Media Yet
+                </h3>
+                <p className="text-[#E8ECEF]/60">
+                  Images and moodboards you've shared will appear here
+                </p>
+              </div>
+            )}
+
+            {activeTab === 'mentions' && (
+              <div className="rounded-2xl p-12 sm:p-16 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
+                <MessageCircle className="w-12 h-12 sm:w-14 sm:h-14 text-[#E8ECEF]/30 mx-auto mb-4 sm:mb-5" />
+                <h3 className="text-white text-xl font-semibold mb-2">
+                  No Mentions Yet
+                </h3>
+                <p className="text-[#E8ECEF]/60">
+                  Posts where you've been mentioned will appear here
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
