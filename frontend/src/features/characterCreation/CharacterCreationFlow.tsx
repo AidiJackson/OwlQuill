@@ -122,7 +122,7 @@ export default function CharacterCreationFlow() {
         avatar_url: avatarUrl,
       });
 
-      navigate('/characters');
+      navigate(`/characters/${characterId}?created=1`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save profile details.');
     } finally {

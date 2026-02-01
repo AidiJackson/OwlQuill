@@ -13,6 +13,7 @@ import Profile from '@/pages/Profile';
 import UserProfile from '@/pages/UserProfile';
 import SceneDetail from '@/pages/SceneDetail';
 import CharacterCreationFlow from '@/features/characterCreation/CharacterCreationFlow';
+import CharacterDetail from '@/pages/CharacterDetail';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -61,6 +62,15 @@ function App() {
           element={
             <ProtectedRoute>
               <CharacterCreationFlow />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/characters/:id"
+          element={
+            <ProtectedRoute>
+              <CharacterDetail />
             </ProtectedRoute>
           }
         />
