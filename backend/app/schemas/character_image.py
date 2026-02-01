@@ -1,7 +1,7 @@
 """Character Image schemas."""
 from datetime import datetime
 from typing import Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from app.models.character_image import ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
 
@@ -31,5 +31,15 @@ class CharacterImageRead(BaseModel):
     metadata_json: Optional[dict[str, Any]] = None
     file_path: str
     created_at: datetime
+
+    @computed_field
+    @property
+    def url(self) -> str:
+        """Derive a servable URL from the stored file_path."""
+        # file_path is stored as e.g. "static/generated/<uuid>.png"
+        path = self.file_path.lstrip("/")
+        if not path.startswith("static/"):
+            return f"/static/{path}"
+        return f"/{path}"
 
     model_config = {"from_attributes": True}

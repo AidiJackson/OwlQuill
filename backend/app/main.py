@@ -1,8 +1,10 @@
 """OwlQuill FastAPI application."""
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -70,6 +72,13 @@ api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 api_router.include_router(character_visual.router, prefix="/characters", tags=["character-visual"])
 app.include_router(api_router)
+
+
+# Serve stub/generated images from backend/static
+_static_dir = Path(__file__).resolve().parent.parent / "static"
+_static_dir.mkdir(parents=True, exist_ok=True)
+(_static_dir / "generated").mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 @app.get("/health")
