@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
 
 export default function Characters() {
+  const navigate = useNavigate();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -94,12 +96,20 @@ export default function Characters() {
     <div className="max-w-4xl mx-auto p-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">My Characters</h1>
-        <button
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          className="btn btn-primary"
-        >
-          Create Character
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/characters/new')}
+            className="btn btn-primary"
+          >
+            + New Character
+          </button>
+          <button
+            onClick={() => setShowCreateForm(!showCreateForm)}
+            className="btn btn-secondary text-sm"
+          >
+            Quick Create
+          </button>
+        </div>
       </div>
 
       {showCreateForm && (

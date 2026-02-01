@@ -38,7 +38,8 @@
       "Bash(python:*)",
       "Bash(alembic check:*)",
       "Bash(alembic upgrade:*)",
-      "Bash(alembic revision:*)"
+      "Bash(alembic revision:*)",
+      "Bash(wc:*)"
     ]
   }
 }

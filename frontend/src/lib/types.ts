@@ -26,6 +26,7 @@ export interface Character {
   portrait_url?: string;
   tags?: string;
   visibility: 'public' | 'friends' | 'private';
+  visual_locked?: boolean;
   created_at: string;
   updated_at: string;
 }
