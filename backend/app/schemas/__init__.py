@@ -1,6 +1,8 @@
 """Pydantic schemas."""
 from app.schemas.user import User, UserCreate, UserUpdate, Token, TokenData
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate
+from app.schemas.character_dna import CharacterDNARead, CharacterDNACreate, CharacterDNAUpdate
+from app.schemas.character_image import CharacterImageRead, CharacterImageCreate
 from app.schemas.realm import Realm, RealmCreate, RealmUpdate, RealmMembership, RealmMembershipCreate
 from app.schemas.post import Post, PostCreate, PostUpdate
 from app.schemas.comment import Comment, CommentCreate, CommentUpdate
@@ -16,6 +18,11 @@ __all__ = [
     "Character",
     "CharacterCreate",
     "CharacterUpdate",
+    "CharacterDNARead",
+    "CharacterDNACreate",
+    "CharacterDNAUpdate",
+    "CharacterImageRead",
+    "CharacterImageCreate",
     "Realm",
     "RealmCreate",
     "RealmUpdate",

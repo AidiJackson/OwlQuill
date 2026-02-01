@@ -1,6 +1,8 @@
 """Database models."""
 from app.models.user import User
 from app.models.character import Character, VisibilityEnum
+from app.models.character_dna import CharacterDNA
+from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
 from app.models.realm import Realm, RealmMembership
 from app.models.post import Post, ContentTypeEnum, PostKindEnum
 from app.models.comment import Comment
@@ -13,6 +15,11 @@ __all__ = [
     "User",
     "Character",
     "VisibilityEnum",
+    "CharacterDNA",
+    "CharacterImage",
+    "ImageKindEnum",
+    "ImageStatusEnum",
+    "ImageVisibilityEnum",
     "Realm",
     "RealmMembership",
     "Post",

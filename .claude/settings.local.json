@@ -34,7 +34,10 @@
       "Bash(python -m alembic:*)",
       "Bash(ls:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx vite build:*)"
+      "Bash(npx vite build:*)",
+      "Bash(python:*)",
+      "Bash(alembic check:*)",
+      "Bash(alembic upgrade:*)"
     ]
   }
 }

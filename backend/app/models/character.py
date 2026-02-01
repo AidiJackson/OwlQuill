@@ -40,3 +40,5 @@ class Character(Base):
     owner = relationship("User", back_populates="characters")
     posts = relationship("Post", back_populates="character")
     comments = relationship("Comment", back_populates="character")
+    dna = relationship("CharacterDNA", back_populates="character", uselist=False, cascade="all, delete-orphan")
+    images = relationship("CharacterImage", back_populates="character", cascade="all, delete-orphan")
