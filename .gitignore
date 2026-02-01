@@ -221,3 +221,9 @@ out/
 build/
 package-lock.json
 yarn.lock
+
+# Claude local settings (machine-specific)
+.claude/settings.local.json
+
+# Generated stub images (runtime artifacts)
+backend/static/generated/
