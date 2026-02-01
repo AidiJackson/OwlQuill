@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Search } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { Character } from '@/lib/types';
+import type { Character, CharacterSearchResult } from '@/lib/types';
 
 export default function Characters() {
   const navigate = useNavigate();
@@ -20,6 +21,44 @@ export default function Characters() {
     portrait_url: '',
     visibility: 'public' as 'public' | 'friends' | 'private',
   });
+
+  // ── Search state ──
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<CharacterSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const runSearch = useCallback(async (q: string) => {
+    if (q.trim().length < 2) {
+      setSearchResults([]);
+      setHasSearched(false);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const data = await apiClient.searchCharacters(q.trim());
+      setSearchResults(data);
+      setHasSearched(true);
+    } catch {
+      setSearchResults([]);
+      setHasSearched(true);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  const handleSearchInput = (value: string) => {
+    setSearchQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (value.trim().length < 2) {
+      setSearchResults([]);
+      setHasSearched(false);
+      return;
+    }
+    debounceRef.current = setTimeout(() => runSearch(value), 300);
+  };
 
   useEffect(() => {
     loadCharacters();
@@ -110,6 +149,58 @@ export default function Characters() {
             Quick Create
           </button>
         </div>
+      </div>
+
+      {/* Search */}
+      <div className="mb-6 space-y-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <input
+            className="input pl-10"
+            placeholder="Search characters..."
+            value={searchQuery}
+            onChange={(e) => handleSearchInput(e.target.value)}
+          />
+        </div>
+
+        {searchLoading && (
+          <p className="text-sm text-gray-500">Searching…</p>
+        )}
+
+        {!searchLoading && hasSearched && searchResults.length === 0 && (
+          <p className="text-sm text-gray-500">No characters found.</p>
+        )}
+
+        {searchResults.length > 0 && (
+          <div className="border border-gray-800 rounded-lg divide-y divide-gray-800 bg-gray-900">
+            {searchResults.map((r) => (
+              <Link
+                key={r.id}
+                to={`/characters/${r.id}`}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-gray-800/60 transition-colors"
+              >
+                {r.avatar_url ? (
+                  <img
+                    src={r.avatar_url}
+                    alt={r.name}
+                    className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                ) : (
+                  <div className="w-9 h-9 rounded-lg bg-gray-800 flex-shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-100 truncate">{r.name}</p>
+                  {(r.species || r.short_bio) && (
+                    <p className="text-xs text-gray-500 truncate">
+                      {r.species ? `${r.species} · ` : ''}{r.short_bio || ''}
+                    </p>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {showCreateForm && (

@@ -52,3 +52,15 @@ class Character(CharacterBase):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CharacterSearchResult(BaseModel):
+    """Lightweight schema returned from character search."""
+    id: int
+    name: str
+    avatar_url: Optional[str] = None
+    short_bio: Optional[str] = None
+    species: Optional[str] = None
+    visibility: VisibilityEnum = VisibilityEnum.PUBLIC
+
+    model_config = {"from_attributes": True}

@@ -1,4 +1,4 @@
-import type { User, Character, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -91,6 +91,10 @@ class ApiClient {
   // Characters
   async getCharacters(): Promise<Character[]> {
     return this.request<Character[]>('/characters/');
+  }
+
+  async searchCharacters(q: string): Promise<CharacterSearchResult[]> {
+    return this.request<CharacterSearchResult[]>(`/characters/search?q=${encodeURIComponent(q)}`);
   }
 
   async createCharacter(data: Partial<Character>): Promise<Character> {

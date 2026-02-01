@@ -31,6 +31,15 @@ export interface Character {
   updated_at: string;
 }
 
+export interface CharacterSearchResult {
+  id: number;
+  name: string;
+  avatar_url?: string;
+  short_bio?: string;
+  species?: string;
+  visibility?: 'public' | 'friends' | 'private';
+}
+
 export interface Realm {
   id: number;
   owner_id: number;
