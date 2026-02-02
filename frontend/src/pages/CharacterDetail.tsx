@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare, UserPlus, UserCheck } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
 import { generateMomentImage, resolveImageUrl } from '@/features/characterCreation/shared/api';
@@ -22,6 +22,8 @@ export default function CharacterDetail() {
   const [error, setError] = useState('');
 
   const justCreated = searchParams.get('created') === '1';
+
+  const [following, setFollowing] = useState(false);
 
   const [momentImage, setMomentImage] = useState<CharacterImageRead | null>(null);
   const [momentLoading, setMomentLoading] = useState(false);
@@ -136,13 +138,32 @@ export default function CharacterDetail() {
               <VisIcon className="w-3.5 h-3.5" />
               <span className="capitalize">{character.visibility}</span>
             </div>
-            <button
-              className="btn btn-secondary text-sm flex items-center gap-2 mt-2"
-              onClick={() => navigate(`/messages/new?characterId=${id}`)}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              Message
-            </button>
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                className="btn btn-secondary text-sm flex items-center gap-2"
+                onClick={() => navigate(`/messages/new?characterId=${id}`)}
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                Message
+              </button>
+              <button
+                className={`text-sm flex items-center gap-2 ${
+                  following
+                    ? 'btn btn-secondary'
+                    : 'btn btn-primary'
+                }`}
+                onClick={() => setFollowing((prev) => !prev)}
+              >
+                {following ? (
+                  <><UserCheck className="w-3.5 h-3.5" />Following</>
+                ) : (
+                  <><UserPlus className="w-3.5 h-3.5" />Follow</>
+                )}
+              </button>
+            </div>
+            {following && (
+              <p className="text-xs text-gray-500 mt-1">Follow system coming next.</p>
+            )}
           </div>
         </div>
 
