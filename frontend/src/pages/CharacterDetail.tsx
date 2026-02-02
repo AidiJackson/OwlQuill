@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
 import { generateMomentImage, resolveImageUrl } from '@/features/characterCreation/shared/api';
@@ -136,6 +136,13 @@ export default function CharacterDetail() {
               <VisIcon className="w-3.5 h-3.5" />
               <span className="capitalize">{character.visibility}</span>
             </div>
+            <button
+              className="btn btn-secondary text-sm flex items-center gap-2 mt-2"
+              onClick={() => navigate(`/messages/new?characterId=${id}`)}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Message
+            </button>
           </div>
         </div>
 
