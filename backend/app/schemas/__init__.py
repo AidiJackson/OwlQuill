@@ -8,6 +8,13 @@ from app.schemas.post import Post, PostCreate, PostUpdate
 from app.schemas.comment import Comment, CommentCreate, CommentUpdate
 from app.schemas.reaction import Reaction, ReactionCreate
 from app.schemas.ai import CharacterBioRequest, CharacterBioResponse, SceneRequest, SceneResponse
+from app.schemas.messaging import (
+    CharacterSummary,
+    ConversationCreate,
+    ConversationRead,
+    MessageCreate,
+    MessageRead,
+)
 
 __all__ = [
     "User",
@@ -40,4 +47,9 @@ __all__ = [
     "CharacterBioResponse",
     "SceneRequest",
     "SceneResponse",
+    "CharacterSummary",
+    "ConversationCreate",
+    "ConversationRead",
+    "MessageCreate",
+    "MessageRead",
 ]

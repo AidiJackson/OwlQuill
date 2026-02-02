@@ -1,4 +1,6 @@
 """User routes."""
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -6,12 +8,14 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.admin_seed import auto_join_commons
 from app.models.user import User as UserModel
+from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.post import Post as PostModel
 from app.models.scene import Scene as SceneModel, SceneVisibilityEnum
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
 from app.schemas.post import Post
 from app.schemas.scene import SceneOut
 from app.schemas.user import User, UserUpdate, PublicUserProfile
+from app.schemas.character import CharacterSearchResult
 
 router = APIRouter()
 
@@ -52,6 +56,26 @@ def get_user_profile(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+@router.get("/{username}/characters", response_model=List[CharacterSearchResult])
+def get_user_characters(
+    username: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get a user's characters. Returns only public characters unless the requester is the same user."""
+    target = db.query(UserModel).filter(UserModel.username == username).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    query = db.query(CharacterModel).filter(CharacterModel.owner_id == target.id)
+
+    # Only show public characters to other users
+    if current_user.id != target.id:
+        query = query.filter(CharacterModel.visibility == VisibilityEnum.PUBLIC)
+
+    return query.order_by(CharacterModel.created_at.desc()).all()
 
 
 @router.get("/{username}/timeline")

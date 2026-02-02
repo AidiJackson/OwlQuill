@@ -10,6 +10,8 @@ from app.models.reaction import Reaction
 from app.models.notification import Notification
 from app.models.scene import Scene, SceneVisibilityEnum
 from app.models.scene_post import ScenePost
+from app.models.conversation import Conversation
+from app.models.message import Message
 
 __all__ = [
     "User",
@@ -31,4 +33,6 @@ __all__ = [
     "Scene",
     "SceneVisibilityEnum",
     "ScenePost",
+    "Conversation",
+    "Message",
 ]

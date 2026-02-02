@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
-import type { PublicUserProfile, ProfileTimelineItem } from '@/lib/types';
+import type { PublicUserProfile, ProfileTimelineItem, CharacterSearchResult } from '@/lib/types';
 import {
   Camera,
   MapPin,
@@ -15,7 +15,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 
-type Tab = 'timeline' | 'stories' | 'media' | 'mentions';
+type Tab = 'timeline' | 'characters' | 'stories' | 'media' | 'mentions';
 
 export default function UserProfile() {
   const { username } = useParams<{ username: string }>();
@@ -24,6 +24,7 @@ export default function UserProfile() {
 
   const [profile, setProfile] = useState<PublicUserProfile | null>(null);
   const [timeline, setTimeline] = useState<ProfileTimelineItem[]>([]);
+  const [characters, setCharacters] = useState<CharacterSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('timeline');
@@ -38,10 +39,12 @@ export default function UserProfile() {
     Promise.all([
       apiClient.getUserProfile(username),
       apiClient.getUserTimeline(username, 20),
+      apiClient.getUserCharacters(username),
     ])
-      .then(([profileData, timelineData]) => {
+      .then(([profileData, timelineData, charsData]) => {
         setProfile(profileData);
         setTimeline(timelineData);
+        setCharacters(charsData);
       })
       .catch(() => setError('User not found'))
       .finally(() => setLoading(false));
@@ -77,13 +80,14 @@ export default function UserProfile() {
 
   const stats = {
     posts: timeline.filter((i) => i.type === 'post').length,
-    characters: 0,
+    characters: characters.length,
     realms: 0,
     followers: 0,
   };
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'timeline', label: 'Timeline' },
+    { id: 'characters', label: 'Characters' },
     { id: 'stories', label: 'Stories' },
     { id: 'media', label: 'Media' },
     { id: 'mentions', label: 'Mentions' },
@@ -293,6 +297,61 @@ export default function UserProfile() {
                       profile={profile}
                     />
                   ))
+                )}
+              </div>
+            )}
+
+            {activeTab === 'characters' && (
+              <div>
+                {characters.length === 0 ? (
+                  <div className="rounded-2xl p-12 sm:p-16 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
+                    <Feather className="w-12 h-12 sm:w-14 sm:h-14 text-[#E8ECEF]/30 mx-auto mb-4 sm:mb-5" />
+                    <h3 className="text-white text-xl font-semibold mb-2">
+                      No Public Characters Yet
+                    </h3>
+                    <p className="text-[#E8ECEF]/60">
+                      {isOwnProfile
+                        ? 'Create your first character to share with the community.'
+                        : `When ${profile.username} shares characters, they'll appear here.`}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {characters.map((ch) => (
+                      <Link
+                        key={ch.id}
+                        to={`/characters/${ch.id}`}
+                        className="rounded-2xl p-5 bg-[#1A1D23]/40 border border-[#2D3139]/60 hover:border-quill-500/40 hover:bg-[#1A1D23]/60 transition-all group"
+                      >
+                        <div className="flex items-start gap-4">
+                          {ch.avatar_url ? (
+                            <img
+                              src={ch.avatar_url}
+                              alt={ch.name}
+                              className="w-14 h-14 rounded-xl object-cover border border-[#2D3139] flex-shrink-0 group-hover:border-quill-500/30 transition-colors"
+                            />
+                          ) : (
+                            <div className="w-14 h-14 rounded-xl bg-[#2D3139] border border-[#3D4149] flex items-center justify-center flex-shrink-0">
+                              <Feather className="w-6 h-6 text-[#E8ECEF]/30" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-semibold text-white truncate group-hover:text-quill-400 transition-colors">
+                              {ch.name}
+                            </h4>
+                            {ch.species && (
+                              <p className="text-sm text-[#E8ECEF]/50 mt-0.5">{ch.species}</p>
+                            )}
+                            {ch.short_bio && (
+                              <p className="text-sm text-[#E8ECEF]/60 mt-2 line-clamp-2 leading-relaxed">
+                                {ch.short_bio}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

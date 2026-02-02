@@ -88,6 +88,10 @@ class ApiClient {
     return this.request<ProfileTimelineItem[]>(`/users/${encodeURIComponent(username)}/timeline?limit=${limit}`);
   }
 
+  async getUserCharacters(username: string): Promise<CharacterSearchResult[]> {
+    return this.request<CharacterSearchResult[]>(`/users/${encodeURIComponent(username)}/characters`);
+  }
+
   // Characters
   async getCharacters(): Promise<Character[]> {
     return this.request<Character[]>('/characters/');

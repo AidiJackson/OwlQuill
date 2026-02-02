@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Post, Realm, Character } from '@/lib/types';
@@ -248,7 +248,7 @@ export default function Home() {
                       {characterName ? (
                         <span className="font-medium text-owl-400">{characterName}</span>
                       ) : post.author_username ? (
-                        <span className="text-gray-400">@{post.author_username}</span>
+                        <Link to={`/u/${encodeURIComponent(post.author_username)}`} className="text-gray-400 hover:text-owl-300 hover:underline transition-colors">@{post.author_username}</Link>
                       ) : null}
                       {(characterName || post.author_username) && ' in '}
                       <span className={isCommons ? 'text-emerald-400 font-semibold' : 'text-owl-300'}>{realmName}</span>

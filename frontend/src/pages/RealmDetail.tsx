@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Realm, Post, Character, Scene, SceneVisibility } from '@/lib/types';
@@ -495,7 +495,7 @@ export default function RealmDetail() {
                       {characterName ? (
                         <span className="text-sm font-medium text-owl-400">{characterName}</span>
                       ) : post.author_username ? (
-                        <span className="text-sm text-gray-400">@{post.author_username}</span>
+                        <Link to={`/u/${encodeURIComponent(post.author_username)}`} className="text-sm text-gray-400 hover:text-owl-300 hover:underline transition-colors">@{post.author_username}</Link>
                       ) : null}
                     </div>
                     <span className="text-xs text-gray-500">
