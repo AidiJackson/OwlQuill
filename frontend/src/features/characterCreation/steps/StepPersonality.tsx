@@ -1,6 +1,35 @@
+import { useState, useMemo } from 'react';
 import { Sparkles } from 'lucide-react';
 import type { CreationSeeds } from '../shared/types';
 import { PERSONALITY_TRAITS } from '../shared/types';
+
+const MAX_VIBE_LENGTH = 200;
+
+const FILLER_WORDS = /\b(very|really|extremely|quite|rather|somewhat|pretty|fairly|incredibly|absolutely|totally|completely|literally|basically|actually|honestly|definitely|certainly|obviously|seriously|truly)\b/gi;
+
+const CELEBRITY_MAPPINGS: Record<string, string> = {
+  'taylor swift': 'elegant features, bright eyes, graceful poise',
+  'brad pitt': 'strong jawline, rugged features, confident demeanor',
+  'beyonce': 'radiant skin, striking eyes, commanding presence',
+  'johnny depp': 'sharp cheekbones, expressive eyes, bohemian style',
+  'zendaya': 'refined features, warm complexion, elegant stature',
+  'timothee chalamet': 'angular features, tousled hair, youthful intensity',
+  'chris hemsworth': 'broad build, chiseled features, heroic presence',
+  'rihanna': 'bold features, striking gaze, confident aura',
+};
+
+function refinePrompt(input: string): string {
+  let result = input.trim();
+  result = result.replace(FILLER_WORDS, '').replace(/\s+/g, ' ').trim();
+  for (const [celebrity, traits] of Object.entries(CELEBRITY_MAPPINGS)) {
+    result = result.replace(new RegExp(celebrity, 'gi'), traits);
+  }
+  result = result.replace(/\s+/g, ' ').trim();
+  if (result.length > MAX_VIBE_LENGTH) {
+    result = result.substring(0, MAX_VIBE_LENGTH - 3).trim() + '...';
+  }
+  return result;
+}
 
 interface Props {
   data: CreationSeeds;
@@ -11,6 +40,17 @@ interface Props {
 }
 
 export default function StepPersonality({ data, onChange, onNext, onBack, saving }: Props) {
+  const [rawVibeText, setRawVibeText] = useState(data.vibeText);
+
+  const refinedVibe = useMemo(() => refinePrompt(rawVibeText), [rawVibeText]);
+
+  const handleVibeChange = (value: string) => {
+    if (value.length <= MAX_VIBE_LENGTH) {
+      setRawVibeText(value);
+      onChange({ ...data, vibeText: refinePrompt(value) });
+    }
+  };
+
   const toggleTrait = (trait: string) => {
     const next = data.traits.includes(trait)
       ? data.traits.filter((t) => t !== trait)
@@ -60,14 +100,34 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
         <textarea
           className="textarea"
           rows={3}
+          maxLength={MAX_VIBE_LENGTH}
           placeholder='e.g. "Weathered and battle-scarred, with a quiet intensity and silver-streaked hair."'
-          value={data.vibeText}
-          onChange={(e) => onChange({ ...data, vibeText: e.target.value })}
+          value={rawVibeText}
+          onChange={(e) => handleVibeChange(e.target.value)}
         />
-        <p className="text-xs text-gray-500 mt-1">
-          A short description that guides how your character is visualised.
-        </p>
+        <div className="flex justify-between items-center mt-1">
+          <p className="text-xs text-gray-500">
+            A short description that guides how your character is visualised.
+          </p>
+          <span className={`text-xs ${rawVibeText.length >= MAX_VIBE_LENGTH ? 'text-red-400' : 'text-gray-500'}`}>
+            {rawVibeText.length} / {MAX_VIBE_LENGTH}
+          </span>
+        </div>
       </div>
+
+      {refinedVibe && refinedVibe !== rawVibeText && (
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">
+            Refined Visual Description
+          </label>
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm text-gray-300">
+            {refinedVibe}
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            This refined version will be used for generation.
+          </p>
+        </div>
+      )}
 
       <div className="flex justify-between pt-2">
         <button className="btn btn-secondary" onClick={onBack}>

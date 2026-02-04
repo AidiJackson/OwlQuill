@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Feather } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 
@@ -21,11 +21,13 @@ import { STEP_LABELS } from './shared/types';
 
 export default function CharacterCreationFlow() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [step, setStep] = useState(0);
   const [characterId, setCharacterId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [loadingDraft, setLoadingDraft] = useState(() => !!searchParams.get('characterId'));
 
   const [basics, setBasics] = useState<CreationBasics>({
     name: '',
@@ -49,6 +51,41 @@ export default function CharacterCreationFlow() {
     era: '',
     visibility: 'public',
   });
+
+  // ── Load existing draft when characterId query param is present
+  useEffect(() => {
+    const resumeId = searchParams.get('characterId');
+    if (!resumeId) return;
+    const id = Number(resumeId);
+    if (isNaN(id)) {
+      setLoadingDraft(false);
+      return;
+    }
+    apiClient
+      .getCharacter(id)
+      .then((char) => {
+        setCharacterId(char.id);
+        setBasics({
+          name: char.name || '',
+          age: char.age || '',
+          species: char.species || '',
+          gender_presentation: '',
+        });
+        setProfile({
+          short_bio: char.short_bio || '',
+          long_bio: char.long_bio || '',
+          tags: char.tags || '',
+          era: char.era || '',
+          visibility: char.visibility || 'public',
+        });
+      })
+      .catch(() => {
+        setError('Failed to load draft character.');
+      })
+      .finally(() => {
+        setLoadingDraft(false);
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Transition: Personality → Generate (create character + upsert DNA)
   const handleAfterPersonality = async () => {
@@ -129,6 +166,14 @@ export default function CharacterCreationFlow() {
       setSaving(false);
     }
   };
+
+  if (loadingDraft) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-400">
+        Loading draft…
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col">

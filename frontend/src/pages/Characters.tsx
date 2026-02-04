@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
@@ -75,6 +75,29 @@ export default function Characters() {
     }
   };
 
+  const activeCharacters = useMemo(
+    () => characters.filter((c) => c.visual_locked === true),
+    [characters],
+  );
+  const draftCharacters = useMemo(
+    () => characters.filter((c) => !c.visual_locked),
+    [characters],
+  );
+  const draftIds = useMemo(
+    () => new Set(draftCharacters.map((c) => c.id)),
+    [draftCharacters],
+  );
+
+  const handleDeleteDraft = async (id: number) => {
+    if (!window.confirm('Delete this draft character? This cannot be undone.')) return;
+    try {
+      await apiClient.deleteCharacter(id);
+      setCharacters((prev) => prev.filter((c) => c.id !== id));
+    } catch {
+      alert('Failed to delete draft.');
+    }
+  };
+
   const handleGenerateBio = async () => {
     if (!newCharacter.name) {
       alert('Please enter a character name first');
@@ -135,20 +158,43 @@ export default function Characters() {
     <div className="max-w-4xl mx-auto p-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">My Characters</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={() => navigate('/characters/new')}
-            className="btn btn-primary"
-          >
-            + New Character
-          </button>
-          <button
-            onClick={() => setShowCreateForm(!showCreateForm)}
-            className="btn btn-secondary text-sm"
-          >
-            Quick Create
-          </button>
-        </div>
+        {characters.length === 0 ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => navigate('/characters/new')}
+              className="btn btn-primary"
+            >
+              + New Character
+            </button>
+            <button
+              onClick={() => setShowCreateForm(!showCreateForm)}
+              className="btn btn-secondary text-sm"
+            >
+              Quick Create
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 bg-gray-800 px-3 py-1.5 rounded-full">
+              Beta limit: 1 character per account
+            </span>
+            {draftCharacters.length > 0 ? (
+              <button
+                className="btn btn-primary text-sm"
+                onClick={() => navigate(`/characters/new?characterId=${draftCharacters[0].id}`)}
+              >
+                Continue setup
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary text-sm"
+                onClick={() => navigate(`/characters/${activeCharacters[0].id}`)}
+              >
+                View character
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Search */}
@@ -173,7 +219,7 @@ export default function Characters() {
 
         {searchResults.length > 0 && (
           <div className="border border-gray-800 rounded-lg divide-y divide-gray-800 bg-gray-900">
-            {searchResults.map((r) => (
+            {searchResults.filter((r) => !draftIds.has(r.id)).map((r) => (
               <Link
                 key={r.id}
                 to={`/characters/${r.id}`}
@@ -318,8 +364,12 @@ export default function Characters() {
       )}
 
       <div className="grid gap-4">
-        {characters.map((character) => (
-          <div key={character.id} className="card flex gap-4">
+        {activeCharacters.map((character) => (
+          <Link
+            key={character.id}
+            to={`/characters/${character.id}`}
+            className="card flex gap-4 hover:border-gray-600 transition-colors no-underline text-inherit"
+          >
             {character.portrait_url && (
               <div className="flex-shrink-0">
                 <img
@@ -355,9 +405,47 @@ export default function Characters() {
                 </div>
               )}
             </div>
-          </div>
+          </Link>
         ))}
       </div>
+
+      {draftCharacters.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-xl font-semibold mb-4 text-gray-300">Draft Characters</h2>
+          <div className="grid gap-3">
+            {draftCharacters.map((character) => (
+              <div key={character.id} className="card flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold truncate">{character.name}</h3>
+                    <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full font-medium">
+                      Draft
+                    </span>
+                  </div>
+                  {character.species && (
+                    <p className="text-sm text-gray-400">{character.species}</p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-1">Finish setup to unlock identity.</p>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button
+                    className="btn btn-primary text-sm"
+                    onClick={() => navigate(`/characters/new?characterId=${character.id}`)}
+                  >
+                    Continue
+                  </button>
+                  <button
+                    className="btn btn-secondary text-sm"
+                    onClick={() => handleDeleteDraft(character.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
