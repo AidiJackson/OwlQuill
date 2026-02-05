@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare, UserPlus, UserCheck } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { Character } from '@/lib/types';
+import type { Character, User } from '@/lib/types';
 import { generateMomentImage, resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 
@@ -18,6 +18,7 @@ export default function CharacterDetail() {
   const navigate = useNavigate();
 
   const [character, setCharacter] = useState<Character | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -45,9 +46,14 @@ export default function CharacterDetail() {
 
   useEffect(() => {
     if (!id) return;
-    apiClient
-      .getCharacter(Number(id))
-      .then(setCharacter)
+    Promise.all([
+      apiClient.getCharacter(Number(id)),
+      apiClient.getMe().catch(() => null),
+    ])
+      .then(([char, user]) => {
+        setCharacter(char);
+        setCurrentUser(user);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : 'Character not found'))
       .finally(() => setLoading(false));
   }, [id]);
@@ -139,13 +145,23 @@ export default function CharacterDetail() {
               <span className="capitalize">{character.visibility}</span>
             </div>
             <div className="flex items-center gap-2 mt-2">
-              <button
-                className="btn btn-secondary text-sm flex items-center gap-2"
-                onClick={() => navigate(`/messages/new?characterId=${id}`)}
-              >
-                <MessageSquare className="w-3.5 h-3.5" />
-                Message
-              </button>
+              {currentUser && character.owner_id === currentUser.id ? (
+                <button
+                  className="btn btn-secondary text-sm flex items-center gap-2 opacity-50 cursor-not-allowed"
+                  disabled
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  Message
+                </button>
+              ) : (
+                <button
+                  className="btn btn-secondary text-sm flex items-center gap-2"
+                  onClick={() => navigate(`/messages/new?characterId=${id}`)}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  Message
+                </button>
+              )}
               <button
                 className={`text-sm flex items-center gap-2 ${
                   following
@@ -163,6 +179,9 @@ export default function CharacterDetail() {
             </div>
             {following && (
               <p className="text-xs text-gray-500 mt-1">Follow system coming next.</p>
+            )}
+            {currentUser && character.owner_id === currentUser.id && (
+              <p className="text-xs text-gray-500 mt-1">You can't message your own character.</p>
             )}
           </div>
         </div>
