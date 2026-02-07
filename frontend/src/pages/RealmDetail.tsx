@@ -3,9 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Image } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
-import type { Realm, Post, Character, Scene, SceneVisibility } from '@/lib/types';
+import type { Realm, Post, Character, Scene, SceneVisibility, LibraryImage } from '@/lib/types';
 import CommentSection from '@/components/CommentSection';
 import ReactionBar from '@/components/ReactionBar';
+import AttachImageModal from '@/components/AttachImageModal';
 
 export default function RealmDetail() {
   const { realmId } = useParams<{ realmId: string }>();
@@ -29,6 +30,7 @@ export default function RealmDetail() {
   const [sceneCreating, setSceneCreating] = useState(false);
 
   const [showImageModal, setShowImageModal] = useState(false);
+  const [attachedImage, setAttachedImage] = useState<LibraryImage | null>(null);
 
   // Open-starter "Request to Join" state
   const [joinLoading, setJoinLoading] = useState<Record<number, boolean>>({});
@@ -93,6 +95,7 @@ export default function RealmDetail() {
         post_kind: 'general',
         character_id: undefined,
       });
+      setAttachedImage(null);
       setShowPostForm(false);
     } catch (error) {
       console.error('Failed to create post:', error);
@@ -450,6 +453,26 @@ export default function RealmDetail() {
                 </div>
               )}
 
+              {attachedImage && (
+                <div className="flex items-center gap-3 p-2 rounded-lg bg-gray-800/50 border border-gray-700">
+                  <img
+                    src={attachedImage.url}
+                    alt={attachedImage.prompt_summary || 'Attached image'}
+                    className="w-12 h-16 rounded object-cover"
+                  />
+                  <span className="text-xs text-gray-400 flex-1 truncate">
+                    {attachedImage.prompt_summary || 'Attached image'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachedImage(null)}
+                    className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+
               <div className="flex gap-4">
                 <button onClick={handleCreatePost} className="btn btn-primary">
                   Post
@@ -465,6 +488,7 @@ export default function RealmDetail() {
                 <button
                   onClick={() => {
                     setShowPostForm(false);
+                    setAttachedImage(null);
                     setNewPost({
                       title: '',
                       content: '',
@@ -551,38 +575,12 @@ export default function RealmDetail() {
         )}
       </div>
 
-      {/* Attach image modal */}
-      {showImageModal && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/50 z-40"
-            onClick={() => setShowImageModal(false)}
-          />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 max-w-sm w-full shadow-xl">
-              <h3 className="text-lg font-semibold text-gray-200 mb-2">Attach an OwlQuill image</h3>
-              <p className="text-sm text-gray-400 mb-4">No saved images yet.</p>
-              <div className="flex items-center gap-3">
-                <Link
-                  to="/images/new"
-                  className="btn btn-primary text-sm"
-                >
-                  Generate an image
-                </Link>
-                <button
-                  onClick={() => setShowImageModal(false)}
-                  className="btn btn-secondary text-sm"
-                >
-                  Close
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mt-3">
-                Uploads are disabled in beta. Only images generated in OwlQuill can be attached.
-              </p>
-            </div>
-          </div>
-        </>
-      )}
+      <AttachImageModal
+        open={showImageModal}
+        onClose={() => setShowImageModal(false)}
+        onSelect={(img) => { setAttachedImage(img); setShowImageModal(false); }}
+        selectedId={attachedImage?.id}
+      />
     </div>
   );
 }
