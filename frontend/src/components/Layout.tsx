@@ -45,6 +45,13 @@ export default function Layout() {
           Characters
         </Link>
         <Link
+          to="/images"
+          className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          onClick={closeSidebar}
+        >
+          Images
+        </Link>
+        <Link
           to={user ? `/u/${user.username}` : '/profile'}
           className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
           onClick={closeSidebar}
