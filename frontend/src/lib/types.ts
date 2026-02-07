@@ -120,6 +120,22 @@ export interface ScenePost {
   created_at: string;
 }
 
+// Library images
+
+export interface LibraryImage {
+  id: number;
+  character_id: number;
+  kind: string;
+  status: string;
+  visibility: string;
+  provider?: string;
+  prompt_summary?: string;
+  metadata_json?: Record<string, unknown>;
+  file_path: string;
+  url: string;
+  created_at: string;
+}
+
 // Profile
 
 export interface PublicUserProfile {

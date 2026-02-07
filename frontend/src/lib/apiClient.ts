@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -245,6 +245,18 @@ class ApiClient {
     return this.request('/ai/scene', {
       method: 'POST',
       body: JSON.stringify({ characters, setting, mood, prompt }),
+    });
+  }
+
+  // Images library
+  async listLibraryImages(): Promise<LibraryImage[]> {
+    return this.request<LibraryImage[]>('/images/');
+  }
+
+  async generateLibraryImage(prompt: string): Promise<LibraryImage> {
+    return this.request<LibraryImage>('/images/generate', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
     });
   }
 }
