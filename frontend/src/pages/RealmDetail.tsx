@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { Image } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Realm, Post, Character, Scene, SceneVisibility } from '@/lib/types';
@@ -26,6 +27,8 @@ export default function RealmDetail() {
     character_id: undefined as number | undefined,
   });
   const [sceneCreating, setSceneCreating] = useState(false);
+
+  const [showImageModal, setShowImageModal] = useState(false);
 
   // Open-starter "Request to Join" state
   const [joinLoading, setJoinLoading] = useState<Record<number, boolean>>({});
@@ -452,6 +455,14 @@ export default function RealmDetail() {
                   Post
                 </button>
                 <button
+                  type="button"
+                  onClick={() => setShowImageModal(true)}
+                  className="btn btn-secondary flex items-center gap-1.5"
+                >
+                  <Image className="w-4 h-4" />
+                  Attach image
+                </button>
+                <button
                   onClick={() => {
                     setShowPostForm(false);
                     setNewPost({
@@ -539,6 +550,39 @@ export default function RealmDetail() {
           </div>
         )}
       </div>
+
+      {/* Attach image modal */}
+      {showImageModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 z-40"
+            onClick={() => setShowImageModal(false)}
+          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 max-w-sm w-full shadow-xl">
+              <h3 className="text-lg font-semibold text-gray-200 mb-2">Attach an OwlQuill image</h3>
+              <p className="text-sm text-gray-400 mb-4">No saved images yet.</p>
+              <div className="flex items-center gap-3">
+                <Link
+                  to="/images/new"
+                  className="btn btn-primary text-sm"
+                >
+                  Generate an image
+                </Link>
+                <button
+                  onClick={() => setShowImageModal(false)}
+                  className="btn btn-secondary text-sm"
+                >
+                  Close
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-3">
+                Uploads are disabled in beta. Only images generated in OwlQuill can be attached.
+              </p>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
