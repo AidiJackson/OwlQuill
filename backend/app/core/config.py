@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     AI_PROVIDER: Literal["fake", "openai", "anthropic"] = "fake"
     AI_API_KEY: str = ""
 
+    # Image generation
+    IMAGE_PROVIDER: str = "openai"
+    IMAGE_MODEL: str = "gpt-image-1.5"
+    OPENAI_API_KEY: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

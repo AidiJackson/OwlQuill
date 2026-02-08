@@ -16,8 +16,9 @@ passlib[bcrypt]==1.7.4
 python-multipart==0.0.9
 slowapi==0.1.9
 
-# Image generation (stub placeholders)
+# Image generation (stub placeholders + OpenAI provider)
 Pillow==12.1.0
+openai>=1.0.0
 
 # Utilities
 python-dotenv==1.0.1
