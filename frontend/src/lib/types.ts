@@ -7,6 +7,7 @@ export interface User {
   display_name?: string;
   bio?: string;
   avatar_url?: string;
+  next_character_allowed_at?: string | null;
   created_at: string;
   updated_at: string;
 }

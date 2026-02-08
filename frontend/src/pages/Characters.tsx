@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { Character, CharacterSearchResult } from '@/lib/types';
+import type { Character, CharacterSearchResult, User } from '@/lib/types';
 
 export default function Characters() {
   const navigate = useNavigate();
@@ -21,6 +21,8 @@ export default function Characters() {
     portrait_url: '',
     visibility: 'public' as 'public' | 'friends' | 'private',
   });
+
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   // ── Search state ──
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,8 +68,12 @@ export default function Characters() {
 
   const loadCharacters = async () => {
     try {
-      const data = await apiClient.getCharacters();
+      const [data, user] = await Promise.all([
+        apiClient.getCharacters(),
+        apiClient.getMe().catch(() => null),
+      ]);
       setCharacters(data);
+      setCurrentUser(user);
     } catch (error) {
       console.error('Failed to load characters:', error);
     } finally {
@@ -87,6 +93,17 @@ export default function Characters() {
     () => new Set(draftCharacters.map((c) => c.id)),
     [draftCharacters],
   );
+
+  const cooldownInfo = useMemo(() => {
+    if (!currentUser?.next_character_allowed_at) return null;
+    const until = new Date(currentUser.next_character_allowed_at);
+    const now = new Date();
+    const diffMs = until.getTime() - now.getTime();
+    if (diffMs <= 0) return null;
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return { hours, minutes };
+  }, [currentUser]);
 
   const handleDeleteDraft = async (id: number) => {
     if (!window.confirm('Delete this draft character? This cannot be undone.')) return;
@@ -129,6 +146,10 @@ export default function Characters() {
 
   const handleCreateCharacter = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (cooldownInfo) {
+      alert(`Character creation is on cooldown. You can create a new character in ${cooldownInfo.hours}h ${cooldownInfo.minutes}m.`);
+      return;
+    }
     try {
       await apiClient.createCharacter(newCharacter);
       setShowCreateForm(false);
@@ -146,7 +167,7 @@ export default function Characters() {
       await loadCharacters();
     } catch (error) {
       console.error('Failed to create character:', error);
-      alert('Failed to create character. Please try again.');
+      alert(error instanceof Error ? error.message : 'Failed to create character. Please try again.');
     }
   };
 
@@ -158,7 +179,16 @@ export default function Characters() {
     <div className="max-w-4xl mx-auto p-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">My Characters</h1>
-        {characters.length === 0 ? (
+        {characters.length === 0 && cooldownInfo ? (
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 bg-gray-800 px-3 py-1.5 rounded-full">
+              Beta limit: 1 character per account
+            </span>
+            <span className="text-xs text-amber-400 bg-amber-400/10 px-3 py-1.5 rounded-full">
+              New character in {cooldownInfo.hours}h {cooldownInfo.minutes}m
+            </span>
+          </div>
+        ) : characters.length === 0 ? (
           <div className="flex gap-2">
             <button
               onClick={() => navigate('/characters/new')}

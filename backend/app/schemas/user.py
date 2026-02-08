@@ -29,6 +29,7 @@ class UserInDB(UserBase):
     display_name: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    next_character_allowed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare, UserPlus, UserCheck } from 'lucide-react';
+import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, User } from '@/lib/types';
 import { generateMomentImage, resolveImageUrl } from '@/features/characterCreation/shared/api';
@@ -29,6 +29,40 @@ export default function CharacterDetail() {
   const [momentImage, setMomentImage] = useState<CharacterImageRead | null>(null);
   const [momentLoading, setMomentLoading] = useState(false);
   const [momentError, setMomentError] = useState('');
+
+  // Delete modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const handleDeleteCharacter = async () => {
+    if (!id) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await apiClient.deleteCharacter(Number(id));
+      navigate('/characters');
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete character.');
+      setDeleting(false);
+    }
+  };
+
+  const openDeleteModal = () => {
+    setShowDeleteModal(true);
+    setDeleteStep(1);
+    setDeleteConfirmed(false);
+    setDeleteError('');
+  };
+
+  const closeDeleteModal = () => {
+    setShowDeleteModal(false);
+    setDeleteStep(1);
+    setDeleteConfirmed(false);
+    setDeleteError('');
+  };
 
   const handleGenerateMoment = async () => {
     if (!id) return;
@@ -183,6 +217,15 @@ export default function CharacterDetail() {
             {currentUser && character.owner_id === currentUser.id && (
               <p className="text-xs text-gray-500 mt-1">You can't message your own character.</p>
             )}
+            {currentUser && character.owner_id === currentUser.id && (
+              <button
+                className="text-xs text-red-500 hover:text-red-400 transition-colors mt-2 flex items-center gap-1"
+                onClick={openDeleteModal}
+              >
+                <Trash2 className="w-3 h-3" />
+                Reset Character Identity
+              </button>
+            )}
           </div>
         </div>
 
@@ -255,6 +298,79 @@ export default function CharacterDetail() {
           </div>
         )}
       </div>
+
+      {/* Delete character modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4 space-y-4">
+            {deleteStep === 1 ? (
+              <>
+                <h3 className="text-lg font-semibold text-red-400">Reset Character Identity</h3>
+                <div className="text-sm text-gray-300 space-y-2">
+                  <p>This will <strong>permanently delete</strong> your character <strong>{character.name}</strong> and all associated data:</p>
+                  <ul className="list-disc list-inside text-gray-400 space-y-1">
+                    <li>Character profile, bio, and DNA</li>
+                    <li>All generated images (identity pack, moments)</li>
+                    <li>All conversations and messages as this character</li>
+                    <li>Character references on posts will be cleared</li>
+                  </ul>
+                  <p className="text-amber-400">After deletion, you must wait <strong>24 hours</strong> before creating a new character.</p>
+                </div>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={deleteConfirmed}
+                    onChange={(e) => setDeleteConfirmed(e.target.checked)}
+                    className="mt-1 accent-red-500"
+                  />
+                  <span className="text-sm text-gray-300">I understand this action is permanent and cannot be undone.</span>
+                </label>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    className="btn btn-secondary text-sm flex-1"
+                    onClick={closeDeleteModal}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-2 rounded transition-colors flex-1"
+                    disabled={!deleteConfirmed}
+                    onClick={() => setDeleteStep(2)}
+                  >
+                    Continue
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold text-red-400">Final Confirmation</h3>
+                <p className="text-sm text-gray-300">
+                  Are you absolutely sure you want to permanently delete <strong>{character.name}</strong>?
+                </p>
+                {deleteError && (
+                  <p className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{deleteError}</p>
+                )}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    className="btn btn-secondary text-sm flex-1"
+                    onClick={closeDeleteModal}
+                    disabled={deleting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-sm px-4 py-2 rounded transition-colors flex-1"
+                    onClick={handleDeleteCharacter}
+                    disabled={deleting}
+                  >
+                    {deleting ? 'Deleting...' : 'Delete Character Permanently'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

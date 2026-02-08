@@ -1,4 +1,5 @@
 """Character routes."""
+from datetime import datetime, timedelta
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -12,6 +13,8 @@ from app.schemas.character import Character, CharacterCreate, CharacterUpdate, C
 
 router = APIRouter()
 
+_COOLDOWN_HOURS = 24
+
 
 @router.post("/", response_model=Character, status_code=status.HTTP_201_CREATED)
 def create_character(
@@ -20,6 +23,22 @@ def create_character(
     db: Session = Depends(get_db)
 ) -> Character:
     """Create a new character."""
+    # Enforce cooldown after character deletion
+    if current_user.next_character_allowed_at:
+        now = datetime.utcnow()
+        if now < current_user.next_character_allowed_at:
+            remaining = current_user.next_character_allowed_at - now
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Character creation is on cooldown. "
+                    f"You can create a new character in {hours}h {minutes}m "
+                    f"(after {current_user.next_character_allowed_at.isoformat()}Z)."
+                ),
+            )
+
     db_character = CharacterModel(
         **character_data.model_dump(),
         owner_id=current_user.id
@@ -124,7 +143,7 @@ def delete_character(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> None:
-    """Delete a character."""
+    """Delete a character and enforce a 24-hour creation cooldown."""
     character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not character:
         raise HTTPException(
@@ -138,4 +157,8 @@ def delete_character(
         )
 
     db.delete(character)
+
+    # Set 24h cooldown on the user
+    current_user.next_character_allowed_at = datetime.utcnow() + timedelta(hours=_COOLDOWN_HOURS)
+
     db.commit()
