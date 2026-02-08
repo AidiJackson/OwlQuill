@@ -1,5 +1,6 @@
 """Character visual endpoints — DNA, identity pack, and moment generation."""
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -21,6 +22,7 @@ from app.schemas.character_visual import (
 )
 from app.services.character_visual import upsert_character_dna, get_character_dna
 from app.services.stub_image_generator import generate_placeholder_png
+from app.services.image_provider import get_image_provider, ImageProvider
 
 router = APIRouter()
 
@@ -33,6 +35,56 @@ KIND_FOR_ROLE = {
     "anchor_three_quarter": ImageKindEnum.ANCHOR_THREE_QUARTER,
     "anchor_torso": ImageKindEnum.ANCHOR_TORSO,
 }
+
+ROLE_SHOT_DESCRIPTION = {
+    "anchor_front": "front-facing head-and-shoulders portrait, neutral expression",
+    "anchor_three_quarter": "three-quarter view portrait, same person",
+    "anchor_torso": "waist-up torso view, same person",
+}
+
+_GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
+
+
+def _save_png_bytes(png_bytes: bytes) -> str:
+    """Write PNG bytes to static/generated/<uuid>.png. Return relative file_path."""
+    _GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.png"
+    (_GENERATED_DIR / filename).write_bytes(png_bytes)
+    return f"static/generated/{filename}"
+
+
+def _build_pack_prompt(
+    character: CharacterModel,
+    dna: CharacterDNA | None,
+    role: str,
+    prompt_vibe: str | None,
+    tweaks_label: str | None,
+) -> str:
+    """Build a concise image prompt from character data + role. Max 200 chars."""
+    parts: list[str] = []
+
+    # Character identity
+    parts.append(character.name)
+    if dna:
+        if dna.species:
+            parts.append(dna.species)
+        if dna.gender_presentation:
+            parts.append(dna.gender_presentation)
+    elif character.species:
+        parts.append(character.species)
+
+    # Vibe / tweaks
+    if prompt_vibe:
+        parts.append(prompt_vibe)
+    elif tweaks_label:
+        parts.append(tweaks_label)
+
+    # Shot framing for this role
+    parts.append(ROLE_SHOT_DESCRIPTION[role])
+
+    prompt = ", ".join(parts)
+    # Hard-cap at 200 chars (provider validates this)
+    return prompt[:200]
 
 
 def _get_owned_character(
@@ -108,7 +160,7 @@ def generate_identity_pack(
 
     pack_id = uuid.uuid4().hex
 
-    # Build sublabel from tweaks / vibe
+    # Build sublabel from tweaks / vibe (used as fallback + prompt_summary)
     tweaks_parts: list[str] = []
     if body.tweaks:
         for field, value in body.tweaks.model_dump(exclude_none=True).items():
@@ -117,24 +169,52 @@ def generate_identity_pack(
         tweaks_parts.append(f"vibe: {body.prompt_vibe}")
     sublabel = " | ".join(tweaks_parts) if tweaks_parts else "default style"
 
+    # Fetch DNA for prompt enrichment
+    dna = get_character_dna(db, character_id)
+
+    # Try OpenAI provider; fall back to stub if unavailable
+    try:
+        provider = get_image_provider()
+        use_openai = True
+    except (RuntimeError, ValueError):
+        use_openai = False
+
     images: list[CharacterImage] = []
     for role in PACK_ROLES:
-        file_path = generate_placeholder_png(
-            label=f"{character.name} — {role.replace('_', ' ')}",
-            sublabel=sublabel,
-            role=role,
-        )
+        if use_openai:
+            prompt = _build_pack_prompt(
+                character, dna, role, body.prompt_vibe,
+                sublabel if sublabel != "default style" else None,
+            )
+            try:
+                png_bytes = provider.generate_image(prompt=prompt)
+            except (ValueError, RuntimeError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Image generation failed for {role}: {exc}",
+                ) from exc
+            file_path = _save_png_bytes(png_bytes)
+            provider_name = "openai"
+        else:
+            file_path = generate_placeholder_png(
+                label=f"{character.name} — {role.replace('_', ' ')}",
+                sublabel=sublabel,
+                role=role,
+            )
+            provider_name = "stub"
+
         img = CharacterImage(
             character_id=character_id,
             kind=ImageKindEnum.GENERATED,
             status=ImageStatusEnum.ACTIVE,
             visibility=ImageVisibilityEnum.PRIVATE,
-            provider="stub",
+            provider=provider_name,
             prompt_summary=sublabel[:200] if sublabel else None,
             metadata_json={
                 "pack_role": role,
                 "pack_id": pack_id,
                 "is_temp": True,
+                "library": False,
             },
             file_path=file_path,
         )
