@@ -65,6 +65,7 @@ export interface Post {
   content: string;
   content_type: 'ic' | 'ooc' | 'narration';
   post_kind?: 'general' | 'open_starter' | 'finished_piece';
+  image_url?: string;
   created_at: string;
   updated_at: string;
 }

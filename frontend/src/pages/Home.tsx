@@ -68,6 +68,7 @@ export default function Home() {
         content: quickContent.trim(),
         content_type: quickContentType,
         post_kind: quickPostKind,
+        ...(attachedImage ? { image_url: attachedImage.url } : {}),
       });
       setPosts(prev => [created, ...prev]);
       setQuickContent('');
@@ -297,6 +298,14 @@ export default function Home() {
                   <h3 className="text-xl font-semibold mb-2">{post.title}</h3>
                 )}
                 <p className="text-gray-300 whitespace-pre-wrap">{post.content}</p>
+
+                {post.image_url && (
+                  <img
+                    src={post.image_url}
+                    alt={post.title || 'Post image'}
+                    className="mt-3 rounded-lg max-h-96 object-contain"
+                  />
+                )}
 
                 {post.post_kind === 'open_starter' && (
                   <div className="mt-3 p-3 bg-teal-900/30 border border-teal-800 rounded-lg">

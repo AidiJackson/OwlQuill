@@ -13,6 +13,7 @@ class PostBase(BaseModel):
     content_type: ContentTypeEnum = ContentTypeEnum.IC
     post_kind: PostKindEnum = PostKindEnum.GENERAL
     character_id: Optional[int] = None
+    image_url: Optional[str] = Field(None, max_length=512)
 
 
 class PostCreate(PostBase):

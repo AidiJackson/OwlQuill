@@ -86,7 +86,10 @@ export default function RealmDetail() {
     if (!realmId || !newPost.content.trim()) return;
 
     try {
-      const createdPost = await apiClient.createPost(Number(realmId), newPost);
+      const createdPost = await apiClient.createPost(Number(realmId), {
+        ...newPost,
+        ...(attachedImage ? { image_url: attachedImage.url } : {}),
+      });
       setPosts([createdPost, ...posts]);
       setNewPost({
         title: '',
@@ -541,6 +544,14 @@ export default function RealmDetail() {
                   {/* Post content */}
                   {post.title && <h3 className="text-xl font-semibold mb-2">{post.title}</h3>}
                   <p className="text-gray-300 whitespace-pre-wrap">{post.content}</p>
+
+                  {post.image_url && (
+                    <img
+                      src={post.image_url}
+                      alt={post.title || 'Post image'}
+                      className="mt-3 rounded-lg max-h-96 object-contain"
+                    />
+                  )}
 
                   {post.post_kind === 'open_starter' && (
                     <div className="mt-3 p-3 bg-teal-900/30 border border-teal-800 rounded-lg">

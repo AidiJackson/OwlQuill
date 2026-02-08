@@ -34,6 +34,7 @@ class Post(Base):
     content = Column(Text, nullable=False)
     content_type = Column(SQLEnum(ContentTypeEnum), default=ContentTypeEnum.IC, nullable=False)
     post_kind = Column(String, default="general", nullable=False)
+    image_url = Column(String(512), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
