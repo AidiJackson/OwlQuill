@@ -15,11 +15,7 @@ deploymentTarget = "cloudrun"
 
 [[ports]]
 localPort = 5000
-externalPort = 5000
-
-[[ports]]
-localPort = 5001
-externalPort = 3000
+externalPort = 80
 
 [[ports]]
 localPort = 5002
@@ -90,10 +86,10 @@ args = "OwlQuill Dev Server"
 name = "OwlQuill Dev Server"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "bash start-dev.sh"
 waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
