@@ -7,6 +7,8 @@ export interface User {
   display_name?: string;
   bio?: string;
   avatar_url?: string;
+  cover_url?: string;
+  is_admin?: boolean;
   next_character_allowed_at?: string | null;
   created_at: string;
   updated_at: string;
@@ -15,6 +17,7 @@ export interface User {
 export interface Character {
   id: number;
   owner_id: number;
+  owner_username?: string;
   name: string;
   alias?: string;
   age?: string;
@@ -138,6 +141,21 @@ export interface LibraryImage {
   created_at: string;
 }
 
+// User images (profile covers, etc.)
+
+export interface UserImageRead {
+  id: number;
+  user_id: number;
+  kind: string;
+  status: string;
+  provider?: string;
+  prompt_summary?: string;
+  metadata_json?: Record<string, unknown>;
+  file_path: string;
+  url: string;
+  created_at: string;
+}
+
 // Profile
 
 export interface PublicUserProfile {
@@ -146,6 +164,7 @@ export interface PublicUserProfile {
   display_name?: string;
   bio?: string;
   avatar_url?: string;
+  cover_url?: string;
   created_at: string;
 }
 

@@ -114,7 +114,6 @@ class _OpenAIImageProvider(ImageProvider):
             prompt=prompt,
             n=1,
             size=size,
-            response_format="b64_json",
         )
         return base64.b64decode(response.data[0].b64_json)
 
@@ -128,7 +127,6 @@ class _OpenAIImageProvider(ImageProvider):
                     prompt=prompt,
                     n=1,
                     size=size,
-                    response_format="b64_json",
                 )
             return base64.b64decode(response.data[0].b64_json)
         finally:

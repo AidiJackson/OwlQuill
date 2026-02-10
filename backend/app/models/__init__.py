@@ -12,6 +12,8 @@ from app.models.scene import Scene, SceneVisibilityEnum
 from app.models.scene_post import ScenePost
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.models.user_image import UserImage
+from app.models.password_reset_token import PasswordResetToken
 
 __all__ = [
     "User",
@@ -35,4 +37,6 @@ __all__ = [
     "ScenePost",
     "Conversation",
     "Message",
+    "UserImage",
+    "PasswordResetToken",
 ]

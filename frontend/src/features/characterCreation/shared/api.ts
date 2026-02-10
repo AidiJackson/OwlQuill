@@ -25,6 +25,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers,
+    credentials: 'include',
   });
 
   if (!response.ok) {
@@ -55,6 +56,23 @@ export function resolveImageUrl(url: string): string {
     }
   }
   return url;
+}
+
+// ── Character Image List ────────────────────────────────────────────
+
+export async function listCharacterImages(
+  characterId: number,
+): Promise<CharacterImageRead[]> {
+  return request(`/characters/${characterId}/images`);
+}
+
+export async function setCharacterAvatar(
+  characterId: number,
+  imageId: number,
+): Promise<CharacterImageRead> {
+  return request(`/characters/${characterId}/images/${imageId}/set-avatar`, {
+    method: 'POST',
+  });
 }
 
 // ── Character Visual API ────────────────────────────────────────────

@@ -21,6 +21,7 @@ class UserUpdate(BaseModel):
     display_name: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    cover_url: Optional[str] = None
 
 
 class UserInDB(UserBase):
@@ -29,6 +30,7 @@ class UserInDB(UserBase):
     display_name: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    cover_url: Optional[str] = None
     next_character_allowed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -38,7 +40,7 @@ class UserInDB(UserBase):
 
 class User(UserInDB):
     """Public user schema."""
-    pass
+    is_admin: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -66,6 +68,7 @@ class PublicUserProfile(BaseModel):
     display_name: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    cover_url: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -78,3 +81,16 @@ class ProfileTimelineItem(BaseModel):
     realm_id: Optional[int] = None
     realm_name: Optional[str] = None
     payload: dict
+
+
+# --- Password reset schemas ---
+
+class ForgotPasswordRequest(BaseModel):
+    """Forgot password request schema."""
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Reset password request schema."""
+    token: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8)

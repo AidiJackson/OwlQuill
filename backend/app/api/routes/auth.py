@@ -1,4 +1,8 @@
 """Authentication routes."""
+import hashlib
+import secrets
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -10,12 +14,22 @@ from app.core.security import verify_password, get_password_hash, create_access_
 from app.core.dependencies import get_current_user
 from app.core.admin_seed import auto_join_commons
 from app.models.user import User as UserModel
-from app.schemas.user import UserCreate, User, Token, LoginRequest
+from app.models.password_reset_token import PasswordResetToken
+from app.schemas.user import (
+    UserCreate, User, Token, LoginRequest,
+    ForgotPasswordRequest, ResetPasswordRequest,
+)
+from app.services.email import send_reset_email
 
 router = APIRouter()
 
 # Rate limiter for auth endpoints (in-memory, per-IP)
 limiter = Limiter(key_func=get_remote_address)
+
+
+def _hash_token(token: str) -> str:
+    """Hash a reset token with SHA-256 for storage."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 @router.post("/register", response_model=User, status_code=status.HTTP_201_CREATED)
@@ -78,4 +92,110 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
 @router.get("/me", response_model=User)
 def get_me(current_user: UserModel = Depends(get_current_user)) -> User:
     """Get current user information."""
-    return current_user
+    user_data = User.model_validate(current_user)
+    user_data.is_admin = current_user.email.lower() in settings.get_admin_emails()
+    return user_data
+
+
+# ---------- Password reset ----------
+
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Request a password reset email.
+
+    Always returns 200 to avoid leaking whether the email exists.
+    """
+    user = db.query(UserModel).filter(UserModel.email == body.email).first()
+
+    if user:
+        # Generate cryptographically random token
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = _hash_token(raw_token)
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.RESET_TOKEN_EXPIRE_MINUTES)
+
+        # Invalidate any existing unused tokens for this user
+        db.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None),
+        ).update({"used_at": datetime.utcnow()})
+
+        # Store hashed token
+        reset_token = PasswordResetToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+        )
+        db.add(reset_token)
+        db.commit()
+
+        # Build reset URL and send email
+        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
+        try:
+            send_reset_email(user.email, reset_url)
+        except Exception:
+            pass  # Don't fail the request if email sending fails
+
+    return {"message": "If an account with that email exists, we've sent a password reset link."}
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+def reset_password(
+    request: Request,
+    body: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Reset password using a valid token."""
+    token_hash = _hash_token(body.token)
+
+    reset_record = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token_hash == token_hash,
+    ).first()
+
+    if not reset_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token.",
+        )
+
+    if reset_record.used_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset token has already been used.",
+        )
+
+    if reset_record.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset token has expired.",
+        )
+
+    # Update password
+    user = db.query(UserModel).filter(UserModel.id == reset_record.user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token.",
+        )
+
+    user.hashed_password = get_password_hash(body.new_password)
+
+    # Mark token as used
+    reset_record.used_at = datetime.utcnow()
+
+    # Invalidate all other unused tokens for this user
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.id != reset_record.id,
+        PasswordResetToken.used_at.is_(None),
+    ).update({"used_at": datetime.utcnow()})
+
+    db.commit()
+
+    return {"message": "Password has been reset successfully."}

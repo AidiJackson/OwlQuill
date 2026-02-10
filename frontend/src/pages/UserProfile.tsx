@@ -13,7 +13,10 @@ import {
   Share2,
   BookOpen,
   UserPlus,
+  Sparkles,
+  RefreshCw,
 } from 'lucide-react';
+import AvatarPickerModal from '@/components/AvatarPickerModal';
 
 type Tab = 'timeline' | 'characters' | 'stories' | 'media' | 'mentions';
 
@@ -30,6 +33,41 @@ export default function UserProfile() {
   const [activeTab, setActiveTab] = useState<Tab>('timeline');
 
   const isOwnProfile = authUser?.username === username;
+  const isAdmin = (() => {
+    if (!authUser?.email) return false;
+    const adminList = (import.meta.env.VITE_ADMIN_EMAILS || '').split(',').map((e: string) => e.trim().toLowerCase()).filter(Boolean);
+    return adminList.includes(authUser.email.toLowerCase());
+  })();
+
+  const setUser = useAuthStore((s) => s.setUser);
+
+  // Cover generation (admin-only beta)
+  const [showCoverGen, setShowCoverGen] = useState(false);
+  const [coverGenLoading, setCoverGenLoading] = useState(false);
+  const [coverGenError, setCoverGenError] = useState('');
+
+  // Avatar picker
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+
+  const coverPresets = [
+    { id: 'enchanted_library', label: 'Enchanted Library' },
+    { id: 'midnight_citadel', label: 'Midnight Citadel' },
+    { id: 'celestial_garden', label: 'Celestial Garden' },
+  ];
+
+  const handleGenerateCover = async (presetName: string) => {
+    setCoverGenLoading(true);
+    setCoverGenError('');
+    try {
+      const result = await apiClient.generateProfileCover(presetName);
+      setProfile((prev) => prev ? { ...prev, cover_url: result.cover_url } : prev);
+      setShowCoverGen(false);
+    } catch (err) {
+      setCoverGenError(err instanceof Error ? err.message : 'Failed to generate cover.');
+    } finally {
+      setCoverGenLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!username) return;
@@ -97,24 +135,74 @@ export default function UserProfile() {
     <div className="min-h-screen bg-[#0F1419]">
       {/* === HERO SECTION — cover fills behind the fixed nav === */}
       <div className="relative h-[380px] sm:h-[440px] md:h-[500px] w-full overflow-hidden bg-gradient-to-br from-quill-700 via-quill-600 to-quill-500">
+        {/* Cover image (if set) */}
+        {profile.cover_url && (
+          <img
+            src={profile.cover_url}
+            alt="Profile cover"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        )}
+
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-b from-[#1A1D23]/30 via-transparent to-[#1A1D23]/90" />
 
-        {/* Subtle Pattern Overlay */}
-        <div
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }}
-        />
+        {/* Subtle Pattern Overlay (only when no cover image) */}
+        {!profile.cover_url && (
+          <div
+            className="absolute inset-0 opacity-[0.03]"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+            }}
+          />
+        )}
 
         {/* Hero Right: Avatar with Edit Cover above / Edit Profile below */}
         <div className="absolute right-4 sm:right-8 md:right-12 top-1/2 -translate-y-1/2 pt-[36px] z-20 flex flex-col items-center gap-3 sm:gap-4">
-          {isOwnProfile && (
-            <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl">
+          {isOwnProfile && isAdmin && (
+            <button
+              onClick={() => setShowCoverGen((v) => !v)}
+              className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
+            >
               <Camera className="w-4 h-4" />
               <span className="hidden sm:inline">Edit Cover</span>
             </button>
+          )}
+          {isOwnProfile && !isAdmin && (
+            <div className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm shadow-xl opacity-50 cursor-not-allowed">
+              <Camera className="w-4 h-4 text-[#E8ECEF]/40" />
+              <span className="hidden sm:inline text-[#E8ECEF]/40">Edit Cover</span>
+              <span className="text-[10px] text-[#E8ECEF]/30 hidden sm:inline">— coming soon</span>
+            </div>
+          )}
+
+          {/* Cover generation panel (admin-only beta) */}
+          {showCoverGen && isAdmin && (
+            <div className="bg-[#1A1D23]/90 backdrop-blur-md border border-[#E8ECEF]/10 rounded-lg p-3 shadow-xl space-y-2 min-w-[200px]">
+              <p className="text-xs text-[#E8ECEF]/50 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                Generate Cover (Beta)
+              </p>
+              {coverPresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  onClick={() => handleGenerateCover(preset.id)}
+                  disabled={coverGenLoading}
+                  className="w-full text-left text-sm text-[#E8ECEF]/80 hover:text-white hover:bg-[#2D3139]/60 px-2 py-1.5 rounded transition-colors disabled:opacity-40"
+                >
+                  {preset.label}
+                </button>
+              ))}
+              {coverGenLoading && (
+                <div className="flex items-center gap-2 text-xs text-[#E8ECEF]/50 px-2 py-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  Generating...
+                </div>
+              )}
+              {coverGenError && (
+                <p className="text-xs text-red-400 px-2">{coverGenError}</p>
+              )}
+            </div>
           )}
 
           {/* Avatar with premium frame */}
@@ -138,7 +226,10 @@ export default function UserProfile() {
               </div>
             </div>
             {isOwnProfile && (
-              <button className="absolute -bottom-1 -right-1 sm:bottom-1 sm:right-1 w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-quill-500 hover:bg-quill-400 shadow-lg shadow-quill-500/30 flex items-center justify-center transition-all border border-white/10">
+              <button
+                onClick={() => setShowAvatarPicker(true)}
+                className="absolute -bottom-1 -right-1 sm:bottom-1 sm:right-1 w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-quill-500 hover:bg-quill-400 shadow-lg shadow-quill-500/30 flex items-center justify-center transition-all border border-white/10"
+              >
                 <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
               </button>
             )}
@@ -394,6 +485,16 @@ export default function UserProfile() {
           </div>
         </div>
       </div>
+
+      <AvatarPickerModal
+        open={showAvatarPicker}
+        onClose={() => setShowAvatarPicker(false)}
+        onSaved={(avatarUrl) => {
+          setProfile((prev) => prev ? { ...prev, avatar_url: avatarUrl } : prev);
+          if (authUser) setUser({ ...authUser, avatar_url: avatarUrl });
+          setShowAvatarPicker(false);
+        }}
+      />
     </div>
   );
 }

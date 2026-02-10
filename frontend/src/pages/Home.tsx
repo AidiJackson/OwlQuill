@@ -6,6 +6,7 @@ import { useAuthStore } from '@/lib/store';
 import type { Post, Realm, Character, LibraryImage } from '@/lib/types';
 import CommentSection from '@/components/CommentSection';
 import ReactionBar from '@/components/ReactionBar';
+import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
 
 export default function Home() {
@@ -288,9 +289,14 @@ export default function Home() {
                       <span className={isCommons ? 'text-emerald-400 font-semibold' : 'text-owl-300'}>{realmName}</span>
                     </span>
                   </div>
-                  <span className="text-xs text-gray-500">
-                    {new Date(post.created_at).toLocaleDateString()}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">
+                      {new Date(post.created_at).toLocaleDateString()}
+                    </span>
+                    {(post.author_user_id === user?.id || user?.is_admin) && (
+                      <PostMenu postId={post.id} onDeleted={(id) => setPosts(prev => prev.filter(p => p.id !== id))} />
+                    )}
+                  </div>
                 </div>
 
                 {/* Post content */}

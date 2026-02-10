@@ -40,6 +40,22 @@ class Settings(BaseSettings):
     AI_PROVIDER: Literal["fake", "openai", "anthropic"] = "fake"
     AI_API_KEY: str = ""
 
+    # Password reset
+    RESET_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour
+    FRONTEND_URL: str = "http://localhost:5173"
+
+    # Email / SMTP (optional — logs to console when unconfigured)
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_TLS: bool = True
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "noreply@owlquill.app"
+
+    # Admin — comma-separated emails that bypass cooldowns etc.
+    # Falls back to ADMIN_EMAIL env var for single-admin setups.
+    ADMIN_EMAILS: str = ""
+
     # Image generation
     IMAGE_PROVIDER: str = "openai"
     IMAGE_MODEL: str = "gpt-image-1.5"
@@ -62,6 +78,16 @@ class Settings(BaseSettings):
             )
         # Safe default for development only
         return "dev-only-insecure-secret-key-do-not-use-in-production"
+
+    def get_admin_emails(self) -> set[str]:
+        """Return the set of admin email addresses (lowercased).
+
+        Reads ADMIN_EMAILS first; falls back to ADMIN_EMAIL env var.
+        """
+        raw = self.ADMIN_EMAILS.strip()
+        if not raw:
+            raw = os.environ.get("ADMIN_EMAIL", "")
+        return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
     def get_cors_origins(self) -> list[str]:
         """Parse CORS origins from env.

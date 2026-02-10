@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2 } from 'lucide-react';
+import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, User } from '@/lib/types';
-import { generateMomentImage, resolveImageUrl } from '@/features/characterCreation/shared/api';
+import { generateMomentImage, listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 
 const VISIBILITY_ICONS = {
@@ -26,9 +26,16 @@ export default function CharacterDetail() {
 
   const [following, setFollowing] = useState(false);
 
+  const [galleryImages, setGalleryImages] = useState<CharacterImageRead[]>([]);
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+
   const [momentImage, setMomentImage] = useState<CharacterImageRead | null>(null);
   const [momentLoading, setMomentLoading] = useState(false);
   const [momentError, setMomentError] = useState('');
+
+  // Set-avatar state
+  const [settingAvatar, setSettingAvatar] = useState(false);
+  const [avatarSet, setAvatarSet] = useState(false);
 
   // Delete modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -78,15 +85,36 @@ export default function CharacterDetail() {
     }
   };
 
+  const handleSetAvatar = async (img: CharacterImageRead) => {
+    if (!character) return;
+    setSettingAvatar(true);
+    setAvatarSet(false);
+    try {
+      await setCharacterAvatar(character.id, img.id);
+      setCharacter({ ...character, avatar_url: resolveImageUrl(img.url) });
+      setAvatarSet(true);
+      setTimeout(() => setAvatarSet(false), 2000);
+    } catch {
+      // Silently fail — user can retry
+    } finally {
+      setSettingAvatar(false);
+    }
+  };
+
   useEffect(() => {
     if (!id) return;
+    const charId = Number(id);
     Promise.all([
-      apiClient.getCharacter(Number(id)),
+      apiClient.getCharacter(charId),
       apiClient.getMe().catch(() => null),
     ])
       .then(([char, user]) => {
         setCharacter(char);
         setCurrentUser(user);
+        // Fetch gallery images (non-blocking — don't gate the page on this)
+        listCharacterImages(charId)
+          .then(setGalleryImages)
+          .catch(() => {});
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Character not found'))
       .finally(() => setLoading(false));
@@ -177,6 +205,17 @@ export default function CharacterDetail() {
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
               <VisIcon className="w-3.5 h-3.5" />
               <span className="capitalize">{character.visibility}</span>
+              {character.owner_username && (character.visibility === 'public' || (currentUser && (character.owner_id === currentUser.id))) && (
+                <>
+                  <span className="text-gray-600">·</span>
+                  <Link
+                    to={`/u/${encodeURIComponent(character.owner_username)}`}
+                    className="text-gray-400 hover:text-owl-300 hover:underline transition-colors"
+                  >
+                    @{character.owner_username}
+                  </Link>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2 mt-2">
               {currentUser && character.owner_id === currentUser.id ? (
@@ -253,8 +292,30 @@ export default function CharacterDetail() {
           </div>
         )}
 
-        {/* Moment generation (post-lock) */}
-        {character.visual_locked && (
+        {/* Image gallery */}
+        {galleryImages.length > 0 && (
+          <div className="border-t border-gray-800 pt-6 space-y-3">
+            <h2 className="text-sm font-medium text-gray-300">Images</h2>
+            <div className="grid grid-cols-3 gap-3">
+              {galleryImages.map((img, idx) => (
+                <button
+                  key={img.id}
+                  className="rounded-lg overflow-hidden border border-gray-800 bg-gray-900 hover:border-gray-600 transition-colors cursor-pointer"
+                  onClick={() => setLightboxIdx(idx)}
+                >
+                  <img
+                    src={resolveImageUrl(img.url)}
+                    alt={img.kind.replace(/_/g, ' ')}
+                    className="w-full aspect-[2/3] object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Moment generation (post-lock, owner only) */}
+        {character.visual_locked && currentUser && character.owner_id === currentUser.id && (
           <div className="border-t border-gray-800 pt-6 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-gray-300">New moment</h2>
@@ -298,6 +359,48 @@ export default function CharacterDetail() {
           </div>
         )}
       </div>
+
+      {/* Image lightbox */}
+      {lightboxIdx !== null && galleryImages[lightboxIdx] && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setLightboxIdx(null)}
+        >
+          <div className="relative max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 z-10"
+              onClick={() => setLightboxIdx(null)}
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <img
+              src={resolveImageUrl(galleryImages[lightboxIdx].url)}
+              alt={galleryImages[lightboxIdx].kind.replace(/_/g, ' ')}
+              className="w-full rounded-lg"
+            />
+            <div className="flex items-center justify-between mt-2">
+              <p className="text-xs text-gray-400 capitalize">
+                {galleryImages[lightboxIdx].kind.replace(/_/g, ' ')}
+              </p>
+              {currentUser && character.owner_id === currentUser.id && (
+                <button
+                  className="text-xs px-3 py-1.5 rounded bg-owl-600 hover:bg-owl-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  disabled={settingAvatar}
+                  onClick={() => handleSetAvatar(galleryImages[lightboxIdx!])}
+                >
+                  {avatarSet ? (
+                    <><Check className="w-3 h-3" />Avatar set</>
+                  ) : settingAvatar ? (
+                    <><RefreshCw className="w-3 h-3 animate-spin" />Setting…</>
+                  ) : (
+                    'Set as avatar'
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete character modal */}
       {showDeleteModal && (

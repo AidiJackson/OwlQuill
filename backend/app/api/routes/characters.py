@@ -7,6 +7,7 @@ from sqlalchemy import or_
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.config import settings
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult
@@ -16,6 +17,11 @@ router = APIRouter()
 _COOLDOWN_HOURS = 24
 
 
+def _is_admin(user: User) -> bool:
+    """Check if user is an admin (bypasses cooldowns)."""
+    return user.email.lower() in settings.get_admin_emails()
+
+
 @router.post("/", response_model=Character, status_code=status.HTTP_201_CREATED)
 def create_character(
     character_data: CharacterCreate,
@@ -23,8 +29,8 @@ def create_character(
     db: Session = Depends(get_db)
 ) -> Character:
     """Create a new character."""
-    # Enforce cooldown after character deletion
-    if current_user.next_character_allowed_at:
+    # Enforce cooldown after character deletion (admins bypass)
+    if current_user.next_character_allowed_at and not _is_admin(current_user):
         now = datetime.utcnow()
         if now < current_user.next_character_allowed_at:
             remaining = current_user.next_character_allowed_at - now
@@ -106,6 +112,7 @@ def get_character(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Character not found"
         )
+    character.owner_username = character.owner.username if character.owner else None
     return character
 
 
@@ -158,7 +165,8 @@ def delete_character(
 
     db.delete(character)
 
-    # Set 24h cooldown on the user
-    current_user.next_character_allowed_at = datetime.utcnow() + timedelta(hours=_COOLDOWN_HOURS)
+    # Set 24h cooldown on the user (admins bypass)
+    if not _is_admin(current_user):
+        current_user.next_character_allowed_at = datetime.utcnow() + timedelta(hours=_COOLDOWN_HOURS)
 
     db.commit()

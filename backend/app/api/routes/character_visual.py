@@ -5,10 +5,11 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
-from app.models.character import Character as CharacterModel
+from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_dna import CharacterDNA
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
 from app.schemas.character_dna import CharacterDNACreate, CharacterDNAUpdate, CharacterDNARead
@@ -105,6 +106,108 @@ def _get_owned_character(
             detail="You don't have permission to modify this character.",
         )
     return character
+
+
+# ── 0) GET /characters/{id}/images ──────────────────────────────────
+
+@router.get(
+    "/{character_id}/images",
+    response_model=list[CharacterImageRead],
+    summary="List persisted images for a character",
+)
+def list_character_images(
+    character_id: int,
+    current_user: User | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+) -> list[CharacterImageRead]:
+    """Return all active, non-temporary images for a character.
+
+    Public characters are viewable by anyone.  Non-public characters
+    require the caller to be the owner or an admin.
+    """
+    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
+
+    if character.visibility != VisibilityEnum.PUBLIC:
+        if current_user is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authenticated.")
+        is_admin = current_user.email.lower() in settings.get_admin_emails()
+        if character.owner_id != current_user.id and not is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed.")
+
+    rows: list[CharacterImage] = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.character_id == character_id,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .order_by(CharacterImage.created_at.desc())
+        .all()
+    )
+
+    # Exclude temporary pack previews that were never accepted
+    visible = [
+        r for r in rows
+        if not (r.metadata_json or {}).get("is_temp", False)
+    ]
+
+    return [CharacterImageRead.model_validate(r) for r in visible]
+
+
+# ── 0b) POST /characters/{id}/images/{image_id}/set-avatar ─────────
+
+@router.post(
+    "/{character_id}/images/{image_id}/set-avatar",
+    response_model=CharacterImageRead,
+    summary="Set a character image as the avatar",
+)
+def set_avatar(
+    character_id: int,
+    image_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CharacterImageRead:
+    """Set the character's avatar to an existing persisted image.
+
+    Only the character owner or an admin may call this endpoint.
+    The image must be ACTIVE and non-temporary.
+    """
+    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
+
+    is_admin = current_user.email.lower() in settings.get_admin_emails()
+    if character.owner_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed.")
+
+    image = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.id == image_id,
+            CharacterImage.character_id == character_id,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .first()
+    )
+    if not image:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found.")
+
+    if (image.metadata_json or {}).get("is_temp", False):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot use a temporary image as avatar.",
+        )
+
+    # Derive the servable URL (same logic as CharacterImageRead.url)
+    path = image.file_path.lstrip("/")
+    avatar_url = f"/{path}" if path.startswith("static/") else f"/static/{path}"
+
+    character.avatar_url = avatar_url
+    db.commit()
+    db.refresh(image)
+
+    return CharacterImageRead.model_validate(image)
 
 
 # ── 1) POST /characters/{id}/dna ────────────────────────────────────

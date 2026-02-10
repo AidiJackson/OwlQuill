@@ -6,6 +6,7 @@ import { useAuthStore } from '@/lib/store';
 import type { Realm, Post, Character, Scene, SceneVisibility, LibraryImage } from '@/lib/types';
 import CommentSection from '@/components/CommentSection';
 import ReactionBar from '@/components/ReactionBar';
+import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
 
 export default function RealmDetail() {
@@ -536,9 +537,14 @@ export default function RealmDetail() {
                         <Link to={`/u/${encodeURIComponent(post.author_username)}`} className="text-sm text-gray-400 hover:text-owl-300 hover:underline transition-colors">@{post.author_username}</Link>
                       ) : null}
                     </div>
-                    <span className="text-xs text-gray-500">
-                      {new Date(post.created_at).toLocaleDateString()}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">
+                        {new Date(post.created_at).toLocaleDateString()}
+                      </span>
+                      {(post.author_user_id === user?.id || user?.is_admin) && (
+                        <PostMenu postId={post.id} onDeleted={(id) => setPosts(prev => prev.filter(p => p.id !== id))} />
+                      )}
+                    </div>
                   </div>
 
                   {/* Post content */}

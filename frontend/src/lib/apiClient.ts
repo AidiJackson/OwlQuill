@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -33,6 +33,7 @@ class ApiClient {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers,
+      credentials: 'include',
     });
 
     if (!response.ok) {
@@ -70,6 +71,20 @@ class ApiClient {
 
   async getMe(): Promise<User> {
     return this.request<User>('/auth/me');
+  }
+
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPassword(token: string, new_password: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password }),
+    });
   }
 
   // Users
@@ -170,6 +185,10 @@ class ApiClient {
     return this.request<Post>(`/posts/${id}`);
   }
 
+  async deletePost(id: number): Promise<void> {
+    return this.request<void>(`/posts/${id}`, { method: 'DELETE' });
+  }
+
   // Comments
   async getPostComments(postId: number): Promise<Comment[]> {
     return this.request<Comment[]>(`/comments/posts/${postId}/comments`);
@@ -248,7 +267,38 @@ class ApiClient {
     });
   }
 
-  // Images library
+  // Profile cover (admin-only beta)
+  async generateProfileCover(presetName: string): Promise<{ cover_url: string; image_id: number }> {
+    return this.request<{ cover_url: string; image_id: number }>('/users/me/cover/generate', {
+      method: 'POST',
+      body: JSON.stringify({ preset_name: presetName }),
+    });
+  }
+
+  // Image library — user-scoped
+  async listMyCharacterImages(): Promise<LibraryImage[]> {
+    return this.request<LibraryImage[]>('/users/me/character-images');
+  }
+
+  async setAvatar(imageType: 'character' | 'user', imageId: number): Promise<{ avatar_url: string }> {
+    return this.request<{ avatar_url: string }>('/users/me/avatar', {
+      method: 'POST',
+      body: JSON.stringify({ image_type: imageType, image_id: imageId }),
+    });
+  }
+
+  async setMyProfileCover(imageId: number): Promise<{ cover_url: string; image_id: number }> {
+    return this.request<{ cover_url: string; image_id: number }>(`/users/me/images/${imageId}/set-cover`, {
+      method: 'POST',
+    });
+  }
+
+  async listMyUserImages(kind?: string): Promise<UserImageRead[]> {
+    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+    return this.request<UserImageRead[]>(`/users/me/images${qs}`);
+  }
+
+  // Images library (legacy)
   async listLibraryImages(): Promise<LibraryImage[]> {
     return this.request<LibraryImage[]>('/images/');
   }

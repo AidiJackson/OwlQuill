@@ -14,6 +14,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const res = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers: { ...authHeaders(), ...(options.headers as Record<string, string>) },
+    credentials: 'include',
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'An error occurred' }));

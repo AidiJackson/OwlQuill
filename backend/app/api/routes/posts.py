@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.admin_seed import auto_join_commons
@@ -122,7 +123,8 @@ def delete_post(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Post not found"
         )
-    if post.author_user_id != current_user.id:
+    is_admin = current_user.email.lower() in settings.get_admin_emails()
+    if post.author_user_id != current_user.id and not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to delete this post"
