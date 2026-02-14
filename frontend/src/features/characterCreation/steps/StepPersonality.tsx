@@ -3,7 +3,7 @@ import { Sparkles } from 'lucide-react';
 import type { CreationSeeds } from '../shared/types';
 import { PERSONALITY_TRAITS } from '../shared/types';
 
-const MAX_VIBE_LENGTH = 200;
+const MAX_VIBE_LENGTH = 250;
 
 const FILLER_WORDS = /\b(very|really|extremely|quite|rather|somewhat|pretty|fairly|incredibly|absolutely|totally|completely|literally|basically|actually|honestly|definitely|certainly|obviously|seriously|truly)\b/gi;
 

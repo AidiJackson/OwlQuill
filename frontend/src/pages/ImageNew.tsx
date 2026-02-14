@@ -71,7 +71,7 @@ export default function ImageNew() {
                 setPrompt(e.target.value);
                 setError('');
               }}
-              maxLength={200}
+              maxLength={250}
               rows={4}
               disabled={generating}
             />
@@ -79,7 +79,7 @@ export default function ImageNew() {
               <p className="text-xs text-gray-500">
                 Be specific. No celebrity likenesses. No real people.
               </p>
-              <span className="text-xs text-gray-500">{prompt.length}/200</span>
+              <span className="text-xs text-gray-500">{prompt.length}/250</span>
             </div>
 
             <div className="flex items-center gap-3">

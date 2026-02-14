@@ -21,7 +21,7 @@ class IdentityPackTweaks(BaseModel):
 class IdentityPackGenerateRequest(BaseModel):
     """Request body for POST /identity-pack/generate."""
     tweaks: Optional[IdentityPackTweaks] = None
-    prompt_vibe: Optional[str] = Field(None, max_length=200)
+    prompt_vibe: Optional[str] = Field(None, max_length=250)
 
 
 class IdentityPackGenerateResponse(BaseModel):

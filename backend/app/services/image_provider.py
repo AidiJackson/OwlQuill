@@ -33,12 +33,12 @@ class ImageProvider:
         Returns raw PNG bytes.
 
         Raises:
-            ValueError: If prompt is empty or exceeds 200 characters.
+            ValueError: If prompt is empty or exceeds 250 characters.
         """
         if not prompt or len(prompt.strip()) == 0:
             raise ValueError("Prompt must not be empty.")
-        if len(prompt) > 200:
-            raise ValueError("Prompt must be 200 characters or fewer.")
+        if len(prompt) > 250:
+            raise ValueError("Prompt must be 250 characters or fewer.")
         return self._generate(prompt=prompt, size=size, reference_image_url=reference_image_url)
 
     def _generate(

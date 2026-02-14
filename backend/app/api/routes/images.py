@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 class ImageGenerateRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, max_length=200)
+    prompt: str = Field(..., min_length=1, max_length=250)
 
 
 def _pick_character(db: Session, user: User) -> Character:
@@ -50,7 +50,7 @@ def generate_library_image(
 
     file_path = generate_placeholder_png(
         label=body.prompt[:40] + ("…" if len(body.prompt) > 40 else ""),
-        sublabel="OwlQuill Library",
+        sublabel="Ficshon Library",
         role="generated",
     )
 

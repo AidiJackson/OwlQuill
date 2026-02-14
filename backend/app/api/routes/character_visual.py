@@ -61,7 +61,7 @@ def _build_pack_prompt(
     prompt_vibe: str | None,
     tweaks_label: str | None,
 ) -> str:
-    """Build a concise image prompt from character data + role. Max 200 chars."""
+    """Build a concise image prompt from character data + role. Max 250 chars."""
     parts: list[str] = []
 
     # Character identity
@@ -84,8 +84,8 @@ def _build_pack_prompt(
     parts.append(ROLE_SHOT_DESCRIPTION[role])
 
     prompt = ", ".join(parts)
-    # Hard-cap at 200 chars (provider validates this)
-    return prompt[:200]
+    # Hard-cap at 250 chars (provider validates this)
+    return prompt[:250]
 
 
 def _get_owned_character(
