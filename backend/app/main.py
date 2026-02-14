@@ -1,4 +1,5 @@
-"""OwlQuill FastAPI application."""
+"""Ficshon FastAPI application."""
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -14,10 +15,17 @@ from app.core.starter_seed import ensure_starter_realms_and_posts
 from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images
 
 
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
+    if settings.SMTP_HOST:
+        logger.info("Email: SMTP enabled (host=%s)", settings.SMTP_HOST)
+    else:
+        logger.info("Email: DEV console mode")
     ensure_admin_user()
     ensure_commons_realm()
     try:
@@ -88,14 +96,14 @@ app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 @app.get("/health")
 def health_check() -> dict:
     """Health check endpoint."""
-    return {"status": "ok", "service": "owlquill-backend"}
+    return {"status": "ok", "service": "ficshon-backend"}
 
 
 @app.get("/")
 def root() -> dict:
     """Root endpoint."""
     return {
-        "service": "OwlQuill API",
+        "service": "Ficshon API",
         "version": settings.APP_VERSION,
         "docs": "/docs"
     }

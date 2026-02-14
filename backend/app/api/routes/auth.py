@@ -17,7 +17,7 @@ from app.models.user import User as UserModel
 from app.models.password_reset_token import PasswordResetToken
 from app.schemas.user import (
     UserCreate, User, Token, LoginRequest,
-    ForgotPasswordRequest, ResetPasswordRequest,
+    ForgotPasswordRequest, ForgotPasswordResponse, ResetPasswordRequest,
 )
 from app.services.email import send_reset_email
 
@@ -100,48 +100,58 @@ def get_me(current_user: UserModel = Depends(get_current_user)) -> User:
 # ---------- Password reset ----------
 
 
-@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+@router.post("/forgot-password", response_model=ForgotPasswordResponse, status_code=status.HTTP_200_OK)
 @limiter.limit(settings.RATE_LIMIT_AUTH)
 def forgot_password(
     request: Request,
     body: ForgotPasswordRequest,
     db: Session = Depends(get_db),
-) -> dict:
+) -> ForgotPasswordResponse:
     """Request a password reset email.
 
     Always returns 200 to avoid leaking whether the email exists.
+    In dev/admin mode, the response includes reset_url for convenience.
     """
+    msg = "If an account with that email exists, we've sent a password reset link."
     user = db.query(UserModel).filter(UserModel.email == body.email).first()
 
-    if user:
-        # Generate cryptographically random token
-        raw_token = secrets.token_urlsafe(32)
-        token_hash = _hash_token(raw_token)
-        expires_at = datetime.utcnow() + timedelta(minutes=settings.RESET_TOKEN_EXPIRE_MINUTES)
+    if not user:
+        return ForgotPasswordResponse(message=msg)
 
-        # Invalidate any existing unused tokens for this user
-        db.query(PasswordResetToken).filter(
-            PasswordResetToken.user_id == user.id,
-            PasswordResetToken.used_at.is_(None),
-        ).update({"used_at": datetime.utcnow()})
+    # Generate cryptographically random token
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(raw_token)
+    expires_at = datetime.utcnow() + timedelta(minutes=settings.RESET_TOKEN_EXPIRE_MINUTES)
 
-        # Store hashed token
-        reset_token = PasswordResetToken(
-            user_id=user.id,
-            token_hash=token_hash,
-            expires_at=expires_at,
-        )
-        db.add(reset_token)
-        db.commit()
+    # Invalidate any existing unused tokens for this user
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used_at.is_(None),
+    ).update({"used_at": datetime.utcnow()})
 
-        # Build reset URL and send email
-        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
-        try:
-            send_reset_email(user.email, reset_url)
-        except Exception:
-            pass  # Don't fail the request if email sending fails
+    # Store hashed token
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+    db.add(reset_token)
+    db.commit()
 
-    return {"message": "If an account with that email exists, we've sent a password reset link."}
+    # Build reset URL and send email
+    frontend_url = settings.get_frontend_url()
+    reset_url = f"{frontend_url}/reset-password?token={raw_token}"
+    try:
+        send_reset_email(user.email, reset_url)
+    except Exception:
+        pass  # Don't fail the request if email sending fails
+
+    # Return reset_url only in dev mode or for admin emails
+    is_admin_email = body.email.lower() in settings.get_admin_emails()
+    if settings.is_dev_mode() or is_admin_email:
+        return ForgotPasswordResponse(message=msg, reset_url=reset_url)
+
+    return ForgotPasswordResponse(message=msg)
 
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK)

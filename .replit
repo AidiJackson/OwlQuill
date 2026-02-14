@@ -22,11 +22,6 @@ localPort = 5002
 externalPort = 3001
 
 [[ports]]
-localPort = 5173
-externalPort = 80
-exposeLocalhost = true
-
-[[ports]]
 localPort = 8000
 externalPort = 8000
 
@@ -50,7 +45,7 @@ externalPort = 5173
 [env]
 PYTHONPATH = "${REPL_HOME}/backend:${PYTHONPATH}"
 VITE_API_BASE_URL = "/api"
-VITE_ADMIN_EMAILS = "admin@owlquill.app"
+VITE_ADMIN_EMAILS = "admin@ficshon.com"
 
 # Language server configuration
 [languages]
@@ -80,10 +75,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "OwlQuill Dev Server"
+args = "Ficshon Dev Server"
 
 [[workflows.workflow]]
-name = "OwlQuill Dev Server"
+name = "Ficshon Dev Server"
 author = "agent"
 
 [workflows.workflow.metadata]

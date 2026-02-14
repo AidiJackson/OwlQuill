@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     """Application settings."""
 
     # App Info
-    APP_NAME: str = "OwlQuill"
+    APP_NAME: str = "Ficshon"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False  # Default to production-safe value
 
@@ -44,13 +44,16 @@ class Settings(BaseSettings):
     RESET_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # Explicit dev mode flag (alternative to DEBUG for reset-link fallback)
+    DEV_MODE: bool = False
+
     # Email / SMTP (optional — logs to console when unconfigured)
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
     SMTP_TLS: bool = True
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
-    SMTP_FROM: str = "noreply@owlquill.app"
+    SMTP_FROM: str = "hello@ficshon.com"
 
     # Admin — comma-separated emails that bypass cooldowns etc.
     # Falls back to ADMIN_EMAIL env var for single-admin setups.
@@ -88,6 +91,21 @@ class Settings(BaseSettings):
         if not raw:
             raw = os.environ.get("ADMIN_EMAIL", "")
         return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+    def is_dev_mode(self) -> bool:
+        """True when running in development / non-production context."""
+        return self.DEBUG or self.DEV_MODE
+
+    def get_frontend_url(self) -> str:
+        """Return frontend URL, auto-detecting Replit domain when needed."""
+        # Explicit env override wins
+        if self.FRONTEND_URL != "http://localhost:5173":
+            return self.FRONTEND_URL.rstrip("/")
+        # Auto-detect Replit public domain
+        replit_domain = os.environ.get("REPLIT_DEV_DOMAIN", "")
+        if replit_domain:
+            return f"https://{replit_domain}"
+        return self.FRONTEND_URL
 
     def get_cors_origins(self) -> list[str]:
         """Parse CORS origins from env.

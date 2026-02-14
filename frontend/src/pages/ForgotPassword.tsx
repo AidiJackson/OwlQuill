@@ -7,6 +7,8 @@ export default function ForgotPassword() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetUrl, setResetUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -14,12 +16,34 @@ export default function ForgotPassword() {
     setLoading(true);
 
     try {
-      await apiClient.forgotPassword(email);
+      const res = await apiClient.forgotPassword(email);
       setSubmitted(true);
+      if (res.reset_url) {
+        setResetUrl(res.reset_url);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!resetUrl) return;
+    try {
+      await navigator.clipboard.writeText(resetUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for browsers without clipboard API
+      const input = document.createElement('input');
+      input.value = resetUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -39,6 +63,19 @@ export default function ForgotPassword() {
               <div className="bg-green-900/20 border border-green-800 text-green-200 px-4 py-3 rounded mb-4">
                 If an account with that email exists, we've sent a password reset link. Check your inbox.
               </div>
+
+              {resetUrl && (
+                <div className="bg-yellow-900/20 border border-yellow-800 rounded p-4 mb-4">
+                  <p className="text-yellow-200 text-xs mb-2">Dev/admin mode only</p>
+                  <button
+                    onClick={handleCopy}
+                    className="btn btn-primary w-full text-sm"
+                  >
+                    {copied ? 'Copied!' : 'Copy reset link'}
+                  </button>
+                </div>
+              )}
+
               <p className="text-center text-gray-400 mt-4">
                 <Link to="/login" className="text-owl-500 hover:text-owl-400">
                   Back to Login

@@ -90,6 +90,12 @@ class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
 
+class ForgotPasswordResponse(BaseModel):
+    """Forgot password response schema."""
+    message: str
+    reset_url: Optional[str] = None
+
+
 class ResetPasswordRequest(BaseModel):
     """Reset password request schema."""
     token: str = Field(..., min_length=1)

@@ -1,5 +1,7 @@
 """Tests for authentication endpoints."""
+import os
 import pytest
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
 
@@ -176,3 +178,143 @@ def test_rate_limit_login(client: TestClient):
         )
         # All should succeed (we're under the limit)
         assert response.status_code == 200
+
+
+# ---------- Forgot-password tests ----------
+
+
+def _register(client: TestClient, email: str = "reset@example.com") -> None:
+    """Helper to register a user."""
+    client.post(
+        "/auth/register",
+        json={"email": email, "username": email.split("@")[0], "password": "testpassword123"},
+    )
+
+
+def test_forgot_password_always_200(client: TestClient):
+    """Endpoint returns 200 regardless of whether email exists."""
+    response = client.post("/auth/forgot-password", json={"email": "nobody@example.com"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "message" in data
+
+
+def test_forgot_password_no_reset_url_for_unknown_email(client: TestClient):
+    """Even in dev mode, unknown email must not return reset_url."""
+    response = client.post("/auth/forgot-password", json={"email": "nobody@example.com"})
+    assert response.status_code == 200
+    assert response.json().get("reset_url") is None
+
+
+def test_forgot_password_dev_mode_returns_reset_url(client: TestClient):
+    """In dev mode (DEBUG=true in test env), reset_url is returned for existing user."""
+    _register(client)
+    response = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data.get("reset_url") is not None
+    assert "/reset-password?token=" in data["reset_url"]
+
+
+def test_forgot_password_prod_mode_no_reset_url(client: TestClient):
+    """In production mode (DEBUG=False, DEV_MODE=False), reset_url is never returned for non-admin."""
+    _register(client)
+    from app.core.config import settings
+    original_debug = settings.DEBUG
+    original_dev_mode = settings.DEV_MODE
+    try:
+        settings.DEBUG = False
+        settings.DEV_MODE = False
+        response = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
+        assert response.status_code == 200
+        assert response.json().get("reset_url") is None
+    finally:
+        settings.DEBUG = original_debug
+        settings.DEV_MODE = original_dev_mode
+
+
+def test_forgot_password_admin_email_returns_reset_url_in_prod(client: TestClient):
+    """Admin emails always get reset_url, even in production mode."""
+    _register(client, email="admin@owlquill.app")
+    from app.core.config import settings
+    original_debug = settings.DEBUG
+    original_dev_mode = settings.DEV_MODE
+    original_admin = settings.ADMIN_EMAILS
+    try:
+        settings.DEBUG = False
+        settings.DEV_MODE = False
+        settings.ADMIN_EMAILS = "admin@owlquill.app"
+        response = client.post("/auth/forgot-password", json={"email": "admin@owlquill.app"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("reset_url") is not None
+        assert "/reset-password?token=" in data["reset_url"]
+    finally:
+        settings.DEBUG = original_debug
+        settings.DEV_MODE = original_dev_mode
+        settings.ADMIN_EMAILS = original_admin
+
+
+def test_forgot_password_reset_url_works_end_to_end(client: TestClient):
+    """Token from reset_url can be used to actually reset the password."""
+    _register(client)
+    response = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
+    reset_url = response.json()["reset_url"]
+    token = reset_url.split("token=")[1]
+
+    # Reset password using the token
+    response = client.post(
+        "/auth/reset-password",
+        json={"token": token, "new_password": "newpassword456"},
+    )
+    assert response.status_code == 200
+
+    # Login with new password
+    response = client.post(
+        "/auth/login",
+        json={"email": "reset@example.com", "password": "newpassword456"},
+    )
+    assert response.status_code == 200
+    assert "access_token" in response.json()
+
+
+def test_forgot_password_sends_smtp_when_configured(client: TestClient):
+    """When SMTP_HOST is set, send_reset_email dispatches via smtplib.SMTP."""
+    _register(client)
+    from app.core.config import settings
+
+    original_host = settings.SMTP_HOST
+    original_user = settings.SMTP_USER
+    original_password = settings.SMTP_PASSWORD
+    original_from = settings.SMTP_FROM
+    try:
+        settings.SMTP_HOST = "smtp.zoho.eu"
+        settings.SMTP_USER = "hello@ficshon.com"
+        settings.SMTP_PASSWORD = "fake-app-password"
+        settings.SMTP_FROM = "hello@ficshon.com"
+
+        mock_smtp_instance = MagicMock()
+        with patch("app.services.email.smtplib.SMTP", return_value=mock_smtp_instance) as mock_smtp_cls:
+            mock_smtp_instance.__enter__ = MagicMock(return_value=mock_smtp_instance)
+            mock_smtp_instance.__exit__ = MagicMock(return_value=False)
+
+            response = client.post(
+                "/auth/forgot-password",
+                json={"email": "reset@example.com"},
+            )
+            assert response.status_code == 200
+
+            # Verify SMTP was instantiated with the right host/port
+            mock_smtp_cls.assert_called_once_with("smtp.zoho.eu", 587)
+            # Verify starttls and login were called
+            mock_smtp_instance.starttls.assert_called_once()
+            mock_smtp_instance.login.assert_called_once_with("hello@ficshon.com", "fake-app-password")
+            mock_smtp_instance.sendmail.assert_called_once()
+            # Verify recipient
+            call_args = mock_smtp_instance.sendmail.call_args
+            assert call_args[0][1] == "reset@example.com"
+    finally:
+        settings.SMTP_HOST = original_host
+        settings.SMTP_USER = original_user
+        settings.SMTP_PASSWORD = original_password
+        settings.SMTP_FROM = original_from
