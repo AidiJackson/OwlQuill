@@ -38,9 +38,9 @@ KIND_FOR_ROLE = {
 }
 
 ROLE_SHOT_DESCRIPTION = {
-    "anchor_front": "front-facing head-and-shoulders portrait, neutral expression",
-    "anchor_three_quarter": "three-quarter view portrait, same person",
-    "anchor_torso": "waist-up torso view, same person",
+    "anchor_front": "front-facing head-and-shoulders portrait, centered, eye-level camera",
+    "anchor_three_quarter": "three-quarter view, head turned about 45 degrees, angled shoulders, clearly not straight-on",
+    "anchor_torso": "mid-torso framing, chest and shoulders visible, face smaller in frame, slight angle not portrait crop",
 }
 
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
