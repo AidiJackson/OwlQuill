@@ -5,6 +5,8 @@ import os
 # This ensures Settings() sees these values when instantiated at import time
 os.environ["SECRET_KEY"] = "test-secret-key-not-for-prod"
 os.environ.setdefault("DEBUG", "true")
+# Ensure tests use stub image generator, never the real OpenAI API
+os.environ.pop("OPENAI_API_KEY", None)
 
 import pytest
 from fastapi.testclient import TestClient

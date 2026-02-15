@@ -1,4 +1,5 @@
 """Character visual endpoints — DNA, identity pack, and moment generation."""
+import logging
 import uuid
 from pathlib import Path
 
@@ -22,13 +23,15 @@ from app.schemas.character_visual import (
     MomentGenerateRequest,
 )
 from app.services.character_visual import upsert_character_dna, get_character_dna
-from app.services.prompt_normalizer import (
-    normalize_prompt,
-    normalize_prompt_strict,
-    SAFE_VISUAL_PREFIX,
+from app.services.appearance_spec import (
+    build_appearance_spec,
+    build_generation_prompt,
+    PromptBlockedError,
 )
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.image_provider import get_image_provider, ImageProvider
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -276,6 +279,7 @@ def generate_identity_pack(
     pack_id = uuid.uuid4().hex
 
     # Build sublabel from tweaks / vibe (used as fallback + prompt_summary)
+    # Uses the raw user text so UI display is unmodified.
     tweaks_parts: list[str] = []
     if body.tweaks:
         for field, value in body.tweaks.model_dump(exclude_none=True).items():
@@ -284,8 +288,33 @@ def generate_identity_pack(
         tweaks_parts.append(f"vibe: {body.prompt_vibe}")
     sublabel = " | ".join(tweaks_parts) if tweaks_parts else "default style"
 
+    # ── Appearance-spec rewrite pipeline ─────────────────────────
+    raw_vibe = body.prompt_vibe or ""
+    try:
+        appearance_spec, spec_meta = build_appearance_spec(
+            raw_vibe, request_id=pack_id,
+        )
+        appearance_spec_conservative, _ = build_appearance_spec(
+            raw_vibe, conservative=True, request_id=pack_id,
+        )
+    except PromptBlockedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.friendly_message,
+        ) from None
+
     # Fetch DNA for prompt enrichment
     dna = get_character_dna(db, character_id)
+
+    # Character identity traits for prompt construction
+    char_traits: list[str] = [character.name]
+    if dna:
+        if dna.species:
+            char_traits.append(dna.species)
+        if dna.gender_presentation:
+            char_traits.append(dna.gender_presentation)
+    elif character.species:
+        char_traits.append(character.species)
 
     # Try OpenAI provider; fall back to stub if unavailable
     try:
@@ -317,68 +346,74 @@ def generate_identity_pack(
         return img
 
     if use_openai:
-        tweaks_or_none = sublabel if sublabel != "default style" else None
-
-        # Prepare soft and strict vibe variants
-        vibe_soft = normalize_prompt(body.prompt_vibe) if body.prompt_vibe else body.prompt_vibe
-        vibe_strict = normalize_prompt_strict(body.prompt_vibe) if body.prompt_vibe else body.prompt_vibe
 
         def _is_moderation_block(exc: BaseException) -> bool:
             msg = str(exc).lower()
-            return any(kw in msg for kw in ("moderation_blocked", "safety system", "safety_violation"))
+            return any(kw in msg for kw in (
+                "moderation_blocked", "safety system", "safety_violation",
+            ))
 
-        _FRIENDLY_ERROR = (
+        _FRIENDLY_RETRY_ERROR = (
             "We couldn't generate this look right now. "
-            "Try again or tweak a few words \u2014 we'll keep your character consistent."
+            "Try removing explicit terms. Outfits like swimsuits "
+            "and tight dresses are fine; nudity isn't supported."
         )
 
         def _generate_with_retry(
             *,
-            prompt_soft: str,
-            prompt_strict: str,
+            prompt_normal: str,
+            prompt_conservative: str,
+            role: str,
             reference_image_url: str | None = None,
         ) -> bytes:
-            """Try generation with soft prompt; on moderation block retry with strict."""
+            """Try generation; on moderation block retry with conservative prompt."""
             try:
                 return provider.generate_image(
-                    prompt=prompt_soft,
+                    prompt=prompt_normal,
                     reference_image_url=reference_image_url,
                 )
             except (ValueError, RuntimeError) as exc:
                 if not _is_moderation_block(exc):
                     raise
-                # Retry with strict sanitisation
+                logger.warning(
+                    "moderation_block request_id=%s role=%s retrying_conservative",
+                    pack_id, role,
+                )
                 try:
                     return provider.generate_image(
-                        prompt=prompt_strict,
+                        prompt=prompt_conservative,
                         reference_image_url=reference_image_url,
                     )
                 except (ValueError, RuntimeError):
+                    logger.warning(
+                        "moderation_block request_id=%s role=%s retry_failed",
+                        pack_id, role,
+                    )
                     raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail=_FRIENDLY_ERROR,
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=_FRIENDLY_RETRY_ERROR,
                     ) from None
 
         # Step 1: Generate anchor_front via text-to-image
-        front_prompt_soft = _build_pack_prompt(
-            character, dna, "anchor_front", vibe_soft, tweaks_or_none,
+        front_prompt = build_generation_prompt(
+            appearance_spec, char_traits,
+            ROLE_SHOT_DESCRIPTION["anchor_front"],
         )
-        front_prompt_soft = f"{SAFE_VISUAL_PREFIX}, {front_prompt_soft}"[:250]
-
-        front_prompt_strict = _build_pack_prompt(
-            character, dna, "anchor_front", vibe_strict, tweaks_or_none,
+        front_prompt_conservative = build_generation_prompt(
+            appearance_spec_conservative, char_traits,
+            ROLE_SHOT_DESCRIPTION["anchor_front"],
         )
-        front_prompt_strict = f"{SAFE_VISUAL_PREFIX}, {front_prompt_strict}"[:250]
 
         try:
             front_bytes = _generate_with_retry(
-                prompt_soft=front_prompt_soft,
-                prompt_strict=front_prompt_strict,
+                prompt_normal=front_prompt,
+                prompt_conservative=front_prompt_conservative,
+                role="anchor_front",
             )
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=_FRIENDLY_ERROR,
+                detail=_FRIENDLY_RETRY_ERROR,
             ) from exc
         front_path = _save_png_bytes(front_bytes)
         _make_image_record("anchor_front", front_path, "openai")
@@ -388,19 +423,21 @@ def generate_identity_pack(
         front_url = f"{base_url}/{front_path}"
 
         for role in ("anchor_three_quarter", "anchor_torso"):
-            base_edit = ROLE_EDIT_PROMPT[role]
-            edit_soft = f"{SAFE_VISUAL_PREFIX}, {base_edit}"[:250]
-            edit_strict = f"{SAFE_VISUAL_PREFIX}, {base_edit}"[:250]
+            # Edit prompts are pose-only; the reference image carries identity.
+            # Do NOT add safety-context words here — they paradoxically
+            # make the images.edit moderation more sensitive.
+            edit_prompt = ROLE_EDIT_PROMPT[role]
             try:
                 png_bytes = _generate_with_retry(
-                    prompt_soft=edit_soft,
-                    prompt_strict=edit_strict,
+                    prompt_normal=edit_prompt,
+                    prompt_conservative=edit_prompt,
+                    role=role,
                     reference_image_url=front_url,
                 )
             except (ValueError, RuntimeError) as exc:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=_FRIENDLY_ERROR,
+                    detail=_FRIENDLY_RETRY_ERROR,
                 ) from exc
             file_path = _save_png_bytes(png_bytes)
             _make_image_record(role, file_path, "openai")
