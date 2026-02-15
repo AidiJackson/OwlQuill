@@ -22,7 +22,11 @@ from app.schemas.character_visual import (
     MomentGenerateRequest,
 )
 from app.services.character_visual import upsert_character_dna, get_character_dna
-from app.services.prompt_normalizer import normalize_prompt
+from app.services.prompt_normalizer import (
+    normalize_prompt,
+    normalize_prompt_strict,
+    SAFE_VISUAL_PREFIX,
+)
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.image_provider import get_image_provider, ImageProvider
 
@@ -260,10 +264,6 @@ def generate_identity_pack(
     """
     character = _get_owned_character(character_id, current_user, db)
 
-    # Soft-normalise user vibe prompt before any downstream use
-    if body.prompt_vibe:
-        body.prompt_vibe = normalize_prompt(body.prompt_vibe)
-
     if character.visual_locked:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -319,16 +319,66 @@ def generate_identity_pack(
     if use_openai:
         tweaks_or_none = sublabel if sublabel != "default style" else None
 
-        # Step 1: Generate anchor_front via text-to-image
-        front_prompt = _build_pack_prompt(
-            character, dna, "anchor_front", body.prompt_vibe, tweaks_or_none,
+        # Prepare soft and strict vibe variants
+        vibe_soft = normalize_prompt(body.prompt_vibe) if body.prompt_vibe else body.prompt_vibe
+        vibe_strict = normalize_prompt_strict(body.prompt_vibe) if body.prompt_vibe else body.prompt_vibe
+
+        def _is_moderation_block(exc: BaseException) -> bool:
+            msg = str(exc).lower()
+            return any(kw in msg for kw in ("moderation_blocked", "safety system", "safety_violation"))
+
+        _FRIENDLY_ERROR = (
+            "We couldn't generate this look right now. "
+            "Try again or tweak a few words \u2014 we'll keep your character consistent."
         )
+
+        def _generate_with_retry(
+            *,
+            prompt_soft: str,
+            prompt_strict: str,
+            reference_image_url: str | None = None,
+        ) -> bytes:
+            """Try generation with soft prompt; on moderation block retry with strict."""
+            try:
+                return provider.generate_image(
+                    prompt=prompt_soft,
+                    reference_image_url=reference_image_url,
+                )
+            except (ValueError, RuntimeError) as exc:
+                if not _is_moderation_block(exc):
+                    raise
+                # Retry with strict sanitisation
+                try:
+                    return provider.generate_image(
+                        prompt=prompt_strict,
+                        reference_image_url=reference_image_url,
+                    )
+                except (ValueError, RuntimeError):
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=_FRIENDLY_ERROR,
+                    ) from None
+
+        # Step 1: Generate anchor_front via text-to-image
+        front_prompt_soft = _build_pack_prompt(
+            character, dna, "anchor_front", vibe_soft, tweaks_or_none,
+        )
+        front_prompt_soft = f"{SAFE_VISUAL_PREFIX}, {front_prompt_soft}"[:250]
+
+        front_prompt_strict = _build_pack_prompt(
+            character, dna, "anchor_front", vibe_strict, tweaks_or_none,
+        )
+        front_prompt_strict = f"{SAFE_VISUAL_PREFIX}, {front_prompt_strict}"[:250]
+
         try:
-            front_bytes = provider.generate_image(prompt=front_prompt)
+            front_bytes = _generate_with_retry(
+                prompt_soft=front_prompt_soft,
+                prompt_strict=front_prompt_strict,
+            )
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Image generation failed for anchor_front: {exc}",
+                detail=_FRIENDLY_ERROR,
             ) from exc
         front_path = _save_png_bytes(front_bytes)
         _make_image_record("anchor_front", front_path, "openai")
@@ -338,16 +388,19 @@ def generate_identity_pack(
         front_url = f"{base_url}/{front_path}"
 
         for role in ("anchor_three_quarter", "anchor_torso"):
-            edit_prompt = ROLE_EDIT_PROMPT[role]
+            base_edit = ROLE_EDIT_PROMPT[role]
+            edit_soft = f"{SAFE_VISUAL_PREFIX}, {base_edit}"[:250]
+            edit_strict = f"{SAFE_VISUAL_PREFIX}, {base_edit}"[:250]
             try:
-                png_bytes = provider.generate_image(
-                    prompt=edit_prompt,
+                png_bytes = _generate_with_retry(
+                    prompt_soft=edit_soft,
+                    prompt_strict=edit_strict,
                     reference_image_url=front_url,
                 )
             except (ValueError, RuntimeError) as exc:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Image generation failed for {role}: {exc}",
+                    detail=_FRIENDLY_ERROR,
                 ) from exc
             file_path = _save_png_bytes(png_bytes)
             _make_image_record(role, file_path, "openai")
