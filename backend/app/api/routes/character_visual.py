@@ -43,6 +43,13 @@ ROLE_SHOT_DESCRIPTION = {
     "anchor_torso": "mid-torso framing, chest and shoulders visible, face smaller in frame, slight angle not portrait crop",
 }
 
+# Short pose-only prompts used with images.edit (reference_image_url = front anchor).
+# These intentionally omit character identity — the reference image carries it.
+ROLE_EDIT_PROMPT = {
+    "anchor_three_quarter": "same person, 3/4 view, head turned 45\u00b0, angled shoulders, not straight-on",
+    "anchor_torso": "same person, mid-torso framing, chest/shoulders visible, face smaller, slight angle",
+}
+
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
 
 
@@ -283,29 +290,8 @@ def generate_identity_pack(
         use_openai = False
 
     images: list[CharacterImage] = []
-    for role in PACK_ROLES:
-        if use_openai:
-            prompt = _build_pack_prompt(
-                character, dna, role, body.prompt_vibe,
-                sublabel if sublabel != "default style" else None,
-            )
-            try:
-                png_bytes = provider.generate_image(prompt=prompt)
-            except (ValueError, RuntimeError) as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Image generation failed for {role}: {exc}",
-                ) from exc
-            file_path = _save_png_bytes(png_bytes)
-            provider_name = "openai"
-        else:
-            file_path = generate_placeholder_png(
-                label=f"{character.name} — {role.replace('_', ' ')}",
-                sublabel=sublabel,
-                role=role,
-            )
-            provider_name = "stub"
 
+    def _make_image_record(role: str, file_path: str, provider_name: str) -> CharacterImage:
         img = CharacterImage(
             character_id=character_id,
             kind=ImageKindEnum.GENERATED,
@@ -323,6 +309,52 @@ def generate_identity_pack(
         )
         db.add(img)
         images.append(img)
+        return img
+
+    if use_openai:
+        tweaks_or_none = sublabel if sublabel != "default style" else None
+
+        # Step 1: Generate anchor_front via text-to-image
+        front_prompt = _build_pack_prompt(
+            character, dna, "anchor_front", body.prompt_vibe, tweaks_or_none,
+        )
+        try:
+            front_bytes = provider.generate_image(prompt=front_prompt)
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Image generation failed for anchor_front: {exc}",
+            ) from exc
+        front_path = _save_png_bytes(front_bytes)
+        _make_image_record("anchor_front", front_path, "openai")
+
+        # Step 2: Generate 3/4 and torso via images.edit using front as reference
+        base_url = settings.BACKEND_PUBLIC_URL.rstrip("/")
+        front_url = f"{base_url}/{front_path}"
+
+        for role in ("anchor_three_quarter", "anchor_torso"):
+            edit_prompt = ROLE_EDIT_PROMPT[role]
+            try:
+                png_bytes = provider.generate_image(
+                    prompt=edit_prompt,
+                    reference_image_url=front_url,
+                )
+            except (ValueError, RuntimeError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Image generation failed for {role}: {exc}",
+                ) from exc
+            file_path = _save_png_bytes(png_bytes)
+            _make_image_record(role, file_path, "openai")
+    else:
+        # Stub fallback — 3 independent placeholders (unchanged)
+        for role in PACK_ROLES:
+            file_path = generate_placeholder_png(
+                label=f"{character.name} — {role.replace('_', ' ')}",
+                sublabel=sublabel,
+                role=role,
+            )
+            _make_image_record(role, file_path, "stub")
 
     db.commit()
     for img in images:

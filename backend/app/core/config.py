@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     IMAGE_PROVIDER: str = "openai"
     IMAGE_MODEL: str = "gpt-image-1.5"
     OPENAI_API_KEY: Optional[str] = None
+    BACKEND_PUBLIC_URL: str = "http://localhost:8000"
 
     model_config = SettingsConfigDict(
         env_file=".env",
