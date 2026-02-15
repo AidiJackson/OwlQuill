@@ -22,6 +22,7 @@ from app.schemas.character_visual import (
     MomentGenerateRequest,
 )
 from app.services.character_visual import upsert_character_dna, get_character_dna
+from app.services.prompt_normalizer import normalize_prompt
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.image_provider import get_image_provider, ImageProvider
 
@@ -258,6 +259,10 @@ def generate_identity_pack(
     The returned ``pack_id`` is used to accept or discard the pack.
     """
     character = _get_owned_character(character_id, current_user, db)
+
+    # Soft-normalise user vibe prompt before any downstream use
+    if body.prompt_vibe:
+        body.prompt_vibe = normalize_prompt(body.prompt_vibe)
 
     if character.visual_locked:
         raise HTTPException(
