@@ -47,7 +47,7 @@ ROLE_SHOT_DESCRIPTION = {
 # These intentionally omit character identity — the reference image carries it.
 ROLE_EDIT_PROMPT = {
     "anchor_three_quarter": "same person, 3/4 view, head turned 45\u00b0, angled shoulders, not straight-on",
-    "anchor_torso": "same person, mid-torso framing, chest/shoulders visible, face smaller, slight angle",
+    "anchor_torso": "same person, camera pulled back, mid-torso framing, chest clearly visible, more body than face, not a close portrait, natural stance, slight angle",
 }
 
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
