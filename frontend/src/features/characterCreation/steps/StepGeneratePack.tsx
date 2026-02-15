@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ImageIcon, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { ImageIcon, ChevronDown, ChevronUp, RefreshCw, ZoomIn, X } from 'lucide-react';
 import type { IdentityPackResponse } from '../shared/types';
 import { TWEAK_CATEGORIES } from '../shared/types';
 import { generateIdentityPack, resolveImageUrl } from '../shared/api';
@@ -31,6 +31,7 @@ export default function StepGeneratePack({
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [enlargedIndex, setEnlargedIndex] = useState<number | null>(null);
 
   const activeTweakCount = Object.keys(tweaks).length;
 
@@ -155,24 +156,53 @@ export default function StepGeneratePack({
       {/* Image grid */}
       {pack && (
         <div className="grid grid-cols-3 gap-3">
-          {pack.images.map((img) => {
+          {pack.images.map((img, i) => {
             const role = (img.metadata_json?.pack_role as string) || '';
             return (
-              <div
+              <button
                 key={img.id}
-                className="rounded-lg overflow-hidden border border-gray-800 bg-gray-900"
+                type="button"
+                onClick={() => setEnlargedIndex(i)}
+                className="rounded-lg overflow-hidden border border-gray-800 hover:border-gray-600 transition-all relative group cursor-pointer text-left"
               >
                 <img
                   src={resolveImageUrl(img.url)}
                   alt={ROLE_LABELS[role] || 'Pack image'}
                   className="w-full aspect-[2/3] object-cover"
                 />
-                <div className="px-2 py-1.5 text-center">
+                {/* Enlarge icon */}
+                <div className="absolute top-2 right-2 p-1.5 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </div>
+                <div className="px-2 py-1.5 text-center bg-gray-900">
                   <span className="text-xs text-gray-400">{ROLE_LABELS[role] || role}</span>
                 </div>
-              </div>
+              </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Enlarged preview overlay */}
+      {pack && enlargedIndex !== null && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setEnlargedIndex(null)}
+        >
+          <div className="relative max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={resolveImageUrl(pack.images[enlargedIndex].url)}
+              alt="Enlarged preview"
+              className="w-full rounded-lg"
+            />
+            <button
+              type="button"
+              onClick={() => setEnlargedIndex(null)}
+              className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
