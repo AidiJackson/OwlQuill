@@ -143,6 +143,24 @@ _FAILSAFE_KEEP: re.Pattern = re.compile(
     r"(?:dress|suit|shirt|blouse|jacket|coat|sweater|top|outfit)"
     r"|"
     r"swimwear|two-piece swimsuit|swimsuit"
+    r"|"
+    # facial hair
+    r"(?:short|long|thick|thin|full|trimmed)?\s*"
+    r"(?:beard|stubble|goatee|mustache|moustache|facial hair)"
+    r"|"
+    # glasses
+    r"(?:glasses|sunglasses|eyeglasses|spectacles)"
+    r"|"
+    # tattoos, scars, piercings
+    r"(?:tattoo|tattoos|scar|scars|piercing|piercings)"
+    r"|"
+    # masks and face coverings (with longer context phrases)
+    r"(?:black|white|red|blue|dark|medical|surgical)?\s*"
+    r"(?:face\s+)?(?:mask|balaclava)"
+    r"(?:\s+(?:covering|covers?|that\s+covers?)\s+(?:(?:his|her|their)\s+)?(?:nose\s+and\s+mouth|nose|mouth|face))?"
+    r"|"
+    # explicit mask covering phrases
+    r"(?:covering|covers?)\s+(?:(?:his|her|their)\s+)?(?:nose\s+and\s+mouth|nose|mouth|face)\s+with\s+(?:a\s+)?(?:mask|balaclava)"
     r")\b",
     re.I,
 )

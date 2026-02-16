@@ -379,3 +379,89 @@ class TestRealWorldPrompts:
         assert "tanned skin" in spec
         assert "hazel eyes" in spec.lower()
         assert meta["did_rewrite"] is True
+
+
+# ── Identity accessories preservation ────────────────────────────────
+
+class TestIdentityAccessories:
+
+    def test_face_mask_preserved_normal_mode(self):
+        """Face masks are identity accessories and should be preserved."""
+        spec, meta = build_appearance_spec(
+            "Tall and athletic, shirtless fighter, black face mask covering nose and mouth"
+        )
+        assert "mask" in spec.lower()
+        assert "black" in spec.lower()
+        # "shirtless" should be blocked as explicit
+        # But if we rewrite it, the mask should survive
+
+    def test_face_mask_preserved_conservative_mode(self):
+        """Face masks should survive conservative stripping."""
+        spec, meta = build_appearance_spec(
+            "Athletic build, dark hair, black face mask covering nose and mouth, fitted dress",
+            conservative=True,
+        )
+        assert "mask" in spec.lower()
+        assert "dark hair" in spec
+        # "fitted" and "dress" should be stripped in conservative mode
+        assert "fitted" not in spec.lower()
+        assert "dress" not in spec.lower()
+
+    def test_face_mask_preserved_failsafe_mode(self):
+        """Face masks are core identity features and must survive failsafe."""
+        spec, meta = build_appearance_spec(
+            "Tall and athletic, shirtless fighter, black face mask covering nose and mouth, "
+            "brunette hair, hazel eyes",
+            failsafe=True,
+        )
+        assert "mask" in spec.lower()
+        assert "brunette" in spec.lower() or "hazel eyes" in spec.lower()
+        assert "failsafe_extract" in meta["reasons"]
+
+    def test_tattoos_preserved(self):
+        """Tattoos are identity features."""
+        spec, meta = build_appearance_spec(
+            "Muscular build, dark hair, tribal tattoo on arm, green eyes",
+            failsafe=True,
+        )
+        assert "tattoo" in spec.lower()
+
+    def test_scars_preserved(self):
+        """Scars are identity features."""
+        spec, meta = build_appearance_spec(
+            "Blonde hair, blue eyes, scar across left cheek",
+            failsafe=True,
+        )
+        assert "scar" in spec.lower()
+
+    def test_piercings_preserved(self):
+        """Piercings are identity features."""
+        spec, meta = build_appearance_spec(
+            "Short black hair, nose piercing, brown eyes",
+            failsafe=True,
+        )
+        assert "piercing" in spec.lower()
+
+    def test_glasses_preserved(self):
+        """Glasses are identity accessories."""
+        spec, meta = build_appearance_spec(
+            "Red hair, freckles, glasses, green eyes",
+            failsafe=True,
+        )
+        assert "glasses" in spec.lower()
+
+    def test_facial_hair_preserved(self):
+        """Facial hair is a core identity feature."""
+        spec, meta = build_appearance_spec(
+            "Dark hair, thick beard, brown eyes",
+            failsafe=True,
+        )
+        assert "beard" in spec.lower()
+
+    def test_stubble_preserved(self):
+        """Stubble is facial hair and should be preserved."""
+        spec, meta = build_appearance_spec(
+            "Blonde hair, short stubble, blue eyes",
+            failsafe=True,
+        )
+        assert "stubble" in spec.lower()

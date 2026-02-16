@@ -493,3 +493,102 @@ def test_tier_c_no_fallback_configured_falls_to_stub(client: TestClient):
     assert data["tier_used"] == "C"
     for img in data["images"]:
         assert img["provider"] == "stub"
+
+
+# ── Front shot is a true headshot ────────────────────────────────────
+
+def test_front_shot_uses_headshot_description(client: TestClient):
+    """The anchor_front shot should use headshot/close-up language."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    captured_prompts: list[str] = []
+
+    def _capture_generate(*, prompt, size="1024x1024", reference_image_url=None):
+        captured_prompts.append(prompt)
+        return fake_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _capture_generate
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_provider,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "dark hair, green eyes"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    # First prompt should be for the front shot (text-to-image)
+    assert len(captured_prompts) >= 1
+    front_prompt = captured_prompts[0].lower()
+    # Should contain headshot indicators
+    assert any(keyword in front_prompt for keyword in ["headshot", "close-up", "face centered", "straight-on"])
+
+
+# ── Identity accessories survive tier escalations ────────────────────
+
+def test_mask_survives_tier_escalations(client: TestClient):
+    """Face masks are identity accessories and should survive A→B→C tiers."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    call_count = 0
+    tier_a_prompt = ""
+    tier_b_prompt = ""
+    tier_c_prompts: list[str] = []
+
+    def _mock_generate(*, prompt, size="1024x1024", reference_image_url=None):
+        nonlocal call_count, tier_a_prompt, tier_b_prompt
+        call_count += 1
+
+        # Capture prompts for each tier
+        if call_count == 1:
+            # First call is tier A front (text-to-image)
+            tier_a_prompt = prompt
+            raise RuntimeError("moderation_blocked: tier A blocked")
+        elif call_count == 2:
+            # Second call is tier B front (text-to-image)
+            tier_b_prompt = prompt
+            raise RuntimeError("moderation_blocked: tier B blocked")
+        else:
+            # Tier C calls (3 text-to-image calls for all 4 roles)
+            tier_c_prompts.append(prompt)
+            # Let tier C succeed
+            return fake_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _mock_generate
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_provider,
+    ), patch(
+        "app.api.routes.character_visual.get_fallback_provider",
+        return_value=None,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "athletic fighter, black face mask covering nose and mouth"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tier_used"] == "C"
+
+    # Verify mask is present in tier prompts
+    # Tier A and B should have the mask (though they failed for other reasons)
+    # Tier C should definitely have the mask
+    for prompt in tier_c_prompts:
+        # At least some prompts should contain "mask"
+        pass  # We'll check at least one has it below
+
+    # At least one tier C prompt should contain mask
+    assert any("mask" in p.lower() for p in tier_c_prompts), \
+        f"Mask not found in tier C prompts: {tier_c_prompts}"

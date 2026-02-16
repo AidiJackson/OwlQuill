@@ -47,7 +47,7 @@ KIND_FOR_ROLE = {
 }
 
 ROLE_SHOT_DESCRIPTION = {
-    "anchor_front": "front-facing head-and-shoulders portrait, centered, eye-level camera",
+    "anchor_front": "close-up headshot portrait, straight-on, shoulders visible, face centered",
     "anchor_three_quarter": "three-quarter view, head turned about 45 degrees, angled shoulders, clearly not straight-on",
     "anchor_torso": "mid-torso framing, chest and shoulders visible, face smaller in frame, slight angle not portrait crop",
     "anchor_full_body": "full-body shot, head-to-toe, standing, natural stance, full outfit visible",
