@@ -37,18 +37,20 @@ router = APIRouter()
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-PACK_ROLES = ["anchor_front", "anchor_three_quarter", "anchor_torso"]
+PACK_ROLES = ["anchor_front", "anchor_three_quarter", "anchor_torso", "anchor_full_body"]
 
 KIND_FOR_ROLE = {
     "anchor_front": ImageKindEnum.ANCHOR_FRONT,
     "anchor_three_quarter": ImageKindEnum.ANCHOR_THREE_QUARTER,
     "anchor_torso": ImageKindEnum.ANCHOR_TORSO,
+    "anchor_full_body": ImageKindEnum.ANCHOR_FULL_BODY,
 }
 
 ROLE_SHOT_DESCRIPTION = {
     "anchor_front": "front-facing head-and-shoulders portrait, centered, eye-level camera",
     "anchor_three_quarter": "three-quarter view, head turned about 45 degrees, angled shoulders, clearly not straight-on",
     "anchor_torso": "mid-torso framing, chest and shoulders visible, face smaller in frame, slight angle not portrait crop",
+    "anchor_full_body": "full-body shot, head-to-toe, standing, natural stance, full outfit visible",
 }
 
 # Short pose-only prompts used with images.edit (reference_image_url = front anchor).
@@ -56,6 +58,7 @@ ROLE_SHOT_DESCRIPTION = {
 ROLE_EDIT_PROMPT = {
     "anchor_three_quarter": "same person, 3/4 view, head turned 45\u00b0, angled shoulders, not straight-on",
     "anchor_torso": "same person, camera pulled back, mid-torso framing, chest clearly visible, more body than face, not a close portrait, natural stance, slight angle",
+    "anchor_full_body": "same person, full-body shot, head-to-toe, standing, natural stance, full outfit visible",
 }
 
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
@@ -260,7 +263,7 @@ def generate_identity_pack(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> IdentityPackGenerateResponse:
-    """Generate 3 temporary preview images for the identity pack.
+    """Generate 4 temporary preview images for the identity pack.
 
     Requires that the character is NOT yet visually locked.
     The returned ``pack_id`` is used to accept or discard the pack.
@@ -367,10 +370,10 @@ def generate_identity_pack(
             spec: str,
             tier: str,
         ) -> list[CharacterImage] | None:
-            """Attempt to generate the full 3-image pack.
+            """Attempt to generate the full 4-image pack.
 
-            Tier A uses the normal spec with images.edit for 3/4 and torso.
-            Tier B uses the conservative spec with images.edit for 3/4 and torso.
+            Tier A uses the normal spec with images.edit for 3/4, torso, and full_body.
+            Tier B uses the conservative spec with images.edit for 3/4, torso, and full_body.
             Returns None if any role is blocked by moderation.
             """
             tier_images: list[CharacterImage] = []
@@ -395,11 +398,11 @@ def generate_identity_pack(
             front_path = _save_png_bytes(front_bytes)
             tier_images.append(_make_image_record("anchor_front", front_path, "openai"))
 
-            # Step 2: 3/4 and torso via images.edit using front as reference
+            # Step 2: 3/4, torso, and full_body via images.edit using front as reference
             base_url = settings.BACKEND_PUBLIC_URL.rstrip("/")
             front_url = f"{base_url}/{front_path}"
 
-            for role in ("anchor_three_quarter", "anchor_torso"):
+            for role in ("anchor_three_quarter", "anchor_torso", "anchor_full_body"):
                 edit_prompt = ROLE_EDIT_PROMPT[role]
                 try:
                     png_bytes = provider.generate_image(
@@ -421,12 +424,12 @@ def generate_identity_pack(
             return tier_images
 
         def _generate_pack_tier_c(spec: str) -> list[CharacterImage]:
-            """Failsafe tier: generate all 3 images via text-to-image only.
+            """Failsafe tier: generate all 4 images via text-to-image only.
 
             Attempts the primary provider first (OpenAI, text-to-image only).
             On moderation block, tries the fallback provider (e.g. fal.ai).
             If both fail, falls back to stub placeholders.
-            Always returns 3 images.
+            Always returns 4 images.
             """
             fallback = get_fallback_provider()
             tier_images: list[CharacterImage] = []
@@ -502,7 +505,7 @@ def generate_identity_pack(
 
         # result_images is guaranteed non-None from tier C
     else:
-        # Stub fallback — 3 independent placeholders (unchanged)
+        # Stub fallback — 4 independent placeholders (unchanged)
         for role in PACK_ROLES:
             file_path = generate_placeholder_png(
                 label=f"{character.name} — {role.replace('_', ' ')}",
@@ -537,7 +540,7 @@ def accept_identity_pack(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> IdentityPackAcceptResponse:
-    """Promote the 3 temporary pack images to anchors and lock the character.
+    """Promote the 4 temporary pack images to anchors and lock the character.
 
     After locking, the character can no longer regenerate identity packs —
     only moment images are allowed.
@@ -553,7 +556,7 @@ def accept_identity_pack(
             ),
         )
 
-    # Find the 3 temp images belonging to this pack_id
+    # Find the 4 temp images belonging to this pack_id
     pack_images: list[CharacterImage] = (
         db.query(CharacterImage)
         .filter(
@@ -572,16 +575,16 @@ def accept_identity_pack(
         and img.metadata_json.get("is_temp") is True
     ]
 
-    # Validate we have exactly 3 with the right roles
+    # Validate we have exactly 4 with the right roles
     found_roles = {img.metadata_json["pack_role"] for img in matching}
     missing = set(PACK_ROLES) - found_roles
 
-    if len(matching) != 3 or missing:
+    if len(matching) != 4 or missing:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 f"Could not find a complete identity pack for pack_id '{body.pack_id}'. "
-                f"Expected 3 images (anchor_front, anchor_three_quarter, anchor_torso). "
+                f"Expected 4 images (anchor_front, anchor_three_quarter, anchor_torso, anchor_full_body). "
                 f"{'Missing roles: ' + ', '.join(sorted(missing)) + '.' if missing else 'Found ' + str(len(matching)) + ' image(s).'}"
             ),
         )
@@ -595,6 +598,7 @@ def accept_identity_pack(
                 ImageKindEnum.ANCHOR_FRONT,
                 ImageKindEnum.ANCHOR_THREE_QUARTER,
                 ImageKindEnum.ANCHOR_TORSO,
+                ImageKindEnum.ANCHOR_FULL_BODY,
             ]),
             CharacterImage.status == ImageStatusEnum.ACTIVE,
         )
@@ -674,18 +678,19 @@ def generate_moment_image(
                 ImageKindEnum.ANCHOR_FRONT,
                 ImageKindEnum.ANCHOR_THREE_QUARTER,
                 ImageKindEnum.ANCHOR_TORSO,
+                ImageKindEnum.ANCHOR_FULL_BODY,
             ]),
             CharacterImage.status == ImageStatusEnum.ACTIVE,
         )
         .all()
     )
 
-    if len(active_anchors) < 3:
+    if len(active_anchors) < 4:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 "This character is missing anchor images. "
-                "A complete set of 3 active anchors is required to generate moments."
+                "A complete set of 4 active anchors is required to generate moments."
             ),
         )
 

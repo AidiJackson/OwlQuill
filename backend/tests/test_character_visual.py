@@ -68,9 +68,9 @@ def test_generate_identity_pack(client: TestClient):
     assert resp.status_code == 200
     data = resp.json()
     assert "pack_id" in data
-    assert len(data["images"]) == 3
+    assert len(data["images"]) == 4
     roles = {img["metadata_json"]["pack_role"] for img in data["images"]}
-    assert roles == {"anchor_front", "anchor_three_quarter", "anchor_torso"}
+    assert roles == {"anchor_front", "anchor_three_quarter", "anchor_torso", "anchor_full_body"}
     for img in data["images"]:
         assert img["kind"] == "generated"
         assert img["metadata_json"]["is_temp"] is True
@@ -136,9 +136,9 @@ def test_accept_identity_pack(client: TestClient):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["anchors"]) == 3
+    assert len(data["anchors"]) == 4
     kinds = {a["kind"] for a in data["anchors"]}
-    assert kinds == {"anchor_front", "anchor_three_quarter", "anchor_torso"}
+    assert kinds == {"anchor_front", "anchor_three_quarter", "anchor_torso", "anchor_full_body"}
     assert data["dna"] is not None
     assert data["dna"]["anchor_version"] == 1
 
@@ -255,9 +255,9 @@ def test_failsafe_tier_c_returns_pack_on_moderation_blocks(client: TestClient):
     assert resp.status_code == 200, f"Expected 200 but got {resp.status_code}: {resp.json()}"
     data = resp.json()
     assert "pack_id" in data
-    assert len(data["images"]) == 3
+    assert len(data["images"]) == 4
     roles = {img["metadata_json"]["pack_role"] for img in data["images"]}
-    assert roles == {"anchor_front", "anchor_three_quarter", "anchor_torso"}
+    assert roles == {"anchor_front", "anchor_three_quarter", "anchor_torso", "anchor_full_body"}
     # All tiers were blocked, so tier C must have been used
     assert data["tier_used"] == "C"
     assert data["rewrite_applied"] is True
@@ -287,7 +287,7 @@ def test_tier_a_succeeds_no_escalation(client: TestClient):
 
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["images"]) == 3
+    assert len(data["images"]) == 4
     # All images should be from openai provider
     for img in data["images"]:
         assert img["provider"] == "openai"
@@ -413,15 +413,15 @@ def test_tier_c_uses_fallback_provider_on_openai_block(client: TestClient):
 
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["images"]) == 3
+    assert len(data["images"]) == 4
     assert data["tier_used"] == "C"
-    # Fallback was called for all 3 roles
-    assert len(fallback_calls) == 3
+    # Fallback was called for all 4 roles
+    assert len(fallback_calls) == 4
     # All images from fallback provider
     for img in data["images"]:
         assert img["provider"] == "fal"
     # Blocked roles should include the C-tier blocks
-    assert len(data["blocked_roles"]) >= 3
+    assert len(data["blocked_roles"]) >= 4
 
 
 def test_tier_c_fallback_also_fails_returns_stubs(client: TestClient):
@@ -456,7 +456,7 @@ def test_tier_c_fallback_also_fails_returns_stubs(client: TestClient):
 
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["images"]) == 3
+    assert len(data["images"]) == 4
     assert data["tier_used"] == "C"
     # All fell through to stubs
     for img in data["images"]:
@@ -489,7 +489,7 @@ def test_tier_c_no_fallback_configured_falls_to_stub(client: TestClient):
 
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["images"]) == 3
+    assert len(data["images"]) == 4
     assert data["tier_used"] == "C"
     for img in data["images"]:
         assert img["provider"] == "stub"

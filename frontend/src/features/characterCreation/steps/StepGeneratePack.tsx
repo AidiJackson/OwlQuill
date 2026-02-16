@@ -17,6 +17,7 @@ const ROLE_LABELS: Record<string, string> = {
   anchor_front: 'Front',
   anchor_three_quarter: '¾ View',
   anchor_torso: 'Torso',
+  anchor_full_body: 'Full Body',
 };
 
 export default function StepGeneratePack({
@@ -173,7 +174,7 @@ export default function StepGeneratePack({
 
       {/* Image grid */}
       {pack && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {pack.images.map((img, i) => {
             const role = (img.metadata_json?.pack_role as string) || '';
             return (

@@ -12,6 +12,7 @@ class ImageKindEnum(str, enum.Enum):
     ANCHOR_FRONT = "anchor_front"
     ANCHOR_THREE_QUARTER = "anchor_three_quarter"
     ANCHOR_TORSO = "anchor_torso"
+    ANCHOR_FULL_BODY = "anchor_full_body"
     GENERATED = "generated"
 
 
