@@ -315,19 +315,38 @@ def build_appearance_spec(
     return result, meta
 
 
+# ── Style tokens ─────────────────────────────────────────────────────
+
+_STYLE_TOKENS: dict[str, str] = {
+    "realistic": "cinematic portrait, realistic",
+    "anime": "anime character illustration",
+    "cartoon": "stylized cartoon character",
+    "illustration": "digital illustration",
+    "comic": "comic book style",
+    "pixel": "pixel art",
+}
+
+
 def build_generation_prompt(
     appearance_spec: str,
     traits: list[str],
     shot_desc: str,
+    *,
+    style: str = "realistic",
 ) -> str:
     """Combine appearance spec, character traits, and shot description.
 
-    Prepends an internal safety prefix. Hard-caps at 250 characters.
+    Prepends an internal safety prefix and a style token.
+    Hard-caps at 250 characters.
     """
     parts: list[str] = []
 
     # Safety prefix — always first (biases model toward safe output)
     parts.append(_SAFETY_PREFIX)
+
+    # Style token — right after safety prefix
+    style_token = _STYLE_TOKENS.get(style, _STYLE_TOKENS["realistic"])
+    parts.append(style_token)
 
     # Character traits (name, species, gender)
     parts.extend(t for t in traits if t)

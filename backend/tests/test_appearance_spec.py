@@ -300,6 +300,35 @@ class TestBuildGenerationPrompt:
         assert "Ash Valkyr" in prompt
         assert "front-facing portrait" in prompt
 
+    def test_default_style_realistic(self):
+        prompt = build_generation_prompt(
+            "brunette",
+            ["Test"],
+            "portrait",
+        )
+        assert "realistic" in prompt.lower()
+
+    def test_style_anime(self):
+        prompt = build_generation_prompt(
+            "silver hair",
+            ["Test"],
+            "portrait",
+            style="anime",
+        )
+        assert "anime" in prompt.lower()
+        # Should NOT include the realistic token
+        assert "cinematic portrait, realistic" not in prompt.lower()
+
+    def test_style_respects_250_cap(self):
+        long_spec = "a" * 200
+        prompt = build_generation_prompt(
+            long_spec,
+            ["Name"],
+            "portrait",
+            style="illustration",
+        )
+        assert len(prompt) <= 250
+
 
 # ── Integration: the exact failing prompt from production ────────────
 

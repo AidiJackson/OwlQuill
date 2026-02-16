@@ -319,12 +319,19 @@ def generate_identity_pack(
     elif character.species:
         char_traits.append(character.species)
 
+    # Resolved style (already validated/coerced by the schema)
+    style = body.style
+
     # Try OpenAI provider; fall back to stub if unavailable
     try:
         provider = get_image_provider()
         use_openai = True
     except (RuntimeError, ValueError):
         use_openai = False
+
+    # Tier tracking — populated during generation
+    tier_used: str = "stub"
+    blocked_roles: list[str] = []
 
     images: list[CharacterImage] = []
 
@@ -372,6 +379,7 @@ def generate_identity_pack(
             front_prompt = build_generation_prompt(
                 spec, char_traits,
                 ROLE_SHOT_DESCRIPTION["anchor_front"],
+                style=style,
             )
             try:
                 front_bytes = provider.generate_image(prompt=front_prompt)
@@ -381,6 +389,7 @@ def generate_identity_pack(
                         "moderation_block request_id=%s tier=%s role=anchor_front",
                         pack_id, tier,
                     )
+                    blocked_roles.append(f"{tier}:anchor_front")
                     return None
                 raise
             front_path = _save_png_bytes(front_bytes)
@@ -403,6 +412,7 @@ def generate_identity_pack(
                             "moderation_block request_id=%s tier=%s role=%s",
                             pack_id, tier, role,
                         )
+                        blocked_roles.append(f"{tier}:{role}")
                         return None
                     raise
                 file_path = _save_png_bytes(png_bytes)
@@ -422,6 +432,7 @@ def generate_identity_pack(
                 prompt = build_generation_prompt(
                     spec, char_traits,
                     ROLE_SHOT_DESCRIPTION[role],
+                    style=style,
                 )
                 try:
                     png_bytes = provider.generate_image(prompt=prompt)
@@ -447,6 +458,8 @@ def generate_identity_pack(
 
         # ── 3-tier generation: A (normal) -> B (conservative) -> C (failsafe)
         result_images = _generate_pack_tier_ab(appearance_spec, "A")
+        if result_images is not None:
+            tier_used = "A"
 
         if result_images is None:
             # Tier A blocked — clear partial images from this attempt
@@ -455,6 +468,8 @@ def generate_identity_pack(
                 "tier_escalation request_id=%s from=A to=B", pack_id,
             )
             result_images = _generate_pack_tier_ab(appearance_spec_conservative, "B")
+            if result_images is not None:
+                tier_used = "B"
 
         if result_images is None:
             # Tier B blocked — clear partial images, use failsafe
@@ -463,6 +478,7 @@ def generate_identity_pack(
                 "tier_escalation request_id=%s from=B to=C", pack_id,
             )
             result_images = _generate_pack_tier_c(appearance_spec_failsafe)
+            tier_used = "C"
 
         # result_images is guaranteed non-None from tier C
     else:
@@ -482,6 +498,9 @@ def generate_identity_pack(
     return IdentityPackGenerateResponse(
         pack_id=pack_id,
         images=[CharacterImageRead.model_validate(img) for img in images],
+        tier_used=tier_used,
+        rewrite_applied=spec_meta.get("did_rewrite", False),
+        blocked_roles=blocked_roles,
     )
 
 

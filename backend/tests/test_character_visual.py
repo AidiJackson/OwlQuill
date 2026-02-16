@@ -74,6 +74,10 @@ def test_generate_identity_pack(client: TestClient):
     for img in data["images"]:
         assert img["kind"] == "generated"
         assert img["metadata_json"]["is_temp"] is True
+    # New metadata fields
+    assert data["tier_used"] == "stub"
+    assert isinstance(data["rewrite_applied"], bool)
+    assert isinstance(data["blocked_roles"], list)
 
 
 def test_generate_pack_blocked_after_lock(client: TestClient):
@@ -254,6 +258,10 @@ def test_failsafe_tier_c_returns_pack_on_moderation_blocks(client: TestClient):
     assert len(data["images"]) == 3
     roles = {img["metadata_json"]["pack_role"] for img in data["images"]}
     assert roles == {"anchor_front", "anchor_three_quarter", "anchor_torso"}
+    # All tiers were blocked, so tier C must have been used
+    assert data["tier_used"] == "C"
+    assert data["rewrite_applied"] is True
+    assert len(data["blocked_roles"]) > 0
 
 
 def test_tier_a_succeeds_no_escalation(client: TestClient):
@@ -283,3 +291,83 @@ def test_tier_a_succeeds_no_escalation(client: TestClient):
     # All images should be from openai provider
     for img in data["images"]:
         assert img["provider"] == "openai"
+    # Tier A succeeded with no escalation
+    assert data["tier_used"] == "A"
+    assert data["blocked_roles"] == []
+
+
+# ── Style threading ──────────────────────────────────────────────────
+
+def test_style_anime_flows_into_prompt(client: TestClient):
+    """style='anime' should inject 'anime' into the generation prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    captured_prompts: list[str] = []
+
+    def _capture_generate(*, prompt, size="1024x1024", reference_image_url=None):
+        captured_prompts.append(prompt)
+        return fake_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _capture_generate
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_provider,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "silver hair elf", "style": "anime"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    # The front prompt (first text-to-image call) must contain the anime token
+    assert len(captured_prompts) >= 1
+    assert "anime" in captured_prompts[0].lower()
+
+
+def test_style_defaults_to_realistic(client: TestClient):
+    """Requests without 'style' should default to realistic."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    captured_prompts: list[str] = []
+
+    def _capture_generate(*, prompt, size="1024x1024", reference_image_url=None):
+        captured_prompts.append(prompt)
+        return fake_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _capture_generate
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_provider,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "warrior"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    # Default style token should be realistic
+    assert "realistic" in captured_prompts[0].lower()
+
+
+def test_unknown_style_coerces_to_realistic(client: TestClient):
+    """An unknown style value should silently coerce to 'realistic'."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"prompt_vibe": "test", "style": "watercolor_abstract"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    # Should not error — coerced to realistic
+    assert resp.status_code == 200
