@@ -148,6 +148,44 @@ def get_image_provider() -> ImageProvider:
     )
 
 
+def get_fallback_provider() -> ImageProvider | None:
+    """Factory: return a fallback provider for tier-C generation.
+
+    Returns None if no fallback is configured (missing FAL_KEY, etc.).
+    Never raises — callers should treat None as "no fallback available".
+    """
+    fallback = settings.IMAGE_PROVIDER_FALLBACK.lower()
+    if fallback == "fal" and settings.FAL_KEY:
+        try:
+            from app.services.image_providers.fal_provider import FalImageProvider
+
+            # Wrap FalImageProvider in an ImageProvider adapter so the
+            # route can call .generate_image() uniformly.
+            return _FalProviderAdapter()
+        except Exception:
+            return None
+    return None
+
+
+class _FalProviderAdapter(ImageProvider):
+    """Adapt the new FalImageProvider to the legacy ImageProvider interface."""
+
+    def __init__(self) -> None:
+        from app.services.image_providers.fal_provider import FalImageProvider
+
+        self._fal = FalImageProvider()
+
+    def _generate(
+        self,
+        *,
+        prompt: str,
+        size: str,
+        reference_image_url: str | None,
+    ) -> bytes:
+        # Fal only supports text-to-image; ignore reference_image_url
+        return self._fal.generate_text_to_image(prompt=prompt, size=size)
+
+
 def test_image_generation() -> bytes:
     """Quick smoke-test helper (not wired to any route).
 

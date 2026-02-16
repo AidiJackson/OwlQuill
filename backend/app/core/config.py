@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     BACKEND_PUBLIC_URL: str = "http://localhost:8000"
 
+    # Fallback image provider (used when primary blocks/fails in tier C)
+    IMAGE_PROVIDER_FALLBACK: str = "fal"
+    FAL_KEY: Optional[str] = None
+    FAL_MODEL_CHARACTER_PACK: str = "fal-ai/flux/dev"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

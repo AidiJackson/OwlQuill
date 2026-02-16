@@ -371,3 +371,125 @@ def test_unknown_style_coerces_to_realistic(client: TestClient):
     )
     # Should not error — coerced to realistic
     assert resp.status_code == 200
+
+
+# ── Fallback provider (Provider B) routing ───────────────────────────
+
+def test_tier_c_uses_fallback_provider_on_openai_block(client: TestClient):
+    """When OpenAI blocks in all tiers, tier C tries the fallback provider."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    fallback_calls: list[str] = []
+
+    # Primary provider always blocks
+    def _openai_blocked(*, prompt, size="1024x1024", reference_image_url=None):
+        raise RuntimeError("moderation_blocked: content policy violation")
+
+    mock_primary = MagicMock()
+    mock_primary.generate_image = _openai_blocked
+
+    # Fallback provider succeeds
+    def _fallback_ok(*, prompt, size="1024x1024", reference_image_url=None):
+        fallback_calls.append(prompt)
+        return fake_png
+
+    mock_fallback = MagicMock()
+    mock_fallback.generate_image = _fallback_ok
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_primary,
+    ), patch(
+        "app.api.routes.character_visual.get_fallback_provider",
+        return_value=mock_fallback,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "elegant brunette, hazel eyes"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["images"]) == 3
+    assert data["tier_used"] == "C"
+    # Fallback was called for all 3 roles
+    assert len(fallback_calls) == 3
+    # All images from fallback provider
+    for img in data["images"]:
+        assert img["provider"] == "fal"
+    # Blocked roles should include the C-tier blocks
+    assert len(data["blocked_roles"]) >= 3
+
+
+def test_tier_c_fallback_also_fails_returns_stubs(client: TestClient):
+    """When both primary and fallback fail, tier C returns stub placeholders."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # Both providers fail
+    def _always_block(*, prompt, size="1024x1024", reference_image_url=None):
+        raise RuntimeError("moderation_blocked: policy violation")
+
+    mock_primary = MagicMock()
+    mock_primary.generate_image = _always_block
+
+    mock_fallback = MagicMock()
+    mock_fallback.generate_image = MagicMock(
+        side_effect=RuntimeError("fal failed too")
+    )
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_primary,
+    ), patch(
+        "app.api.routes.character_visual.get_fallback_provider",
+        return_value=mock_fallback,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "test"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["images"]) == 3
+    assert data["tier_used"] == "C"
+    # All fell through to stubs
+    for img in data["images"]:
+        assert img["provider"] == "stub"
+
+
+def test_tier_c_no_fallback_configured_falls_to_stub(client: TestClient):
+    """When no fallback provider is configured, tier C goes straight to stubs."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    def _always_block(*, prompt, size="1024x1024", reference_image_url=None):
+        raise RuntimeError("moderation_blocked: nope")
+
+    mock_primary = MagicMock()
+    mock_primary.generate_image = _always_block
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_primary,
+    ), patch(
+        "app.api.routes.character_visual.get_fallback_provider",
+        return_value=None,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "test"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["images"]) == 3
+    assert data["tier_used"] == "C"
+    for img in data["images"]:
+        assert img["provider"] == "stub"

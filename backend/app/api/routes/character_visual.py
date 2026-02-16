@@ -29,7 +29,7 @@ from app.services.appearance_spec import (
     PromptBlockedError,
 )
 from app.services.stub_image_generator import generate_placeholder_png
-from app.services.image_provider import get_image_provider, ImageProvider
+from app.services.image_provider import get_image_provider, get_fallback_provider, ImageProvider
 
 logger = logging.getLogger(__name__)
 
@@ -423,10 +423,12 @@ def generate_identity_pack(
         def _generate_pack_tier_c(spec: str) -> list[CharacterImage]:
             """Failsafe tier: generate all 3 images via text-to-image only.
 
-            No images.edit, no reference images — avoids reference-image
-            moderation sensitivity. Always returns 3 images (raises on
-            non-moderation errors only).
+            Attempts the primary provider first (OpenAI, text-to-image only).
+            On moderation block, tries the fallback provider (e.g. fal.ai).
+            If both fail, falls back to stub placeholders.
+            Always returns 3 images.
             """
+            fallback = get_fallback_provider()
             tier_images: list[CharacterImage] = []
             for role in PACK_ROLES:
                 prompt = build_generation_prompt(
@@ -434,26 +436,44 @@ def generate_identity_pack(
                     ROLE_SHOT_DESCRIPTION[role],
                     style=style,
                 )
+
+                # Try primary provider (text-to-image, no reference)
                 try:
                     png_bytes = provider.generate_image(prompt=prompt)
+                    file_path = _save_png_bytes(png_bytes)
+                    tier_images.append(_make_image_record(role, file_path, "openai"))
+                    continue
                 except (ValueError, RuntimeError) as exc:
-                    if _is_moderation_block(exc):
+                    if not _is_moderation_block(exc):
+                        raise
+                    logger.warning(
+                        "moderation_block request_id=%s tier=C role=%s "
+                        "trying_fallback",
+                        pack_id, role,
+                    )
+                    blocked_roles.append(f"C:{role}")
+
+                # Try fallback provider (e.g. fal.ai)
+                if fallback is not None:
+                    try:
+                        png_bytes = fallback.generate_image(prompt=prompt)
+                        file_path = _save_png_bytes(png_bytes)
+                        tier_images.append(_make_image_record(role, file_path, "fal"))
+                        continue
+                    except (ValueError, RuntimeError):
                         logger.warning(
-                            "moderation_block request_id=%s tier=C role=%s "
+                            "fallback_failed request_id=%s tier=C role=%s "
                             "falling_back_to_stub",
                             pack_id, role,
                         )
-                        # Even tier C blocked — fall back to stub for this role
-                        file_path = generate_placeholder_png(
-                            label=f"{character.name} — {role.replace('_', ' ')}",
-                            sublabel=sublabel,
-                            role=role,
-                        )
-                        tier_images.append(_make_image_record(role, file_path, "stub"))
-                        continue
-                    raise
-                file_path = _save_png_bytes(png_bytes)
-                tier_images.append(_make_image_record(role, file_path, "openai"))
+
+                # Final safety net: stub placeholder
+                file_path = generate_placeholder_png(
+                    label=f"{character.name} — {role.replace('_', ' ')}",
+                    sublabel=sublabel,
+                    role=role,
+                )
+                tier_images.append(_make_image_record(role, file_path, "stub"))
             return tier_images
 
         # ── 3-tier generation: A (normal) -> B (conservative) -> C (failsafe)
