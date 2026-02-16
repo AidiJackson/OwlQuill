@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ImageIcon, ChevronDown, ChevronUp, RefreshCw, ZoomIn, X } from 'lucide-react';
+import { ImageIcon, ChevronDown, ChevronUp, RefreshCw, ZoomIn, X, Info } from 'lucide-react';
 import type { IdentityPackResponse } from '../shared/types';
 import { TWEAK_CATEGORIES } from '../shared/types';
 import { generateIdentityPack, resolveImageUrl } from '../shared/api';
@@ -54,12 +54,19 @@ export default function StepGeneratePack({
     try {
       const result = await generateIdentityPack(characterId, tweaks, vibeText);
       onPackGenerated(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Generation failed. Please try again.');
+    } catch {
+      setError("We couldn't generate the images right now. Please try again.");
     } finally {
       setLoading(false);
     }
   };
+
+  // Derive helper flags from pack metadata (safe for older responses)
+  const rewriteApplied = pack?.rewrite_applied === true;
+  const tierUsed = pack?.tier_used;
+  const blockedRoles = pack?.blocked_roles ?? [];
+  const hadBlockedRoles = blockedRoles.length > 0;
+  const tierEscalated = tierUsed === 'B' || tierUsed === 'C';
 
   return (
     <div className="space-y-6">
@@ -147,10 +154,21 @@ export default function StepGeneratePack({
         </button>
       </div>
 
+      {/* Network / system error — friendly, no policy language */}
       {error && (
-        <p className="text-center text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2">
-          {error}
-        </p>
+        <div className="text-center space-y-2">
+          <p className="text-sm text-gray-400 bg-gray-800/60 rounded-lg px-4 py-2">
+            {error}
+          </p>
+          <button
+            type="button"
+            className="text-xs text-owl-400 hover:text-owl-300 transition-colors"
+            onClick={handleGenerate}
+            disabled={loading}
+          >
+            Try again
+          </button>
+        </div>
       )}
 
       {/* Image grid */}
@@ -180,6 +198,48 @@ export default function StepGeneratePack({
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Subtle metadata-driven helpers — no policy language */}
+      {pack && (rewriteApplied || tierEscalated || hadBlockedRoles) && (
+        <div className="space-y-2">
+          {/* Rewrite helper */}
+          {rewriteApplied && !tierEscalated && !hadBlockedRoles && (
+            <p className="text-center text-xs text-gray-500">
+              We refined the visual description slightly to keep results consistent.
+            </p>
+          )}
+
+          {/* Tier escalation helper (B or C used, but no individual blocked roles to call out) */}
+          {tierEscalated && !hadBlockedRoles && (
+            <p className="text-center text-xs text-gray-500">
+              We generated a safer variant to keep your character consistent.
+            </p>
+          )}
+
+          {/* Blocked roles info box */}
+          {hadBlockedRoles && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-gray-800 bg-gray-800/40 px-4 py-3">
+              <Info className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-gray-300">One angle didn't land</p>
+                <p className="text-xs text-gray-500">
+                  We kept your character consistent and filled the missing angle safely.
+                  You can try again for a different take.
+                </p>
+                <button
+                  type="button"
+                  className="text-xs text-owl-400 hover:text-owl-300 transition-colors flex items-center gap-1"
+                  onClick={handleGenerate}
+                  disabled={loading}
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Regenerate pack
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

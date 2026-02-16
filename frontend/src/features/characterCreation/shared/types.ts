@@ -33,6 +33,12 @@ export interface CharacterDNARead {
 export interface IdentityPackResponse {
   pack_id: string;
   images: CharacterImageRead[];
+  /** Which generation tier produced the final pack (A/B/C/stub). */
+  tier_used?: 'A' | 'B' | 'C' | 'stub';
+  /** True if the backend rewrote the user's description for consistency. */
+  rewrite_applied?: boolean;
+  /** Roles that failed moderation in earlier tiers, e.g. ["A:anchor_front"]. */
+  blocked_roles?: string[];
 }
 
 export interface IdentityPackAcceptResponse {
