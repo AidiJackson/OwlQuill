@@ -297,6 +297,9 @@ def generate_identity_pack(
         appearance_spec_conservative, _ = build_appearance_spec(
             raw_vibe, conservative=True, request_id=pack_id,
         )
+        appearance_spec_failsafe, _ = build_appearance_spec(
+            raw_vibe, failsafe=True, request_id=pack_id,
+        )
     except PromptBlockedError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -353,94 +356,115 @@ def generate_identity_pack(
                 "moderation_blocked", "safety system", "safety_violation",
             ))
 
-        _FRIENDLY_RETRY_ERROR = (
-            "We couldn't generate this look right now. "
-            "Try removing explicit terms. Outfits like swimsuits "
-            "and tight dresses are fine; nudity isn't supported."
-        )
+        def _generate_pack_tier_ab(
+            spec: str,
+            tier: str,
+        ) -> list[CharacterImage] | None:
+            """Attempt to generate the full 3-image pack.
 
-        def _generate_with_retry(
-            *,
-            prompt_normal: str,
-            prompt_conservative: str,
-            role: str,
-            reference_image_url: str | None = None,
-        ) -> bytes:
-            """Try generation; on moderation block retry with conservative prompt."""
+            Tier A uses the normal spec with images.edit for 3/4 and torso.
+            Tier B uses the conservative spec with images.edit for 3/4 and torso.
+            Returns None if any role is blocked by moderation.
+            """
+            tier_images: list[CharacterImage] = []
+
+            # Step 1: front via text-to-image
+            front_prompt = build_generation_prompt(
+                spec, char_traits,
+                ROLE_SHOT_DESCRIPTION["anchor_front"],
+            )
             try:
-                return provider.generate_image(
-                    prompt=prompt_normal,
-                    reference_image_url=reference_image_url,
-                )
+                front_bytes = provider.generate_image(prompt=front_prompt)
             except (ValueError, RuntimeError) as exc:
-                if not _is_moderation_block(exc):
+                if _is_moderation_block(exc):
+                    logger.warning(
+                        "moderation_block request_id=%s tier=%s role=anchor_front",
+                        pack_id, tier,
+                    )
+                    return None
+                raise
+            front_path = _save_png_bytes(front_bytes)
+            tier_images.append(_make_image_record("anchor_front", front_path, "openai"))
+
+            # Step 2: 3/4 and torso via images.edit using front as reference
+            base_url = settings.BACKEND_PUBLIC_URL.rstrip("/")
+            front_url = f"{base_url}/{front_path}"
+
+            for role in ("anchor_three_quarter", "anchor_torso"):
+                edit_prompt = ROLE_EDIT_PROMPT[role]
+                try:
+                    png_bytes = provider.generate_image(
+                        prompt=edit_prompt,
+                        reference_image_url=front_url,
+                    )
+                except (ValueError, RuntimeError) as exc:
+                    if _is_moderation_block(exc):
+                        logger.warning(
+                            "moderation_block request_id=%s tier=%s role=%s",
+                            pack_id, tier, role,
+                        )
+                        return None
                     raise
-                logger.warning(
-                    "moderation_block request_id=%s role=%s retrying_conservative",
-                    pack_id, role,
+                file_path = _save_png_bytes(png_bytes)
+                tier_images.append(_make_image_record(role, file_path, "openai"))
+
+            return tier_images
+
+        def _generate_pack_tier_c(spec: str) -> list[CharacterImage]:
+            """Failsafe tier: generate all 3 images via text-to-image only.
+
+            No images.edit, no reference images — avoids reference-image
+            moderation sensitivity. Always returns 3 images (raises on
+            non-moderation errors only).
+            """
+            tier_images: list[CharacterImage] = []
+            for role in PACK_ROLES:
+                prompt = build_generation_prompt(
+                    spec, char_traits,
+                    ROLE_SHOT_DESCRIPTION[role],
                 )
                 try:
-                    return provider.generate_image(
-                        prompt=prompt_conservative,
-                        reference_image_url=reference_image_url,
-                    )
-                except (ValueError, RuntimeError):
-                    logger.warning(
-                        "moderation_block request_id=%s role=%s retry_failed",
-                        pack_id, role,
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail=_FRIENDLY_RETRY_ERROR,
-                    ) from None
+                    png_bytes = provider.generate_image(prompt=prompt)
+                except (ValueError, RuntimeError) as exc:
+                    if _is_moderation_block(exc):
+                        logger.warning(
+                            "moderation_block request_id=%s tier=C role=%s "
+                            "falling_back_to_stub",
+                            pack_id, role,
+                        )
+                        # Even tier C blocked — fall back to stub for this role
+                        file_path = generate_placeholder_png(
+                            label=f"{character.name} — {role.replace('_', ' ')}",
+                            sublabel=sublabel,
+                            role=role,
+                        )
+                        tier_images.append(_make_image_record(role, file_path, "stub"))
+                        continue
+                    raise
+                file_path = _save_png_bytes(png_bytes)
+                tier_images.append(_make_image_record(role, file_path, "openai"))
+            return tier_images
 
-        # Step 1: Generate anchor_front via text-to-image
-        front_prompt = build_generation_prompt(
-            appearance_spec, char_traits,
-            ROLE_SHOT_DESCRIPTION["anchor_front"],
-        )
-        front_prompt_conservative = build_generation_prompt(
-            appearance_spec_conservative, char_traits,
-            ROLE_SHOT_DESCRIPTION["anchor_front"],
-        )
+        # ── 3-tier generation: A (normal) -> B (conservative) -> C (failsafe)
+        result_images = _generate_pack_tier_ab(appearance_spec, "A")
 
-        try:
-            front_bytes = _generate_with_retry(
-                prompt_normal=front_prompt,
-                prompt_conservative=front_prompt_conservative,
-                role="anchor_front",
+        if result_images is None:
+            # Tier A blocked — clear partial images from this attempt
+            images.clear()
+            logger.info(
+                "tier_escalation request_id=%s from=A to=B", pack_id,
             )
-        except (ValueError, RuntimeError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=_FRIENDLY_RETRY_ERROR,
-            ) from exc
-        front_path = _save_png_bytes(front_bytes)
-        _make_image_record("anchor_front", front_path, "openai")
+            result_images = _generate_pack_tier_ab(appearance_spec_conservative, "B")
 
-        # Step 2: Generate 3/4 and torso via images.edit using front as reference
-        base_url = settings.BACKEND_PUBLIC_URL.rstrip("/")
-        front_url = f"{base_url}/{front_path}"
+        if result_images is None:
+            # Tier B blocked — clear partial images, use failsafe
+            images.clear()
+            logger.info(
+                "tier_escalation request_id=%s from=B to=C", pack_id,
+            )
+            result_images = _generate_pack_tier_c(appearance_spec_failsafe)
 
-        for role in ("anchor_three_quarter", "anchor_torso"):
-            # Edit prompts are pose-only; the reference image carries identity.
-            # Do NOT add safety-context words here — they paradoxically
-            # make the images.edit moderation more sensitive.
-            edit_prompt = ROLE_EDIT_PROMPT[role]
-            try:
-                png_bytes = _generate_with_retry(
-                    prompt_normal=edit_prompt,
-                    prompt_conservative=edit_prompt,
-                    role=role,
-                    reference_image_url=front_url,
-                )
-            except (ValueError, RuntimeError) as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=_FRIENDLY_RETRY_ERROR,
-                ) from exc
-            file_path = _save_png_bytes(png_bytes)
-            _make_image_record(role, file_path, "openai")
+        # result_images is guaranteed non-None from tier C
     else:
         # Stub fallback — 3 independent placeholders (unchanged)
         for role in PACK_ROLES:

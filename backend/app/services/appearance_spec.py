@@ -4,7 +4,7 @@ Transparently rewrites user vibe prompts into neutral, fashion-focused
 appearance specifications that pass image-model moderation.
 
 Public API:
-- ``build_appearance_spec(raw_vibe, conservative=False)``
+- ``build_appearance_spec(raw_vibe, conservative=False, failsafe=False)``
 - ``build_generation_prompt(appearance_spec, traits, shot_desc)``
 """
 
@@ -64,7 +64,9 @@ _SOFT_REPLACEMENTS: Tuple[Tuple[re.Pattern, str], ...] = (
     (re.compile(r"\bpanties\b", re.I), "swimwear"),
     (re.compile(r"\bthong\b", re.I), "swimwear"),
     (re.compile(r"\bsee-through\b", re.I), "lightweight"),
-    # body
+    # body / model cluster
+    (re.compile(r"\bmodel[\s-]*thin\b", re.I), "model-like"),
+    (re.compile(r"\bthin nose\b", re.I), "slender nose"),
     (re.compile(r"\bfull lips\b", re.I), "defined lips"),
     (re.compile(r"\bcleavage\b", re.I), "neckline"),
     (re.compile(r"\bbusty\b", re.I), "curvy"),
@@ -93,6 +95,55 @@ _ETHNICITY_PARENS: re.Pattern = re.compile(
     r"japanese|chinese|korean|mexican|brazilian|"
     r"mixed race|biracial|multiracial)"
     r"[^)]*\)",
+    re.I,
+)
+
+# ── Standalone ethnicity phrases (not in parentheses) ────────────────
+
+_ETHNICITY_STANDALONE: re.Pattern = re.compile(
+    r"\b(?:white|black|asian|hispanic|latino|latina|caucasian|african|"
+    r"european|middle eastern|biracial|multiracial|mixed race)"
+    r"\s+"
+    r"(?:american|british|irish|italian|french|german|canadian|australian|"
+    r"european|person|woman|man|girl|boy|lady|guy|male|female)\b",
+    re.I,
+)
+
+# ── Height patterns (e.g. 5'9, 5'9", 5 foot 9, 6'2 height) ─────────
+
+_HEIGHT_PATTERN: re.Pattern = re.compile(
+    r"\b\d['′]\s*\d{1,2}[\"″]?\s*(?:height|tall|in height)?\b"
+    r"|\b\d\s*(?:foot|feet|ft)\s*\d{1,2}\s*(?:inches?|in)?\s*(?:height|tall|in height)?\b",
+    re.I,
+)
+
+# ── Failsafe-mode: keep only identity-core features ─────────────────
+
+_FAILSAFE_KEEP: re.Pattern = re.compile(
+    r"\b(?:"
+    # hair descriptors
+    r"(?:(?:long|short|medium|curly|straight|wavy|thick|thin)\s+)?"
+    r"(?:brunette|blonde|auburn|redhead|black|brown|silver|gray|grey|"
+    r"red|platinum|strawberry|golden|dark|light|sandy|chestnut|copper|"
+    r"ginger|raven|jet[- ]?black|ash[- ]?blonde|honey)"
+    r"(?:\s+hair)?"
+    r"|"
+    # eye descriptors
+    r"(?:hazel|blue|green|brown|amber|gray|grey|dark|light|emerald|"
+    r"violet|sapphire|golden|honey|chestnut|olive)"
+    r"\s+eyes?"
+    r"|"
+    # general skin tones
+    r"(?:tanned|fair|olive|dark|light|pale|brown|golden|warm|cool|"
+    r"sun-kissed|bronze|porcelain|ivory|peach|caramel|ebony|mahogany)"
+    r"\s+skin"
+    r"|"
+    # simple outfits
+    r"(?:black|white|red|blue|green|elegant|simple|casual)\s+"
+    r"(?:dress|suit|shirt|blouse|jacket|coat|sweater|top|outfit)"
+    r"|"
+    r"swimwear|two-piece swimsuit|swimsuit"
+    r")\b",
     re.I,
 )
 
@@ -131,9 +182,17 @@ def build_appearance_spec(
     raw_vibe: str,
     *,
     conservative: bool = False,
+    failsafe: bool = False,
     request_id: str = "",
 ) -> tuple[str, dict]:
     """Rewrite a raw user vibe string into a safe appearance specification.
+
+    Modes:
+        - Default: soft synonym rewrites + ethnicity stripping.
+        - conservative=True: additionally strips outfit/body words.
+        - failsafe=True: aggressively strips everything except identity
+          core (hair, eye colour, skin tone, simple outfit). Always
+          returns a short, safe spec. Implies conservative.
 
     Returns:
         (appearance_spec, meta) where meta contains rewrite diagnostics.
@@ -197,6 +256,18 @@ def build_appearance_spec(
         reasons.append("ethnicity_parenthetical_removed")
         result = stripped
 
+    # ── Strip standalone ethnicity phrases ────────────────────────
+    stripped = _ETHNICITY_STANDALONE.sub("", result)
+    if stripped != result:
+        reasons.append("ethnicity_standalone_removed")
+        result = stripped
+
+    # ── Strip height patterns ────────────────────────────────────
+    stripped = _HEIGHT_PATTERN.sub("", result)
+    if stripped != result:
+        reasons.append("height_removed")
+        result = stripped
+
     # ── Soft synonym replacements ────────────────────────────────
     for pattern, repl in _SOFT_REPLACEMENTS:
         new_result = pattern.sub(repl, result)
@@ -205,11 +276,21 @@ def build_appearance_spec(
             result = new_result
 
     # ── Conservative mode: strip outfit/body words entirely ──────
-    if conservative:
+    if conservative or failsafe:
         stripped = _CONSERVATIVE_STRIP.sub("", result)
         if stripped != result:
             reasons.append("conservative_strip")
             result = stripped
+
+    # ── Failsafe mode: keep only identity-core features ──────────
+    if failsafe:
+        kept = _FAILSAFE_KEEP.findall(result)
+        if kept:
+            result = ", ".join(kept)
+        else:
+            # Nothing recognisable — fall back to minimal spec
+            result = ""
+        reasons.append("failsafe_extract")
 
     # ── Ensure adult anchor ──────────────────────────────────────
     if "adult" not in result.lower():

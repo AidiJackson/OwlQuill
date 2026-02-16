@@ -1,4 +1,6 @@
 """Tests for character visual endpoints (DNA, identity pack, moments)."""
+from unittest.mock import MagicMock, patch
+
 from fastapi.testclient import TestClient
 
 
@@ -198,3 +200,86 @@ def test_moment_blocked_before_lock(client: TestClient):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 409
+
+
+# ── Failsafe tier-C path ────────────────────────────────────────────
+
+def test_failsafe_tier_c_returns_pack_on_moderation_blocks(client: TestClient):
+    """When tiers A and B are blocked by moderation, tier C returns a stub pack."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    call_count = 0
+
+    def _mock_generate_image(*, prompt, size="1024x1024", reference_image_url=None):
+        nonlocal call_count
+        call_count += 1
+        # Tiers A and B: block everything with a moderation error
+        # Tier C generates via text-to-image only (no reference_image_url).
+        # We block tier A/B calls (first 6 calls: 3 per tier × 2 tiers could
+        # happen, but actually tier A front fails immediately so only 1 call
+        # per tier). Simplify: block ALL calls that have a reference_image_url
+        # AND the first N text-to-image calls.
+        #
+        # Actually, the tier logic: tier A tries front (text-to-image) first.
+        # If it's blocked, it returns None immediately. Same for tier B.
+        # So tiers A + B = 2 calls total (1 each, both blocked at front).
+        # Then tier C makes 3 text-to-image calls — we should also block those
+        # to trigger the stub fallback within tier C.
+        raise RuntimeError("moderation_blocked: content policy violation")
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _mock_generate_image
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_provider,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={
+                "prompt_vibe": (
+                    "Naturally beautiful with tanned skin. White American. "
+                    "Brunette hair long with slight curl. 5'9 height. "
+                    "Elegant black dress. Model thin nose, full lips. Hazel eyes."
+                ),
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    # Must return 200 with a complete pack, NEVER a hard error
+    assert resp.status_code == 200, f"Expected 200 but got {resp.status_code}: {resp.json()}"
+    data = resp.json()
+    assert "pack_id" in data
+    assert len(data["images"]) == 3
+    roles = {img["metadata_json"]["pack_role"] for img in data["images"]}
+    assert roles == {"anchor_front", "anchor_three_quarter", "anchor_torso"}
+
+
+def test_tier_a_succeeds_no_escalation(client: TestClient):
+    """When tier A succeeds, no escalation occurs and we get an openai pack."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # Return fake PNG bytes for every call
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = MagicMock(return_value=fake_png)
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_provider,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "elegant brunette"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["images"]) == 3
+    # All images should be from openai provider
+    for img in data["images"]:
+        assert img["provider"] == "openai"

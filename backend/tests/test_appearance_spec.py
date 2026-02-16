@@ -36,6 +36,18 @@ class TestSoftRewrites:
         assert "lingerie" not in spec.lower()
         assert "eveningwear" in spec.lower()
 
+    def test_model_thin_rewrite(self):
+        spec, meta = build_appearance_spec("model thin nose, full lips")
+        assert "model thin" not in spec.lower()
+        assert "model-like" in spec.lower() or "slender nose" in spec.lower()
+        assert "full lips" not in spec.lower()
+        assert "defined lips" in spec.lower()
+
+    def test_thin_nose_rewrite(self):
+        spec, _ = build_appearance_spec("thin nose, blue eyes")
+        assert "thin nose" not in spec.lower()
+        assert "slender nose" in spec.lower()
+
     def test_preserves_safe_input(self):
         safe = "adult, long brunette hair, hazel eyes, elegant dress"
         spec, meta = build_appearance_spec(safe)
@@ -87,6 +99,31 @@ class TestEthnicityStrip:
     def test_non_ethnicity_parens_kept(self):
         spec, _ = build_appearance_spec("long hair (shoulder length)")
         assert "(shoulder length)" in spec
+
+    def test_standalone_white_american_removed(self):
+        """Standalone 'White American' (no parentheses) must be stripped."""
+        spec, meta = build_appearance_spec(
+            "Naturally beautiful with tanned skin. White American. "
+            "Brunette hair long with slight curl."
+        )
+        assert "white american" not in spec.lower()
+        assert "tanned skin" in spec
+        assert "brunette hair" in spec.lower()
+        assert "ethnicity_standalone_removed" in meta["reasons"]
+
+    def test_standalone_black_woman_removed(self):
+        spec, meta = build_appearance_spec(
+            "Black woman, long braids, dark skin, elegant dress"
+        )
+        assert "black woman" not in spec.lower()
+        assert "dark skin" in spec
+
+    def test_standalone_asian_american_removed(self):
+        spec, meta = build_appearance_spec(
+            "Asian American, dark hair, brown eyes, casual outfit"
+        )
+        assert "asian american" not in spec.lower()
+        assert "dark hair" in spec
 
 
 # ── build_appearance_spec: blocked content ───────────────────────────
@@ -156,6 +193,67 @@ class TestConservativeMode:
         assert "blonde hair" in spec
         assert "green eyes" in spec
         assert "olive skin" in spec
+
+
+# ── build_appearance_spec: height removal ────────────────────────────
+
+class TestHeightRemoval:
+
+    def test_height_59_removed(self):
+        spec, meta = build_appearance_spec(
+            "5'9 height. Brunette hair, hazel eyes"
+        )
+        assert "5'9" not in spec
+        assert "brunette hair" in spec.lower()
+        assert "height_removed" in meta["reasons"]
+
+    def test_height_62_removed(self):
+        spec, meta = build_appearance_spec(
+            "Long hair, 6'2 tall, blue eyes"
+        )
+        assert "6'2" not in spec
+        assert "blue eyes" in spec
+
+    def test_non_height_numbers_kept(self):
+        spec, _ = build_appearance_spec("28yrs old, size 8 dress")
+        assert "28" in spec
+
+
+# ── build_appearance_spec: failsafe mode ─────────────────────────────
+
+class TestFailsafeMode:
+
+    def test_failsafe_keeps_identity_core(self):
+        spec, meta = build_appearance_spec(
+            "Naturally beautiful with tanned skin. White American. "
+            "Brunette hair long with slight curl. 5'9 height. "
+            "Elegant black dress. Model thin nose, full lips. Hazel eyes.",
+            failsafe=True,
+        )
+        assert "failsafe_extract" in meta["reasons"]
+        # Should keep identity features
+        assert "hazel eyes" in spec.lower()
+        assert "tanned skin" in spec.lower()
+        # Should not contain ethnicity
+        assert "white american" not in spec.lower()
+
+    def test_failsafe_returns_adult_anchor_on_empty(self):
+        """Even with unrecognisable input, failsafe returns *something*."""
+        spec, meta = build_appearance_spec(
+            "xyz foo bar baz",
+            failsafe=True,
+        )
+        assert "failsafe_extract" in meta["reasons"]
+        assert "adult" in spec.lower()
+        assert len(spec) > 0
+
+    def test_failsafe_implies_conservative(self):
+        spec, meta = build_appearance_spec(
+            "sexy tight dress, blonde hair, blue eyes",
+            failsafe=True,
+        )
+        assert "sexy" not in spec.lower()
+        assert "dress" not in spec.lower()
 
 
 # ── build_generation_prompt ──────────────────────────────────────────
@@ -233,3 +331,22 @@ class TestRealWorldPrompts:
         )
         assert len(prompt) <= 250
         assert "non-explicit" in prompt
+
+    def test_new_failing_prompt_from_issue(self):
+        """The exact prompt from the current issue that fails in <5s."""
+        raw = (
+            "Naturally beautiful with tanned skin. White American. "
+            "Brunette hair long with slight curl. 5'9 height. "
+            "Elegant black dress. Model thin nose, full lips. Hazel eyes."
+        )
+        spec, meta = build_appearance_spec(raw)
+
+        # Must not be blocked
+        assert "white american" not in spec.lower()
+        assert "5'9" not in spec
+        assert "model thin" not in spec.lower()
+        assert "full lips" not in spec.lower()
+        # Identity preserved
+        assert "tanned skin" in spec
+        assert "hazel eyes" in spec.lower()
+        assert meta["did_rewrite"] is True
