@@ -1,6 +1,8 @@
 """Character visual endpoints — DNA, identity pack, and moment generation."""
+import json as _json
 import logging
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -315,7 +317,6 @@ def generate_identity_pack(
 
     if use_structured_spec:
         # Store the identity spec on the character for future use
-        import json as _json
         character.identity_spec_json = _json.dumps(identity_spec.model_dump())
         character.identity_spec_version = (character.identity_spec_version or 0) + 1
         spec_meta = {"did_rewrite": False, "reasons": [], "original_len": 0, "final_len": 0}
@@ -657,6 +658,44 @@ def accept_identity_pack(
 
     # Lock the character
     character.visual_locked = True
+
+    # Build and persist identity anchor snapshot
+    _role_key_map = {
+        "anchor_front": "front",
+        "anchor_three_quarter": "three_quarter",
+        "anchor_torso": "torso",
+        "anchor_full_body": "full_body",
+    }
+    anchors_dict: dict[str, dict] = {}
+    for img in matching:
+        role = img.metadata_json["pack_role"]
+        short_key = _role_key_map.get(role, role)
+        path = img.file_path.lstrip("/")
+        url = f"/{path}" if path.startswith("static/") else f"/static/{path}"
+        anchors_dict[short_key] = {"id": img.id, "url": url}
+
+    # Derive identity lock/hash from stored spec if available
+    _lock_string = None
+    _prompt_hash = None
+    _style = "realistic"
+    if character.identity_spec_json:
+        try:
+            from app.schemas.character_visual import CharacterIdentitySpec
+            spec_obj = CharacterIdentitySpec(**_json.loads(character.identity_spec_json))
+            _lock_string = compile_identity_lock_string(spec_obj)
+            _prompt_hash = identity_prompt_hash(spec_obj)
+            _style = spec_obj.style
+        except Exception:
+            pass  # graceful fallback — lock/hash stay null
+
+    character.identity_anchor_json = _json.dumps({
+        "version": 1,
+        "locked_at": datetime.now(timezone.utc).isoformat(),
+        "style": _style,
+        "identity_prompt_hash": _prompt_hash,
+        "identity_lock_string": _lock_string,
+        "anchors": anchors_dict,
+    })
 
     db.commit()
 

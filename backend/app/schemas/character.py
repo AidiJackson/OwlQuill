@@ -49,6 +49,7 @@ class Character(CharacterBase):
     owner_id: int
     owner_username: Optional[str] = None
     visual_locked: bool = False
+    identity_anchor_json: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

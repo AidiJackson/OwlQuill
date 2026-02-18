@@ -150,6 +150,66 @@ def test_accept_identity_pack(client: TestClient):
     assert resp.json()["visual_locked"] is True
 
 
+def test_accept_identity_pack_persists_anchor_json(client: TestClient):
+    """Accept/lock must persist identity_anchor_json with version=1 and all 4 anchors."""
+    import json
+
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # Generate a pack (stub provider — no OpenAI)
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    pack_data = resp.json()
+    pack_id = pack_data["pack_id"]
+    pack_image_ids = {
+        img["metadata_json"]["pack_role"]: img["id"]
+        for img in pack_data["images"]
+    }
+
+    # Accept the pack
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/accept",
+        json={"pack_id": pack_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+
+    # Fetch the character and verify identity_anchor_json
+    resp = client.get(
+        f"/characters/{cid}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    char_data = resp.json()
+    assert char_data["visual_locked"] is True
+    assert char_data["identity_anchor_json"] is not None
+
+    anchor = json.loads(char_data["identity_anchor_json"])
+    assert anchor["version"] == 1
+    assert "locked_at" in anchor
+    assert anchor["style"] == "realistic"
+    assert set(anchor["anchors"].keys()) == {"front", "three_quarter", "torso", "full_body"}
+
+    # Each anchor entry should have id and url
+    for key in ("front", "three_quarter", "torso", "full_body"):
+        entry = anchor["anchors"][key]
+        assert "id" in entry
+        assert "url" in entry
+        assert isinstance(entry["id"], int)
+        assert entry["url"].startswith("/static/")
+
+    # Verify the stored image IDs match what was generated
+    assert anchor["anchors"]["front"]["id"] == pack_image_ids["anchor_front"]
+    assert anchor["anchors"]["three_quarter"]["id"] == pack_image_ids["anchor_three_quarter"]
+    assert anchor["anchors"]["torso"]["id"] == pack_image_ids["anchor_torso"]
+    assert anchor["anchors"]["full_body"]["id"] == pack_image_ids["anchor_full_body"]
+
+
 def test_accept_invalid_pack_id(client: TestClient):
     token = _register_and_login(client)
     cid = _create_character(client, token)
