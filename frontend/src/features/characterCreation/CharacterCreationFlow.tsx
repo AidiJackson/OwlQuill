@@ -39,6 +39,7 @@ export default function CharacterCreationFlow() {
   const [seeds, setSeeds] = useState<CreationSeeds>({
     traits: [],
     vibeText: '',
+    identitySpec: null,
   });
 
   const [generatedPack, setGeneratedPack] = useState<IdentityPackResponse | null>(null);
@@ -119,6 +120,7 @@ export default function CharacterCreationFlow() {
         visual_traits_json: {
           personality_traits: seeds.traits,
           vibe: seeds.vibeText,
+          identity_spec: seeds.identitySpec || undefined,
         },
         structural_profile_json: {
           age_band: basics.age || undefined,
@@ -259,6 +261,7 @@ export default function CharacterCreationFlow() {
           <StepGeneratePack
             characterId={characterId}
             vibeText={seeds.vibeText}
+            identitySpec={seeds.identitySpec}
             pack={generatedPack}
             onPackGenerated={(pack) => {
               setGeneratedPack(pack);

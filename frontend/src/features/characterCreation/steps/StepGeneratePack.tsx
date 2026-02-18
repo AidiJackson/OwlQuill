@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { ImageIcon, ChevronDown, ChevronUp, RefreshCw, ZoomIn, X, Info } from 'lucide-react';
-import type { IdentityPackResponse } from '../shared/types';
+import type { IdentityPackResponse, IdentitySpec } from '../shared/types';
 import { TWEAK_CATEGORIES } from '../shared/types';
 import { generateIdentityPack, resolveImageUrl } from '../shared/api';
 
 interface Props {
   characterId: number;
   vibeText: string;
+  identitySpec?: IdentitySpec | null;
   pack: IdentityPackResponse | null;
   onPackGenerated: (pack: IdentityPackResponse) => void;
   onNext: () => void;
@@ -23,6 +24,7 @@ const ROLE_LABELS: Record<string, string> = {
 export default function StepGeneratePack({
   characterId,
   vibeText,
+  identitySpec,
   pack,
   onPackGenerated,
   onNext,
@@ -53,7 +55,7 @@ export default function StepGeneratePack({
     setLoading(true);
     setError('');
     try {
-      const result = await generateIdentityPack(characterId, tweaks, vibeText);
+      const result = await generateIdentityPack(characterId, tweaks, vibeText, identitySpec);
       onPackGenerated(result);
     } catch {
       setError("We couldn't generate the images right now. Please try again.");

@@ -34,6 +34,8 @@ class Character(Base):
     tags = Column(String, nullable=True)  # Stored as comma-separated for MVP
     visibility = Column(SQLEnum(VisibilityEnum), default=VisibilityEnum.PUBLIC, nullable=False)
     visual_locked = Column(Boolean, default=False, nullable=False, server_default="false")
+    identity_spec_json = Column(Text, nullable=True)      # Structured identity spec (JSON string)
+    identity_spec_version = Column(Integer, default=0, nullable=False, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

@@ -28,6 +28,11 @@ from app.services.appearance_spec import (
     build_generation_prompt,
     PromptBlockedError,
 )
+from app.services.identity_compiler import (
+    compile_identity_prompt,
+    compile_identity_lock_string,
+    identity_prompt_hash,
+)
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.image_provider import get_image_provider, get_fallback_provider, ImageProvider
 
@@ -291,24 +296,6 @@ def generate_identity_pack(
         tweaks_parts.append(f"vibe: {body.prompt_vibe}")
     sublabel = " | ".join(tweaks_parts) if tweaks_parts else "default style"
 
-    # ── Appearance-spec rewrite pipeline ─────────────────────────
-    raw_vibe = body.prompt_vibe or ""
-    try:
-        appearance_spec, spec_meta = build_appearance_spec(
-            raw_vibe, request_id=pack_id,
-        )
-        appearance_spec_conservative, _ = build_appearance_spec(
-            raw_vibe, conservative=True, request_id=pack_id,
-        )
-        appearance_spec_failsafe, _ = build_appearance_spec(
-            raw_vibe, failsafe=True, request_id=pack_id,
-        )
-    except PromptBlockedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=exc.friendly_message,
-        ) from None
-
     # Fetch DNA for prompt enrichment
     dna = get_character_dna(db, character_id)
 
@@ -321,6 +308,42 @@ def generate_identity_pack(
             char_traits.append(dna.gender_presentation)
     elif character.species:
         char_traits.append(character.species)
+
+    # ── Determine prompt source: structured spec or legacy vibe ───
+    use_structured_spec = body.identity_spec is not None
+    identity_spec = body.identity_spec
+
+    if use_structured_spec:
+        # Store the identity spec on the character for future use
+        import json as _json
+        character.identity_spec_json = _json.dumps(identity_spec.model_dump())
+        character.identity_spec_version = (character.identity_spec_version or 0) + 1
+        spec_meta = {"did_rewrite": False, "reasons": [], "original_len": 0, "final_len": 0}
+    else:
+        identity_spec = None
+
+    # ── Legacy appearance-spec rewrite pipeline (fallback for old clients) ─
+    raw_vibe = body.prompt_vibe or ""
+    if not use_structured_spec:
+        try:
+            appearance_spec, spec_meta = build_appearance_spec(
+                raw_vibe, request_id=pack_id,
+            )
+            appearance_spec_conservative, _ = build_appearance_spec(
+                raw_vibe, conservative=True, request_id=pack_id,
+            )
+            appearance_spec_failsafe, _ = build_appearance_spec(
+                raw_vibe, failsafe=True, request_id=pack_id,
+            )
+        except PromptBlockedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exc.friendly_message,
+            ) from None
+    else:
+        appearance_spec = ""
+        appearance_spec_conservative = ""
+        appearance_spec_failsafe = ""
 
     # Resolved style (already validated/coerced by the schema)
     style = body.style
@@ -366,6 +389,20 @@ def generate_identity_pack(
                 "moderation_blocked", "safety system", "safety_violation",
             ))
 
+        def _build_prompt_for_role(spec_str: str, role: str, *, failsafe: bool = False) -> str:
+            """Build a prompt for a given role using structured spec or legacy path."""
+            if use_structured_spec and identity_spec is not None:
+                return compile_identity_prompt(
+                    identity_spec, role,
+                    char_traits=char_traits,
+                    failsafe=failsafe,
+                )
+            return build_generation_prompt(
+                spec_str, char_traits,
+                ROLE_SHOT_DESCRIPTION[role],
+                style=style,
+            )
+
         def _generate_pack_tier_ab(
             spec: str,
             tier: str,
@@ -379,11 +416,7 @@ def generate_identity_pack(
             tier_images: list[CharacterImage] = []
 
             # Step 1: front via text-to-image
-            front_prompt = build_generation_prompt(
-                spec, char_traits,
-                ROLE_SHOT_DESCRIPTION["anchor_front"],
-                style=style,
-            )
+            front_prompt = _build_prompt_for_role(spec, "anchor_front")
             try:
                 front_bytes = provider.generate_image(prompt=front_prompt)
             except (ValueError, RuntimeError) as exc:
@@ -430,15 +463,14 @@ def generate_identity_pack(
             On moderation block, tries the fallback provider (e.g. fal.ai).
             If both fail, falls back to stub placeholders.
             Always returns 4 images.
+
+            In structured spec mode, failsafe softens wardrobe (drops colors,
+            keeps outfit type only) to reduce moderation risk.
             """
             fallback = get_fallback_provider()
             tier_images: list[CharacterImage] = []
             for role in PACK_ROLES:
-                prompt = build_generation_prompt(
-                    spec, char_traits,
-                    ROLE_SHOT_DESCRIPTION[role],
-                    style=style,
-                )
+                prompt = _build_prompt_for_role(spec, role, failsafe=True)
 
                 # Try primary provider (text-to-image, no reference)
                 try:

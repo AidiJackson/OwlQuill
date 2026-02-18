@@ -46,6 +46,54 @@ export interface IdentityPackAcceptResponse {
   dna: CharacterDNARead | null;
 }
 
+// ── Identity Spec types ─────────────────────────────────────────────
+
+export interface IdentityCore {
+  hair_color: string;
+  hair_length: string;
+  eye_color: string;
+  skin_tone: string;
+  face_features: string[];
+}
+
+export interface IdentityBuild {
+  body_type: string;
+  height_band: string;
+}
+
+export interface WardrobeSpec {
+  outfit_type: string;
+  primary_color: string;
+  secondary_color: string;
+  footwear: string;
+  accessory: string;
+  notes: string;
+}
+
+export interface IdentitySpec {
+  style: string;
+  identity: IdentityCore;
+  build: IdentityBuild;
+  marks_accessories: { items: string[] };
+  wardrobe: WardrobeSpec;
+  extra_notes: string;
+}
+
+// ── Identity Spec option constants ──────────────────────────────────
+
+export const HAIR_COLORS = ['Blonde', 'Brunette', 'Black', 'Red', 'Auburn', 'Silver', 'Platinum', 'Copper', 'Strawberry', 'Gray'];
+export const HAIR_LENGTHS = ['Short', 'Medium', 'Long', 'Shaved'];
+export const EYE_COLORS = ['Brown', 'Blue', 'Green', 'Hazel', 'Amber', 'Gray', 'Violet'];
+export const SKIN_TONES = ['Fair', 'Light', 'Olive', 'Tan', 'Brown', 'Dark', 'Pale', 'Golden', 'Porcelain', 'Caramel'];
+export const FACE_FEATURES = ['High cheekbones', 'Strong jaw', 'Dimples', 'Freckles', 'Sharp features', 'Soft features', 'Angular', 'Round face'];
+export const BODY_TYPES = ['Slim', 'Athletic', 'Muscular', 'Curvy', 'Average', 'Stocky', 'Petite', 'Tall and lean'];
+export const HEIGHT_BANDS = ['Short', 'Average', 'Tall'];
+export const OUTFIT_TYPES = ['Dress', 'Suit', 'Casual', 'Armor', 'Uniform', 'Robes', 'Sportswear', 'Streetwear', 'Formal gown', 'Jacket and jeans'];
+export const PRIMARY_COLORS = ['Black', 'White', 'Red', 'Blue', 'Navy', 'Green', 'Purple', 'Gold', 'Silver', 'Brown', 'Burgundy', 'Pink', 'Gray'];
+export const FOOTWEAR_OPTIONS = ['Heels', 'Boots', 'Sneakers', 'Sandals', 'Loafers', 'Barefoot', 'Combat boots', 'Flats'];
+export const ACCESSORY_OPTIONS = ['Necklace', 'Watch', 'Belt', 'Scarf', 'Hat', 'Gloves', 'Bracelet', 'Earrings'];
+export const MARKS_ACCESSORIES = ['Glasses', 'Sunglasses', 'Tattoos', 'Scars', 'Piercings', 'Facial hair', 'Mask', 'Birthmark'];
+
 // ── Flow state slices ───────────────────────────────────────────────
 
 export interface CreationBasics {
@@ -58,6 +106,7 @@ export interface CreationBasics {
 export interface CreationSeeds {
   traits: string[];
   vibeText: string;
+  identitySpec: IdentitySpec | null;
 }
 
 export interface CreationProfile {

@@ -4,6 +4,7 @@ import type {
   CharacterImageRead,
   IdentityPackResponse,
   IdentityPackAcceptResponse,
+  IdentitySpec,
 } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -96,12 +97,14 @@ export async function generateIdentityPack(
   characterId: number,
   tweaks?: Record<string, string>,
   promptVibe?: string,
+  identitySpec?: IdentitySpec | null,
 ): Promise<IdentityPackResponse> {
   return request(`/characters/${characterId}/identity-pack/generate`, {
     method: 'POST',
     body: JSON.stringify({
       tweaks: tweaks && Object.keys(tweaks).length > 0 ? tweaks : null,
       prompt_vibe: promptVibe || null,
+      identity_spec: identitySpec || null,
     }),
   });
 }
