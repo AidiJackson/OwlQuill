@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, User } from '@/lib/types';
 import { generateMomentImage, listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
+import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
 
 const VISIBILITY_ICONS = {
   public: Globe,
@@ -36,6 +37,9 @@ export default function CharacterDetail() {
   // Set-avatar state
   const [settingAvatar, setSettingAvatar] = useState(false);
   const [avatarSet, setAvatarSet] = useState(false);
+
+  // Ref for scrolling new scene images into view
+  const newImageRef = useRef<HTMLDivElement>(null);
 
   // Delete modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -356,6 +360,22 @@ export default function CharacterDetail() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Scene image generator (post-lock, owner only) */}
+        {character.visual_locked && currentUser && character.owner_id === currentUser.id && (
+          <div className="border-t border-gray-800 pt-6 space-y-4">
+            <SceneGeneratorPanel
+              characterId={character.id}
+              onGenerated={(image) => {
+                setGalleryImages((prev) => [image, ...prev]);
+                setTimeout(() => {
+                  newImageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 50);
+              }}
+            />
+            <div ref={newImageRef} />
           </div>
         )}
       </div>

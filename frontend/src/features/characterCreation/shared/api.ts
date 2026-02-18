@@ -128,3 +128,14 @@ export async function generateMomentImage(
     body: JSON.stringify(data),
   });
 }
+
+export async function generateSceneImage(
+  characterId: number,
+  prompt: string,
+  style: string = 'realistic',
+): Promise<CharacterImageRead> {
+  return request(`/characters/${characterId}/scene-images/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt, style }),
+  });
+}
