@@ -6,6 +6,8 @@ import type { Character, User } from '@/lib/types';
 import { generateMomentImage, listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
+import ImageGrid from '@/features/images/components/ImageGrid';
+import PostComposer from '@/features/posts/components/PostComposer';
 
 const VISIBILITY_ICONS = {
   public: Globe,
@@ -40,6 +42,13 @@ export default function CharacterDetail() {
 
   // Ref for scrolling new scene images into view
   const newImageRef = useRef<HTMLDivElement>(null);
+
+  // Post composer state
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerImage, setComposerImage] = useState<CharacterImageRead | null>(null);
+
+  // Cover toast state
+  const [coverToast, setCoverToast] = useState('');
 
   // Delete modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -102,6 +111,22 @@ export default function CharacterDetail() {
       // Silently fail — user can retry
     } finally {
       setSettingAvatar(false);
+    }
+  };
+
+  const handleUseInPost = (image: CharacterImageRead) => {
+    setComposerImage(image);
+    setComposerOpen(true);
+  };
+
+  const handleSetAsCover = async (image: CharacterImageRead) => {
+    try {
+      await apiClient.setMyProfileCover(image.id);
+      setCoverToast('Cover image updated');
+      setTimeout(() => setCoverToast(''), 3000);
+    } catch {
+      setCoverToast('Could not set cover. Try again.');
+      setTimeout(() => setCoverToast(''), 3000);
     }
   };
 
@@ -300,21 +325,12 @@ export default function CharacterDetail() {
         {galleryImages.length > 0 && (
           <div className="border-t border-gray-800 pt-6 space-y-3">
             <h2 className="text-sm font-medium text-gray-300">Images</h2>
-            <div className="grid grid-cols-3 gap-3">
-              {galleryImages.map((img, idx) => (
-                <button
-                  key={img.id}
-                  className="rounded-lg overflow-hidden border border-gray-800 bg-gray-900 hover:border-gray-600 transition-colors cursor-pointer"
-                  onClick={() => setLightboxIdx(idx)}
-                >
-                  <img
-                    src={resolveImageUrl(img.url)}
-                    alt={img.kind.replace(/_/g, ' ')}
-                    className="w-full aspect-[2/3] object-cover"
-                  />
-                </button>
-              ))}
-            </div>
+            <ImageGrid
+              images={galleryImages}
+              onImageClick={(idx) => setLightboxIdx(idx)}
+              onUseInPost={currentUser ? handleUseInPost : undefined}
+              onSetAsCover={currentUser && character.owner_id === currentUser.id ? handleSetAsCover : undefined}
+            />
           </div>
         )}
 
@@ -379,6 +395,20 @@ export default function CharacterDetail() {
           </div>
         )}
       </div>
+
+      {/* Post composer */}
+      <PostComposer
+        open={composerOpen}
+        onClose={() => { setComposerOpen(false); setComposerImage(null); }}
+        preloadedImage={composerImage}
+      />
+
+      {/* Cover toast */}
+      {coverToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-gray-200 shadow-lg pointer-events-none">
+          {coverToast}
+        </div>
+      )}
 
       {/* Image lightbox */}
       {lightboxIdx !== null && galleryImages[lightboxIdx] && (
