@@ -315,6 +315,13 @@ def generate_identity_pack(
     use_structured_spec = body.identity_spec is not None
     identity_spec = body.identity_spec
 
+    # Normalize empty/missing style before compilation or storage
+    if identity_spec and (
+        not identity_spec.style
+        or not identity_spec.style.strip()
+    ):
+        identity_spec.style = "realistic"
+
     if use_structured_spec:
         # Store the identity spec on the character for future use
         character.identity_spec_json = _json.dumps(identity_spec.model_dump())

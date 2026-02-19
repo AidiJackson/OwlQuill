@@ -37,8 +37,6 @@ class ImageProvider:
         """
         if not prompt or len(prompt.strip()) == 0:
             raise ValueError("Prompt must not be empty.")
-        if len(prompt) > 250:
-            raise ValueError("Prompt must be 250 characters or fewer.")
         return self._generate(prompt=prompt, size=size, reference_image_url=reference_image_url)
 
     def _generate(

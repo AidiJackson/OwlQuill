@@ -555,6 +555,121 @@ def test_tier_c_no_fallback_configured_falls_to_stub(client: TestClient):
         assert img["provider"] == "stub"
 
 
+# ── Identity spec style normalization ────────────────────────────────
+
+def test_identity_spec_empty_style_coerced_to_realistic(client: TestClient):
+    """identity_spec.style = '' must not crash and must silently default to 'realistic'."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    captured_prompts: list[str] = []
+
+    def _capture_generate(*, prompt, size="1024x1024", reference_image_url=None):
+        captured_prompts.append(prompt)
+        return fake_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _capture_generate
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_provider,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={
+                "identity_spec": {
+                    "style": "",
+                    "identity": {"hair_color": "auburn", "eye_color": "green"},
+                }
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    # Empty style must never cause a 500
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["images"]) == 4
+    # The front prompt must use the 'realistic' style token
+    assert len(captured_prompts) >= 1
+    assert "realistic" in captured_prompts[0].lower()
+
+
+def test_identity_spec_whitespace_style_coerced_to_realistic(client: TestClient):
+    """identity_spec.style = '   ' (whitespace only) must silently default to 'realistic'."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    captured_prompts: list[str] = []
+
+    def _capture_generate(*, prompt, size="1024x1024", reference_image_url=None):
+        captured_prompts.append(prompt)
+        return fake_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _capture_generate
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_provider,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={
+                "identity_spec": {
+                    "style": "   ",
+                    "identity": {"hair_color": "black", "eye_color": "brown"},
+                }
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["images"]) == 4
+    assert len(captured_prompts) >= 1
+    assert "realistic" in captured_prompts[0].lower()
+
+
+def test_identity_spec_unknown_style_coerced_to_realistic(client: TestClient):
+    """identity_spec.style with an unrecognised value must silently default to 'realistic'."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    captured_prompts: list[str] = []
+
+    def _capture_generate(*, prompt, size="1024x1024", reference_image_url=None):
+        captured_prompts.append(prompt)
+        return fake_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _capture_generate
+
+    with patch(
+        "app.api.routes.character_visual.get_image_provider",
+        return_value=mock_provider,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={
+                "identity_spec": {
+                    "style": "oilpainting",
+                    "identity": {"hair_color": "blonde", "eye_color": "grey"},
+                }
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["images"]) == 4
+    assert len(captured_prompts) >= 1
+    assert "realistic" in captured_prompts[0].lower()
+
+
 # ── Front shot is a true headshot ────────────────────────────────────
 
 def test_front_shot_uses_headshot_description(client: TestClient):

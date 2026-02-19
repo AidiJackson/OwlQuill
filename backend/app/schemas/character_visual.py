@@ -51,9 +51,11 @@ class CharacterIdentitySpec(BaseModel):
     wardrobe: Optional[WardrobeSpec] = None
     extra_notes: Optional[str] = Field(default=None, max_length=120)
 
-    @field_validator("style")
+    @field_validator("style", mode="before")
     @classmethod
-    def _coerce_style(cls, v: str) -> str:
+    def _coerce_style(cls, v) -> str:
+        if not isinstance(v, str) or not v.strip():
+            return "realistic"
         normed = v.strip().lower()
         return normed if normed in _VALID_STYLES else "realistic"
 
@@ -77,9 +79,11 @@ class IdentityPackGenerateRequest(BaseModel):
     identity_spec: Optional[CharacterIdentitySpec] = None
     style: str = "realistic"
 
-    @field_validator("style")
+    @field_validator("style", mode="before")
     @classmethod
-    def _coerce_style(cls, v: str) -> str:
+    def _coerce_style(cls, v) -> str:
+        if not isinstance(v, str) or not v.strip():
+            return "realistic"
         normed = v.strip().lower()
         return normed if normed in _VALID_STYLES else "realistic"
 
