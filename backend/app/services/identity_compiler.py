@@ -58,11 +58,12 @@ def compile_identity_prompt(
 
     Strict ordering (each section appended in this order):
       1. Style token
-      2. Adult anchor + identity core (hair, eyes, skin, face)
-      3. Wardrobe lock (outfit type + colors) — must be early
-      4. Role shot requirement
-      5. Build + marks/accessories
-      6. Vibe traits (extra_notes) + lighting
+      2. Identity consistency anchor
+      3. Adult anchor + identity core (hair, eyes, skin, face)
+      4. Wardrobe lock (outfit type + colors) — must be early
+      5. Role shot requirement
+      6. Build + marks/accessories
+      7. Vibe traits (extra_notes) + lighting
 
     In failsafe mode, wardrobe color/type may be softened (only type kept,
     colors dropped) to avoid moderation blocks.
@@ -76,7 +77,12 @@ def compile_identity_prompt(
     style_token = _STYLE_TOKENS.get(spec.style, _STYLE_TOKENS["realistic"])
     sections.append(style_token)
 
-    # 2. Adult anchor + identity core
+    # 2. Identity consistency anchor
+    sections.append(
+        "This is the same person in all images, maintain identical facial structure, hair, and identity features."
+    )
+
+    # 3. Adult anchor + identity core
     identity_parts: list[str] = [_ADULT_ANCHOR]
 
     # Character name/species/gender from char_traits
@@ -103,17 +109,17 @@ def compile_identity_prompt(
 
     sections.append(", ".join(identity_parts))
 
-    # 3. Wardrobe lock — must appear early for stable generation
+    # 4. Wardrobe lock — must appear early for stable generation
     wardrobe_str = _build_wardrobe_string(spec, failsafe=failsafe)
     if wardrobe_str:
         sections.append(wardrobe_str)
 
-    # 4. Role shot requirement
+    # 5. Role shot requirement
     shot_desc = ROLE_SHOT_DESCRIPTION.get(role, "")
     if shot_desc:
         sections.append(shot_desc)
 
-    # 5. Build + marks/accessories
+    # 6. Build + marks/accessories
     build_parts: list[str] = []
     if spec.build:
         if spec.build.body_type:
@@ -125,7 +131,7 @@ def compile_identity_prompt(
     if build_parts:
         sections.append(", ".join(build_parts))
 
-    # 6. Vibe traits + lighting (extra_notes)
+    # 7. Vibe traits + lighting (extra_notes)
     if spec.extra_notes:
         sections.append(spec.extra_notes)
 
@@ -194,13 +200,13 @@ def _trim_to_cap(
     Wardrobe is never removed.
     """
     # Rebuild without extra_notes
-    trimmed_sections = sections[:-1] if len(sections) > 5 else sections
+    trimmed_sections = sections[:-1] if len(sections) > 6 else sections
     prompt = f"{_SAFETY_PREFIX}, " + ", ".join(trimmed_sections)
 
     if len(prompt) > _PROMPT_CAP:
-        # Also drop build/marks section (index 4 if present, after shot)
-        if len(trimmed_sections) > 4:
-            trimmed_sections = trimmed_sections[:4] + trimmed_sections[5:]
+        # Also drop build/marks section (index 5 if present, after shot)
+        if len(trimmed_sections) > 5:
+            trimmed_sections = trimmed_sections[:5] + trimmed_sections[6:]
             prompt = f"{_SAFETY_PREFIX}, " + ", ".join(trimmed_sections)
 
     # Last resort: hard truncate (but wardrobe is in sections 0-2, safe)
