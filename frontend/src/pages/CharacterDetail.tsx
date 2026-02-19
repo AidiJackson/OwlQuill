@@ -8,6 +8,7 @@ import type { CharacterImageRead } from '@/features/characterCreation/shared/typ
 import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
 import ImageGrid from '@/features/images/components/ImageGrid';
 import PostComposer from '@/features/posts/components/PostComposer';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 const VISIBILITY_ICONS = {
   public: Globe,
@@ -325,12 +326,14 @@ export default function CharacterDetail() {
         {galleryImages.length > 0 && (
           <div className="border-t border-gray-800 pt-6 space-y-3">
             <h2 className="text-sm font-medium text-gray-300">Images</h2>
-            <ImageGrid
-              images={galleryImages}
-              onImageClick={(idx) => setLightboxIdx(idx)}
-              onUseInPost={currentUser ? handleUseInPost : undefined}
-              onSetAsCover={currentUser && character.owner_id === currentUser.id ? handleSetAsCover : undefined}
-            />
+            <ErrorBoundary>
+              <ImageGrid
+                images={galleryImages}
+                onImageClick={(idx) => setLightboxIdx(idx)}
+                onUseInPost={currentUser ? handleUseInPost : undefined}
+                onSetAsCover={currentUser && character.owner_id === currentUser.id ? handleSetAsCover : undefined}
+              />
+            </ErrorBoundary>
           </div>
         )}
 
@@ -411,6 +414,7 @@ export default function CharacterDetail() {
       )}
 
       {/* Image lightbox */}
+      <ErrorBoundary>
       {lightboxIdx !== null && galleryImages[lightboxIdx] && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
@@ -451,6 +455,7 @@ export default function CharacterDetail() {
           </div>
         </div>
       )}
+      </ErrorBoundary>
 
       {/* Delete character modal */}
       {showDeleteModal && (

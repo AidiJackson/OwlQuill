@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ImageIcon, ChevronDown, ChevronUp, RefreshCw, ZoomIn, X, Info } from 'lucide-react';
 import type { IdentityPackResponse, IdentitySpec } from '../shared/types';
 import { TWEAK_CATEGORIES } from '../shared/types';
@@ -35,6 +35,12 @@ export default function StepGeneratePack({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [enlargedIndex, setEnlargedIndex] = useState<number | null>(null);
+
+  // Close the enlarged modal whenever the pack changes (e.g. regeneration returns a
+  // different number of images) to prevent an out-of-bounds index crash.
+  useEffect(() => {
+    setEnlargedIndex(null);
+  }, [pack]);
 
   const activeTweakCount = Object.keys(tweaks).length;
 
@@ -247,7 +253,7 @@ export default function StepGeneratePack({
       )}
 
       {/* Enlarged preview overlay */}
-      {pack && enlargedIndex !== null && (
+      {pack && enlargedIndex !== null && pack.images[enlargedIndex] && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
           onClick={() => setEnlargedIndex(null)}

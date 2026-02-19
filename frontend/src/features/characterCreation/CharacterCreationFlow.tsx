@@ -10,6 +10,7 @@ import StepSelect from './steps/StepSelect';
 import StepLockConfirm from './steps/StepLockConfirm';
 import StepProfileDetails from './steps/StepProfileDetails';
 
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { upsertDNA, resolveImageUrl } from './shared/api';
 import type {
   CreationBasics,
@@ -239,6 +240,7 @@ export default function CharacterCreationFlow() {
 
       {/* Step content */}
       <div className="flex-1 max-w-xl mx-auto w-full px-4 py-6">
+        <ErrorBoundary fallback={<p className="text-center text-sm text-gray-400 py-8">Something went wrong. Please refresh and try again.</p>}>
         {step === 0 && (
           <StepBasics
             data={basics}
@@ -301,6 +303,7 @@ export default function CharacterCreationFlow() {
             saving={saving}
           />
         )}
+        </ErrorBoundary>
       </div>
     </div>
   );

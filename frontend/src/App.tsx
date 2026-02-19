@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
 import Layout from '@/components/Layout';
 import ProfileLayout from '@/components/Profile/ProfileLayout';
@@ -21,6 +21,16 @@ import ConversationsList from '@/features/messaging/ConversationsList';
 import ConversationThread from '@/features/messaging/ConversationThread';
 import Images from '@/pages/Images';
 import ImageNew from '@/pages/ImageNew';
+
+function RouteLogger() {
+  const location = useLocation();
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.info('ROUTE_CHANGE', location.pathname, Date.now());
+    }
+  }, [location.pathname]);
+  return null;
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -46,6 +56,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="*" element={<RouteLogger />} />
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <Login />} />
         <Route path="/register" element={isAuthenticated ? <Navigate to="/" /> : <Register />} />
         <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/" /> : <ForgotPassword />} />

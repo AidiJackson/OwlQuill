@@ -77,7 +77,7 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
       </div>
 
       {/* Enlarged overlay */}
-      {enlargedIndex !== null && (
+      {enlargedIndex !== null && pack.images[enlargedIndex] && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
           onClick={() => setEnlargedIndex(null)}
