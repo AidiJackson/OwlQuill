@@ -39,8 +39,14 @@ export default function StepGeneratePack({
   // Close the enlarged modal whenever the pack changes (e.g. regeneration returns a
   // different number of images) to prevent an out-of-bounds index crash.
   useEffect(() => {
+    if (import.meta.env.DEV && enlargedIndex !== null && pack && !pack.images[enlargedIndex]) {
+      console.warn(
+        '[StepGeneratePack] enlargedIndex', enlargedIndex,
+        'would be out of bounds for new pack with', pack.images.length, 'images — closing modal',
+      );
+    }
     setEnlargedIndex(null);
-  }, [pack]);
+  }, [pack]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeTweakCount = Object.keys(tweaks).length;
 

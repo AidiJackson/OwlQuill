@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ImageIcon, RefreshCw } from 'lucide-react';
 import { generateSceneImage } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
@@ -15,6 +15,12 @@ export default function SceneGeneratorPanel({ characterId, onGenerated }: Props)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const canGenerate = prompt.trim().length > 0 && !loading;
 
   const handleGenerate = async () => {
@@ -23,12 +29,14 @@ export default function SceneGeneratorPanel({ characterId, onGenerated }: Props)
     setError('');
     try {
       const image = await generateSceneImage(characterId, prompt.trim());
+      if (!mountedRef.current) return;
       onGenerated(image);
       setPrompt('');
     } catch {
+      if (!mountedRef.current) return;
       setError("We couldn't generate the image right now. Try again.");
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   };
 

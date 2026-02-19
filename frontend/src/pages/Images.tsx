@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Image, X, Check } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage, UserImageRead } from '@/lib/types';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 type Tab = 'characters' | 'covers';
 
@@ -22,6 +23,12 @@ export default function Images() {
   const [applyingCover, setApplyingCover] = useState(false);
   const [applyCoverDone, setApplyCoverDone] = useState(false);
   const [applyCoverErr, setApplyCoverErr] = useState('');
+
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const openLightbox = (url: string, coverId?: number) => {
     setLightboxUrl(url);
@@ -43,12 +50,14 @@ export default function Images() {
     setApplyCoverErr('');
     try {
       await apiClient.setMyProfileCover(lightboxCoverId);
+      if (!mountedRef.current) return;
       setApplyCoverDone(true);
-      setTimeout(() => setApplyCoverDone(false), 2000);
+      setTimeout(() => { if (mountedRef.current) setApplyCoverDone(false); }, 2000);
     } catch (err) {
+      if (!mountedRef.current) return;
       setApplyCoverErr(err instanceof Error ? err.message : 'Failed to set cover.');
     } finally {
-      setApplyingCover(false);
+      if (mountedRef.current) setApplyingCover(false);
     }
   };
 
@@ -180,6 +189,7 @@ export default function Images() {
       </div>
 
       {/* Lightbox */}
+      <ErrorBoundary>
       {lightboxUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
@@ -222,6 +232,7 @@ export default function Images() {
           </div>
         </div>
       )}
+      </ErrorBoundary>
     </div>
   );
 }

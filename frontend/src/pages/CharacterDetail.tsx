@@ -44,6 +44,13 @@ export default function CharacterDetail() {
   // Ref for scrolling new scene images into view
   const newImageRef = useRef<HTMLDivElement>(null);
 
+  // Mounted guard — prevents stale setState calls after navigation away
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   // Post composer state
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerImage, setComposerImage] = useState<CharacterImageRead | null>(null);
@@ -91,11 +98,13 @@ export default function CharacterDetail() {
     setMomentError('');
     try {
       const img = await generateMomentImage(Number(id), {});
+      if (!mountedRef.current) return;
       setMomentImage(img);
     } catch (err) {
+      if (!mountedRef.current) return;
       setMomentError(err instanceof Error ? err.message : 'Could not generate image.');
     } finally {
-      setMomentLoading(false);
+      if (mountedRef.current) setMomentLoading(false);
     }
   };
 
@@ -105,13 +114,16 @@ export default function CharacterDetail() {
     setAvatarSet(false);
     try {
       await setCharacterAvatar(character.id, img.id);
+      if (!mountedRef.current) return;
       setCharacter({ ...character, avatar_url: resolveImageUrl(img.url) });
       setAvatarSet(true);
-      setTimeout(() => setAvatarSet(false), 2000);
+      const t = setTimeout(() => { if (mountedRef.current) setAvatarSet(false); }, 2000);
+      // Store timer so it can be GC'd; no explicit cancel needed since the guard is inside
+      void t;
     } catch {
       // Silently fail — user can retry
     } finally {
-      setSettingAvatar(false);
+      if (mountedRef.current) setSettingAvatar(false);
     }
   };
 
@@ -123,11 +135,13 @@ export default function CharacterDetail() {
   const handleSetAsCover = async (image: CharacterImageRead) => {
     try {
       await apiClient.setMyProfileCover(image.id);
+      if (!mountedRef.current) return;
       setCoverToast('Cover image updated');
-      setTimeout(() => setCoverToast(''), 3000);
+      setTimeout(() => { if (mountedRef.current) setCoverToast(''); }, 3000);
     } catch {
+      if (!mountedRef.current) return;
       setCoverToast('Could not set cover. Try again.');
-      setTimeout(() => setCoverToast(''), 3000);
+      setTimeout(() => { if (mountedRef.current) setCoverToast(''); }, 3000);
     }
   };
 
@@ -429,12 +443,12 @@ export default function CharacterDetail() {
             </button>
             <img
               src={resolveImageUrl(galleryImages[lightboxIdx].url)}
-              alt={galleryImages[lightboxIdx].kind.replace(/_/g, ' ')}
+              alt={galleryImages[lightboxIdx].kind?.replace(/_/g, ' ') ?? ''}
               className="w-full rounded-lg"
             />
             <div className="flex items-center justify-between mt-2">
               <p className="text-xs text-gray-400 capitalize">
-                {galleryImages[lightboxIdx].kind.replace(/_/g, ' ')}
+                {galleryImages[lightboxIdx].kind?.replace(/_/g, ' ')}
               </p>
               {currentUser && character.owner_id === currentUser.id && (
                 <button

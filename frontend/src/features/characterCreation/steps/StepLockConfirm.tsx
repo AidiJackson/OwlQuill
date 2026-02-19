@@ -23,6 +23,19 @@ export default function StepLockConfirm({
 
   const featured = pack.images[selectedIndex];
 
+  // Guard: pack may return fewer images than the stored selectedIndex (e.g. a
+  // regeneration that had a blocked role). Bail out early so we never read
+  // .url on undefined.
+  if (!featured) {
+    if (import.meta.env.DEV) {
+      console.warn(
+        '[StepLockConfirm] selectedIndex', selectedIndex,
+        'is out of bounds for pack.images length', pack.images.length,
+      );
+    }
+    return null;
+  }
+
   const handleLock = async () => {
     setLocking(true);
     setError('');
