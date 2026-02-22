@@ -21,6 +21,7 @@ import ConversationsList from '@/features/messaging/ConversationsList';
 import ConversationThread from '@/features/messaging/ConversationThread';
 import Images from '@/pages/Images';
 import ImageNew from '@/pages/ImageNew';
+import Workspace from '@/pages/Workspace';
 
 function RouteLogger() {
   const location = useLocation();
@@ -73,6 +74,7 @@ function App() {
           <Route path="/realms" element={<Realms />} />
           <Route path="/realms/:realmId" element={<RealmDetail />} />
           <Route path="/characters" element={<Characters />} />
+          <Route path="/workspace" element={<Workspace />} />
           <Route path="/scenes/:sceneId" element={<SceneDetail />} />
           <Route path="/profile" element={<Profile />} />
         </Route>

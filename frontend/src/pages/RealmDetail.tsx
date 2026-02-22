@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Image } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
@@ -32,6 +32,8 @@ export default function RealmDetail() {
 
   const [showImageModal, setShowImageModal] = useState(false);
   const [attachedImage, setAttachedImage] = useState<LibraryImage | null>(null);
+
+  const composerRef = useRef<HTMLDivElement>(null);
 
   // Open-starter "Request to Join" state
   const [joinLoading, setJoinLoading] = useState<Record<number, boolean>>({});
@@ -204,6 +206,11 @@ export default function RealmDetail() {
     );
   }
 
+  // Derive membership from what's available client-side: commons realms are open
+  // to all logged-in users; otherwise fall back to ownership.
+  const isMember = realm.is_commons === true || user?.id === realm.owner_id;
+  const hasOwnPost = posts.some((p) => p.author_user_id === user?.id);
+
   return (
     <div className="max-w-4xl mx-auto p-8">
       {/* Realm header with banner */}
@@ -356,8 +363,29 @@ export default function RealmDetail() {
         )}
       </div>
 
+      {/* First-post nudge — shown to members who haven't posted yet */}
+      {user && !loading && isMember && !hasOwnPost && (
+        <div className="border border-gray-800 rounded-lg bg-gray-900/50 px-4 py-4 mb-6 space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-gray-200">Get started</p>
+            <p className="text-sm text-gray-400">
+              You've joined this Realm. Introduce your character or start a scene.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              composerRef.current?.scrollIntoView({ behavior: 'smooth' });
+              setShowPostForm(true);
+            }}
+            className="btn btn-primary text-sm"
+          >
+            Write your first post
+          </button>
+        </div>
+      )}
+
       {/* Create post section */}
-      <div className="mb-6">
+      <div ref={composerRef} className="mb-6">
         {!showPostForm ? (
           <button
             onClick={() => {
