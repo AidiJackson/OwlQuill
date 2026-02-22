@@ -13,6 +13,7 @@ export default function Home() {
   const navigate = useNavigate();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const user = useAuthStore((s) => s.user);
+  const postSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [realms, setRealms] = useState<Realm[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -25,6 +26,7 @@ export default function Home() {
   const [quickPostKind, setQuickPostKind] = useState<'general' | 'open_starter' | 'finished_piece'>('general');
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+  const [showPostSuccessNudge, setShowPostSuccessNudge] = useState(false);
 
   const [showImageModal, setShowImageModal] = useState(false);
   const [attachedImage, setAttachedImage] = useState<LibraryImage | null>(null);
@@ -54,6 +56,9 @@ export default function Home() {
   const [joinLoading, setJoinLoading] = useState<Record<number, boolean>>({});
   const [joinSent, setJoinSent] = useState<Record<number, boolean>>({});
   const [joinError, setJoinError] = useState<Record<number, string>>({});
+
+  // Clean up the auto-hide timer if the component unmounts mid-countdown.
+  useEffect(() => () => { if (postSuccessTimerRef.current) clearTimeout(postSuccessTimerRef.current); }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -97,6 +102,10 @@ export default function Home() {
       setQuickContentType('ooc');
       setQuickPostKind('general');
       setAttachedImage(null);
+      // Show the post-success nudge and auto-hide after 10 s.
+      if (postSuccessTimerRef.current) clearTimeout(postSuccessTimerRef.current);
+      setShowPostSuccessNudge(true);
+      postSuccessTimerRef.current = setTimeout(() => setShowPostSuccessNudge(false), 10_000);
     } catch (err) {
       setPostError(err instanceof Error ? err.message : 'Failed to create post');
     } finally {
@@ -303,6 +312,29 @@ export default function Home() {
           </div>
           {postError && (
             <p className="text-red-400 text-sm mt-2">{postError}</p>
+          )}
+          {/* Post-success nudge — appears only after a successful Commons post */}
+          {showPostSuccessNudge && (
+            <div className="flex items-center justify-between gap-3 mt-2">
+              <span className="text-xs text-gray-500">Posted to Commons.</span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => navigate('/realms')}
+                  className="text-xs text-owl-400 hover:text-owl-300 transition-colors"
+                >
+                  Share in a Realm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { if (postSuccessTimerRef.current) clearTimeout(postSuccessTimerRef.current); setShowPostSuccessNudge(false); }}
+                  className="text-gray-600 hover:text-gray-400 transition-colors"
+                  aria-label="Dismiss"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
           )}
           {/* Realms discovery nudge */}
           <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between gap-3">
