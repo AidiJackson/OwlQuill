@@ -276,6 +276,10 @@ export default function Home() {
             ref={composerRef}
             value={quickContent}
             onChange={(e) => setQuickContent(e.target.value)}
+            onFocus={() => {
+              localStorage.removeItem(WORKSPACE_PASTE_HINT_KEY);
+              setShowWorkspacePasteHint(false);
+            }}
             className="textarea w-full mb-3"
             placeholder="Share an intro, plot idea, or just say hello..."
             rows={3}
