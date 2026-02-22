@@ -304,6 +304,19 @@ export default function Home() {
           {postError && (
             <p className="text-red-400 text-sm mt-2">{postError}</p>
           )}
+          {/* Realms discovery nudge */}
+          <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between gap-3">
+            <p className="text-xs text-gray-500">
+              Realms are themed spaces for roleplay — posting there helps the right people find you.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/realms')}
+              className="text-xs text-owl-400 hover:text-owl-300 transition-colors flex-shrink-0"
+            >
+              Browse Realms →
+            </button>
+          </div>
         </div>
       ) : !loading && (
         <div className="card mb-6">
