@@ -9,6 +9,8 @@ import ReactionBar from '@/components/ReactionBar';
 import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
 
+const WORKSPACE_PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
+
 export default function Home() {
   const navigate = useNavigate();
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -30,6 +32,15 @@ export default function Home() {
 
   const [showImageModal, setShowImageModal] = useState(false);
   const [attachedImage, setAttachedImage] = useState<LibraryImage | null>(null);
+
+  // Workspace paste hint — read synchronously to avoid flicker
+  const [showWorkspacePasteHint, setShowWorkspacePasteHint] = useState(
+    () => localStorage.getItem(WORKSPACE_PASTE_HINT_KEY) === 'true'
+  );
+  const dismissWorkspacePasteHint = () => {
+    localStorage.removeItem(WORKSPACE_PASTE_HINT_KEY);
+    setShowWorkspacePasteHint(false);
+  };
 
   // Welcome banner — shown only when the user has no characters yet.
   // Dismissed state is session-persistent via localStorage; avoids flashing
@@ -248,6 +259,19 @@ export default function Home() {
           <h3 className="text-lg font-semibold mb-3">
             Post in <span className="text-emerald-400">The Commons</span>
           </h3>
+          {showWorkspacePasteHint && (
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
+              <span>From Workspace: paste your draft into the composer.</span>
+              <button
+                type="button"
+                onClick={dismissWorkspacePasteHint}
+                className="text-gray-400 hover:text-gray-200 transition-colors ml-3 flex-shrink-0"
+                aria-label="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <textarea
             ref={composerRef}
             value={quickContent}

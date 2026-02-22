@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-const TITLE_KEY = 'ficshon.workspace.title';
-const BODY_KEY  = 'ficshon.workspace.body';
+const TITLE_KEY      = 'ficshon.workspace.title';
+const BODY_KEY       = 'ficshon.workspace.body';
+const PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
 
 const MOCK_CHARACTERS = [
   { id: 0, name: 'No character' },
@@ -9,11 +11,37 @@ const MOCK_CHARACTERS = [
   { id: 2, name: 'Seren Dusk' },
 ];
 
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through to execCommand fallback
+    }
+  }
+  // execCommand fallback for older browsers / non-https contexts
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export default function Workspace() {
+  const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [body, setBody]   = useState('');
   const [characterId, setCharacterId] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load saved draft on mount
@@ -144,6 +172,43 @@ export default function Workspace() {
           <button className="btn btn-secondary w-full">
             Download text
           </button>
+
+          <div className="border-t border-gray-800 pt-3 space-y-2">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!body.trim()) {
+                  setCopyStatus('failed');
+                  return;
+                }
+                const ok = await copyToClipboard(body);
+                setCopyStatus(ok ? 'copied' : 'failed');
+              }}
+              className="btn btn-secondary w-full"
+            >
+              Copy for posting
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.setItem(PASTE_HINT_KEY, 'true');
+                navigate('/');
+              }}
+              className="btn btn-secondary w-full"
+            >
+              Go to Home &amp; paste
+            </button>
+            {copyStatus === 'copied' && (
+              <p className="text-xs text-gray-400">Copied.</p>
+            )}
+            {copyStatus === 'failed' && (
+              <p className="text-xs text-gray-500">
+                {body.trim()
+                  ? 'Copy failed \u2014 select text and copy manually.'
+                  : 'Nothing to copy yet.'}
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
