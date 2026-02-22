@@ -1,11 +1,24 @@
-import { useState } from 'react';
-import { Link, Outlet, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
 
 export default function Layout() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [messagesSeen, setMessagesSeen] = useState(
+    () => localStorage.getItem('ficshon.messages_seen') === 'true'
+  );
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/messages')) {
+      localStorage.setItem('ficshon.messages_seen', 'true');
+      setMessagesSeen(true);
+    } else if (localStorage.getItem('ficshon.messages_seen') === 'true') {
+      setMessagesSeen(true);
+    }
+  }, [location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -53,10 +66,13 @@ export default function Layout() {
         </Link>
         <Link
           to="/messages"
-          className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
           onClick={closeSidebar}
         >
           Messages
+          {!messagesSeen && (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+          )}
         </Link>
         <Link
           to={user ? `/u/${user.username}` : '/profile'}

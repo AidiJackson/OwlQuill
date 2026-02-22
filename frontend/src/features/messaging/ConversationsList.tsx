@@ -13,6 +13,7 @@ export default function ConversationsList() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    localStorage.setItem('ficshon.messages_seen', 'true');
     Promise.all([listConversations(), apiClient.getCharacters()])
       .then(([convs, chars]) => {
         setConversations(convs);
