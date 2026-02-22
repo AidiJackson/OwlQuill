@@ -29,6 +29,7 @@ export default function ConversationThread() {
   const [sendError, setSendError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const isFirstLoadRef = useRef(true);
 
   useEffect(() => {
     if (!id) return;
@@ -50,7 +51,16 @@ export default function ConversationThread() {
   }, [id]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!bottomRef.current) return;
+
+    if (isFirstLoadRef.current) {
+      // First render: jump instantly to bottom
+      bottomRef.current.scrollIntoView({ behavior: 'auto' });
+      isFirstLoadRef.current = false;
+    } else {
+      // New messages: smooth scroll
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   useEffect(() => {
