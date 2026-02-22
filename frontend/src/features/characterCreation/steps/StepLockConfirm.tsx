@@ -37,6 +37,7 @@ export default function StepLockConfirm({
   }
 
   const handleLock = async () => {
+    if (locking) return; // double-click / re-entrant protection
     setLocking(true);
     setError('');
     try {

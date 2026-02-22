@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Check, X, ZoomIn } from 'lucide-react';
 import type { IdentityPackResponse } from '../shared/types';
 import { resolveImageUrl } from '../shared/api';
@@ -19,6 +19,22 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBack }: Props) {
   const [enlargedIndex, setEnlargedIndex] = useState<number | null>(null);
+  const [lbVisible, setLbVisible] = useState(false);
+  const lbCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (enlargedIndex === null) { setLbVisible(false); return; }
+    if (lbCloseTimer.current) { clearTimeout(lbCloseTimer.current); lbCloseTimer.current = null; }
+    const id = requestAnimationFrame(() => setLbVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, [enlargedIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => { if (lbCloseTimer.current) clearTimeout(lbCloseTimer.current); }, []);
+
+  const closeEnlarged = () => {
+    setLbVisible(false);
+    lbCloseTimer.current = setTimeout(() => setEnlargedIndex(null), 200);
+  };
 
   return (
     <div className="space-y-6">
@@ -79,10 +95,13 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
       {/* Enlarged overlay */}
       {enlargedIndex !== null && pack.images[enlargedIndex] && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-          onClick={() => setEnlargedIndex(null)}
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
+          onClick={closeEnlarged}
         >
-          <div className="relative max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`relative max-w-md w-full transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <img
               src={resolveImageUrl(pack.images[enlargedIndex].url)}
               alt="Enlarged preview"
@@ -90,7 +109,7 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
             />
             <button
               type="button"
-              onClick={() => setEnlargedIndex(null)}
+              onClick={closeEnlarged}
               className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
             >
               <X className="w-4 h-4" />

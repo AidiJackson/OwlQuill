@@ -8,9 +8,11 @@ const MAX_PROMPT_LENGTH = 800;
 interface Props {
   characterId: number;
   onGenerated: (image: CharacterImageRead) => void;
+  /** Called with true when a request starts, false when it settles. */
+  onGeneratingChange?: (generating: boolean) => void;
 }
 
-export default function SceneGeneratorPanel({ characterId, onGenerated }: Props) {
+export default function SceneGeneratorPanel({ characterId, onGenerated, onGeneratingChange }: Props) {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -27,6 +29,7 @@ export default function SceneGeneratorPanel({ characterId, onGenerated }: Props)
     if (!canGenerate) return;
     setLoading(true);
     setError('');
+    onGeneratingChange?.(true);
     try {
       const image = await generateSceneImage(characterId, prompt.trim());
       if (!mountedRef.current) return;
@@ -36,7 +39,10 @@ export default function SceneGeneratorPanel({ characterId, onGenerated }: Props)
       if (!mountedRef.current) return;
       setError("We couldn't generate the image right now. Try again.");
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        onGeneratingChange?.(false);
+      }
     }
   };
 

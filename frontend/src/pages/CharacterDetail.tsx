@@ -32,6 +32,7 @@ export default function CharacterDetail() {
 
   const [galleryImages, setGalleryImages] = useState<CharacterImageRead[]>([]);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [lbVisible, setLbVisible] = useState(false);
 
   const [momentImage, setMomentImage] = useState<CharacterImageRead | null>(null);
   const [momentLoading, setMomentLoading] = useState(false);
@@ -40,6 +41,12 @@ export default function CharacterDetail() {
   // Set-avatar state
   const [settingAvatar, setSettingAvatar] = useState(false);
   const [avatarSet, setAvatarSet] = useState(false);
+
+  // Scene generation in-flight state — used to show a placeholder tile
+  const [isGeneratingScene, setIsGeneratingScene] = useState(false);
+  // Tracks the newest scene image for the fade-in transition
+  const [newestSceneImageId, setNewestSceneImageId] = useState<number | null>(null);
+  const [newestSceneVisible, setNewestSceneVisible] = useState(false);
 
   // Ref for scrolling new scene images into view
   const newImageRef = useRef<HTMLDivElement>(null);
@@ -50,6 +57,18 @@ export default function CharacterDetail() {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  // Drives the opacity-0 → opacity-100 fade-in for the newly generated scene image.
+  // Mirrors the pattern used in StepGeneratePack: reset to transparent, then RAF to opaque.
+  useEffect(() => {
+    if (!newestSceneImageId) { setNewestSceneVisible(false); return; }
+    setNewestSceneVisible(false);
+    const rafId = requestAnimationFrame(() => { if (mountedRef.current) setNewestSceneVisible(true); });
+    const clearId = setTimeout(() => {
+      if (mountedRef.current) { setNewestSceneImageId(null); setNewestSceneVisible(false); }
+    }, 700);
+    return () => { cancelAnimationFrame(rafId); clearTimeout(clearId); };
+  }, [newestSceneImageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Post composer state
   const [composerOpen, setComposerOpen] = useState(false);
@@ -143,6 +162,19 @@ export default function CharacterDetail() {
       setCoverToast('Could not set cover. Try again.');
       setTimeout(() => { if (mountedRef.current) setCoverToast(''); }, 3000);
     }
+  };
+
+  // Drives enter (opacity-0→1, scale-95→100) and exit transitions for the gallery lightbox.
+  // Safety: uses mountedRef so the delayed clear never fires on an unmounted component.
+  useEffect(() => {
+    if (lightboxIdx === null) { setLbVisible(false); return; }
+    const id = requestAnimationFrame(() => { if (mountedRef.current) setLbVisible(true); });
+    return () => cancelAnimationFrame(id);
+  }, [lightboxIdx]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const closeLightbox = () => {
+    setLbVisible(false);
+    setTimeout(() => { if (mountedRef.current) setLightboxIdx(null); }, 200);
   };
 
   useEffect(() => {
@@ -260,6 +292,15 @@ export default function CharacterDetail() {
                   </Link>
                 </>
               )}
+              {character.visual_locked && (
+                <>
+                  <span className="text-gray-600">·</span>
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-800/40 text-emerald-400/80">
+                    <Lock className="w-3 h-3" />
+                    Identity locked
+                  </span>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2 mt-2">
               {currentUser && character.owner_id === currentUser.id ? (
@@ -336,8 +377,8 @@ export default function CharacterDetail() {
           </div>
         )}
 
-        {/* Image gallery */}
-        {galleryImages.length > 0 && (
+        {/* Image gallery — also visible while a scene is being generated (shows placeholder) */}
+        {(galleryImages.length > 0 || isGeneratingScene) && (
           <div className="border-t border-gray-800 pt-6 space-y-3">
             <h2 className="text-sm font-medium text-gray-300">Images</h2>
             <ErrorBoundary>
@@ -346,6 +387,9 @@ export default function CharacterDetail() {
                 onImageClick={(idx) => setLightboxIdx(idx)}
                 onUseInPost={currentUser ? handleUseInPost : undefined}
                 onSetAsCover={currentUser && character.owner_id === currentUser.id ? handleSetAsCover : undefined}
+                showPlaceholder={isGeneratingScene}
+                newestId={newestSceneImageId}
+                newestVisible={newestSceneVisible}
               />
             </ErrorBoundary>
           </div>
@@ -401,8 +445,10 @@ export default function CharacterDetail() {
           <div className="border-t border-gray-800 pt-6 space-y-4">
             <SceneGeneratorPanel
               characterId={character.id}
+              onGeneratingChange={setIsGeneratingScene}
               onGenerated={(image) => {
                 setGalleryImages((prev) => [image, ...prev]);
+                setNewestSceneImageId(image.id);
                 setTimeout(() => {
                   newImageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }, 50);
@@ -431,13 +477,16 @@ export default function CharacterDetail() {
       <ErrorBoundary>
       {lightboxIdx !== null && galleryImages[lightboxIdx] && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setLightboxIdx(null)}
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
+          onClick={closeLightbox}
         >
-          <div className="relative max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`relative max-w-md w-full mx-4 transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 z-10"
-              onClick={() => setLightboxIdx(null)}
+              onClick={closeLightbox}
             >
               <X className="w-4 h-4" />
             </button>

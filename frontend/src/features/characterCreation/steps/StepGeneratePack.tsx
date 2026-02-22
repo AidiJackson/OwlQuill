@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ImageIcon, ChevronDown, ChevronUp, RefreshCw, ZoomIn, X, Info } from 'lucide-react';
 import type { IdentityPackResponse, IdentitySpec } from '../shared/types';
 import { TWEAK_CATEGORIES } from '../shared/types';
@@ -35,6 +35,11 @@ export default function StepGeneratePack({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [enlargedIndex, setEnlargedIndex] = useState<number | null>(null);
+  const [lbVisible, setLbVisible] = useState(false);
+  const lbCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Drives the opacity-0 → opacity-100 CSS transition for the real image grid.
+  // Starts false so the grid is transparent; a RAF tick after pack arrives sets it true.
+  const [gridOpaque, setGridOpaque] = useState(false);
 
   // Close the enlarged modal whenever the pack changes (e.g. regeneration returns a
   // different number of images) to prevent an out-of-bounds index crash.
@@ -47,6 +52,38 @@ export default function StepGeneratePack({
     }
     setEnlargedIndex(null);
   }, [pack]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Enter/exit transitions for the enlarged image overlay.
+  // Safety closes (pack-change effect above) call setEnlargedIndex(null) directly — no animation,
+  // which is correct since those are crash-prevention closes, not user-initiated ones.
+  useEffect(() => {
+    if (enlargedIndex === null) { setLbVisible(false); return; }
+    // Cancel any pending close timer so a quick re-open doesn't get cut short.
+    if (lbCloseTimer.current) { clearTimeout(lbCloseTimer.current); lbCloseTimer.current = null; }
+    const id = requestAnimationFrame(() => setLbVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, [enlargedIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clean up the close timer if the stepper unmounts mid-animation.
+  useEffect(() => () => { if (lbCloseTimer.current) clearTimeout(lbCloseTimer.current); }, []);
+
+  const closeEnlarged = () => {
+    setLbVisible(false);
+    lbCloseTimer.current = setTimeout(() => setEnlargedIndex(null), 200);
+  };
+
+  // Fade-in: pack.pack_id is a per-generation UUID — it uniquely identifies the current pack.
+  // When loading ends and a new pack arrives, briefly render at opacity-0 then RAF to opacity-100
+  // so the CSS transition plays. Resets to transparent whenever loading starts or pack clears.
+  useEffect(() => {
+    if (loading || !pack) {
+      setGridOpaque(false);
+      return;
+    }
+    setGridOpaque(false);
+    const rafId = requestAnimationFrame(() => setGridOpaque(true));
+    return () => cancelAnimationFrame(rafId);
+  }, [loading, pack?.pack_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeTweakCount = Object.keys(tweaks).length;
 
@@ -63,7 +100,18 @@ export default function StepGeneratePack({
     });
   };
 
+  // True while a pack is generating OR during the single-frame opacity-0 swap after
+  // regeneration completes. Blocks the Next button in both windows to prevent accepting
+  // a stale or mid-transition pack.
+  const packActionsDisabled = loading || (!!pack && !gridOpaque);
+
+  const handleNext = () => {
+    if (!pack || packActionsDisabled) return;
+    onNext();
+  };
+
   const handleGenerate = async () => {
+    if (loading) return; // double-click / re-entrant protection
     setLoading(true);
     setError('');
     try {
@@ -186,9 +234,27 @@ export default function StepGeneratePack({
         </div>
       )}
 
-      {/* Image grid */}
-      {pack && (
+      {/* Skeleton grid — shown while generating; static, no transition needed */}
+      {loading && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
+              <div className="w-full aspect-[2/3] bg-gray-800 animate-pulse" />
+              <div className="px-2 py-1.5 bg-gray-900 flex justify-center">
+                <div className="h-3 w-12 bg-gray-800 animate-pulse rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Real image grid — fades in after pack arrives; opacity-0→100 via RAF tick */}
+      {!loading && pack && (
+        <div
+          className={`grid grid-cols-2 md:grid-cols-4 gap-3 transition-opacity duration-300 ${
+            gridOpaque ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
           {pack.images.map((img, i) => {
             const role = (img.metadata_json?.pack_role as string) || '';
             return (
@@ -216,8 +282,8 @@ export default function StepGeneratePack({
         </div>
       )}
 
-      {/* Subtle metadata-driven helpers — no policy language */}
-      {pack && (rewriteApplied || tierEscalated || hadBlockedRoles) && (
+      {/* Subtle metadata-driven helpers — hidden while regenerating to avoid stale info */}
+      {!loading && pack && (rewriteApplied || tierEscalated || hadBlockedRoles) && (
         <div className="space-y-2">
           {/* Rewrite helper */}
           {rewriteApplied && !tierEscalated && !hadBlockedRoles && (
@@ -261,10 +327,13 @@ export default function StepGeneratePack({
       {/* Enlarged preview overlay */}
       {pack && enlargedIndex !== null && pack.images[enlargedIndex] && (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-          onClick={() => setEnlargedIndex(null)}
+          className={`fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
+          onClick={closeEnlarged}
         >
-          <div className="relative max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`relative max-w-md w-full transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <img
               src={resolveImageUrl(pack.images[enlargedIndex].url)}
               alt="Enlarged preview"
@@ -272,7 +341,7 @@ export default function StepGeneratePack({
             />
             <button
               type="button"
-              onClick={() => setEnlargedIndex(null)}
+              onClick={closeEnlarged}
               className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
             >
               <X className="w-4 h-4" />
@@ -285,7 +354,7 @@ export default function StepGeneratePack({
         <button className="btn btn-secondary" onClick={onBack}>
           Back
         </button>
-        <button className="btn btn-primary" disabled={!pack} onClick={onNext}>
+        <button className="btn btn-primary" disabled={!pack || packActionsDisabled} onClick={handleNext}>
           Next
         </button>
       </div>

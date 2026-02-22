@@ -19,6 +19,7 @@ export default function Images() {
   const [coverError, setCoverError] = useState('');
 
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lbVisible, setLbVisible] = useState(false);
   const [lightboxCoverId, setLightboxCoverId] = useState<number | null>(null);
   const [applyingCover, setApplyingCover] = useState(false);
   const [applyCoverDone, setApplyCoverDone] = useState(false);
@@ -30,6 +31,13 @@ export default function Images() {
     return () => { mountedRef.current = false; };
   }, []);
 
+  // Drives enter/exit transitions for the lightbox.
+  useEffect(() => {
+    if (!lightboxUrl) { setLbVisible(false); return; }
+    const id = requestAnimationFrame(() => { if (mountedRef.current) setLbVisible(true); });
+    return () => cancelAnimationFrame(id);
+  }, [lightboxUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const openLightbox = (url: string, coverId?: number) => {
     setLightboxUrl(url);
     setLightboxCoverId(coverId ?? null);
@@ -38,10 +46,14 @@ export default function Images() {
   };
 
   const closeLightbox = () => {
-    setLightboxUrl(null);
-    setLightboxCoverId(null);
-    setApplyCoverDone(false);
-    setApplyCoverErr('');
+    setLbVisible(false);
+    setTimeout(() => {
+      if (!mountedRef.current) return;
+      setLightboxUrl(null);
+      setLightboxCoverId(null);
+      setApplyCoverDone(false);
+      setApplyCoverErr('');
+    }, 200);
   };
 
   const handleSetCover = async () => {
@@ -192,10 +204,13 @@ export default function Images() {
       <ErrorBoundary>
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
           onClick={closeLightbox}
         >
-          <div className="relative max-w-3xl w-full mx-4" onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`relative max-w-3xl w-full mx-4 transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 z-10"
               onClick={closeLightbox}
