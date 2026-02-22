@@ -17,6 +17,7 @@ export default function ConversationThread() {
 
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -74,12 +75,13 @@ export default function ConversationThread() {
   const handleSend = async () => {
     if (!body.trim() || sending) return;
     setSending(true);
+    setSendError('');
     try {
       const msg = await sendMessage(conversation.id, myParticipantId, body.trim());
       setMessages((prev) => [...prev, msg]);
       setBody('');
     } catch {
-      // keep body so user can retry
+      setSendError('Message failed to send. Tap send to retry.');
     } finally {
       setSending(false);
     }
@@ -167,6 +169,11 @@ export default function ConversationThread() {
 
       {/* Compose */}
       <div className="border-t border-gray-800 bg-gray-900/50 flex-shrink-0">
+        {sendError && (
+          <div className="max-w-2xl mx-auto px-4 pt-2">
+            <p className="text-xs text-red-400">{sendError}</p>
+          </div>
+        )}
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-end gap-2">
           <textarea
             value={body}
