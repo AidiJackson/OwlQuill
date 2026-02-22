@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Image } from 'lucide-react';
+import { Image, X } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Post, Realm, Character, LibraryImage } from '@/lib/types';
@@ -28,6 +28,21 @@ export default function Home() {
 
   const [showImageModal, setShowImageModal] = useState(false);
   const [attachedImage, setAttachedImage] = useState<LibraryImage | null>(null);
+
+  // Welcome banner — shown only when the user has no characters yet.
+  // Dismissed state is session-persistent via localStorage; avoids flashing
+  // by reading the flag synchronously in the useState initialiser.
+  const BANNER_KEY = 'ficshon.dismissed_welcome_banner';
+  const [bannerDismissed, setBannerDismissed] = useState(
+    () => localStorage.getItem(BANNER_KEY) === 'true'
+  );
+  const dismissBanner = () => {
+    localStorage.setItem(BANNER_KEY, 'true');
+    setBannerDismissed(true);
+  };
+  // Only true once data has loaded and we know the count is 0.
+  // Uses the `characters` array already fetched by loadData().
+  const isFirstTimeUser = !loading && characters.length === 0;
 
   // Open-starter "Request to Join" state
   const [joinLoading, setJoinLoading] = useState<Record<number, boolean>>({});
@@ -161,6 +176,33 @@ export default function Home() {
   return (
     <div className="max-w-4xl mx-auto p-8">
       <h1 className="text-3xl font-bold mb-8">Home Feed</h1>
+
+      {/* First-time user banner — hidden once dismissed or once a character exists */}
+      {isFirstTimeUser && !bannerDismissed && (
+        <div className="flex items-start justify-between gap-4 bg-owl-600/10 border border-owl-600/20 rounded-lg px-4 py-4 mb-6">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-owl-300">Welcome to Ficshon</p>
+            <p className="text-sm text-gray-400">
+              Create your first character to unlock identity-locked scenes and posting.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => navigate('/characters/new')}
+              className="btn btn-primary text-sm"
+            >
+              Create character
+            </button>
+            <button
+              onClick={dismissBanner}
+              className="text-gray-500 hover:text-gray-300 transition-colors"
+              aria-label="Dismiss welcome banner"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Quick Post composer for The Commons */}
       {commonsRealm ? (
