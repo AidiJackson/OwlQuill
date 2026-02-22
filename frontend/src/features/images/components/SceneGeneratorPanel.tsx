@@ -83,7 +83,7 @@ export default function SceneGeneratorPanel({ characterId, onGenerated, onGenera
           {loading ? (
             <>
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              Generating...
+              Generating…
             </>
           ) : (
             <>

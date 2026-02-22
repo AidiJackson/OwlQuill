@@ -462,7 +462,7 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
           onClick={onNext}
           disabled={saving}
         >
-          {saving ? 'Saving...' : 'Next'}
+          {saving ? 'Saving…' : 'Next'}
         </button>
       </div>
     </div>

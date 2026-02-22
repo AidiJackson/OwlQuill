@@ -508,7 +508,7 @@ export default function CharacterDetail() {
                   {avatarSet ? (
                     <><Check className="w-3 h-3" />Avatar set</>
                   ) : settingAvatar ? (
-                    <><RefreshCw className="w-3 h-3 animate-spin" />Setting…</>
+                    <><RefreshCw className="w-3 h-3 animate-spin" />Saving…</>
                   ) : (
                     'Set as avatar'
                   )}
@@ -584,7 +584,7 @@ export default function CharacterDetail() {
                     onClick={handleDeleteCharacter}
                     disabled={deleting}
                   >
-                    {deleting ? 'Deleting...' : 'Delete Character Permanently'}
+                    {deleting ? 'Deleting…' : 'Delete Character Permanently'}
                   </button>
                 </div>
               </>
