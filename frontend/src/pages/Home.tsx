@@ -419,7 +419,7 @@ export default function Home() {
                 {post.title && (
                   <h3 className="text-xl font-semibold mb-2">{post.title}</h3>
                 )}
-                <p className="text-gray-300 whitespace-pre-wrap leading-relaxed">{post.content}</p>
+                <p className="text-gray-300 whitespace-pre-wrap leading-relaxed mt-1">{post.content}</p>
 
                 {post.image_url && (
                   <img
