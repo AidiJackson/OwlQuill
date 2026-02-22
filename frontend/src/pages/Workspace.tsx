@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiClient } from '@/lib/apiClient';
+import type { Realm } from '@/lib/types';
 
 const TITLE_KEY      = 'ficshon.workspace.title';
 const BODY_KEY       = 'ficshon.workspace.body';
@@ -42,6 +44,10 @@ export default function Workspace() {
   const [characterId, setCharacterId] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState('');
+  const [realms, setRealms] = useState<Realm[]>([]);
+  const [selectedRealmId, setSelectedRealmId] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load saved draft on mount
@@ -62,6 +68,51 @@ export default function Workspace() {
     }, 500);
     return () => clearTimeout(t);
   }, [title, body]);
+
+  // Load non-commons realms for the destination selector
+  useEffect(() => {
+    apiClient.getRealms()
+      .then((all) => setRealms(all.filter((r) => !r.is_commons)))
+      .catch(() => { /* non-fatal: selector stays empty */ });
+  }, []);
+
+  const handlePublishToCommons = async () => {
+    if (!body.trim()) return;
+    setPublishing(true);
+    setPublishError('');
+    try {
+      let realmId: number;
+
+      if (selectedRealmId !== null) {
+        realmId = selectedRealmId;
+      } else {
+        const all = await apiClient.getRealms();
+        const commons = all.find((r) => r.is_commons);
+        if (!commons) {
+          setPublishError('Post failed. Try again.');
+          return;
+        }
+        realmId = commons.id;
+      }
+
+      await apiClient.createPost(realmId, {
+        content: body.trim(),
+        content_type: 'ic',
+        ...(title.trim() ? { title: title.trim() } : {}),
+      });
+
+      // Clear draft on success
+      setTitle('');
+      setBody('');
+      localStorage.removeItem(TITLE_KEY);
+      localStorage.removeItem(BODY_KEY);
+      navigate('/');
+    } catch {
+      setPublishError('Post failed. Try again.');
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   function insertAroundSelection(before: string, after = before) {
     const el = textareaRef.current;
@@ -89,6 +140,10 @@ export default function Workspace() {
     }, 0);
   }
 
+  const selectedRealmName = selectedRealmId !== null
+    ? realms.find((r) => r.id === selectedRealmId)?.name
+    : null;
+
   return (
     <div className="max-w-4xl mx-auto p-8">
       {/* A) Header bar */}
@@ -108,6 +163,20 @@ export default function Workspace() {
           {MOCK_CHARACTERS.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={selectedRealmId ?? ''}
+          onChange={(e) =>
+            setSelectedRealmId(e.target.value ? Number(e.target.value) : null)
+          }
+          className="input text-sm"
+        >
+          <option value="">Publish to Commons</option>
+          {realms.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
             </option>
           ))}
         </select>
@@ -163,12 +232,38 @@ export default function Workspace() {
 
         {/* C) Right sidebar panel */}
         <div className="w-[280px] flex-shrink-0 space-y-3">
-          <button className="btn btn-primary w-full">
-            Publish to Commons
+          {/* Publish context */}
+          <div className="text-xs text-gray-500 space-y-1 border-b border-gray-800 pb-3">
+            <div>
+              <span>Posting to: </span>
+              <span className="text-gray-300">
+                {selectedRealmName ?? 'Commons'}
+              </span>
+            </div>
+            <div>
+              <span>Posting as: </span>
+              <span className="text-gray-300">
+                {characterId !== 0
+                  ? MOCK_CHARACTERS.find((c) => c.id === characterId)?.name
+                  : 'No character selected'}
+              </span>
+            </div>
+          </div>
+
+          <button
+            onClick={handlePublishToCommons}
+            disabled={publishing || !body.trim()}
+            className="btn btn-primary w-full"
+          >
+            {publishing
+              ? 'Publishing\u2026'
+              : selectedRealmId === null
+                ? 'Publish to Commons'
+                : 'Publish to Realm'}
           </button>
-          <button className="btn btn-secondary w-full">
-            Publish to Realm
-          </button>
+          {publishError && (
+            <p className="text-xs text-red-400">{publishError}</p>
+          )}
           <button className="btn btn-secondary w-full">
             Download text
           </button>
