@@ -126,7 +126,7 @@ export default function SceneDetail() {
                   {new Date(p.created_at).toLocaleString()}
                 </span>
               </div>
-              <p className="text-gray-300 whitespace-pre-wrap">{p.content}</p>
+              <p className="text-gray-300 whitespace-pre-wrap leading-relaxed">{p.content}</p>
             </div>
           ))
         )}
