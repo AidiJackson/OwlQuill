@@ -62,7 +62,7 @@ export default function Layout() {
           className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
           onClick={closeSidebar}
         >
-          Workspace
+          WriteSpace
         </Link>
         <Link
           to="/images"

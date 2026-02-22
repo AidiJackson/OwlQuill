@@ -22,7 +22,6 @@ async function copyToClipboard(text: string): Promise<boolean> {
       // fall through to execCommand fallback
     }
   }
-  // execCommand fallback for older browsers / non-https contexts
   try {
     const ta = document.createElement('textarea');
     ta.value = text;
@@ -58,7 +57,7 @@ export default function Workspace() {
     if (savedBody)  setBody(savedBody);
   }, []);
 
-  // Debounced autosave — marks saving on change, clears flag after write
+  // Debounced autosave
   useEffect(() => {
     setIsSaving(true);
     const t = setTimeout(() => {
@@ -106,7 +105,6 @@ export default function Workspace() {
         ...(title.trim() ? { title: title.trim() } : {}),
       });
 
-      // Clear draft on success
       setTitle('');
       setBody('');
       localStorage.removeItem(TITLE_KEY);
@@ -119,6 +117,7 @@ export default function Workspace() {
     }
   };
 
+  // Wrap selection with before/after markers (Bold, Italic)
   function insertAroundSelection(before: string, after = before) {
     const el = textareaRef.current;
     if (!el) return;
@@ -135,14 +134,41 @@ export default function Workspace() {
 
     setBody(newText);
 
-    // Restore cursor/selection after React commits the new value
     setTimeout(() => {
       el.focus();
-      el.setSelectionRange(
-        start + before.length,
-        end   + before.length,
-      );
+      el.setSelectionRange(start + before.length, end + before.length);
     }, 0);
+  }
+
+  // Prefix each selected line (or current line) with "## "
+  function insertHeaderPrefix() {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    const start  = el.selectionStart;
+    const end    = el.selectionEnd;
+    const prefix = '## ';
+
+    if (start === end) {
+      // No selection: prefix the line the cursor is on
+      const lineStart = body.lastIndexOf('\n', start - 1) + 1;
+      const newText   = body.slice(0, lineStart) + prefix + body.slice(lineStart);
+      setBody(newText);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start + prefix.length, start + prefix.length);
+      }, 0);
+    } else {
+      // Selection: prefix every line in the selected range
+      const selected  = body.slice(start, end);
+      const prefixed  = selected.split('\n').map((line) => prefix + line).join('\n');
+      const newText   = body.slice(0, start) + prefixed + body.slice(end);
+      setBody(newText);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start, start + prefixed.length);
+      }, 0);
+    }
   }
 
   const selectedRealmName = selectedRealmId !== null
@@ -150,9 +176,9 @@ export default function Workspace() {
     : null;
 
   return (
-    <div className="max-w-4xl mx-auto p-8">
+    <div className="w-full h-[calc(100vh-24px)] p-6 flex flex-col">
       {/* A) Header bar */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center gap-4 mb-4 flex-shrink-0">
         <input
           type="text"
           value={title}
@@ -191,11 +217,11 @@ export default function Workspace() {
       </div>
 
       {/* B) Editor + C) Sidebar */}
-      <div className="flex gap-6 items-start">
+      <div className="flex gap-6 flex-1 min-h-0">
         {/* B) Editor column: toolbar + textarea */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col">
           {/* Formatting toolbar */}
-          <div className="flex flex-wrap gap-2 mb-3">
+          <div className="flex flex-wrap gap-2 mb-2 flex-shrink-0">
             <button
               type="button"
               onClick={() => insertAroundSelection('**')}
@@ -205,14 +231,14 @@ export default function Workspace() {
             </button>
             <button
               type="button"
-              onClick={() => insertAroundSelection('*')}
+              onClick={() => insertAroundSelection('*', '*')}
               className="px-3 py-1 text-sm rounded-md border border-gray-700 hover:bg-gray-800"
             >
               Italic
             </button>
             <button
               type="button"
-              onClick={() => insertAroundSelection('## ')}
+              onClick={insertHeaderPrefix}
               className="px-3 py-1 text-sm rounded-md border border-gray-700 hover:bg-gray-800"
             >
               Header
@@ -225,18 +251,19 @@ export default function Workspace() {
               Scene break
             </button>
           </div>
+          <p className="text-xs text-gray-500 mb-3 flex-shrink-0">Formatting inserts Markdown.</p>
 
           <textarea
             ref={textareaRef}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder="Start writing your story..."
-            className="w-full bg-gray-900 border border-gray-800 rounded-xl px-4 py-4 text-base leading-relaxed resize-none min-h-[400px] text-gray-200 placeholder-gray-600 focus:outline-none focus:border-gray-700"
+            className="w-full flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl px-4 py-4 text-base leading-relaxed resize-none text-gray-200 placeholder-gray-600 focus:outline-none focus:border-gray-700"
           />
         </div>
 
-        {/* C) Right sidebar panel */}
-        <div className="w-[280px] flex-shrink-0 space-y-3">
+        {/* C) Right sidebar */}
+        <aside className="w-[340px] shrink-0 space-y-3 overflow-y-auto">
           {/* Publish context */}
           <div className="text-xs text-gray-500 space-y-1 border-b border-gray-800 pb-3">
             <div>
@@ -309,7 +336,7 @@ export default function Workspace() {
               </p>
             )}
           </div>
-        </div>
+        </aside>
       </div>
     </div>
   );
