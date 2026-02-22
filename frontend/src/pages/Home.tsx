@@ -337,17 +337,31 @@ export default function Home() {
             </div>
           )}
           {/* Realms discovery nudge */}
-          <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between gap-3">
-            <p className="text-xs text-gray-500">
-              Realms are themed spaces for roleplay — posting there helps the right people find you.
-            </p>
-            <button
-              type="button"
-              onClick={() => navigate('/realms')}
-              className="text-xs text-owl-400 hover:text-owl-300 transition-colors flex-shrink-0"
-            >
-              Browse Realms →
-            </button>
+          <div className="mt-3 pt-3 border-t border-gray-800 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-gray-500">
+                Realms are themed spaces for roleplay — posting there helps the right people find you.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate('/realms')}
+                className="text-xs text-owl-400 hover:text-owl-300 transition-colors flex-shrink-0"
+              >
+                Browse Realms →
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-500">
+                Prefer long-form? Draft in <span className="font-semibold text-gray-400">Workspace</span>.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate('/workspace')}
+                className="text-xs text-owl-400 hover:text-owl-300 transition-colors"
+              >
+                Open Workspace →
+              </button>
+            </div>
           </div>
         </div>
       ) : !loading && (

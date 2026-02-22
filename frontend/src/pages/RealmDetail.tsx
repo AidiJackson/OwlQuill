@@ -372,15 +372,24 @@ export default function RealmDetail() {
               You've joined this Realm. Introduce your character or start a scene.
             </p>
           </div>
-          <button
-            onClick={() => {
-              composerRef.current?.scrollIntoView({ behavior: 'smooth' });
-              setShowPostForm(true);
-            }}
-            className="btn btn-primary text-sm"
-          >
-            Write your first post
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                composerRef.current?.scrollIntoView({ behavior: 'smooth' });
+                setShowPostForm(true);
+              }}
+              className="btn btn-primary text-sm"
+            >
+              Write your first post
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/workspace')}
+              className="btn btn-secondary text-sm"
+            >
+              Draft in Workspace
+            </button>
+          </div>
         </div>
       )}
 
