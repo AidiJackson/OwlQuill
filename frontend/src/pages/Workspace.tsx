@@ -95,6 +95,11 @@ export default function Workspace() {
         realmId = commons.id;
       }
 
+      // Capture destination before any state mutations
+      const destination = selectedRealmId !== null
+        ? `/realms/${selectedRealmId}`
+        : '/';
+
       await apiClient.createPost(realmId, {
         content: body.trim(),
         content_type: 'ic',
@@ -106,7 +111,7 @@ export default function Workspace() {
       setBody('');
       localStorage.removeItem(TITLE_KEY);
       localStorage.removeItem(BODY_KEY);
-      navigate('/');
+      navigate(destination);
     } catch {
       setPublishError('Post failed. Try again.');
     } finally {
