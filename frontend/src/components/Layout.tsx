@@ -52,6 +52,13 @@ export default function Layout() {
           Images
         </Link>
         <Link
+          to="/messages"
+          className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          onClick={closeSidebar}
+        >
+          Messages
+        </Link>
+        <Link
           to={user ? `/u/${user.username}` : '/profile'}
           className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
           onClick={closeSidebar}
