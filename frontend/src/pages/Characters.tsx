@@ -393,6 +393,24 @@ export default function Characters() {
         </div>
       )}
 
+      {/* Empty-state guidance — only shown when data is settled and no characters exist */}
+      {!loading && characters.length === 0 && (
+        <div className="border border-gray-800 rounded-lg bg-gray-900/50 px-6 py-8 mb-6 text-center space-y-3">
+          <p className="text-base font-semibold text-gray-200">Create your first character</p>
+          <p className="text-sm text-gray-400 max-w-sm mx-auto">
+            Characters unlock identity-locked scenes, posting, and roleplay.
+          </p>
+          <div className="pt-1">
+            <button
+              onClick={() => navigate('/characters/new')}
+              className="btn btn-primary"
+            >
+              Create character
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4">
         {activeCharacters.map((character) => (
           <Link
