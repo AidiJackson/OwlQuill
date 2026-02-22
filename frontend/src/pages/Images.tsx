@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Image, X, Check } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage, UserImageRead } from '@/lib/types';
@@ -8,6 +8,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 type Tab = 'characters' | 'covers';
 
 export default function Images() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('characters');
 
   const [charImages, setCharImages] = useState<LibraryImage[]>([]);
@@ -136,7 +137,11 @@ export default function Images() {
             {charLoading ? (
               <div className="flex items-center justify-center py-16 text-gray-400">Loading...</div>
             ) : charImages.length === 0 ? (
-              <EmptyState message="No character images yet. Generate identity packs or moments from your character pages." />
+              <EmptyState
+                message="Create a character to generate identity packs and scene images."
+                primaryAction={{ label: 'Create character', onClick: () => navigate('/characters/new') }}
+                secondaryAction={{ label: 'Go to Characters', onClick: () => navigate('/characters') }}
+              />
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {charImages.map((img) => (
@@ -252,7 +257,13 @@ export default function Images() {
   );
 }
 
-function EmptyState({ message }: { message: string }) {
+interface EmptyStateProps {
+  message: string;
+  primaryAction?: { label: string; onClick: () => void };
+  secondaryAction?: { label: string; onClick: () => void };
+}
+
+function EmptyState({ message, primaryAction, secondaryAction }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center text-center py-16 space-y-4">
       <div className="w-14 h-14 rounded-full bg-owl-900/40 border border-owl-600/20 flex items-center justify-center">
@@ -260,6 +271,20 @@ function EmptyState({ message }: { message: string }) {
       </div>
       <h2 className="text-lg font-semibold text-gray-200">No images yet</h2>
       <p className="text-sm text-gray-400 max-w-sm">{message}</p>
+      {(primaryAction || secondaryAction) && (
+        <div className="flex items-center gap-2 pt-1">
+          {primaryAction && (
+            <button onClick={primaryAction.onClick} className="btn btn-primary text-sm">
+              {primaryAction.label}
+            </button>
+          )}
+          {secondaryAction && (
+            <button onClick={secondaryAction.onClick} className="btn btn-secondary text-sm">
+              {secondaryAction.label}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
