@@ -44,6 +44,12 @@ export default function Home() {
   // Uses the `characters` array already fetched by loadData().
   const isFirstTimeUser = !loading && characters.length === 0;
 
+  // "Get started" nudge — has a character but no authored posts visible in the feed.
+  // Filters the already-fetched `posts` for the current user's id; no extra API call needed.
+  // Conservative: only checks the current feed window, which is sufficient for new users.
+  const hasNoOwnPosts = !loading && posts.filter(p => p.author_user_id === user?.id).length === 0;
+  const showGetStartedCard = !loading && characters.length > 0 && hasNoOwnPosts;
+
   // Open-starter "Request to Join" state
   const [joinLoading, setJoinLoading] = useState<Record<number, boolean>>({});
   const [joinSent, setJoinSent] = useState<Record<number, boolean>>({});
@@ -199,6 +205,29 @@ export default function Home() {
               aria-label="Dismiss welcome banner"
             >
               <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* "Get started" nudge — has a character but no own posts yet in the feed */}
+      {showGetStartedCard && (
+        <div className="border border-gray-800 rounded-lg bg-gray-900/50 px-4 py-4 mb-6 space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-gray-200">Get started</p>
+            <p className="text-sm text-gray-400">
+              Introduce your character and start your first story.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={focusComposer} className="btn btn-primary text-sm">
+              Write first post
+            </button>
+            <button
+              onClick={() => navigate(`/characters/${characters[0].id}`)}
+              className="btn btn-secondary text-sm"
+            >
+              Go to your character
             </button>
           </div>
         </div>
