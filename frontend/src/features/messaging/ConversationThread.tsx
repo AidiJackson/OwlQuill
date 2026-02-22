@@ -6,6 +6,15 @@ import type { ConversationRead, MessageRead, CharacterSummary } from './types';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
 
+const CAP_PX = 160;
+
+function adjustHeight(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  const natural = el.scrollHeight;
+  el.style.height = Math.min(natural, CAP_PX) + 'px';
+  el.style.overflowY = natural > CAP_PX ? 'auto' : 'hidden';
+}
+
 export default function ConversationThread() {
   const { id } = useParams<{ id: string }>();
 
@@ -19,6 +28,7 @@ export default function ConversationThread() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -42,6 +52,10 @@ export default function ConversationThread() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (textareaRef.current) adjustHeight(textareaRef.current);
+  }, [body]);
 
   if (loading) {
     return (
@@ -176,12 +190,13 @@ export default function ConversationThread() {
         )}
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-end gap-2">
           <textarea
+            ref={textareaRef}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Write a message…"
             rows={1}
-            className="flex-1 resize-none bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-owl-500"
+            className="flex-1 resize-none overflow-y-hidden bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-owl-500"
           />
           <button
             onClick={handleSend}
