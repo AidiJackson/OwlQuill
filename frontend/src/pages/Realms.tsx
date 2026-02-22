@@ -7,6 +7,11 @@ export default function Realms() {
   const [realms, setRealms] = useState<Realm[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  // Join button state: which realm is currently joining, which have been joined, any inline errors.
+  const [joiningId, setJoiningId] = useState<number | null>(null);
+  const [joinedIds, setJoinedIds] = useState<Set<number>>(new Set());
+  const [joinErrorById, setJoinErrorById] = useState<Record<number, string>>({});
+
   const [newRealm, setNewRealm] = useState({
     name: '',
     slug: '',
@@ -46,11 +51,17 @@ export default function Realms() {
   };
 
   const handleJoinRealm = async (realmId: number) => {
+    if (joiningId !== null || joinedIds.has(realmId)) return;
+    // Clear any previous error for this realm and mark as in-flight.
+    setJoinErrorById((prev) => { const { [realmId]: _, ...rest } = prev; return rest; });
+    setJoiningId(realmId);
     try {
       await apiClient.joinRealm(realmId);
-      alert('Joined realm successfully!');
-    } catch (error) {
-      console.error('Failed to join realm:', error);
+      setJoinedIds((prev) => new Set(prev).add(realmId));
+    } catch {
+      setJoinErrorById((prev) => ({ ...prev, [realmId]: 'Could not join. Please try again.' }));
+    } finally {
+      setJoiningId(null);
     }
   };
 
@@ -185,11 +196,19 @@ export default function Realms() {
                 </Link>
                 <button
                   onClick={() => handleJoinRealm(realm.id)}
-                  className="btn btn-primary ml-4"
+                  disabled={joiningId === realm.id || joinedIds.has(realm.id)}
+                  className={`btn ml-4 flex-shrink-0 ${
+                    joinedIds.has(realm.id)
+                      ? 'btn-secondary text-emerald-400 border-emerald-800 cursor-default'
+                      : 'btn-primary'
+                  }`}
                 >
-                  Join
+                  {joiningId === realm.id ? 'Joining…' : joinedIds.has(realm.id) ? 'Joined ✓' : 'Join'}
                 </button>
               </div>
+              {joinErrorById[realm.id] && (
+                <p className="mt-2 text-xs text-red-400">{joinErrorById[realm.id]}</p>
+              )}
             </div>
           </div>
         ))}
