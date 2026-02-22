@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { X } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Realm } from '@/lib/types';
 
 export default function Realms() {
+  const navigate = useNavigate();
   const [realms, setRealms] = useState<Realm[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -14,6 +16,18 @@ export default function Realms() {
   const [joiningId, setJoiningId] = useState<number | null>(null);
   const [joinedIds, setJoinedIds] = useState<Set<number>>(new Set());
   const [joinErrorById, setJoinErrorById] = useState<Record<number, string>>({});
+
+  // Post-join nudge state — shows a "go post your intro" row for 6 s after joining.
+  const [joinNudgeById, setJoinNudgeById] = useState<Record<number, boolean>>({});
+  const nudgeTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+
+  // Clean up any pending nudge timers on unmount.
+  useEffect(() => () => { Object.values(nudgeTimersRef.current).forEach(clearTimeout); }, []);
+
+  const dismissNudge = (realmId: number) => {
+    clearTimeout(nudgeTimersRef.current[realmId]);
+    setJoinNudgeById((prev) => ({ ...prev, [realmId]: false }));
+  };
 
   const [newRealm, setNewRealm] = useState({
     name: '',
@@ -61,6 +75,12 @@ export default function Realms() {
     try {
       await apiClient.joinRealm(realmId);
       setJoinedIds((prev) => new Set(prev).add(realmId));
+      // Show post-join nudge and auto-hide after 6 s.
+      setJoinNudgeById((prev) => ({ ...prev, [realmId]: true }));
+      nudgeTimersRef.current[realmId] = setTimeout(
+        () => setJoinNudgeById((prev) => ({ ...prev, [realmId]: false })),
+        6_000,
+      );
     } catch {
       setJoinErrorById((prev) => ({ ...prev, [realmId]: 'Could not join. Please try again.' }));
     } finally {
@@ -257,6 +277,28 @@ export default function Realms() {
               </div>
               {joinErrorById[realm.id] && (
                 <p className="mt-2 text-xs text-red-400">{joinErrorById[realm.id]}</p>
+              )}
+              {joinNudgeById[realm.id] && (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="text-xs text-emerald-400">You're in — go post your intro.</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/realms/${realm.id}`)}
+                      className="text-xs text-owl-400 hover:text-owl-300 transition-colors"
+                    >
+                      Open realm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dismissNudge(realm.id)}
+                      className="text-gray-600 hover:text-gray-400 transition-colors"
+                      aria-label="Dismiss"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>
