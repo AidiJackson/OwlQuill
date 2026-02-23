@@ -242,11 +242,11 @@ export default function CharacterDetail() {
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
         {/* Arrival banner */}
         {justCreated && (
-          <div className="flex items-center justify-between gap-3 bg-owl-600/10 border border-owl-600/20 rounded-lg px-4 py-3">
+          <div className="flex items-center justify-between gap-3 bg-emerald-600/10 border border-emerald-600/20 rounded-lg px-4 py-3">
             <div className="flex items-center gap-2">
-              <Feather className="w-4 h-4 text-owl-400 flex-shrink-0" />
-              <span className="text-sm text-owl-300">
-                Your character now lives on OwlQuill.
+              <Feather className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              <span className="text-sm text-emerald-300">
+                Your character now lives on Ficshon.
               </span>
             </div>
             <button

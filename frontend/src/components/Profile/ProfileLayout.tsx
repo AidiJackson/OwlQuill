@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
-import { Home, Users, Globe, BookOpen, MessageSquare, Settings, Feather } from 'lucide-react';
+import { Home, Users, Globe, BookOpen, MessageSquare, Settings } from 'lucide-react';
 
 const navItems = [
   { id: '/', label: 'Feed', icon: Home },
@@ -31,9 +31,7 @@ export default function ProfileLayout() {
                 onClick={() => navigate('/')}
                 className="flex items-center gap-3"
               >
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                  <Feather className="w-5 h-5 text-white" />
-                </div>
+                <img src="/brand/ficshon-mark-v1.png" alt="Ficshon" className="h-9 w-9 rounded-xl object-contain" />
                 <span className="text-white tracking-tight font-semibold hidden sm:inline">Ficshon</span>
               </button>
 
