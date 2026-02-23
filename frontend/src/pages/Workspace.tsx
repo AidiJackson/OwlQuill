@@ -42,6 +42,9 @@ export default function Workspace() {
   const [body, setBody]   = useState('');
   const [characterId, setCharacterId] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [saveTick, setSaveTick] = useState(0);
+  const [mode, setMode] = useState<'write' | 'preview'>('write');
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
@@ -64,9 +67,18 @@ export default function Workspace() {
       localStorage.setItem(TITLE_KEY, title);
       localStorage.setItem(BODY_KEY, body);
       setIsSaving(false);
+      setLastSavedAt(Date.now());
     }, 500);
     return () => clearTimeout(t);
   }, [title, body]);
+
+  useEffect(() => {
+    if (!lastSavedAt) return;
+    const i = setInterval(() => {
+      setSaveTick((t) => t + 1);
+    }, 10000);
+    return () => clearInterval(i);
+  }, [lastSavedAt]);
 
   // Load non-commons realms for the destination selector
   useEffect(() => {
@@ -171,6 +183,65 @@ export default function Workspace() {
     }
   }
 
+  function renderPreview(text: string) {
+    if (!text.trim()) {
+      return (
+        <p className="text-gray-500 text-sm">Nothing to preview yet.</p>
+      );
+    }
+
+    // Escape HTML first for safety
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Scene breaks
+    html = html.replace(/^---$/gm, '<hr class="border-gray-700 my-6" />');
+
+    // Headers
+    html = html.replace(/^## (.*)$/gm, '<h2 class="text-xl font-semibold mt-6 mb-2">$1</h2>');
+
+    // Bold
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // Italic
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+    // Split into paragraphs on blank lines
+    const paragraphs = html
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    if (!paragraphs.length) {
+      return <span className="text-gray-500">Nothing to preview yet.</span>;
+    }
+
+    // Single newlines within a paragraph become <br/>; wrap each block in <p>
+    html = paragraphs
+      .map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
+      .join('');
+
+    return (
+      <div
+        className="prose prose-invert max-w-none leading-relaxed"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+
+  function getSaveLabel() {
+    void saveTick;
+    if (isSaving) return 'Saving\u2026';
+    if (!lastSavedAt) return 'Draft saved locally';
+    const diff = Math.floor((Date.now() - lastSavedAt) / 1000);
+    if (diff < 5) return 'Saved just now';
+    if (diff < 60) return `Saved ${diff}s ago`;
+    const mins = Math.floor(diff / 60);
+    return `Saved ${mins}m ago`;
+  }
+
   const selectedRealmName = selectedRealmId !== null
     ? realms.find((r) => r.id === selectedRealmId)?.name
     : null;
@@ -211,15 +282,41 @@ export default function Workspace() {
             </option>
           ))}
         </select>
-        <span className="text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
-          {isSaving ? 'Saving\u2026' : 'Draft saved locally'}
-        </span>
+        <p className="text-xs text-gray-500">
+          {getSaveLabel()}
+        </p>
       </div>
 
       {/* B) Editor + C) Sidebar */}
       <div className="flex gap-6 flex-1 min-h-0">
         {/* B) Editor column: toolbar + textarea */}
         <div className="flex-1 min-w-0 flex flex-col">
+          {/* Write / Preview toggle */}
+          <div className="flex items-center gap-2 mb-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setMode('write')}
+              className={`px-3 py-1 rounded-md text-sm ${
+                mode === 'write'
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Write
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('preview')}
+              className={`px-3 py-1 rounded-md text-sm ${
+                mode === 'preview'
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Preview
+            </button>
+          </div>
+
           {/* Formatting toolbar */}
           <div className="flex flex-wrap gap-2 mb-2 flex-shrink-0">
             <button
@@ -253,13 +350,21 @@ export default function Workspace() {
           </div>
           <p className="text-xs text-gray-500 mb-3 flex-shrink-0">Formatting inserts Markdown.</p>
 
-          <textarea
-            ref={textareaRef}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Start writing your story..."
-            className="w-full flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl px-4 py-4 text-base leading-relaxed resize-none text-gray-200 placeholder-gray-600 focus:outline-none focus:border-gray-700"
-          />
+          {mode === 'write' ? (
+            <textarea
+              ref={textareaRef}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Start writing..."
+              className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 leading-relaxed resize-none outline-none text-gray-200 placeholder-gray-600 focus:border-gray-700"
+            />
+          ) : (
+            <div className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 overflow-y-auto text-gray-200">
+              <div className="text-gray-300 text-base leading-relaxed space-y-3">
+                {renderPreview(body)}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* C) Right sidebar */}
