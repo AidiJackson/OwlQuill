@@ -129,6 +129,20 @@ function buildActiveSuggestion(sentence: string): string {
   return `Suggestion: Try rewriting in active voice. Example pattern: [Actor] [verb] [object].\n\nOriginal: "${snippet}"`;
 }
 
+function normKey(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[""]/g, '"')
+    .replace(/['']/g, "'")
+    .trim();
+}
+
+function makeKey(s: string, n = 80): string {
+  const t = normKey(s);
+  return t.length > n ? t.slice(0, n) : t;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ReviewSuggestion = {
@@ -136,6 +150,7 @@ type ReviewSuggestion = {
   text: string;
   kind: 'sentence' | 'paragraph' | 'info';
   matchText: string;
+  matchKey?: string;
   fix?: { label: string; applyMode: 'apply' | 'suggest' };
 };
 
@@ -417,7 +432,7 @@ export default function Workspace() {
       if (!sentence) continue;
       const words = sentence.trim().split(/\s+/).filter(Boolean).length;
       if (words > 28) {
-        rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}">${esc(sentence)}</span>`);
+        rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}" data-ws-key="${esc(makeKey(sentence))}">${esc(sentence)}</span>`);
       } else {
         rebuilt.push(esc(sentence));
       }
@@ -708,11 +723,11 @@ export default function Workspace() {
     } else {
       const firstLongSentIdx = sentenceWordCounts.findIndex((c) => c > 30);
       if (longSentenceCount > 0)
-        suggestions.push({ id: 'long-sent', text: `Consider breaking up ${longSentenceCount} long sentence(s) (30+ words).`, kind: 'sentence', matchText: firstLongSentIdx >= 0 ? sentenceList[firstLongSentIdx] : '', fix: { label: 'Split sentence', applyMode: 'apply' } });
+        suggestions.push({ id: 'long-sent', text: `Consider breaking up ${longSentenceCount} long sentence(s) (30+ words).`, kind: 'sentence', matchText: firstLongSentIdx >= 0 ? sentenceList[firstLongSentIdx] : '', matchKey: makeKey(firstLongSentIdx >= 0 ? sentenceList[firstLongSentIdx] : ''), fix: { label: 'Split sentence', applyMode: 'apply' } });
 
       const longestSentIdx = sentenceWordCounts.indexOf(longestSentenceWords);
       if (longestSentenceWords >= 45)
-        suggestions.push({ id: 'very-long-sent', text: `One sentence is very long (\u2248${longestSentenceWords} words). Split it for clarity.`, kind: 'sentence', matchText: longestSentIdx >= 0 ? sentenceList[longestSentIdx] : '', fix: { label: 'Split sentence', applyMode: 'apply' } });
+        suggestions.push({ id: 'very-long-sent', text: `One sentence is very long (\u2248${longestSentenceWords} words). Split it for clarity.`, kind: 'sentence', matchText: longestSentIdx >= 0 ? sentenceList[longestSentIdx] : '', matchKey: makeKey(longestSentIdx >= 0 ? sentenceList[longestSentIdx] : ''), fix: { label: 'Split sentence', applyMode: 'apply' } });
 
       const firstLongParaIdx = paragraphList.findIndex((p) => countWords(p) > 120);
       if (longParagraphCount > 0)
@@ -953,9 +968,17 @@ export default function Workspace() {
               onClick={mode === 'write' ? (e) => {
                 const el = (e.target as HTMLElement).closest?.('[data-ws-long="1"]') as HTMLElement | null;
                 if (!el) return;
-                setMode('review');
-                setShowPanel(false);
                 setWsTip((s) => ({ ...s, show: false }));
+                const key = el.getAttribute('data-ws-key') ?? '';
+                const match = review.suggestions.find(
+                  (s) => s.kind === 'sentence' && s.matchKey && s.matchKey === key
+                );
+                if (match) {
+                  handleSuggestionClick(match.id, match.kind, match.matchText, 'review');
+                } else {
+                  setMode('review');
+                  setShowPanel(false);
+                }
               } : undefined}
             >
               <textarea
