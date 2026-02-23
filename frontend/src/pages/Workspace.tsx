@@ -14,7 +14,8 @@ const EDITOR_TEXT    = 'text-[16px] md:text-[17px] lg:text-[18px]';
 const EDITOR_LEADING = 'leading-[1.75]';
 const EDITOR_FONT    = 'font-normal';
 const EDITOR_TRACKING = 'tracking-[0.01em]';
-const PAPER = 'bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)]';
+const PAPER    = 'bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)]';
+const TOOLBTN  = 'h-9 px-3 text-sm rounded-lg bg-gray-900/30 border border-gray-800/70 text-gray-200 hover:bg-gray-800/40 hover:border-gray-700 transition';
 
 const MOCK_CHARACTERS = [
   { id: 0, name: 'No character' },
@@ -621,10 +622,42 @@ export default function Workspace() {
     );
   }
 
-  function renderSidebarContent() {
+  function renderSidebarContent(variant: 'desktop' | 'drawer') {
+    const drawerSelectors = variant === 'drawer' ? (
+      <div className="space-y-3 border-b border-gray-800 pb-4 mb-1">
+        <div className="space-y-1">
+          <p className="text-xs text-gray-500">Character</p>
+          <select
+            value={characterId}
+            onChange={(e) => setCharacterId(Number(e.target.value))}
+            className="input text-sm"
+          >
+            {MOCK_CHARACTERS.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs text-gray-500">Posting to</p>
+          <select
+            value={selectedRealmId ?? ''}
+            onChange={(e) => setSelectedRealmId(e.target.value ? Number(e.target.value) : null)}
+            className="input text-sm"
+          >
+            <option value="">Commons</option>
+            {realms.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+    ) : null;
+
     if (mode === 'review') {
       return (
-        <div className="space-y-4">
+        <>
+          {drawerSelectors}
+          <div className="space-y-4">
           {/* Stats card */}
           <div className="border border-gray-800 rounded-xl p-4 space-y-2">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Writing stats</p>
@@ -686,10 +719,13 @@ export default function Workspace() {
             )}
           </div>
         </div>
+        </>
       );
     }
 
     return (
+      <>
+      {drawerSelectors}
       <div className="space-y-3">
         {/* Publish context */}
         <div className="text-xs text-gray-500 space-y-1 border-b border-gray-800 pb-3">
@@ -774,6 +810,7 @@ export default function Workspace() {
           </button>
         </div>
       </div>
+      </>
     );
   }
 
@@ -876,31 +913,34 @@ export default function Workspace() {
             placeholder="Untitled story"
             className="flex-1 bg-transparent text-lg font-bold text-gray-100 placeholder-gray-600 focus:outline-none"
           />
-          <select
-            value={characterId}
-            onChange={(e) => setCharacterId(Number(e.target.value))}
-            className="input text-sm"
-          >
-            {MOCK_CHARACTERS.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={selectedRealmId ?? ''}
-            onChange={(e) =>
-              setSelectedRealmId(e.target.value ? Number(e.target.value) : null)
-            }
-            className="input text-sm"
-          >
-            <option value="">Publish to Commons</option>
-            {realms.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
+          {/* Selectors: desktop only — drawer carries them on mobile */}
+          <div className="hidden lg:flex items-center gap-3">
+            <select
+              value={characterId}
+              onChange={(e) => setCharacterId(Number(e.target.value))}
+              className="input text-sm"
+            >
+              {MOCK_CHARACTERS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedRealmId ?? ''}
+              onChange={(e) =>
+                setSelectedRealmId(e.target.value ? Number(e.target.value) : null)
+              }
+              className="input text-sm"
+            >
+              <option value="">Publish to Commons</option>
+              {realms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <p className="text-xs text-gray-500">
             {getSaveLabel()}
           </p>
@@ -970,8 +1010,8 @@ export default function Workspace() {
             </button>
           </div>
 
-          {/* Ambient status row — write mode only */}
-          {mode === 'write' && (
+          {/* Ambient status row — write mode, only when body has content */}
+          {mode === 'write' && body.trim() && (
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 flex-shrink-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span>{review.words} words</span>
@@ -1009,28 +1049,28 @@ export default function Workspace() {
             <button
               type="button"
               onClick={() => wrapOrInsertPlaceholder('**', '**', 'bold text', 'Bold applied')}
-              className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
+              className={TOOLBTN}
             >
               Bold
             </button>
             <button
               type="button"
               onClick={() => wrapOrInsertPlaceholder('*', '*', 'italic text', 'Italic applied')}
-              className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
+              className={TOOLBTN}
             >
               Italic
             </button>
             <button
               type="button"
               onClick={() => { insertHeaderSmart(); }}
-              className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
+              className={TOOLBTN}
             >
               Header
             </button>
             <button
               type="button"
               onClick={() => { setBody((prev) => prev + '\n\n---\n\n'); flash('Scene break inserted'); revealFormatting(); }}
-              className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
+              className={TOOLBTN}
             >
               Scene break
             </button>
@@ -1114,7 +1154,7 @@ export default function Workspace() {
         <aside
           className={`hidden lg:flex flex-col w-[340px] shrink-0 border-l border-gray-800 bg-gray-950 p-4 overflow-y-auto${focusMode ? ' opacity-0 pointer-events-none' : ''}`}
         >
-          {renderSidebarContent()}
+          {renderSidebarContent('desktop')}
         </aside>
       </div>
 
@@ -1126,7 +1166,7 @@ export default function Workspace() {
             onClick={() => setShowPanel(false)}
           />
           <div className="relative ml-auto w-[85%] max-w-sm h-full bg-gray-950 border-l border-gray-800 p-4 overflow-y-auto">
-            {renderSidebarContent()}
+            {renderSidebarContent('drawer')}
           </div>
         </div>
       )}
