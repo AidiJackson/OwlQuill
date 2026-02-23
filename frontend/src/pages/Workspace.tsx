@@ -348,6 +348,20 @@ export default function Workspace() {
     }
   }
 
+  function revealFormatting() {
+    setMode('preview');
+    setShowPanel(false);
+  }
+
+  function clearDraft() {
+    setTitle('');
+    setBody('');
+    localStorage.removeItem(TITLE_KEY);
+    localStorage.removeItem(BODY_KEY);
+    localStorage.removeItem(PASTE_HINT_KEY);
+    setLastSavedAt(null);
+  }
+
   function handleSuggestionClick(id: string, kind: ReviewSuggestion['kind'], matchText: string, destinationMode: 'preview' | 'review' = 'preview') {
     setMode(destinationMode);
     setShowPanel(false);
@@ -633,7 +647,7 @@ export default function Workspace() {
         <button
           onClick={handlePublishToCommons}
           disabled={publishing || !body.trim()}
-          className="btn btn-primary w-full"
+          className="w-full py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {publishing
             ? 'Publishing\u2026'
@@ -683,6 +697,16 @@ export default function Workspace() {
                 : 'Nothing to copy yet.'}
             </p>
           )}
+        </div>
+
+        <div className="border-t border-gray-800 pt-3">
+          <button
+            type="button"
+            onClick={clearDraft}
+            className="w-full text-left px-2 py-1.5 text-xs text-gray-600 hover:text-red-400 hover:bg-red-950/20 rounded-lg transition-colors"
+          >
+            Clear draft
+          </button>
         </div>
       </div>
     );
@@ -823,6 +847,13 @@ export default function Workspace() {
             {focusMode ? 'Exit focus' : 'Focus'}
           </button>
           <button
+            type="button"
+            onClick={clearDraft}
+            className="text-xs px-2 py-1 rounded-md border border-gray-700 text-gray-500 hover:text-red-400 hover:border-red-800 hover:bg-red-950/30 transition-colors"
+          >
+            Clear draft
+          </button>
+          <button
             className="lg:hidden btn btn-secondary text-xs"
             onClick={() => setShowPanel(true)}
           >
@@ -911,35 +942,35 @@ export default function Workspace() {
           <div className={`flex gap-2 py-1 overflow-x-auto flex-shrink-0 top-0 z-10${focusMode ? ' opacity-60 hover:opacity-100 transition' : ''}`}>
             <button
               type="button"
-              onClick={() => insertAroundSelection('**')}
+              onClick={() => { insertAroundSelection('**'); revealFormatting(); }}
               className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Bold
             </button>
             <button
               type="button"
-              onClick={() => insertAroundSelection('*', '*')}
+              onClick={() => { insertAroundSelection('*', '*'); revealFormatting(); }}
               className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Italic
             </button>
             <button
               type="button"
-              onClick={insertHeaderPrefix}
+              onClick={() => { insertHeaderPrefix(); revealFormatting(); }}
               className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Header
             </button>
             <button
               type="button"
-              onClick={() => setBody((prev) => prev + '\n\n---\n\n')}
+              onClick={() => { setBody((prev) => prev + '\n\n---\n\n'); revealFormatting(); }}
               className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Scene break
             </button>
           </div>
           <p id="writespace-editor-hints" className="text-xs text-gray-500 flex-shrink-0">
-            Spellcheck enabled. Use <code className="text-gray-400">**bold**</code>, <code className="text-gray-400">*italic*</code>, and <code className="text-gray-400">---</code> for scene breaks.
+            Formatting is Markdown — use the toolbar, then Preview to see it.
           </p>
 
           {mode === 'review' && (
@@ -1036,7 +1067,11 @@ export default function Workspace() {
 
       {/* E) Mobile sticky bottom bar */}
       <div className="lg:hidden sticky bottom-0 border-t border-gray-800 bg-gray-950 px-4 py-3 flex gap-2">
-        <button className="btn btn-primary flex-1 text-sm h-11 rounded-xl">
+        <button
+          onClick={handlePublishToCommons}
+          disabled={publishing || !body.trim()}
+          className="flex-1 text-sm h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           Publish
         </button>
         <button

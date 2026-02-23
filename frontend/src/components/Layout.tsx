@@ -31,7 +31,7 @@ export default function Layout() {
     <>
       <div className="mb-8">
         <Link to="/" className="text-2xl font-bold text-owl-500" onClick={closeSidebar}>
-          OwlQuill
+          Ficshon
         </Link>
       </div>
 
@@ -151,7 +151,7 @@ export default function Layout() {
             </svg>
           </button>
           <Link to="/" className="ml-3 text-lg font-bold text-owl-500">
-            OwlQuill
+            Ficshon
           </Link>
         </div>
 
