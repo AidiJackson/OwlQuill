@@ -46,8 +46,9 @@ export default function Layout() {
   const sidebarContent = (
     <>
       <div className="mb-8">
-        <Link to="/" className="text-2xl font-bold text-emerald-400" onClick={closeSidebar}>
-          Ficshon
+        <Link to="/" className="flex items-center" onClick={closeSidebar}>
+          <img src="/brand/ficshon-logo-v1.jpg" alt="Ficshon" className="h-7 w-auto" />
+          <span className="ml-2 font-semibold tracking-tight text-gray-100">Ficshon</span>
         </Link>
       </div>
 
@@ -166,8 +167,9 @@ export default function Layout() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <Link to="/" className="ml-3 text-lg font-bold text-emerald-400">
-            Ficshon
+          <Link to="/" className="ml-3 flex items-center">
+            <img src="/brand/ficshon-logo-v1.jpg" alt="Ficshon" className="h-7 w-auto" />
+            <span className="ml-2 font-semibold tracking-tight text-gray-100">Ficshon</span>
           </Link>
         </div>
 
