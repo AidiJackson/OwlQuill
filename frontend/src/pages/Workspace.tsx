@@ -876,7 +876,9 @@ export default function Workspace() {
               Scene break
             </button>
           </div>
-          <p className="text-xs text-gray-500 flex-shrink-0">Formatting inserts Markdown.</p>
+          <p id="writespace-editor-hints" className="text-xs text-gray-500 flex-shrink-0">
+            Spellcheck enabled. Use <code className="text-gray-400">**bold**</code>, <code className="text-gray-400">*italic*</code>, and <code className="text-gray-400">---</code> for scene breaks.
+          </p>
 
           {mode === 'review' && (
             <p className="text-xs text-gray-500 flex-shrink-0">
@@ -905,6 +907,12 @@ export default function Workspace() {
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Start writing..."
+              spellCheck={true}
+              autoCorrect="on"
+              autoCapitalize="sentences"
+              inputMode="text"
+              aria-label="WriteSpace editor"
+              aria-describedby="writespace-editor-hints"
               className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 resize-none outline-none placeholder-gray-600 focus:border-gray-700"
             />
           )}
