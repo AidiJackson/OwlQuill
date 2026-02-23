@@ -225,6 +225,7 @@ export default function Workspace() {
     };
   }, []);
 
+
   const handlePublishToCommons = async () => {
     if (!body.trim()) return;
     setPublishing(true);
@@ -426,42 +427,53 @@ export default function Workspace() {
       return <span className="text-gray-500">Nothing to preview yet.</span>;
     }
 
-    // Active suggestion (if any) drives highlighting
-    const activeSug = highlightId
-      ? review.suggestions.find((s) => s.id === highlightId)
-      : undefined;
+    // All actionable suggestions drive underlines + active highlight
+    const actionable = review.suggestions.filter((s) => s.matchText && s.kind !== 'info');
 
     const finalHtml = htmlParas.map((paraHtml, i) => {
       const rawPara = rawParas[i] ?? '';
-      const content = paraHtml.replace(/\n/g, '<br/>');
+      let content = paraHtml.replace(/\n/g, '<br/>');
+      let paraIdAttr = '';
+      let paraOpenExtra = '';
 
-      if (!activeSug || !activeSug.matchText) {
-        return `<p>${content}</p>`;
-      }
-
-      if (activeSug.kind === 'paragraph') {
-        if (rawPara.trim() === activeSug.matchText.trim()) {
-          return `<p id="ws-hl-${activeSug.id}"><mark class="ws-hl">${content}</mark></p>`;
-        }
-      } else if (activeSug.kind === 'sentence') {
-        // Check if the sentence lives in this paragraph (compare flattened raw text)
+      // Sentence underlines
+      for (const s of actionable.filter((s) => s.kind === 'sentence')) {
         const rawFlat = rawPara.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-        if (rawFlat.includes(activeSug.matchText)) {
-          // Try to locate and wrap just the sentence in the transformed HTML
-          const escapedSentence = activeSug.matchText
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/\*(.*?)\*/g, '<em>$1</em>');
-          const highlighted = content.includes(escapedSentence)
-            ? content.replace(escapedSentence, `<mark class="ws-hl">${escapedSentence}</mark>`)
-            : `<mark class="ws-hl">${content}</mark>`; // fallback: highlight whole paragraph
-          return `<p id="ws-hl-${activeSug.id}">${highlighted}</p>`;
-        }
+        if (!rawFlat.includes(s.matchText)) continue;
+
+        const isActive = s.id === highlightId;
+        if (isActive) paraIdAttr = ` id="ws-hl-${s.id}"`;
+
+        const escapedSentence = s.matchText
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.*?)\*/g, '<em>$1</em>');
+        if (!content.includes(escapedSentence)) continue;
+
+        const base = s.id === 'passive' ? 'ws-ul-passive' : 'ws-ul-sentence';
+        const cls  = isActive ? `${base} ws-hl` : base;
+        const title = s.id === 'passive'
+          ? 'Passive voice \u2014 click to review'
+          : 'Long sentence \u2014 click to review';
+        content = content.replace(
+          escapedSentence,
+          `<span class="${cls}" data-ws-id="${s.id}" title="${title}" style="cursor:pointer">${escapedSentence}</span>`,
+        );
       }
 
-      return `<p>${content}</p>`;
+      // Paragraph underlines (add class + handler to the <p> element)
+      for (const s of actionable.filter((s) => s.kind === 'paragraph')) {
+        if (rawPara.trim() !== s.matchText.trim()) continue;
+        const isActive = s.id === highlightId;
+        if (isActive) paraIdAttr = ` id="ws-hl-${s.id}"`;
+        const cls = isActive ? 'ws-ul-para ws-hl' : 'ws-ul-para';
+        paraOpenExtra = ` class="${cls}" data-ws-id="${s.id}" title="Dense paragraph \u2014 click to review" style="cursor:pointer"`;
+        break;
+      }
+
+      return `<p${paraIdAttr}${paraOpenExtra}>${content}</p>`;
     }).join('');
 
     return (
@@ -693,7 +705,12 @@ export default function Workspace() {
 
   return (
     <div className="w-full h-[calc(100vh-24px)] flex flex-col bg-gray-950">
-      <style>{`.ws-hl{background:rgba(52,211,153,.15);border-radius:3px;padding:0 2px;outline:1px solid rgba(52,211,153,.4)}`}</style>
+      <style>{`
+        .ws-hl{background:rgba(52,211,153,.15);border-radius:3px;padding:0 2px;outline:1px solid rgba(52,211,153,.4)}
+        .ws-ul-sentence{text-decoration:underline;text-decoration-color:rgba(251,191,36,.6);text-decoration-thickness:2px}
+        .ws-ul-passive{text-decoration:underline dotted;text-decoration-color:rgba(96,165,250,.7)}
+        .ws-ul-para{background:rgba(251,191,36,.06);border-radius:4px}
+      `}</style>
       {/* A) Header bar */}
       <div className="px-4 md:px-6 pt-4 pb-3 border-b border-gray-800 flex-shrink-0">
         <div className="flex flex-wrap items-center gap-3">
@@ -856,7 +873,16 @@ export default function Workspace() {
           )}
 
           {mode === 'preview' ? (
-            <div className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 overflow-y-auto">
+            <div
+              className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 overflow-y-auto"
+              onClick={(e) => {
+                const el = (e.target as HTMLElement).closest('[data-ws-id]');
+                const id = el?.getAttribute('data-ws-id');
+                if (!id) return;
+                const s = review.suggestions.find((s) => s.id === id);
+                if (s) handleSuggestionClick(s.id, s.kind, s.matchText, 'review');
+              }}
+            >
               <div className="text-gray-300 text-base leading-relaxed space-y-3">
                 {renderPreview(body)}
               </div>
