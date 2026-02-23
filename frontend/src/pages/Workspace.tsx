@@ -829,6 +829,8 @@ export default function Workspace() {
     ? realms.find((r) => r.id === selectedRealmId)?.name
     : null;
 
+  const hasText = body.trim().length > 0;
+
   const review = useMemo(() => {
     const norm = normalizeText(body);
     const words = countWords(norm);
@@ -1010,9 +1012,9 @@ export default function Workspace() {
             </button>
           </div>
 
-          {/* Ambient status row — write mode, only when body has content */}
-          {mode === 'write' && body.trim() && (
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 flex-shrink-0">
+          {/* Ambient status row — write mode, fades in once body has content */}
+          {mode === 'write' && (
+            <div className={`flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 flex-shrink-0 ${hasText ? 'opacity-100 transition-opacity duration-200' : 'opacity-0 pointer-events-none h-0 overflow-hidden'}`}>
               <div className="flex flex-wrap items-center gap-2">
                 <span>{review.words} words</span>
                 <span>·</span>
@@ -1044,8 +1046,8 @@ export default function Workspace() {
             </div>
           )}
 
-          {/* Formatting toolbar */}
-          <div className={`flex gap-2 py-1 overflow-x-auto flex-shrink-0 top-0 z-10${focusMode ? ' opacity-60 hover:opacity-100 transition' : ''}`}>
+          {/* Formatting toolbar — fades in once body has content */}
+          <div className={`flex gap-2 py-1 overflow-x-auto flex-shrink-0 top-0 z-10 ${!hasText ? 'opacity-0 pointer-events-none h-0 overflow-hidden' : focusMode ? 'opacity-60 hover:opacity-100 transition' : 'opacity-100 transition-opacity duration-200'}`}>
             <button
               type="button"
               onClick={() => wrapOrInsertPlaceholder('**', '**', 'bold text', 'Bold applied')}
@@ -1078,6 +1080,12 @@ export default function Workspace() {
           <p id="writespace-editor-hints" className="text-xs text-gray-500 flex-shrink-0">
             Formatting is Markdown — use the toolbar, then Preview to see it.
           </p>
+
+          {!hasText && mode === 'write' && (
+            <p className="text-gray-500 text-sm text-center mt-8">
+              Start writing — tools will appear automatically.
+            </p>
+          )}
 
           {mode === 'review' && (
             <p className="text-xs text-gray-500 flex-shrink-0">
@@ -1146,7 +1154,11 @@ export default function Workspace() {
             </div>
           )}
 
-          {mode === 'write' && body.trim() && renderLiveChecks()}
+          {mode === 'write' && (
+            <div className={hasText ? 'opacity-100 transition-opacity duration-200' : 'opacity-0 pointer-events-none h-0 overflow-hidden'}>
+              {renderLiveChecks()}
+            </div>
+          )}
         </div>{/* end focus wrapper */}
         </div>
 
