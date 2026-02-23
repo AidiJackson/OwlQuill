@@ -664,6 +664,17 @@ export default function Workspace() {
     // All actionable suggestions drive underlines + active highlight
     const actionable = review.suggestions.filter((s) => s.matchText && s.kind !== 'info');
 
+    // Pre-compute where each rawPara starts in the original text (for grammar offset mapping)
+    const paraStartOffsets: number[] = [];
+    {
+      let search = 0;
+      for (const rp of rawParas) {
+        const idx = text.indexOf(rp, search);
+        paraStartOffsets.push(idx >= 0 ? idx : 0);
+        if (idx >= 0) search = idx + rp.length;
+      }
+    }
+
     const finalHtml = htmlParas.map((paraHtml, i) => {
       const rawPara = rawParas[i] ?? '';
       let content = paraHtml.replace(/\n/g, '<br/>');
@@ -705,6 +716,26 @@ export default function Workspace() {
         const cls = isActive ? 'ws-ul-para ws-hl' : 'ws-ul-para';
         paraOpenExtra = ` class="${cls}" data-ws-id="${s.id}" title="Dense paragraph \u2014 click to review" style="cursor:pointer"`;
         break;
+      }
+
+      // Grammar underlines — char-offset based, wavy red
+      const paraStart = paraStartOffsets[i] ?? 0;
+      for (const gm of visibleGrammarMatches) {
+        if (gm.offset < paraStart || gm.offset >= paraStart + rawPara.length) continue;
+        const matchText = text.slice(gm.offset, gm.offset + gm.length);
+        if (!matchText.trim()) continue;
+        const escapedMatch = matchText
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.*?)\*/g, '<em>$1</em>');
+        if (!content.includes(escapedMatch)) continue;
+        const titleAttr = (gm.shortMessage || gm.message).replace(/"/g, '&quot;');
+        content = content.replace(
+          escapedMatch,
+          `<span class="ws-ul-grammar" data-ws-grammar-offset="${gm.offset}" data-ws-grammar-length="${gm.length}" title="${titleAttr}" style="cursor:pointer">${escapedMatch}</span>`,
+        );
       }
 
       return `<p${paraIdAttr}${paraOpenExtra}>${content}</p>`;
@@ -1062,6 +1093,7 @@ export default function Workspace() {
         .ws-hl{background:rgba(52,211,153,.15);border-radius:3px;padding:0 2px;outline:1px solid rgba(52,211,153,.4)}
         .ws-ul-sentence{text-decoration:underline;text-decoration-color:rgba(251,191,36,.6);text-decoration-thickness:2px}
         .ws-ul-passive{text-decoration:underline dotted;text-decoration-color:rgba(96,165,250,.7)}
+        .ws-ul-grammar{text-decoration-line:underline;text-decoration-style:wavy;text-decoration-color:rgba(248,113,113,.8);text-underline-offset:3px}
         .ws-ul-para{background:rgba(251,191,36,.06);border-radius:4px}
         .ws-write-overlay{position:absolute;inset:0;padding:1rem;border-radius:1rem;white-space:pre-wrap;word-break:break-word;color:transparent;pointer-events:none;font:inherit;line-height:inherit;overflow:hidden}
         @media(min-width:768px){.ws-write-overlay{padding:1.25rem}}
@@ -1261,6 +1293,16 @@ export default function Workspace() {
             <div
               className={`flex-1 min-h-0 rounded-2xl p-4 md:p-5 ${PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} text-gray-200 overflow-y-auto`}
               onClick={(e) => {
+                // Grammar underline click → switch to Review and jump to range
+                const gEl = (e.target as HTMLElement).closest('[data-ws-grammar-offset]');
+                if (gEl) {
+                  const offset = Number(gEl.getAttribute('data-ws-grammar-offset'));
+                  const length = Number(gEl.getAttribute('data-ws-grammar-length'));
+                  setMode('review');
+                  setTimeout(() => jumpToRange(offset, length), 50);
+                  return;
+                }
+                // Sentence / paragraph underline click
                 const el = (e.target as HTMLElement).closest('[data-ws-id]');
                 const id = el?.getAttribute('data-ws-id');
                 if (!id) return;
