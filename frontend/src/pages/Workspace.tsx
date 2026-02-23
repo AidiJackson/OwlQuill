@@ -161,6 +161,26 @@ type ReviewSuggestion = {
   fix?: { label: string; applyMode: 'apply' | 'suggest' };
 };
 
+type GrammarMatch = {
+  offset: number;
+  length: number;
+  message: string;
+  shortMessage?: string | null;
+  rule: {
+    id: string;
+    description?: string | null;
+    issueType?: string | null;
+    category?: string | null;
+  };
+  replacements: { value: string }[];
+};
+
+type GrammarState = {
+  status: 'idle' | 'loading' | 'ok' | 'error';
+  matches: GrammarMatch[];
+  error?: string;
+};
+
 export default function Workspace() {
   const navigate = useNavigate();
   const [title, setTitle] = useState(() => localStorage.getItem(TITLE_KEY) ?? '');
@@ -201,6 +221,10 @@ export default function Workspace() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [formatFlash, setFormatFlash] = useState<string>('');
   const formatFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [grammar, setGrammar] = useState<GrammarState>({ status: 'idle', matches: [] });
+  const [ignoredKeys, setIgnoredKeys] = useState<Set<string>>(new Set<string>());
+  const grammarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const grammarAbortRef = useRef<AbortController | null>(null);
 
   // Debounced autosave — persists draft content + UI context
   useEffect(() => {
@@ -252,6 +276,8 @@ export default function Workspace() {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       if (fixTimerRef.current) clearTimeout(fixTimerRef.current);
       if (formatFlashTimerRef.current) clearTimeout(formatFlashTimerRef.current);
+      if (grammarTimerRef.current) clearTimeout(grammarTimerRef.current);
+      if (grammarAbortRef.current) grammarAbortRef.current.abort();
     };
   }, []);
 
@@ -453,6 +479,76 @@ export default function Workspace() {
     if (fixTimerRef.current) clearTimeout(fixTimerRef.current);
     fixTimerRef.current = setTimeout(() => setFixStatus(null), 2000);
   }
+
+  function grammarIgnoreKey(m: GrammarMatch): string {
+    return `${m.rule.id}:${m.offset}:${m.length}:${m.message}`;
+  }
+
+  function jumpToRange(offset: number, length: number) {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(offset, offset + length);
+    const linesBefore = el.value.slice(0, offset).split('\n').length;
+    const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 28;
+    el.scrollTop = Math.max(0, (linesBefore - 3) * lineHeight);
+  }
+
+  function applyGrammarFix(m: GrammarMatch, replacement: string) {
+    const newBody = body.slice(0, m.offset) + replacement + body.slice(m.offset + m.length);
+    setBody(newBody);
+    setGrammar((prev) => ({ ...prev, matches: prev.matches.filter((x) => x !== m) }));
+  }
+
+  function ignoreGrammarMatch(m: GrammarMatch) {
+    setIgnoredKeys((prev) => {
+      const next = new Set(prev);
+      next.add(grammarIgnoreKey(m));
+      return next;
+    });
+  }
+
+  async function runGrammarCheck() {
+    if (grammarAbortRef.current) grammarAbortRef.current.abort();
+    const controller = new AbortController();
+    grammarAbortRef.current = controller;
+    setGrammar({ status: 'loading', matches: [] });
+    try {
+      const resp = await fetch('/api/grammar/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: body, language: 'en-US' }),
+        signal: controller.signal,
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json() as { language: string; matches: GrammarMatch[] };
+      setGrammar({ status: 'ok', matches: data.matches });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setGrammar({ status: 'error', matches: [], error: 'Grammar check failed.' });
+    }
+  }
+
+  // Debounced grammar check — fires 800 ms after body/mode changes in review mode
+  useEffect(() => {
+    if (mode !== 'review') {
+      setGrammar({ status: 'idle', matches: [] });
+      setIgnoredKeys(new Set<string>());
+      if (grammarAbortRef.current) { grammarAbortRef.current.abort(); grammarAbortRef.current = null; }
+      return;
+    }
+    if (!body.trim()) {
+      setGrammar({ status: 'idle', matches: [] });
+      return;
+    }
+    if (grammarTimerRef.current) clearTimeout(grammarTimerRef.current);
+    grammarTimerRef.current = setTimeout(() => void runGrammarCheck(), 800);
+    return () => {
+      if (grammarTimerRef.current) clearTimeout(grammarTimerRef.current);
+    };
+  // body / mode are the only values that should retrigger this effect
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [body, mode]);
 
   function renderLiveChecks() {
     const checks = review.suggestions.filter((s) => s.kind !== 'info').slice(0, 6);
@@ -718,6 +814,67 @@ export default function Workspace() {
               <p className="text-xs text-gray-400 pt-1">{fixStatus.msg}</p>
             )}
           </div>
+
+          {/* Grammar & Spelling card */}
+          <div className="border border-gray-800 rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Grammar & Spelling</p>
+              {grammar.status === 'loading' && (
+                <span className="text-xs text-gray-500">Checking…</span>
+              )}
+              {grammar.status === 'ok' && visibleGrammarMatches.length > 0 && (
+                <span className="text-xs text-gray-500">
+                  {visibleGrammarMatches.length} {visibleGrammarMatches.length === 1 ? 'issue' : 'issues'}
+                </span>
+              )}
+            </div>
+            {grammar.status === 'loading' && (
+              <p className="text-sm text-gray-500">Analyzing your writing…</p>
+            )}
+            {grammar.status === 'error' && (
+              <p className="text-sm text-red-400">{grammar.error}</p>
+            )}
+            {grammar.status === 'ok' && visibleGrammarMatches.length === 0 && (
+              <p className="text-sm text-emerald-300">&#10003; No grammar issues found.</p>
+            )}
+            {grammar.status === 'ok' && visibleGrammarMatches.length > 0 && (
+              <ul className="space-y-2">
+                {visibleGrammarMatches.map((m, i) => (
+                  <li key={i} className="text-sm border border-gray-800 rounded-lg p-2 space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => jumpToRange(m.offset, m.length)}
+                      className="text-left text-gray-200 hover:text-emerald-300 transition-colors w-full"
+                    >
+                      {m.shortMessage || m.message}
+                    </button>
+                    {m.rule.category && (
+                      <p className="text-xs text-gray-500">{m.rule.category}</p>
+                    )}
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {m.replacements.slice(0, 3).map((r, ri) => (
+                        <button
+                          key={ri}
+                          type="button"
+                          onClick={() => applyGrammarFix(m, r.value)}
+                          className="text-xs px-2 py-0.5 rounded-md bg-emerald-900/40 border border-emerald-800/60 text-emerald-300 hover:bg-emerald-800/40 transition"
+                        >
+                          {r.value}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => ignoreGrammarMatch(m)}
+                        className="text-xs px-2 py-0.5 rounded-md bg-gray-800/60 border border-gray-700 text-gray-400 hover:text-gray-200 transition"
+                      >
+                        Ignore
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
         </>
       );
@@ -830,6 +987,13 @@ export default function Workspace() {
     : null;
 
   const hasText = body.trim().length > 0;
+
+  const visibleGrammarMatches = useMemo(
+    () => grammar.matches.filter(
+      (m) => !ignoredKeys.has(`${m.rule.id}:${m.offset}:${m.length}:${m.message}`)
+    ),
+    [grammar.matches, ignoredKeys]
+  );
 
   const review = useMemo(() => {
     const norm = normalizeText(body);
