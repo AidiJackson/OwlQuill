@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     FAL_KEY: Optional[str] = None
     FAL_MODEL_CHARACTER_PACK: str = "fal-ai/flux/dev"
 
+    # Grammar engine — LanguageTool
+    # Self-host: docker run -p 8010:8010 erikvl87/languagetool
+    #            then set LANGUAGETOOL_URL=http://localhost:8010/v2
+    # Public fallback: https://api.languagetool.org/v2 (rate-limited, no key needed)
+    LANGUAGETOOL_URL: str = "https://api.languagetool.org/v2"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
