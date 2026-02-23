@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { Realm } from '@/lib/types';
@@ -36,6 +36,52 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
+// ── Local analysis helpers (pure, no React) ──────────────────────────────────
+
+function normalizeText(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/ +$/gm, '');
+}
+
+function getParagraphs(text: string): string[] {
+  return text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+}
+
+function getSentences(text: string): string[] {
+  const flat = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+  return flat
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2);
+}
+
+function countWords(text: string): number {
+  return text.match(/[A-Za-z0-9\u2019']+/g)?.length ?? 0;
+}
+
+function estimateSyllables(word: string): number {
+  const w = word.toLowerCase().replace(/[^a-z]/g, '');
+  const groups = w.match(/[aeiouy]+/g);
+  let count = groups?.length ?? 0;
+  if (w.endsWith('e') && count > 1) count -= 1;
+  return Math.max(1, count);
+}
+
+function fleschReadingEase(text: string): number | null {
+  const words = text.match(/[A-Za-z0-9\u2019']+/g) ?? [];
+  const sentences = getSentences(text);
+  if (words.length < 20 || sentences.length < 1) return null;
+  const syllables = words.reduce((sum, w) => sum + estimateSyllables(w), 0);
+  return 206.835 - 1.015 * (words.length / sentences.length) - 84.6 * (syllables / words.length);
+}
+
+function detectPassiveSentences(sentences: string[]): number {
+  return sentences.filter((s) =>
+    /\b(am|is|are|was|were|be|been|being)\b\s+\w+(ed|en)\b/i.test(s)
+  ).length;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function Workspace() {
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
@@ -44,7 +90,7 @@ export default function Workspace() {
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [saveTick, setSaveTick] = useState(0);
-  const [mode, setMode] = useState<'write' | 'preview'>('write');
+  const [mode, setMode] = useState<'write' | 'preview' | 'review'>('write');
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
@@ -233,6 +279,51 @@ export default function Workspace() {
   }
 
   function renderSidebarContent() {
+    if (mode === 'review') {
+      return (
+        <div className="space-y-4">
+          {/* Stats card */}
+          <div className="border border-gray-800 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Writing stats</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <span className="text-gray-500">Words</span>
+              <span className="text-gray-200">{review.words}</span>
+              <span className="text-gray-500">Sentences</span>
+              <span className="text-gray-200">{review.sentences}</span>
+              <span className="text-gray-500">Paragraphs</span>
+              <span className="text-gray-200">{review.paragraphs}</span>
+              <span className="text-gray-500">Avg sentence</span>
+              <span className="text-gray-200">{Math.round(review.avgSentenceWords)} words</span>
+              <span className="text-gray-500">Readability</span>
+              <span className="text-gray-200">
+                {review.readabilityLabel}
+                {review.readabilityScore !== null && (
+                  <span className="text-gray-500"> ({Math.round(review.readabilityScore)})</span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* Suggestions card */}
+          <div className="border border-gray-800 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Suggestions</p>
+            {review.suggestions.length === 0 ? (
+              <p className="text-sm text-gray-500">No suggestions right now.</p>
+            ) : (
+              <ul className="space-y-2">
+                {review.suggestions.map((s) => (
+                  <li key={s.id} className="flex gap-2 text-sm text-gray-300">
+                    <span className="text-gray-600 select-none mt-0.5">&bull;</span>
+                    <span>{s.text}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-3">
         {/* Publish context */}
@@ -326,6 +417,54 @@ export default function Workspace() {
     ? realms.find((r) => r.id === selectedRealmId)?.name
     : null;
 
+  const review = useMemo(() => {
+    const norm = normalizeText(body);
+    const words = countWords(norm);
+    const sentenceList = getSentences(norm);
+    const paragraphList = getParagraphs(norm);
+    const sentences = sentenceList.length;
+    const paragraphs = paragraphList.length;
+    const avgSentenceWords = sentences > 0 ? words / sentences : 0;
+    const sentenceWordCounts = sentenceList.map((s) => countWords(s));
+    const longestSentenceWords = sentenceWordCounts.length > 0 ? Math.max(...sentenceWordCounts) : 0;
+    const longSentenceCount = sentenceWordCounts.filter((c) => c > 30).length;
+    const longParagraphCount = paragraphList.filter((p) => countWords(p) > 120).length;
+    const passiveCount = detectPassiveSentences(sentenceList);
+    const readabilityScore = fleschReadingEase(norm);
+    const readabilityLabel: 'Easy' | 'Medium' | 'Dense' | 'N/A' =
+      readabilityScore === null ? 'N/A'
+      : readabilityScore >= 60  ? 'Easy'
+      : readabilityScore >= 45  ? 'Medium'
+      : 'Dense';
+
+    const suggestions: Array<{ id: string; text: string }> = [];
+    if (words === 0) {
+      suggestions.push({ id: 'empty', text: 'Start writing to see suggestions.' });
+    } else {
+      if (longSentenceCount > 0)
+        suggestions.push({ id: 'long-sent', text: `Consider breaking up ${longSentenceCount} long sentence(s) (30+ words).` });
+      if (longestSentenceWords >= 45)
+        suggestions.push({ id: 'very-long-sent', text: `One sentence is very long (\u2248${longestSentenceWords} words). Split it for clarity.` });
+      if (longParagraphCount > 0)
+        suggestions.push({ id: 'long-para', text: `Consider splitting ${longParagraphCount} long paragraph(s) (120+ words).` });
+      if (passiveCount > 0)
+        suggestions.push({ id: 'passive', text: `Passive phrasing detected in ${passiveCount} sentence(s). Consider active voice for punch.` });
+      if (paragraphs === 1 && words > 120)
+        suggestions.push({ id: 'one-para', text: 'Try adding paragraph breaks for readability.' });
+      if (readabilityScore !== null && readabilityScore < 45)
+        suggestions.push({ id: 'dense', text: 'Readability is dense. Shorten sentences and simplify phrasing.' });
+      if (readabilityScore !== null && readabilityScore >= 60)
+        suggestions.push({ id: 'easy', text: 'Readability is strong. Nice flow.' });
+    }
+
+    return {
+      words, sentences, paragraphs, avgSentenceWords, longestSentenceWords,
+      longSentenceCount, longParagraphCount, passiveCount,
+      readabilityScore, readabilityLabel,
+      suggestions: suggestions.slice(0, 8),
+    };
+  }, [body]);
+
   return (
     <div className="w-full h-[calc(100vh-24px)] flex flex-col bg-gray-950">
       {/* A) Header bar */}
@@ -379,7 +518,7 @@ export default function Workspace() {
       <div className="flex flex-1 min-h-0 relative">
         {/* B) Editor column: toolbar + textarea */}
         <div className="flex-1 flex flex-col min-w-0 px-4 md:px-6 py-4 gap-3">
-          {/* Write / Preview toggle */}
+          {/* Write / Preview / Review toggle */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
               type="button"
@@ -402,6 +541,17 @@ export default function Workspace() {
               }`}
             >
               Preview
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('review')}
+              className={`px-3 py-1 rounded-md text-sm ${
+                mode === 'review'
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Review
             </button>
           </div>
 
@@ -438,7 +588,19 @@ export default function Workspace() {
           </div>
           <p className="text-xs text-gray-500 flex-shrink-0">Formatting inserts Markdown.</p>
 
-          {mode === 'write' ? (
+          {mode === 'review' && (
+            <p className="text-xs text-gray-500 flex-shrink-0">
+              Suggestions appear in the side panel.
+            </p>
+          )}
+
+          {mode === 'preview' ? (
+            <div className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 overflow-y-auto">
+              <div className="text-gray-300 text-base leading-relaxed space-y-3">
+                {renderPreview(body)}
+              </div>
+            </div>
+          ) : (
             <textarea
               ref={textareaRef}
               value={body}
@@ -446,12 +608,6 @@ export default function Workspace() {
               placeholder="Start writing..."
               className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 resize-none outline-none placeholder-gray-600 focus:border-gray-700"
             />
-          ) : (
-            <div className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 overflow-y-auto">
-              <div className="text-gray-300 text-base leading-relaxed space-y-3">
-                {renderPreview(body)}
-              </div>
-            </div>
           )}
         </div>
 
@@ -485,11 +641,20 @@ export default function Workspace() {
 
       {/* E) Mobile sticky bottom bar */}
       <div className="lg:hidden sticky bottom-0 border-t border-gray-800 bg-gray-950 px-4 py-3 flex gap-2">
-        <button className="btn btn-primary flex-1">
+        <button className="btn btn-primary flex-1 text-sm">
           Publish
         </button>
-        <button className="btn btn-secondary flex-1">
+        <button
+          className="btn btn-secondary flex-1 text-sm"
+          onClick={() => setMode('preview')}
+        >
           Preview
+        </button>
+        <button
+          className="btn btn-secondary flex-1 text-sm"
+          onClick={() => setMode('review')}
+        >
+          Review
         </button>
       </div>
     </div>
