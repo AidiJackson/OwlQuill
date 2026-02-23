@@ -83,6 +83,52 @@ function detectPassiveSentences(sentences: string[]): number {
   ).length;
 }
 
+function splitLongSentence(text: string, sentence: string): string {
+  const idx = text.indexOf(sentence);
+  if (idx === -1) return text;
+  const mid = Math.floor(sentence.length / 2);
+  const breakpoints = ['. ', '; ', ', and ', ', but ', ' \u2014 ', ' - '];
+  for (const bp of breakpoints) {
+    let bestPos = -1, bestDist = Infinity, search = 0;
+    while (search < sentence.length) {
+      const found = sentence.indexOf(bp, search);
+      if (found === -1) break;
+      const splitAt = found + bp.length;
+      const dist = Math.abs(splitAt - mid);
+      if (dist < bestDist) { bestDist = dist; bestPos = splitAt; }
+      search = found + 1;
+    }
+    if (bestPos !== -1) {
+      const before = sentence.slice(0, bestPos).trimEnd();
+      const after  = sentence.slice(bestPos).trimStart();
+      return text.slice(0, idx) + before + '\n\n' + after + text.slice(idx + sentence.length);
+    }
+  }
+  return text;
+}
+
+function breakUpParagraph(text: string, paragraph: string): string {
+  const idx = text.indexOf(paragraph);
+  if (idx === -1) return text;
+  const sentences = getSentences(paragraph);
+  if (sentences.length < 2) return text;
+  const chunks: string[] = [];
+  let current = '';
+  for (const s of sentences) {
+    const candidate = current ? current + ' ' + s : s;
+    if (current && candidate.length > 400) { chunks.push(current); current = s; }
+    else { current = candidate; }
+  }
+  if (current) chunks.push(current);
+  if (chunks.length < 2) return text;
+  return text.slice(0, idx) + chunks.join('\n\n') + text.slice(idx + paragraph.length);
+}
+
+function buildActiveSuggestion(sentence: string): string {
+  const snippet = sentence.length > 100 ? sentence.slice(0, 100) + '\u2026' : sentence;
+  return `Suggestion: Try rewriting in active voice. Example pattern: [Actor] [verb] [object].\n\nOriginal: "${snippet}"`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ReviewSuggestion = {
@@ -90,6 +136,7 @@ type ReviewSuggestion = {
   text: string;
   kind: 'sentence' | 'paragraph' | 'info';
   matchText: string;
+  fix?: { label: string; applyMode: 'apply' | 'suggest' };
 };
 
 export default function Workspace() {
@@ -121,7 +168,9 @@ export default function Workspace() {
   });
   const [showPanel, setShowPanel] = useState(false);
   const [highlightId, setHighlightId] = useState<string>('');
+  const [fixStatus, setFixStatus] = useState<{ id: string; msg: string } | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fixTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Debounced autosave — persists draft content + UI context
@@ -168,10 +217,11 @@ export default function Workspace() {
     }
   }, [mode, highlightId]);
 
-  // Cleanup highlight timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      if (fixTimerRef.current) clearTimeout(fixTimerRef.current);
     };
   }, []);
 
@@ -279,6 +329,22 @@ export default function Workspace() {
       setHighlightId(id);
       highlightTimerRef.current = setTimeout(() => setHighlightId(''), 2000);
     }
+  }
+
+  async function applySuggestionFix(s: ReviewSuggestion) {
+    if (!s.fix || !s.matchText) return;
+    if (s.fix.applyMode === 'apply') {
+      if (s.kind === 'sentence')  setBody(splitLongSentence(body, s.matchText));
+      if (s.kind === 'paragraph') setBody(breakUpParagraph(body, s.matchText));
+      setFixStatus({ id: s.id, msg: 'Applied \u2713' });
+    } else {
+      const hint = buildActiveSuggestion(s.matchText);
+      try { await navigator.clipboard.writeText(hint); } catch { /* no-op */ }
+      setFixStatus({ id: s.id, msg: 'Suggestion copied' });
+    }
+    setShowPanel(false);
+    if (fixTimerRef.current) clearTimeout(fixTimerRef.current);
+    fixTimerRef.current = setTimeout(() => setFixStatus(null), 2000);
   }
 
   function renderLiveChecks() {
@@ -443,17 +509,31 @@ export default function Workspace() {
                   <li
                     key={s.id}
                     onClick={() => handleSuggestionClick(s.id, s.kind, s.matchText)}
-                    className={`flex gap-2 text-sm text-gray-300 py-2 px-2 rounded-lg transition-colors ${
+                    className={`flex items-start justify-between gap-2 text-sm text-gray-300 py-2 px-2 rounded-lg transition-colors ${
                       s.kind !== 'info' && s.matchText
                         ? 'cursor-pointer hover:bg-gray-800'
                         : ''
                     }`}
                   >
-                    <span className="text-gray-600 select-none mt-0.5 shrink-0">&bull;</span>
-                    <span>{s.text}</span>
+                    <div className="flex gap-2 min-w-0">
+                      <span className="text-gray-600 select-none mt-0.5 shrink-0">&bull;</span>
+                      <span>{s.text}</span>
+                    </div>
+                    {s.fix && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void applySuggestionFix(s); }}
+                        className="btn btn-secondary text-xs shrink-0"
+                      >
+                        {s.fix.label}
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
+            )}
+            {fixStatus && (
+              <p className="text-xs text-gray-400 pt-1">{fixStatus.msg}</p>
             )}
           </div>
         </div>
@@ -579,22 +659,22 @@ export default function Workspace() {
     } else {
       const firstLongSentIdx = sentenceWordCounts.findIndex((c) => c > 30);
       if (longSentenceCount > 0)
-        suggestions.push({ id: 'long-sent', text: `Consider breaking up ${longSentenceCount} long sentence(s) (30+ words).`, kind: 'sentence', matchText: firstLongSentIdx >= 0 ? sentenceList[firstLongSentIdx] : '' });
+        suggestions.push({ id: 'long-sent', text: `Consider breaking up ${longSentenceCount} long sentence(s) (30+ words).`, kind: 'sentence', matchText: firstLongSentIdx >= 0 ? sentenceList[firstLongSentIdx] : '', fix: { label: 'Split sentence', applyMode: 'apply' } });
 
       const longestSentIdx = sentenceWordCounts.indexOf(longestSentenceWords);
       if (longestSentenceWords >= 45)
-        suggestions.push({ id: 'very-long-sent', text: `One sentence is very long (\u2248${longestSentenceWords} words). Split it for clarity.`, kind: 'sentence', matchText: longestSentIdx >= 0 ? sentenceList[longestSentIdx] : '' });
+        suggestions.push({ id: 'very-long-sent', text: `One sentence is very long (\u2248${longestSentenceWords} words). Split it for clarity.`, kind: 'sentence', matchText: longestSentIdx >= 0 ? sentenceList[longestSentIdx] : '', fix: { label: 'Split sentence', applyMode: 'apply' } });
 
       const firstLongParaIdx = paragraphList.findIndex((p) => countWords(p) > 120);
       if (longParagraphCount > 0)
-        suggestions.push({ id: 'long-para', text: `Consider splitting ${longParagraphCount} long paragraph(s) (120+ words).`, kind: 'paragraph', matchText: firstLongParaIdx >= 0 ? paragraphList[firstLongParaIdx] : '' });
+        suggestions.push({ id: 'long-para', text: `Consider splitting ${longParagraphCount} long paragraph(s) (120+ words).`, kind: 'paragraph', matchText: firstLongParaIdx >= 0 ? paragraphList[firstLongParaIdx] : '', fix: { label: 'Add breaks', applyMode: 'apply' } });
 
       const firstPassiveIdx = sentenceList.findIndex((s) => /\b(am|is|are|was|were|be|been|being)\b\s+\w+(ed|en)\b/i.test(s));
       if (passiveCount > 0)
-        suggestions.push({ id: 'passive', text: `Passive phrasing detected in ${passiveCount} sentence(s). Consider active voice for punch.`, kind: 'sentence', matchText: firstPassiveIdx >= 0 ? sentenceList[firstPassiveIdx] : '' });
+        suggestions.push({ id: 'passive', text: `Passive phrasing detected in ${passiveCount} sentence(s). Consider active voice for punch.`, kind: 'sentence', matchText: firstPassiveIdx >= 0 ? sentenceList[firstPassiveIdx] : '', fix: { label: 'Show suggestion', applyMode: 'suggest' } });
 
       if (paragraphs === 1 && words > 120)
-        suggestions.push({ id: 'one-para', text: 'Try adding paragraph breaks for readability.', kind: 'paragraph', matchText: paragraphList[0] ?? '' });
+        suggestions.push({ id: 'one-para', text: 'Try adding paragraph breaks for readability.', kind: 'paragraph', matchText: paragraphList[0] ?? '', fix: { label: 'Add breaks', applyMode: 'apply' } });
 
       if (readabilityScore !== null && readabilityScore < 45)
         suggestions.push({ id: 'dense', text: 'Readability is dense. Shorten sentences and simplify phrasing.', kind: 'info', matchText: '' });
