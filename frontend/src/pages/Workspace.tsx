@@ -168,6 +168,9 @@ export default function Workspace() {
   });
   const [showPanel, setShowPanel] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [wsTip, setWsTip] = useState<{ show: boolean; x: number; y: number; words: number }>(
+    { show: false, x: 0, y: 0, words: 0 }
+  );
   const [highlightId, setHighlightId] = useState<string>('');
   const [fixStatus, setFixStatus] = useState<{ id: string; msg: string } | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -414,7 +417,7 @@ export default function Workspace() {
       if (!sentence) continue;
       const words = sentence.trim().split(/\s+/).filter(Boolean).length;
       if (words > 28) {
-        rebuilt.push(`<span class="ws-long">${esc(sentence)}</span>`);
+        rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}">${esc(sentence)}</span>`);
       } else {
         rebuilt.push(esc(sentence));
       }
@@ -749,6 +752,7 @@ export default function Workspace() {
         .ws-ul-para{background:rgba(251,191,36,.06);border-radius:4px}
         .ws-write-overlay{position:absolute;inset:0;padding:1rem;white-space:pre-wrap;word-break:break-word;color:transparent;pointer-events:none;font:inherit;line-height:inherit;overflow:hidden}
         .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px}
+        .ws-tip{position:fixed;pointer-events:none;transform:translate(12px,12px);background:#111827;border:1px solid #374151;color:#e5e7eb;font-size:.75rem;line-height:1.4;border-radius:.5rem;padding:.375rem .625rem;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:260px;z-index:9999}
       `}</style>
       {/* A) Header bar */}
       <div className="px-4 md:px-6 pt-4 pb-3 border-b border-gray-800 flex-shrink-0">
@@ -937,7 +941,23 @@ export default function Workspace() {
               </div>
             </div>
           ) : (
-            <div className="relative flex-1 min-h-0">
+            <div
+              className="relative flex-1 min-h-0"
+              onMouseMove={mode === 'write' ? (e) => {
+                const el = (e.target as HTMLElement).closest?.('[data-ws-long="1"]') as HTMLElement | null;
+                if (!el) { if (wsTip.show) setWsTip((s) => ({ ...s, show: false })); return; }
+                const words = Number(el.getAttribute('data-ws-words') ?? '0');
+                setWsTip({ show: true, x: e.clientX, y: e.clientY, words });
+              } : undefined}
+              onMouseLeave={mode === 'write' ? () => setWsTip((s) => ({ ...s, show: false })) : undefined}
+              onClick={mode === 'write' ? (e) => {
+                const el = (e.target as HTMLElement).closest?.('[data-ws-long="1"]') as HTMLElement | null;
+                if (!el) return;
+                setMode('review');
+                setShowPanel(false);
+                setWsTip((s) => ({ ...s, show: false }));
+              } : undefined}
+            >
               <textarea
                 ref={textareaRef}
                 value={body}
@@ -1001,6 +1021,13 @@ export default function Workspace() {
           Review
         </button>
       </div>
+
+      {mode === 'write' && wsTip.show && (
+        <div className="ws-tip" style={{ left: wsTip.x, top: wsTip.y }}>
+          <div style={{ fontWeight: 600, color: '#f3f4f6' }}>Long sentence</div>
+          <div style={{ color: '#d1d5db', marginTop: 2 }}>{wsTip.words} words — tap Review to fix.</div>
+        </div>
+      )}
     </div>
   );
 }
