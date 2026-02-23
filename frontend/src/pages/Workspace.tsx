@@ -10,6 +10,12 @@ const MODE_KEY       = 'ficshon.writespace.mode';
 const REALM_KEY      = 'ficshon.writespace.selected_realm_id';
 const CHARACTER_KEY  = 'ficshon.writespace.selected_character_id';
 
+const EDITOR_TEXT    = 'text-[16px] md:text-[17px] lg:text-[18px]';
+const EDITOR_LEADING = 'leading-[1.75]';
+const EDITOR_FONT    = 'font-normal';
+const EDITOR_TRACKING = 'tracking-[0.01em]';
+const PAPER = 'bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)]';
+
 const MOCK_CHARACTERS = [
   { id: 0, name: 'No character' },
   { id: 1, name: 'Arleth Vane' },
@@ -765,9 +771,11 @@ export default function Workspace() {
         .ws-ul-sentence{text-decoration:underline;text-decoration-color:rgba(251,191,36,.6);text-decoration-thickness:2px}
         .ws-ul-passive{text-decoration:underline dotted;text-decoration-color:rgba(96,165,250,.7)}
         .ws-ul-para{background:rgba(251,191,36,.06);border-radius:4px}
-        .ws-write-overlay{position:absolute;inset:0;padding:1rem;white-space:pre-wrap;word-break:break-word;color:transparent;pointer-events:none;font:inherit;line-height:inherit;overflow:hidden}
+        .ws-write-overlay{position:absolute;inset:0;padding:1rem;border-radius:1rem;white-space:pre-wrap;word-break:break-word;color:transparent;pointer-events:none;font:inherit;line-height:inherit;overflow:hidden}
+        @media(min-width:768px){.ws-write-overlay{padding:1.25rem}}
         .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px}
         .ws-tip{position:fixed;pointer-events:none;transform:translate(12px,12px);background:#111827;border:1px solid #374151;color:#e5e7eb;font-size:.75rem;line-height:1.4;border-radius:.5rem;padding:.375rem .625rem;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:260px;z-index:9999}
+        ::selection{background:rgba(52,211,153,.25)}
       `}</style>
       {/* A) Header bar */}
       <div className="px-4 md:px-6 pt-4 pb-3 border-b border-gray-800 flex-shrink-0">
@@ -826,8 +834,8 @@ export default function Workspace() {
       {/* B) Main content */}
       <div className="flex flex-1 min-h-0 relative">
         {/* B) Editor column: toolbar + textarea */}
-        <div className="flex-1 flex flex-col min-w-0 px-4 md:px-6 py-4 gap-3">
-        <div className={focusMode ? "max-w-3xl mx-auto w-full flex flex-col gap-3 flex-1 min-h-0" : "contents"}>
+        <div className="flex-1 flex flex-col min-w-0 px-4 md:px-6 py-4">
+        <div className={`flex flex-col gap-3 flex-1 min-h-0 w-full ${focusMode ? 'max-w-[760px] mx-auto' : 'max-w-none'}`}>
           {/* Write / Preview / Review toggle */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
@@ -900,32 +908,32 @@ export default function Workspace() {
           )}
 
           {/* Formatting toolbar */}
-          <div className={`flex gap-2 overflow-x-auto pb-1 flex-shrink-0${focusMode ? ' opacity-60 hover:opacity-100 transition' : ''}`}>
+          <div className={`flex gap-2 py-1 overflow-x-auto flex-shrink-0 top-0 z-10${focusMode ? ' opacity-60 hover:opacity-100 transition' : ''}`}>
             <button
               type="button"
               onClick={() => insertAroundSelection('**')}
-              className="px-3 py-1 text-sm rounded-md border border-gray-700 hover:bg-gray-800"
+              className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Bold
             </button>
             <button
               type="button"
               onClick={() => insertAroundSelection('*', '*')}
-              className="px-3 py-1 text-sm rounded-md border border-gray-700 hover:bg-gray-800"
+              className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Italic
             </button>
             <button
               type="button"
               onClick={insertHeaderPrefix}
-              className="px-3 py-1 text-sm rounded-md border border-gray-700 hover:bg-gray-800"
+              className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Header
             </button>
             <button
               type="button"
               onClick={() => setBody((prev) => prev + '\n\n---\n\n')}
-              className="px-3 py-1 text-sm rounded-md border border-gray-700 hover:bg-gray-800"
+              className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Scene break
             </button>
@@ -942,7 +950,7 @@ export default function Workspace() {
 
           {mode === 'preview' ? (
             <div
-              className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 overflow-y-auto"
+              className={`flex-1 min-h-0 rounded-2xl p-4 md:p-5 ${PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} text-gray-200 overflow-y-auto`}
               onClick={(e) => {
                 const el = (e.target as HTMLElement).closest('[data-ws-id]');
                 const id = el?.getAttribute('data-ws-id');
@@ -951,7 +959,7 @@ export default function Workspace() {
                 if (s) handleSuggestionClick(s.id, s.kind, s.matchText, 'review');
               }}
             >
-              <div className="text-gray-300 text-base leading-relaxed space-y-3">
+              <div className={`text-gray-200 ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} space-y-4`}>
                 {renderPreview(body)}
               </div>
             </div>
@@ -995,7 +1003,7 @@ export default function Workspace() {
                 onScroll={(e) => {
                   if (overlayRef.current) overlayRef.current.scrollTop = e.currentTarget.scrollTop;
                 }}
-                className="absolute inset-0 w-full h-full bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 resize-none outline-none placeholder-gray-600 focus:border-gray-700"
+                className={`absolute inset-0 w-full h-full rounded-2xl p-4 md:p-5 ${PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} text-gray-200 resize-none outline-none placeholder-gray-600 caret-emerald-300`}
               />
               {mode === 'write' && renderWriteOverlay(body)}
             </div>
@@ -1028,17 +1036,17 @@ export default function Workspace() {
 
       {/* E) Mobile sticky bottom bar */}
       <div className="lg:hidden sticky bottom-0 border-t border-gray-800 bg-gray-950 px-4 py-3 flex gap-2">
-        <button className="btn btn-primary flex-1 text-sm">
+        <button className="btn btn-primary flex-1 text-sm h-11 rounded-xl">
           Publish
         </button>
         <button
-          className="btn btn-secondary flex-1 text-sm"
+          className="btn btn-secondary flex-1 text-sm h-11 rounded-xl"
           onClick={() => setMode('preview')}
         >
           Preview
         </button>
         <button
-          className="btn btn-secondary flex-1 text-sm"
+          className="btn btn-secondary flex-1 text-sm h-11 rounded-xl"
           onClick={() => setMode('review')}
         >
           Review
