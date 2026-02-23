@@ -6,6 +6,9 @@ import type { Realm } from '@/lib/types';
 const TITLE_KEY      = 'ficshon.workspace.title';
 const BODY_KEY       = 'ficshon.workspace.body';
 const PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
+const MODE_KEY       = 'ficshon.writespace.mode';
+const REALM_KEY      = 'ficshon.writespace.selected_realm_id';
+const CHARACTER_KEY  = 'ficshon.writespace.selected_character_id';
 
 const MOCK_CHARACTERS = [
   { id: 0, name: 'No character' },
@@ -91,42 +94,50 @@ type ReviewSuggestion = {
 
 export default function Workspace() {
   const navigate = useNavigate();
-  const [title, setTitle] = useState('');
-  const [body, setBody]   = useState('');
-  const [characterId, setCharacterId] = useState(0);
+  const [title, setTitle] = useState(() => localStorage.getItem(TITLE_KEY) ?? '');
+  const [body, setBody]   = useState(() => localStorage.getItem(BODY_KEY)  ?? '');
+  const [characterId, setCharacterId] = useState<number>(() => {
+    const v = localStorage.getItem(CHARACTER_KEY);
+    if (!v) return 0;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [saveTick, setSaveTick] = useState(0);
-  const [mode, setMode] = useState<'write' | 'preview' | 'review'>('write');
+  const [mode, setMode] = useState<'write' | 'preview' | 'review'>(() => {
+    const v = localStorage.getItem(MODE_KEY);
+    return v === 'preview' || v === 'review' || v === 'write' ? v : 'write';
+  });
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
   const [realms, setRealms] = useState<Realm[]>([]);
-  const [selectedRealmId, setSelectedRealmId] = useState<number | null>(null);
+  const [selectedRealmId, setSelectedRealmId] = useState<number | null>(() => {
+    const v = localStorage.getItem(REALM_KEY);
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  });
   const [showPanel, setShowPanel] = useState(false);
   const [highlightId, setHighlightId] = useState<string>('');
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load saved draft on mount
-  useEffect(() => {
-    const savedTitle = localStorage.getItem(TITLE_KEY);
-    const savedBody  = localStorage.getItem(BODY_KEY);
-    if (savedTitle) setTitle(savedTitle);
-    if (savedBody)  setBody(savedBody);
-  }, []);
-
-  // Debounced autosave
+  // Debounced autosave — persists draft content + UI context
   useEffect(() => {
     setIsSaving(true);
     const t = setTimeout(() => {
       localStorage.setItem(TITLE_KEY, title);
       localStorage.setItem(BODY_KEY, body);
+      localStorage.setItem(MODE_KEY, mode);
+      localStorage.setItem(REALM_KEY, selectedRealmId === null ? '' : String(selectedRealmId));
+      localStorage.setItem(CHARACTER_KEY, String(characterId));
       setIsSaving(false);
       setLastSavedAt(Date.now());
     }, 500);
     return () => clearTimeout(t);
-  }, [title, body]);
+  }, [title, body, mode, selectedRealmId, characterId]);
 
   useEffect(() => {
     if (!lastSavedAt) return;
@@ -135,6 +146,11 @@ export default function Workspace() {
     }, 10000);
     return () => clearInterval(i);
   }, [lastSavedAt]);
+
+  // Persist UI preferences immediately (no typing debounce needed for these)
+  useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
+  useEffect(() => { localStorage.setItem(REALM_KEY, selectedRealmId === null ? '' : String(selectedRealmId)); }, [selectedRealmId]);
+  useEffect(() => { localStorage.setItem(CHARACTER_KEY, String(characterId)); }, [characterId]);
 
   // Load non-commons realms for the destination selector
   useEffect(() => {
