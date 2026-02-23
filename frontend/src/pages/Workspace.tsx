@@ -82,6 +82,13 @@ function detectPassiveSentences(sentences: string[]): number {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+type ReviewSuggestion = {
+  id: string;
+  text: string;
+  kind: 'sentence' | 'paragraph' | 'info';
+  matchText: string;
+};
+
 export default function Workspace() {
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
@@ -97,6 +104,8 @@ export default function Workspace() {
   const [realms, setRealms] = useState<Realm[]>([]);
   const [selectedRealmId, setSelectedRealmId] = useState<number | null>(null);
   const [showPanel, setShowPanel] = useState(false);
+  const [highlightId, setHighlightId] = useState<string>('');
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load saved draft on mount
@@ -132,6 +141,22 @@ export default function Workspace() {
     apiClient.getRealms()
       .then((all) => setRealms(all.filter((r) => !r.is_commons)))
       .catch(() => { /* non-fatal: selector stays empty */ });
+  }, []);
+
+  // Scroll to highlighted element whenever preview becomes active with a highlight
+  useEffect(() => {
+    if (mode === 'preview' && highlightId) {
+      requestAnimationFrame(() => {
+        document.getElementById(`ws-hl-${highlightId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+  }, [mode, highlightId]);
+
+  // Cleanup highlight timer on unmount
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
   }, []);
 
   const handlePublishToCommons = async () => {
@@ -230,50 +255,89 @@ export default function Workspace() {
     }
   }
 
+  function handleSuggestionClick(id: string, kind: ReviewSuggestion['kind'], matchText: string) {
+    setMode('preview');
+    setShowPanel(false);
+    if (kind !== 'info' && matchText) {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      setHighlightId(id);
+      highlightTimerRef.current = setTimeout(() => setHighlightId(''), 2000);
+    }
+  }
+
   function renderPreview(text: string) {
     if (!text.trim()) {
-      return (
-        <p className="text-gray-500 text-sm">Nothing to preview yet.</p>
-      );
+      return <p className="text-gray-500 text-sm">Nothing to preview yet.</p>;
     }
 
     // Escape HTML first for safety
-    let html = text
+    let escaped = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
     // Scene breaks
-    html = html.replace(/^---$/gm, '<hr class="border-gray-700 my-6" />');
+    escaped = escaped.replace(/^---$/gm, '<hr class="border-gray-700 my-6" />');
 
     // Headers
-    html = html.replace(/^## (.*)$/gm, '<h2 class="text-xl font-semibold mt-6 mb-2">$1</h2>');
+    escaped = escaped.replace(/^## (.*)$/gm, '<h2 class="text-xl font-semibold mt-6 mb-2">$1</h2>');
 
     // Bold
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
     // Italic
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    escaped = escaped.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
-    // Split into paragraphs on blank lines
-    const paragraphs = html
-      .split(/\n{2,}/)
-      .map((p) => p.trim())
-      .filter(Boolean);
+    // Split in parallel: raw for matching, escaped for rendering
+    const rawParas  = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    const htmlParas = escaped.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
 
-    if (!paragraphs.length) {
+    if (!htmlParas.length) {
       return <span className="text-gray-500">Nothing to preview yet.</span>;
     }
 
-    // Single newlines within a paragraph become <br/>; wrap each block in <p>
-    html = paragraphs
-      .map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
-      .join('');
+    // Active suggestion (if any) drives highlighting
+    const activeSug = highlightId
+      ? review.suggestions.find((s) => s.id === highlightId)
+      : undefined;
+
+    const finalHtml = htmlParas.map((paraHtml, i) => {
+      const rawPara = rawParas[i] ?? '';
+      const content = paraHtml.replace(/\n/g, '<br/>');
+
+      if (!activeSug || !activeSug.matchText) {
+        return `<p>${content}</p>`;
+      }
+
+      if (activeSug.kind === 'paragraph') {
+        if (rawPara.trim() === activeSug.matchText.trim()) {
+          return `<p id="ws-hl-${activeSug.id}"><mark class="ws-hl">${content}</mark></p>`;
+        }
+      } else if (activeSug.kind === 'sentence') {
+        // Check if the sentence lives in this paragraph (compare flattened raw text)
+        const rawFlat = rawPara.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+        if (rawFlat.includes(activeSug.matchText)) {
+          // Try to locate and wrap just the sentence in the transformed HTML
+          const escapedSentence = activeSug.matchText
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>');
+          const highlighted = content.includes(escapedSentence)
+            ? content.replace(escapedSentence, `<mark class="ws-hl">${escapedSentence}</mark>`)
+            : `<mark class="ws-hl">${content}</mark>`; // fallback: highlight whole paragraph
+          return `<p id="ws-hl-${activeSug.id}">${highlighted}</p>`;
+        }
+      }
+
+      return `<p>${content}</p>`;
+    }).join('');
 
     return (
       <div
         className="prose prose-invert max-w-none leading-relaxed"
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={{ __html: finalHtml }}
       />
     );
   }
@@ -310,10 +374,18 @@ export default function Workspace() {
             {review.suggestions.length === 0 ? (
               <p className="text-sm text-gray-500">No suggestions right now.</p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-1">
                 {review.suggestions.map((s) => (
-                  <li key={s.id} className="flex gap-2 text-sm text-gray-300">
-                    <span className="text-gray-600 select-none mt-0.5">&bull;</span>
+                  <li
+                    key={s.id}
+                    onClick={() => handleSuggestionClick(s.id, s.kind, s.matchText)}
+                    className={`flex gap-2 text-sm text-gray-300 py-2 px-2 rounded-lg transition-colors ${
+                      s.kind !== 'info' && s.matchText
+                        ? 'cursor-pointer hover:bg-gray-800'
+                        : ''
+                    }`}
+                  >
+                    <span className="text-gray-600 select-none mt-0.5 shrink-0">&bull;</span>
                     <span>{s.text}</span>
                   </li>
                 ))}
@@ -437,24 +509,34 @@ export default function Workspace() {
       : readabilityScore >= 45  ? 'Medium'
       : 'Dense';
 
-    const suggestions: Array<{ id: string; text: string }> = [];
+    const suggestions: ReviewSuggestion[] = [];
     if (words === 0) {
-      suggestions.push({ id: 'empty', text: 'Start writing to see suggestions.' });
+      suggestions.push({ id: 'empty', text: 'Start writing to see suggestions.', kind: 'info', matchText: '' });
     } else {
+      const firstLongSentIdx = sentenceWordCounts.findIndex((c) => c > 30);
       if (longSentenceCount > 0)
-        suggestions.push({ id: 'long-sent', text: `Consider breaking up ${longSentenceCount} long sentence(s) (30+ words).` });
+        suggestions.push({ id: 'long-sent', text: `Consider breaking up ${longSentenceCount} long sentence(s) (30+ words).`, kind: 'sentence', matchText: firstLongSentIdx >= 0 ? sentenceList[firstLongSentIdx] : '' });
+
+      const longestSentIdx = sentenceWordCounts.indexOf(longestSentenceWords);
       if (longestSentenceWords >= 45)
-        suggestions.push({ id: 'very-long-sent', text: `One sentence is very long (\u2248${longestSentenceWords} words). Split it for clarity.` });
+        suggestions.push({ id: 'very-long-sent', text: `One sentence is very long (\u2248${longestSentenceWords} words). Split it for clarity.`, kind: 'sentence', matchText: longestSentIdx >= 0 ? sentenceList[longestSentIdx] : '' });
+
+      const firstLongParaIdx = paragraphList.findIndex((p) => countWords(p) > 120);
       if (longParagraphCount > 0)
-        suggestions.push({ id: 'long-para', text: `Consider splitting ${longParagraphCount} long paragraph(s) (120+ words).` });
+        suggestions.push({ id: 'long-para', text: `Consider splitting ${longParagraphCount} long paragraph(s) (120+ words).`, kind: 'paragraph', matchText: firstLongParaIdx >= 0 ? paragraphList[firstLongParaIdx] : '' });
+
+      const firstPassiveIdx = sentenceList.findIndex((s) => /\b(am|is|are|was|were|be|been|being)\b\s+\w+(ed|en)\b/i.test(s));
       if (passiveCount > 0)
-        suggestions.push({ id: 'passive', text: `Passive phrasing detected in ${passiveCount} sentence(s). Consider active voice for punch.` });
+        suggestions.push({ id: 'passive', text: `Passive phrasing detected in ${passiveCount} sentence(s). Consider active voice for punch.`, kind: 'sentence', matchText: firstPassiveIdx >= 0 ? sentenceList[firstPassiveIdx] : '' });
+
       if (paragraphs === 1 && words > 120)
-        suggestions.push({ id: 'one-para', text: 'Try adding paragraph breaks for readability.' });
+        suggestions.push({ id: 'one-para', text: 'Try adding paragraph breaks for readability.', kind: 'paragraph', matchText: paragraphList[0] ?? '' });
+
       if (readabilityScore !== null && readabilityScore < 45)
-        suggestions.push({ id: 'dense', text: 'Readability is dense. Shorten sentences and simplify phrasing.' });
+        suggestions.push({ id: 'dense', text: 'Readability is dense. Shorten sentences and simplify phrasing.', kind: 'info', matchText: '' });
+
       if (readabilityScore !== null && readabilityScore >= 60)
-        suggestions.push({ id: 'easy', text: 'Readability is strong. Nice flow.' });
+        suggestions.push({ id: 'easy', text: 'Readability is strong. Nice flow.', kind: 'info', matchText: '' });
     }
 
     return {
@@ -467,6 +549,7 @@ export default function Workspace() {
 
   return (
     <div className="w-full h-[calc(100vh-24px)] flex flex-col bg-gray-950">
+      <style>{`.ws-hl{background:rgba(52,211,153,.15);border-radius:3px;padding:0 2px;outline:1px solid rgba(52,211,153,.4)}`}</style>
       {/* A) Header bar */}
       <div className="px-4 md:px-6 pt-4 pb-3 border-b border-gray-800 flex-shrink-0">
         <div className="flex flex-wrap items-center gap-3">
