@@ -170,6 +170,7 @@ export default function Workspace() {
   const [focusMode, setFocusMode] = useState(false);
   const [highlightId, setHighlightId] = useState<string>('');
   const [fixStatus, setFixStatus] = useState<{ id: string; msg: string } | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fixTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -421,6 +422,7 @@ export default function Workspace() {
 
     return (
       <div
+        ref={overlayRef}
         className="ws-write-overlay"
         aria-hidden="true"
         dangerouslySetInnerHTML={{ __html: rebuilt.join('') }}
@@ -947,6 +949,9 @@ export default function Workspace() {
                 inputMode="text"
                 aria-label="WriteSpace editor"
                 aria-describedby="writespace-editor-hints"
+                onScroll={(e) => {
+                  if (overlayRef.current) overlayRef.current.scrollTop = e.currentTarget.scrollTop;
+                }}
                 className="absolute inset-0 w-full h-full bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 resize-none outline-none placeholder-gray-600 focus:border-gray-700"
               />
               {mode === 'write' && renderWriteOverlay(body)}
