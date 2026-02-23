@@ -281,6 +281,54 @@ export default function Workspace() {
     }
   }
 
+  function renderLiveChecks() {
+    const checks = review.suggestions.filter((s) => s.kind !== 'info').slice(0, 6);
+
+    function labelFor(id: string) {
+      if (id === 'long-sent' || id === 'very-long-sent') return 'Long sentence';
+      if (id === 'passive') return 'Passive voice';
+      if (id === 'long-para' || id === 'one-para') return 'Long paragraph';
+      return 'Issue';
+    }
+
+    return (
+      <div className="shrink-0 mt-3 border border-gray-800 rounded-xl bg-gray-900/40">
+        <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
+          <span className="text-xs font-semibold text-gray-300">Live Checks</span>
+          {checks.length > 0 && (
+            <span className="text-xs text-gray-500">
+              {checks.length} {checks.length === 1 ? 'issue' : 'issues'}
+            </span>
+          )}
+        </div>
+        {checks.length === 0 ? (
+          <div className="px-3 py-2 text-xs text-emerald-300">\u2705 No issues detected</div>
+        ) : (
+          <ul className="divide-y divide-gray-800">
+            {checks.map((s) => {
+              const maxLen = s.kind === 'paragraph' ? 140 : 120;
+              const snippet = s.matchText.length > maxLen
+                ? s.matchText.slice(0, maxLen) + '\u2026'
+                : s.matchText;
+              return (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => handleSuggestionClick(s.id, s.kind, s.matchText)}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-800/60 transition-colors"
+                  >
+                    <div>{snippet}</div>
+                    <div className="mt-1 text-[11px] text-gray-500">{labelFor(s.id)}</div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
   function renderPreview(text: string) {
     if (!text.trim()) {
       return <p className="text-gray-500 text-sm">Nothing to preview yet.</p>;
@@ -742,6 +790,8 @@ export default function Workspace() {
               className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 resize-none outline-none placeholder-gray-600 focus:border-gray-700"
             />
           )}
+
+          {mode === 'write' && body.trim() && renderLiveChecks()}
         </div>
 
         {/* C) Desktop sidebar */}
