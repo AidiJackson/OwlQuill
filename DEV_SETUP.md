@@ -1,4 +1,4 @@
-# OwlQuill Development Setup
+# Ficshon Development Setup
 
 ## Running in Replit (Recommended) 🚀
 
@@ -74,7 +74,7 @@ If you're developing on your local machine instead of Replit:
 1. **Clone and checkout the branch:**
    ```bash
    git clone <repo-url>
-   cd OwlQuill
+   cd ficshon
    git checkout claude/owlquill-mvp-scaffold-01-01LsA63K16RBXUq5vjjnqBcf
    ```
 
@@ -151,7 +151,7 @@ Make sure both services are running and check the console for errors.
 ## Project Structure
 
 ```
-OwlQuill/
+Ficshon/
 ├── backend/          # FastAPI backend
 │   ├── app/
 │   │   ├── api/      # API routes

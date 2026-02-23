@@ -105,7 +105,7 @@ export default function AvatarPickerModal({ open, onClose, onSaved }: Props) {
                       onClick={() => setPicked(img)}
                       className={`rounded-lg overflow-hidden border-2 transition-colors aspect-square ${
                         picked?.id === img.id && picked?.type === img.type
-                          ? 'border-owl-500 ring-2 ring-owl-500/30'
+                          ? 'border-emerald-500 ring-2 ring-emerald-500/30'
                           : 'border-gray-800 hover:border-gray-600'
                       }`}
                     >

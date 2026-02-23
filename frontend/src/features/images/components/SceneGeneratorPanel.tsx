@@ -56,7 +56,7 @@ export default function SceneGeneratorPanel({ characterId, onGenerated, onGenera
   return (
     <div className="border border-gray-800 rounded-lg bg-gray-900/50 p-4 space-y-3">
       <div className="flex items-center gap-2">
-        <ImageIcon className="w-4 h-4 text-owl-400" />
+        <ImageIcon className="w-4 h-4 text-emerald-400" />
         <h3 className="text-sm font-medium text-gray-300">Scene Generator</h3>
       </div>
 

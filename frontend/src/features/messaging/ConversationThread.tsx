@@ -172,7 +172,7 @@ export default function ConversationThread() {
                 <div
                   className={`max-w-[75%] rounded-lg px-3 py-2 ${
                     isMine
-                      ? 'bg-owl-600/20 border border-owl-600/30 text-gray-200'
+                      ? 'bg-emerald-600/20 border border-emerald-600/30 text-gray-200'
                       : 'bg-gray-800 border border-gray-700 text-gray-300'
                   }`}
                 >
@@ -206,7 +206,7 @@ export default function ConversationThread() {
             onKeyDown={handleKeyDown}
             placeholder="Write a message…"
             rows={1}
-            className="flex-1 resize-none overflow-y-hidden bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-owl-500"
+            className="flex-1 resize-none overflow-y-hidden bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-emerald-500"
           />
           <button
             onClick={handleSend}

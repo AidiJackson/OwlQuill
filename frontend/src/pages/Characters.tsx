@@ -355,7 +355,7 @@ export default function Characters() {
                   type="button"
                   onClick={handleGenerateBio}
                   disabled={generatingBio}
-                  className="text-sm text-owl-500 hover:text-owl-400 disabled:opacity-50"
+                  className="text-sm text-emerald-500 hover:text-emerald-400 disabled:opacity-50"
                 >
                   {generatingBio ? 'Generating...' : '✨ AI Suggest Bio'}
                 </button>
@@ -445,7 +445,7 @@ export default function Characters() {
                   {character.tags.split(',').map((tag, i) => (
                     <span
                       key={i}
-                      className="px-2 py-1 bg-owl-900 text-owl-300 text-xs rounded"
+                      className="px-2 py-1 bg-emerald-900 text-emerald-300 text-xs rounded"
                     >
                       {tag.trim()}
                     </span>

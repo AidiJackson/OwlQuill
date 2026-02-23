@@ -16,8 +16,8 @@ export default function StepBasics({ data, onChange, onNext }: Props) {
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <div className="mx-auto w-12 h-12 rounded-full bg-owl-600/20 flex items-center justify-center">
-          <User className="w-6 h-6 text-owl-400" />
+        <div className="mx-auto w-12 h-12 rounded-full bg-emerald-600/20 flex items-center justify-center">
+          <User className="w-6 h-6 text-emerald-400" />
         </div>
         <h2 className="text-xl font-semibold text-gray-100">Create Your Character</h2>
         <p className="text-sm text-gray-400">Start with the basics — you can always refine later.</p>
@@ -26,7 +26,7 @@ export default function StepBasics({ data, onChange, onNext }: Props) {
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-1">
-            Name <span className="text-owl-400">*</span>
+            Name <span className="text-emerald-400">*</span>
           </label>
           <input
             className="input"

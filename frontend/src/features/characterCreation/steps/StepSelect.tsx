@@ -58,7 +58,7 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
               onClick={() => onSelect(i)}
               className={`rounded-lg overflow-hidden border-2 transition-all relative group ${
                 isSelected
-                  ? 'border-owl-500 ring-2 ring-owl-500/30'
+                  ? 'border-emerald-500 ring-2 ring-emerald-500/30'
                   : 'border-gray-800 hover:border-gray-600'
               }`}
             >
@@ -79,7 +79,7 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
               </div>
               {/* Selected badge */}
               {isSelected && (
-                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-owl-600 text-white text-xs font-medium px-2 py-0.5 rounded-full">
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-emerald-600 text-white text-xs font-medium px-2 py-0.5 rounded-full">
                   <Check className="w-3 h-3" />
                   Primary
                 </div>

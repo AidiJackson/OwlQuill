@@ -1,10 +1,10 @@
-# OwlQuill Development Workflow
+# Ficshon Development Workflow
 
-This document describes the recommended workflow for developing OwlQuill using GitHub, Claude Code, and Replit.
+This document describes the recommended workflow for developing Ficshon using GitHub, Claude Code, and Replit.
 
 ## Overview
 
-The OwlQuill project uses a distributed development workflow:
+The Ficshon project uses a distributed development workflow:
 
 1. **GitHub** - Source of truth and version control
 2. **Claude Code (Local/CLI)** - For scaffolding and major development

@@ -1,8 +1,8 @@
-# OwlQuill
+# Ficshon
 
 > A roleplay-first social network for creative storytellers and character enthusiasts
 
-OwlQuill is a full-stack web application designed for role-players, fanfic writers, and creative communities. Think "Facebook for role-players" — a beautiful, premium platform where users create original characters, join immersive realms (RP groups), and collaboratively build ongoing storylines with AI-enhanced tools.
+Ficshon is a full-stack web application designed for role-players, fanfic writers, and creative communities. Think "Facebook for role-players" — a beautiful, premium platform where users create original characters, join immersive realms (RP groups), and collaboratively build ongoing storylines with AI-enhanced tools.
 
 ## Features
 
@@ -43,7 +43,7 @@ OwlQuill is a full-stack web application designed for role-players, fanfic write
 ## Project Structure
 
 ```
-OwlQuill/
+Ficshon/
 ├── backend/
 │   ├── app/
 │   │   ├── api/routes/       # API endpoints

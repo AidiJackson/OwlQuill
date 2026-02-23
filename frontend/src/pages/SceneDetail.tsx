@@ -118,7 +118,7 @@ export default function SceneDetail() {
             <div key={p.id} className="card">
               <div className="flex items-center gap-2 mb-2">
                 {p.character_name ? (
-                  <span className="text-sm font-medium text-owl-400">{p.character_name}</span>
+                  <span className="text-sm font-medium text-emerald-400">{p.character_name}</span>
                 ) : p.author_username ? (
                   <span className="text-sm text-gray-400">@{p.author_username}</span>
                 ) : null}

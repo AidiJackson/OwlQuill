@@ -21,4 +21,4 @@ run:
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
-	rm -f owlquill.db
+	rm -f ficshon.db

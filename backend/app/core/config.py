@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False  # Default to production-safe value
 
     # Database
-    DATABASE_URL: str = "sqlite:///./owlquill.db"
+    DATABASE_URL: str = "sqlite:///./ficshon.db"
     DB_ECHO: bool = False
 
     # Security

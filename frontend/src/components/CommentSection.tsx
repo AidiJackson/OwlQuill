@@ -55,7 +55,7 @@ export default function CommentSection({ postId, characters, defaultExpanded = f
   const getTypeBadge = (type?: string) => {
     if (!type) return null;
     const badges: Record<string, { label: string; className: string }> = {
-      ic: { label: 'IC', className: 'bg-purple-600 text-white' },
+      ic: { label: 'IC', className: 'bg-emerald-600 text-white' },
       ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
       narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' },
     };
@@ -90,7 +90,7 @@ export default function CommentSection({ postId, characters, defaultExpanded = f
                     <div className="flex items-center gap-2 mb-1">
                       {getTypeBadge(comment.content_type)}
                       {charName && (
-                        <span className="text-sm font-medium text-owl-400">{charName}</span>
+                        <span className="text-sm font-medium text-emerald-400">{charName}</span>
                       )}
                       <span className="text-xs text-gray-500">
                         {new Date(comment.created_at).toLocaleDateString()}

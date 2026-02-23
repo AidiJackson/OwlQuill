@@ -160,7 +160,7 @@ export default function RealmDetail() {
 
   const getPostTypeBadge = (contentType: string) => {
     const badges = {
-      ic: { label: 'IC', className: 'bg-purple-600 text-white' },
+      ic: { label: 'IC', className: 'bg-emerald-600 text-white' },
       ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
       narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' },
     };
@@ -231,7 +231,7 @@ export default function RealmDetail() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-3xl font-bold">{realm.name}</h1>
-              {realm.tagline && <p className="text-owl-400 italic mt-1">{realm.tagline}</p>}
+              {realm.tagline && <p className="text-emerald-400 italic mt-1">{realm.tagline}</p>}
             </div>
             <div className="flex items-center gap-4">
               <span className={`px-3 py-1 text-sm rounded ${realm.is_public ? 'bg-green-600' : 'bg-gray-600'}`}>
@@ -252,7 +252,7 @@ export default function RealmDetail() {
           {realm.genre && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-500">Genre:</span>
-              <span className="text-sm text-owl-300">{realm.genre}</span>
+              <span className="text-sm text-emerald-300">{realm.genre}</span>
             </div>
           )}
         </div>
@@ -341,7 +341,7 @@ export default function RealmDetail() {
             {scenes.map((s) => (
               <div
                 key={s.id}
-                className="card flex items-center justify-between cursor-pointer hover:border-owl-500 transition-colors"
+                className="card flex items-center justify-between cursor-pointer hover:border-emerald-500 transition-colors"
                 onClick={() => navigate(`/scenes/${s.id}`)}
               >
                 <div>
@@ -569,9 +569,9 @@ export default function RealmDetail() {
                       {getPostTypeBadge(post.content_type)}
                       {getPostKindBadge(post.post_kind)}
                       {characterName ? (
-                        <span className="text-sm font-medium text-owl-400">{characterName}</span>
+                        <span className="text-sm font-medium text-emerald-400">{characterName}</span>
                       ) : post.author_username ? (
-                        <Link to={`/u/${encodeURIComponent(post.author_username)}`} className="text-sm text-gray-400 hover:text-owl-300 hover:underline transition-colors">@{post.author_username}</Link>
+                        <Link to={`/u/${encodeURIComponent(post.author_username)}`} className="text-sm text-gray-400 hover:text-emerald-300 hover:underline transition-colors">@{post.author_username}</Link>
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2">

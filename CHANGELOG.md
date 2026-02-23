@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the OwlQuill project will be documented in this file.
+All notable changes to the Ficshon project will be documented in this file.
 
 ## [Phase 2] - 2025-11-16 - Playable Social MVP
 

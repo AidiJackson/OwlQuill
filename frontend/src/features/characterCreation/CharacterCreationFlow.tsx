@@ -184,7 +184,7 @@ export default function CharacterCreationFlow() {
       <div className="border-b border-gray-800 bg-gray-900/50">
         <div className="max-w-xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2 text-gray-400">
-            <Feather className="w-5 h-5 text-owl-400" />
+            <Feather className="w-5 h-5 text-emerald-400" />
             <span className="text-sm font-medium">New Character</span>
           </div>
           <button
@@ -204,9 +204,9 @@ export default function CharacterCreationFlow() {
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
                   i === step
-                    ? 'bg-owl-600 text-white'
+                    ? 'bg-emerald-600 text-white'
                     : i < step
-                      ? 'bg-owl-800 text-owl-300'
+                      ? 'bg-emerald-800 text-emerald-300'
                       : 'bg-gray-800 text-gray-500'
                 }`}
               >
@@ -215,7 +215,7 @@ export default function CharacterCreationFlow() {
               {i < STEP_LABELS.length - 1 && (
                 <div
                   className={`w-6 sm:w-10 h-0.5 transition-colors ${
-                    i < step ? 'bg-owl-600' : 'bg-gray-800'
+                    i < step ? 'bg-emerald-600' : 'bg-gray-800'
                   }`}
                 />
               )}

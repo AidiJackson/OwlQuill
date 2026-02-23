@@ -130,7 +130,7 @@ export default function MessageNew() {
                 setSelectedFromId(ch.id);
                 startConversation(ch.id);
               }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-700 hover:border-owl-500/50 hover:bg-gray-800/50 transition-colors text-left"
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-700 hover:border-emerald-500/50 hover:bg-gray-800/50 transition-colors text-left"
             >
               {ch.avatar_url ? (
                 <img

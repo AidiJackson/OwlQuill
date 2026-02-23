@@ -92,7 +92,7 @@ export default function UserProfile() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-quill-500/30 border-t-quill-500 rounded-full animate-spin mx-auto mb-4" />
+          <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mx-auto mb-4" />
           <p className="text-[#E8ECEF]/60">Loading profile...</p>
         </div>
       </div>
@@ -134,7 +134,7 @@ export default function UserProfile() {
   return (
     <div className="min-h-screen bg-[#0F1419]">
       {/* === HERO SECTION — cover fills behind the fixed nav === */}
-      <div className="relative h-[380px] sm:h-[440px] md:h-[500px] w-full overflow-hidden bg-gradient-to-br from-quill-700 via-quill-600 to-quill-500">
+      <div className="relative h-[380px] sm:h-[440px] md:h-[500px] w-full overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500">
         {/* Cover image (if set) */}
         {profile.cover_url && (
           <img
@@ -207,7 +207,7 @@ export default function UserProfile() {
 
           {/* Avatar with premium frame */}
           <div className="relative">
-            <div className="w-28 h-28 sm:w-36 sm:h-36 md:w-44 md:h-44 rounded-2xl bg-gradient-to-br from-quill-500 to-quill-700 p-1 sm:p-1.5 shadow-2xl shadow-quill-700/40">
+            <div className="w-28 h-28 sm:w-36 sm:h-36 md:w-44 md:h-44 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-1 sm:p-1.5 shadow-2xl shadow-emerald-700/40">
               <div className="w-full h-full rounded-xl overflow-hidden ring-4 ring-[#1A1D23]/40 bg-[#2D3139]">
                 {profile.avatar_url ? (
                   <img
@@ -219,7 +219,7 @@ export default function UserProfile() {
                     }}
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-3xl sm:text-4xl md:text-5xl font-bold text-white/80 bg-gradient-to-br from-quill-500 to-quill-700">
+                  <div className="w-full h-full flex items-center justify-center text-3xl sm:text-4xl md:text-5xl font-bold text-white/80 bg-gradient-to-br from-emerald-500 to-emerald-700">
                     {profile.username.charAt(0).toUpperCase()}
                   </div>
                 )}
@@ -228,7 +228,7 @@ export default function UserProfile() {
             {isOwnProfile && (
               <button
                 onClick={() => setShowAvatarPicker(true)}
-                className="absolute -bottom-1 -right-1 sm:bottom-1 sm:right-1 w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-quill-500 hover:bg-quill-400 shadow-lg shadow-quill-500/30 flex items-center justify-center transition-all border border-white/10"
+                className="absolute -bottom-1 -right-1 sm:bottom-1 sm:right-1 w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/30 flex items-center justify-center transition-all border border-white/10"
               >
                 <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
               </button>
@@ -292,7 +292,7 @@ export default function UserProfile() {
                         onClick={() => setActiveTab(tab.id)}
                         className={`px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
                           activeTab === tab.id
-                            ? 'bg-quill-500 text-white shadow-lg shadow-quill-500/20'
+                            ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
                             : 'text-[#E8ECEF]/70 hover:text-white hover:bg-[#2D3139]/40'
                         }`}
                       >
@@ -309,7 +309,7 @@ export default function UserProfile() {
                       <MessageCircle className="w-4 h-4" />
                       <span className="hidden sm:inline">Message</span>
                     </button>
-                    <button className="bg-gradient-to-r from-quill-500 to-quill-400 text-white hover:from-quill-400 hover:to-quill-500 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-quill-500/30 border border-white/10">
+                    <button className="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white hover:from-emerald-400 hover:to-emerald-500 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-emerald-500/30 border border-white/10">
                       <UserPlus className="w-4 h-4" />
                       Follow
                     </button>
@@ -341,7 +341,7 @@ export default function UserProfile() {
                 {['Fantasy', 'Dark Academia', 'Romance'].map((focus, idx) => (
                   <span
                     key={idx}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-quill-500/20 text-quill-400 border border-quill-500/30 rounded-full text-xs hover:bg-quill-500/30 transition-all"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-xs hover:bg-emerald-500/30 transition-all"
                   >
                     <Feather className="w-3 h-3" />
                     {focus}
@@ -412,14 +412,14 @@ export default function UserProfile() {
                       <Link
                         key={ch.id}
                         to={`/characters/${ch.id}`}
-                        className="rounded-2xl p-5 bg-[#1A1D23]/40 border border-[#2D3139]/60 hover:border-quill-500/40 hover:bg-[#1A1D23]/60 transition-all group"
+                        className="rounded-2xl p-5 bg-[#1A1D23]/40 border border-[#2D3139]/60 hover:border-emerald-500/40 hover:bg-[#1A1D23]/60 transition-all group"
                       >
                         <div className="flex items-start gap-4">
                           {ch.avatar_url ? (
                             <img
                               src={ch.avatar_url}
                               alt={ch.name}
-                              className="w-14 h-14 rounded-xl object-cover border border-[#2D3139] flex-shrink-0 group-hover:border-quill-500/30 transition-colors"
+                              className="w-14 h-14 rounded-xl object-cover border border-[#2D3139] flex-shrink-0 group-hover:border-emerald-500/30 transition-colors"
                             />
                           ) : (
                             <div className="w-14 h-14 rounded-xl bg-[#2D3139] border border-[#3D4149] flex items-center justify-center flex-shrink-0">
@@ -427,7 +427,7 @@ export default function UserProfile() {
                             </div>
                           )}
                           <div className="min-w-0 flex-1">
-                            <h4 className="font-semibold text-white truncate group-hover:text-quill-400 transition-colors">
+                            <h4 className="font-semibold text-white truncate group-hover:text-emerald-400 transition-colors">
                               {ch.name}
                             </h4>
                             {ch.species && (
@@ -539,7 +539,7 @@ function TimelineItemCard({
             <p className="text-sm text-white/50">started a new scene</p>
           </div>
           {item.realm_name && (
-            <span className="ml-auto text-sm text-owl-400 bg-owl-600/20 px-3 py-1 rounded-full">
+            <span className="ml-auto text-sm text-emerald-400 bg-emerald-600/20 px-3 py-1 rounded-full">
               {item.realm_name}
             </span>
           )}
@@ -591,7 +591,7 @@ function TimelineItemCard({
           </p>
         </div>
         {item.realm_name && (
-          <span className="ml-auto text-sm text-owl-400 bg-owl-600/20 px-3 py-1 rounded-full">
+          <span className="ml-auto text-sm text-emerald-400 bg-emerald-600/20 px-3 py-1 rounded-full">
             {item.realm_name}
           </span>
         )}
@@ -606,15 +606,15 @@ function TimelineItemCard({
       </p>
 
       <div className="flex items-center gap-6 mt-4 pt-4 border-t border-white/10">
-        <button className="flex items-center gap-2 text-white/50 hover:text-owl-400 transition-colors">
+        <button className="flex items-center gap-2 text-white/50 hover:text-emerald-400 transition-colors">
           <Heart className="w-4 h-4" />
           <span className="text-sm">0</span>
         </button>
-        <button className="flex items-center gap-2 text-white/50 hover:text-owl-400 transition-colors">
+        <button className="flex items-center gap-2 text-white/50 hover:text-emerald-400 transition-colors">
           <MessageCircle className="w-4 h-4" />
           <span className="text-sm">0</span>
         </button>
-        <button className="flex items-center gap-2 text-white/50 hover:text-owl-400 transition-colors ml-auto">
+        <button className="flex items-center gap-2 text-white/50 hover:text-emerald-400 transition-colors ml-auto">
           <Share2 className="w-4 h-4" />
         </button>
       </div>

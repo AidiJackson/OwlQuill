@@ -114,7 +114,7 @@ export default function Images() {
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
                 activeTab === tab.id
-                  ? 'border-owl-500 text-owl-300'
+                  ? 'border-emerald-500 text-emerald-300'
                   : 'border-transparent text-gray-500 hover:text-gray-300'
               }`}
             >
@@ -235,7 +235,7 @@ export default function Images() {
                   )}
                 </div>
                 <button
-                  className="text-xs px-3 py-1.5 rounded bg-owl-600 hover:bg-owl-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
                   disabled={applyingCover}
                   onClick={handleSetCover}
                 >
@@ -266,8 +266,8 @@ interface EmptyStateProps {
 function EmptyState({ message, primaryAction, secondaryAction }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center text-center py-16 space-y-4">
-      <div className="w-14 h-14 rounded-full bg-owl-900/40 border border-owl-600/20 flex items-center justify-center">
-        <Image className="w-7 h-7 text-owl-400" />
+      <div className="w-14 h-14 rounded-full bg-emerald-900/40 border border-emerald-600/20 flex items-center justify-center">
+        <Image className="w-7 h-7 text-emerald-400" />
       </div>
       <h2 className="text-lg font-semibold text-gray-200">No images yet</h2>
       <p className="text-sm text-gray-400 max-w-sm">{message}</p>

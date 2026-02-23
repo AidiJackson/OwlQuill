@@ -114,7 +114,7 @@ function ChipRow({
             onClick={() => handleClick(option)}
             className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
               selected
-                ? 'bg-owl-600 border-owl-500 text-white'
+                ? 'bg-emerald-600 border-emerald-500 text-white'
                 : disabled
                   ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
                   : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
@@ -145,8 +145,8 @@ function SelectField({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className="w-full rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm
-                 px-3 py-2 appearance-none focus:outline-none focus:ring-2 focus:ring-owl-600/40
-                 focus:border-owl-500 transition-colors"
+                 px-3 py-2 appearance-none focus:outline-none focus:ring-2 focus:ring-emerald-600/40
+                 focus:border-emerald-500 transition-colors"
     >
       <option value="">{placeholder}</option>
       {options.map((opt) => (
@@ -240,8 +240,8 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
     <div className="space-y-6">
       {/* Header */}
       <div className="text-center space-y-2">
-        <div className="mx-auto w-12 h-12 rounded-full bg-owl-600/20 flex items-center justify-center">
-          <Sparkles className="w-6 h-6 text-owl-400" />
+        <div className="mx-auto w-12 h-12 rounded-full bg-emerald-600/20 flex items-center justify-center">
+          <Sparkles className="w-6 h-6 text-emerald-400" />
         </div>
         <h2 className="text-xl font-semibold text-gray-100">Define Their Essence</h2>
         <p className="text-sm text-gray-400">
@@ -261,7 +261,7 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
                 onClick={() => toggleTrait(trait)}
                 className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
                   selected
-                    ? 'bg-owl-600 border-owl-500 text-white'
+                    ? 'bg-emerald-600 border-emerald-500 text-white'
                     : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
                 }`}
               >
@@ -423,7 +423,7 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
             placeholder="e.g. torn sleeves, leather belt, gold trim"
             className="w-full rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm
                        px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:ring-2
-                       focus:ring-owl-600/40 focus:border-owl-500 transition-colors"
+                       focus:ring-emerald-600/40 focus:border-emerald-500 transition-colors"
           />
           <div className="flex justify-end mt-1">
             <span className={`text-xs ${outfitNotes.length >= MAX_OUTFIT_NOTES ? 'text-red-400' : 'text-gray-500'}`}>
@@ -438,7 +438,7 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
         <textarea
           className="w-full rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm
                      px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:ring-2
-                     focus:ring-owl-600/40 focus:border-owl-500 transition-colors resize-none"
+                     focus:ring-emerald-600/40 focus:border-emerald-500 transition-colors resize-none"
           rows={2}
           maxLength={MAX_EXTRA_NOTES}
           placeholder="e.g. battle-worn look, silver-streaked hair, quiet intensity"

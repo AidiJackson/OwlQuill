@@ -16,8 +16,8 @@ export default function StepProfileDetails({ data, onChange, onFinish, onBack, s
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <div className="mx-auto w-12 h-12 rounded-full bg-owl-600/20 flex items-center justify-center">
-          <FileText className="w-6 h-6 text-owl-400" />
+        <div className="mx-auto w-12 h-12 rounded-full bg-emerald-600/20 flex items-center justify-center">
+          <FileText className="w-6 h-6 text-emerald-400" />
         </div>
         <h2 className="text-xl font-semibold text-gray-100">Complete the Profile</h2>
         <p className="text-sm text-gray-400">

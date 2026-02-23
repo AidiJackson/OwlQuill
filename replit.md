@@ -1,8 +1,8 @@
-# OwlQuill
+# Ficshon
 
 ## Overview
 
-OwlQuill is a roleplay-first social network for creative storytellers and character enthusiasts. It functions as a "Facebook for role-players" where users create original characters (OCs), join themed roleplay worlds (Realms), and collaboratively write stories through in-character posts, comments, and reactions.
+Ficshon is a roleplay-first social network for creative storytellers and character enthusiasts. It functions as a "Facebook for role-players" where users create original characters (OCs), join themed roleplay worlds (Realms), and collaboratively write stories through in-character posts, comments, and reactions.
 
 The application follows a standard full-stack architecture with a Python/FastAPI backend and React/TypeScript frontend, designed to run together in Replit with a unified development workflow.
 
@@ -85,7 +85,7 @@ Preferred communication style: Simple, everyday language.
 
 **Database Setup**:
 - Run `alembic upgrade head` in backend directory for migrations
-- SQLite database file created at `./owlquill.db`
+- SQLite database file created at `./ficshon.db`
 
 **Testing**: pytest with httpx TestClient
 - Test fixtures create isolated SQLite database per test

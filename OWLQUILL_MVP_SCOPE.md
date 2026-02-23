@@ -1,6 +1,6 @@
-# OwlQuill MVP Scope
+# Ficshon MVP Scope
 
-This document outlines what has been implemented in the OwlQuill MVP (Phase 1) and what is planned for future releases.
+This document outlines what has been implemented in the Ficshon MVP (Phase 1) and what is planned for future releases.
 
 ## Implemented in MVP (Phase 1)
 

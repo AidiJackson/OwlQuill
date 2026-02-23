@@ -164,7 +164,7 @@ export default function Home() {
 
   const getPostTypeBadge = (contentType: string) => {
     const badges = {
-      ic: { label: 'IC', className: 'bg-purple-600 text-white' },
+      ic: { label: 'IC', className: 'bg-emerald-600 text-white' },
       ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
       narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' }
     };
@@ -205,9 +205,9 @@ export default function Home() {
 
       {/* First-time user banner — hidden once dismissed or once a character exists */}
       {isFirstTimeUser && !bannerDismissed && (
-        <div className="flex items-start justify-between gap-4 bg-owl-600/10 border border-owl-600/20 rounded-lg px-4 py-4 mb-6">
+        <div className="flex items-start justify-between gap-4 bg-emerald-600/10 border border-emerald-600/20 rounded-lg px-4 py-4 mb-6">
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-owl-300">Welcome to Ficshon</p>
+            <p className="text-sm font-semibold text-emerald-300">Welcome to Ficshon</p>
             <p className="text-sm text-gray-400">
               Create your first character to unlock identity-locked scenes and posting.
             </p>
@@ -349,7 +349,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => navigate('/realms')}
-                  className="text-xs text-owl-400 hover:text-owl-300 transition-colors"
+                  className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
                 >
                   Share in a Realm
                 </button>
@@ -373,7 +373,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => navigate('/realms')}
-                className="text-xs text-owl-400 hover:text-owl-300 transition-colors flex-shrink-0"
+                className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex-shrink-0"
               >
                 Browse Realms →
               </button>
@@ -385,7 +385,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => navigate('/workspace')}
-                className="text-xs text-owl-400 hover:text-owl-300 transition-colors"
+                className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
               >
                 Open Workspace →
               </button>
@@ -439,12 +439,12 @@ export default function Home() {
                     {getPostKindBadge(post.post_kind)}
                     <span className="text-sm text-gray-400">
                       {characterName ? (
-                        <span className="font-medium text-owl-400">{characterName}</span>
+                        <span className="font-medium text-emerald-400">{characterName}</span>
                       ) : post.author_username ? (
-                        <Link to={`/u/${encodeURIComponent(post.author_username)}`} className="text-gray-400 hover:text-owl-300 hover:underline transition-colors">@{post.author_username}</Link>
+                        <Link to={`/u/${encodeURIComponent(post.author_username)}`} className="text-gray-400 hover:text-emerald-300 hover:underline transition-colors">@{post.author_username}</Link>
                       ) : null}
                       {(characterName || post.author_username) && ' in '}
-                      <span className={isCommons ? 'text-emerald-400 font-semibold' : 'text-owl-300'}>{realmName}</span>
+                      <span className={isCommons ? 'text-emerald-400 font-semibold' : 'text-emerald-300'}>{realmName}</span>
                     </span>
                   </div>
                   <div className="flex items-center gap-2">

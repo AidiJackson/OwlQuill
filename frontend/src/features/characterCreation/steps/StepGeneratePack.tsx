@@ -134,8 +134,8 @@ export default function StepGeneratePack({
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <div className="mx-auto w-12 h-12 rounded-full bg-owl-600/20 flex items-center justify-center">
-          <ImageIcon className="w-6 h-6 text-owl-400" />
+        <div className="mx-auto w-12 h-12 rounded-full bg-emerald-600/20 flex items-center justify-center">
+          <ImageIcon className="w-6 h-6 text-emerald-400" />
         </div>
         <h2 className="text-xl font-semibold text-gray-100">Generate Identity Pack</h2>
         <p className="text-sm text-gray-400">
@@ -176,7 +176,7 @@ export default function StepGeneratePack({
                           onClick={() => toggleTweak(cat.key, opt.value)}
                           className={`px-3 py-1 rounded text-xs font-medium transition-colors border ${
                             selected
-                              ? 'bg-owl-600 border-owl-500 text-white'
+                              ? 'bg-emerald-600 border-emerald-500 text-white'
                               : isDisabled
                                 ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
                                 : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
@@ -225,7 +225,7 @@ export default function StepGeneratePack({
           </p>
           <button
             type="button"
-            className="text-xs text-owl-400 hover:text-owl-300 transition-colors"
+            className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
             onClick={handleGenerate}
             disabled={loading}
           >
@@ -311,7 +311,7 @@ export default function StepGeneratePack({
                 </p>
                 <button
                   type="button"
-                  className="text-xs text-owl-400 hover:text-owl-300 transition-colors flex items-center gap-1"
+                  className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1"
                   onClick={handleGenerate}
                   disabled={loading}
                 >

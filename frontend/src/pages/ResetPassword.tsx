@@ -76,7 +76,7 @@ export default function ResetPassword() {
                 Password reset successfully! Redirecting to login...
               </div>
               <p className="text-center text-gray-400 mt-4">
-                <Link to="/login" className="text-owl-500 hover:text-owl-400">
+                <Link to="/login" className="text-emerald-500 hover:text-emerald-400">
                   Go to Login
                 </Link>
               </p>
@@ -121,7 +121,7 @@ export default function ResetPassword() {
               </form>
 
               <p className="text-center text-gray-400 mt-4">
-                <Link to="/login" className="text-owl-500 hover:text-owl-400">
+                <Link to="/login" className="text-emerald-500 hover:text-emerald-400">
                   Back to Login
                 </Link>
               </p>

@@ -1,10 +1,10 @@
 #!/bin/bash
-# OwlQuill Unified Dev Server
+# Ficshon Unified Dev Server
 # Starts both backend (FastAPI) and frontend (Vite) for development
 
 set -e
 
-echo "🦉 Starting OwlQuill Dev Environment..."
+echo "🦉 Starting Ficshon Dev Environment..."
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -50,7 +50,7 @@ npm run dev -- --host 0.0.0.0 --port 5000 &
 FRONTEND_PID=$!
 
 echo ""
-echo -e "${GREEN}🎉 OwlQuill is running!${NC}"
+echo -e "${GREEN}🎉 Ficshon is running!${NC}"
 echo ""
 echo -e "  ${BLUE}Frontend:${NC} http://localhost:5000"
 echo -e "  ${BLUE}Backend API:${NC} http://localhost:8000"

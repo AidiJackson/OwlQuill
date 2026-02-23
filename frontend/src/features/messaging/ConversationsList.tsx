@@ -68,8 +68,8 @@ export default function ConversationsList() {
 
         {conversations.length === 0 ? (
           <div className="flex flex-col items-center text-center py-16 space-y-4">
-            <div className="w-14 h-14 rounded-full bg-owl-900/40 border border-owl-600/20 flex items-center justify-center">
-              <MessageSquare className="w-7 h-7 text-owl-400" />
+            <div className="w-14 h-14 rounded-full bg-emerald-900/40 border border-emerald-600/20 flex items-center justify-center">
+              <MessageSquare className="w-7 h-7 text-emerald-400" />
             </div>
             <h2 className="text-lg font-semibold text-gray-200">No conversations yet</h2>
             <p className="text-sm text-gray-400">
@@ -77,7 +77,7 @@ export default function ConversationsList() {
             </p>
             <Link
               to="/characters"
-              className="mt-2 px-5 py-2 bg-owl-600 hover:bg-owl-500 text-white text-sm font-medium rounded-lg transition-colors"
+              className="mt-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded-lg transition-colors"
             >
               Find characters
             </Link>

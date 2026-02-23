@@ -61,7 +61,7 @@ export default function ImageCard({ image, onClick, onUseInPost, onSetAsCover }:
               type="button"
               disabled={actionBusy !== null}
               onClick={handleUseInPost}
-              className="flex-1 text-xs px-2 py-1.5 rounded bg-owl-600 hover:bg-owl-500 text-white transition-colors truncate disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 text-xs px-2 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors truncate disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {actionBusy === 'useInPost' ? 'Saving…' : 'Use in Post'}
             </button>

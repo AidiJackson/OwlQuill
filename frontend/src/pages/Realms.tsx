@@ -205,7 +205,7 @@ export default function Realms() {
             onClick={() => setSelectedGenre(null)}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
               selectedGenre === null
-                ? 'bg-owl-700 border-owl-500 text-white'
+                ? 'bg-emerald-700 border-emerald-500 text-white'
                 : 'bg-transparent border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200'
             }`}
           >
@@ -217,7 +217,7 @@ export default function Realms() {
               onClick={() => setSelectedGenre(genre)}
               className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                 selectedGenre?.toLowerCase() === genre.toLowerCase()
-                  ? 'bg-owl-700 border-owl-500 text-white'
+                  ? 'bg-emerald-700 border-emerald-500 text-white'
                   : 'bg-transparent border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200'
               }`}
             >
@@ -231,7 +231,7 @@ export default function Realms() {
         {filteredRealms.map((realm) => (
           <div key={realm.id} className="card overflow-hidden p-0">
             {realm.banner_url && (
-              <div className="h-32 bg-gradient-to-r from-owl-900 to-owl-700">
+              <div className="h-32 bg-gradient-to-r from-emerald-900 to-emerald-700">
                 <img
                   src={realm.banner_url}
                   alt={realm.name}
@@ -245,11 +245,11 @@ export default function Realms() {
             <div className="p-6">
               <div className="flex justify-between items-start">
                 <Link to={`/realms/${realm.id}`} className="flex-1 group">
-                  <h3 className="text-xl font-semibold group-hover:text-owl-300 transition-colors">
+                  <h3 className="text-xl font-semibold group-hover:text-emerald-300 transition-colors">
                     {realm.name}
                   </h3>
                   {realm.tagline && (
-                    <p className="text-sm text-owl-400 italic mb-1">{realm.tagline}</p>
+                    <p className="text-sm text-emerald-400 italic mb-1">{realm.tagline}</p>
                   )}
                   <p className="text-xs text-gray-500 mb-2">
                     /{realm.slug} • {realm.is_public ? 'Public' : 'Private'}
@@ -258,7 +258,7 @@ export default function Realms() {
                     <p className="text-gray-300 mb-2">{realm.description}</p>
                   )}
                   {realm.genre && (
-                    <span className="inline-block px-2 py-1 bg-owl-900 text-owl-300 text-xs rounded">
+                    <span className="inline-block px-2 py-1 bg-emerald-900 text-emerald-300 text-xs rounded">
                       {realm.genre}
                     </span>
                   )}
@@ -285,7 +285,7 @@ export default function Realms() {
                     <button
                       type="button"
                       onClick={() => navigate(`/realms/${realm.id}`)}
-                      className="text-xs text-owl-400 hover:text-owl-300 transition-colors"
+                      className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
                     >
                       Open realm
                     </button>

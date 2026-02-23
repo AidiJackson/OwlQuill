@@ -78,7 +78,7 @@ export default function StepLockConfirm({
       {/* Warning */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-3">
         <div className="flex items-start gap-3">
-          <ShieldCheck className="w-5 h-5 text-owl-400 mt-0.5 flex-shrink-0" />
+          <ShieldCheck className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
           <div className="space-y-2 text-sm text-gray-300">
             <p>
               This will lock your character's visual identity. You can generate new images later,

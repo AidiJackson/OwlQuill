@@ -27,7 +27,7 @@ def send_reset_email(to_email: str, reset_url: str) -> None:
 <body style="font-family: sans-serif; color: #333;">
   <h2>Reset your Ficshon password</h2>
   <p>You requested a password reset. Click the link below to set a new password:</p>
-  <p><a href="{reset_url}" style="display:inline-block;padding:10px 24px;background:#6d28d9;color:#fff;border-radius:6px;text-decoration:none;">Reset Password</a></p>
+  <p><a href="{reset_url}" style="display:inline-block;padding:10px 24px;background:#059669;color:#fff;border-radius:6px;text-decoration:none;">Reset Password</a></p>
   <p>Or copy this link into your browser:</p>
   <p style="word-break:break-all;">{reset_url}</p>
   <p>This link expires in {settings.RESET_TOKEN_EXPIRE_MINUTES} minutes.</p>

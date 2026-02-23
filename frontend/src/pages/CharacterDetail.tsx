@@ -286,7 +286,7 @@ export default function CharacterDetail() {
                   <span className="text-gray-600">·</span>
                   <Link
                     to={`/u/${encodeURIComponent(character.owner_username)}`}
-                    className="text-gray-400 hover:text-owl-300 hover:underline transition-colors"
+                    className="text-gray-400 hover:text-emerald-300 hover:underline transition-colors"
                   >
                     @{character.owner_username}
                   </Link>
@@ -369,7 +369,7 @@ export default function CharacterDetail() {
             {character.tags.split(',').map((tag, i) => (
               <span
                 key={i}
-                className="px-2 py-1 bg-owl-900 text-owl-300 text-xs rounded"
+                className="px-2 py-1 bg-emerald-900 text-emerald-300 text-xs rounded"
               >
                 {tag.trim()}
               </span>
@@ -501,7 +501,7 @@ export default function CharacterDetail() {
               </p>
               {currentUser && character.owner_id === currentUser.id && (
                 <button
-                  className="text-xs px-3 py-1.5 rounded bg-owl-600 hover:bg-owl-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
                   disabled={settingAvatar}
                   onClick={() => handleSetAvatar(galleryImages[lightboxIdx!])}
                 >
