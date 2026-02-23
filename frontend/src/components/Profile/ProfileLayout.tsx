@@ -1,4 +1,4 @@
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
 import { Home, Users, Globe, BookOpen, MessageSquare, Settings, Feather } from 'lucide-react';
 
@@ -13,7 +13,12 @@ const navItems = [
 
 export default function ProfileLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const user = useAuthStore((s) => s.user);
+
+  function isActive(id: string) {
+    return id === '/' ? location.pathname === '/' : location.pathname.startsWith(id);
+  }
 
   return (
     <div className="min-h-screen bg-[#0F1419] relative">
@@ -26,20 +31,25 @@ export default function ProfileLayout() {
                 onClick={() => navigate('/')}
                 className="flex items-center gap-3"
               >
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-quill-500 to-quill-700 flex items-center justify-center shadow-lg shadow-quill-500/20">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/20">
                   <Feather className="w-5 h-5 text-white" />
                 </div>
-                <span className="text-white tracking-tight font-semibold hidden sm:inline">OwlQuill</span>
+                <span className="text-white tracking-tight font-semibold hidden sm:inline">Ficshon</span>
               </button>
 
               <nav className="flex items-center gap-1">
                 {navItems.map((item) => {
                   const Icon = item.icon;
+                  const active = isActive(item.id);
                   return (
                     <button
                       key={item.id}
                       onClick={() => navigate(item.id)}
-                      className="p-2.5 text-[#E8ECEF]/70 hover:text-white hover:bg-[#2D3139]/60 rounded-lg transition-all duration-200"
+                      className={
+                        active
+                          ? 'p-2.5 text-emerald-400 bg-[#2D3139]/80 rounded-lg transition-all duration-200'
+                          : 'p-2.5 text-[#E8ECEF]/70 hover:text-white hover:bg-[#2D3139]/60 rounded-lg transition-all duration-200'
+                      }
                       title={item.label}
                     >
                       <Icon className="w-5 h-5" />
@@ -53,7 +63,7 @@ export default function ProfileLayout() {
               {user && (
                 <button
                   onClick={() => navigate(`/u/${user.username}`)}
-                  className="w-10 h-10 rounded-full ring-2 ring-quill-500/40 overflow-hidden bg-[#2D3139] hover:ring-quill-500/60 transition-all"
+                  className="w-10 h-10 rounded-full ring-2 ring-emerald-500/40 overflow-hidden bg-[#2D3139] hover:ring-emerald-500/60 transition-all"
                 >
                   {user.avatar_url ? (
                     <img

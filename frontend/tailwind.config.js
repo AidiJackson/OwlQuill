@@ -7,6 +7,12 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Ficshon brand accent (emerald)
+        fic: {
+          accent:    'rgb(var(--fic-accent) / <alpha-value>)',
+          accent600: 'rgb(var(--fic-accent-600) / <alpha-value>)',
+        },
+        // Legacy — kept so existing references compile; prefer fic.* for new work
         owl: {
           50: '#f5f3ff',
           100: '#ede9fe',

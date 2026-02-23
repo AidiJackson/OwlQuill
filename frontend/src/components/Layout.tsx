@@ -27,53 +27,69 @@ export default function Layout() {
 
   const closeSidebar = () => setSidebarOpen(false);
 
+  // Returns premium nav link classes based on active state
+  function navCls(active: boolean) {
+    return active
+      ? 'flex items-center gap-2 h-10 px-4 rounded-xl bg-gray-900/60 text-gray-100 border border-emerald-500/20 transition-colors'
+      : 'flex items-center gap-2 h-10 px-4 rounded-xl text-gray-300 hover:bg-gray-900/40 hover:text-gray-100 transition-colors';
+  }
+
+  const p = location.pathname;
+  const isHome       = p === '/';
+  const isRealms     = p.startsWith('/realms');
+  const isChars      = p.startsWith('/characters');
+  const isWorkspace  = p.startsWith('/workspace');
+  const isImages     = p.startsWith('/images');
+  const isMessages   = p.startsWith('/messages');
+  const isProfile    = p.startsWith('/u/') || p === '/profile';
+
   const sidebarContent = (
     <>
       <div className="mb-8">
-        <Link to="/" className="text-2xl font-bold text-owl-500" onClick={closeSidebar}>
+        <Link to="/" className="text-2xl font-bold text-emerald-400" onClick={closeSidebar}>
           Ficshon
         </Link>
       </div>
 
-      <nav className="space-y-2">
+      <nav className="space-y-1">
         <Link
           to="/"
-          className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          className={navCls(isHome)}
           onClick={closeSidebar}
         >
           Home
         </Link>
         <Link
           to="/realms"
-          className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          className={navCls(isRealms)}
           onClick={closeSidebar}
         >
           Realms
         </Link>
         <Link
           to="/characters"
-          className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          className={navCls(isChars)}
           onClick={closeSidebar}
         >
           Characters
         </Link>
         <Link
           to="/workspace"
-          className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          className={navCls(isWorkspace)}
           onClick={closeSidebar}
         >
           WriteSpace
         </Link>
         <Link
           to="/images"
-          className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          className={navCls(isImages)}
           onClick={closeSidebar}
         >
           Images
         </Link>
         <Link
           to="/messages"
-          className="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          className={navCls(isMessages)}
           onClick={closeSidebar}
         >
           Messages
@@ -83,7 +99,7 @@ export default function Layout() {
         </Link>
         <Link
           to={user ? `/u/${user.username}` : '/profile'}
-          className="block px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          className={navCls(isProfile)}
           onClick={closeSidebar}
         >
           Profile
@@ -108,7 +124,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Desktop sidebar — unchanged */}
+      {/* Desktop sidebar */}
       <aside className="hidden md:flex md:flex-col w-64 bg-gray-900 border-r border-gray-800 p-4">
         {sidebarContent}
       </aside>
@@ -150,7 +166,7 @@ export default function Layout() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <Link to="/" className="ml-3 text-lg font-bold text-owl-500">
+          <Link to="/" className="ml-3 text-lg font-bold text-emerald-400">
             Ficshon
           </Link>
         </div>
