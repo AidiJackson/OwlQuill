@@ -167,6 +167,7 @@ export default function Workspace() {
     return Number.isFinite(n) ? n : null;
   });
   const [showPanel, setShowPanel] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const [highlightId, setHighlightId] = useState<string>('');
   const [fixStatus, setFixStatus] = useState<{ id: string; msg: string } | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -704,7 +705,10 @@ export default function Workspace() {
   }, [body]);
 
   return (
-    <div className="w-full h-[calc(100vh-24px)] flex flex-col bg-gray-950">
+    <div className={
+      "w-full h-[calc(100vh-24px)] flex flex-col transition-colors " +
+      (focusMode ? "bg-black" : "bg-gray-950")
+    }>
       <style>{`
         .ws-hl{background:rgba(52,211,153,.15);border-radius:3px;padding:0 2px;outline:1px solid rgba(52,211,153,.4)}
         .ws-ul-sentence{text-decoration:underline;text-decoration-color:rgba(251,191,36,.6);text-decoration-thickness:2px}
@@ -750,6 +754,13 @@ export default function Workspace() {
             {getSaveLabel()}
           </p>
           <button
+            type="button"
+            onClick={() => setFocusMode((v) => !v)}
+            className="text-xs px-2 py-1 rounded-md border border-gray-700 hover:bg-gray-800"
+          >
+            {focusMode ? 'Exit focus' : 'Focus'}
+          </button>
+          <button
             className="lg:hidden btn btn-secondary text-xs"
             onClick={() => setShowPanel(true)}
           >
@@ -762,6 +773,7 @@ export default function Workspace() {
       <div className="flex flex-1 min-h-0 relative">
         {/* B) Editor column: toolbar + textarea */}
         <div className="flex-1 flex flex-col min-w-0 px-4 md:px-6 py-4 gap-3">
+        <div className={focusMode ? "max-w-3xl mx-auto w-full flex flex-col gap-3 flex-1 min-h-0" : "contents"}>
           {/* Write / Preview / Review toggle */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
@@ -834,7 +846,7 @@ export default function Workspace() {
           )}
 
           {/* Formatting toolbar */}
-          <div className="flex gap-2 overflow-x-auto pb-1 flex-shrink-0">
+          <div className={`flex gap-2 overflow-x-auto pb-1 flex-shrink-0${focusMode ? ' opacity-60 hover:opacity-100 transition' : ''}`}>
             <button
               type="button"
               onClick={() => insertAroundSelection('**')}
@@ -898,25 +910,19 @@ export default function Workspace() {
           )}
 
           {mode === 'write' && body.trim() && renderLiveChecks()}
+        </div>{/* end focus wrapper */}
         </div>
 
         {/* C) Desktop sidebar */}
         <aside
-          className="
-            hidden lg:flex flex-col
-            w-[340px] shrink-0
-            border-l border-gray-800
-            bg-gray-950
-            p-4
-            overflow-y-auto
-          "
+          className={`hidden lg:flex flex-col w-[340px] shrink-0 border-l border-gray-800 bg-gray-950 p-4 overflow-y-auto${focusMode ? ' opacity-0 pointer-events-none' : ''}`}
         >
           {renderSidebarContent()}
         </aside>
       </div>
 
       {/* D) Mobile slide-over drawer */}
-      {showPanel && (
+      {showPanel && !focusMode && (
         <div className="fixed inset-0 z-40 flex">
           <div
             className="absolute inset-0 bg-black/50"
