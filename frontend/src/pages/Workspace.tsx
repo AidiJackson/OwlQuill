@@ -50,6 +50,7 @@ export default function Workspace() {
   const [publishError, setPublishError] = useState('');
   const [realms, setRealms] = useState<Realm[]>([]);
   const [selectedRealmId, setSelectedRealmId] = useState<number | null>(null);
+  const [showPanel, setShowPanel] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load saved draft on mount
@@ -231,6 +232,85 @@ export default function Workspace() {
     );
   }
 
+  function renderSidebarContent() {
+    return (
+      <div className="space-y-3">
+        {/* Publish context */}
+        <div className="text-xs text-gray-500 space-y-1 border-b border-gray-800 pb-3">
+          <div>
+            <span>Posting to: </span>
+            <span className="text-gray-300">
+              {selectedRealmName ?? 'Commons'}
+            </span>
+          </div>
+          <div>
+            <span>Posting as: </span>
+            <span className="text-gray-300">
+              {characterId !== 0
+                ? MOCK_CHARACTERS.find((c) => c.id === characterId)?.name
+                : 'No character selected'}
+            </span>
+          </div>
+        </div>
+
+        <button
+          onClick={handlePublishToCommons}
+          disabled={publishing || !body.trim()}
+          className="btn btn-primary w-full"
+        >
+          {publishing
+            ? 'Publishing\u2026'
+            : selectedRealmId === null
+              ? 'Publish to Commons'
+              : 'Publish to Realm'}
+        </button>
+        {publishError && (
+          <p className="text-xs text-red-400">{publishError}</p>
+        )}
+        <button className="btn btn-secondary w-full">
+          Download text
+        </button>
+
+        <div className="border-t border-gray-800 pt-3 space-y-2">
+          <button
+            type="button"
+            onClick={async () => {
+              if (!body.trim()) {
+                setCopyStatus('failed');
+                return;
+              }
+              const ok = await copyToClipboard(body);
+              setCopyStatus(ok ? 'copied' : 'failed');
+            }}
+            className="btn btn-secondary w-full"
+          >
+            Copy for posting
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              localStorage.setItem(PASTE_HINT_KEY, 'true');
+              navigate('/');
+            }}
+            className="btn btn-secondary w-full"
+          >
+            Go to Home &amp; paste
+          </button>
+          {copyStatus === 'copied' && (
+            <p className="text-xs text-gray-400">Copied.</p>
+          )}
+          {copyStatus === 'failed' && (
+            <p className="text-xs text-gray-500">
+              {body.trim()
+                ? 'Copy failed \u2014 select text and copy manually.'
+                : 'Nothing to copy yet.'}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function getSaveLabel() {
     void saveTick;
     if (isSaving) return 'Saving\u2026';
@@ -247,52 +327,60 @@ export default function Workspace() {
     : null;
 
   return (
-    <div className="w-full h-[calc(100vh-24px)] p-6 flex flex-col">
+    <div className="w-full h-[calc(100vh-24px)] flex flex-col bg-gray-950">
       {/* A) Header bar */}
-      <div className="flex items-center gap-4 mb-4 flex-shrink-0">
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Untitled story"
-          className="flex-1 bg-transparent text-lg font-bold text-gray-100 placeholder-gray-600 focus:outline-none"
-        />
-        <select
-          value={characterId}
-          onChange={(e) => setCharacterId(Number(e.target.value))}
-          className="input text-sm"
-        >
-          {MOCK_CHARACTERS.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={selectedRealmId ?? ''}
-          onChange={(e) =>
-            setSelectedRealmId(e.target.value ? Number(e.target.value) : null)
-          }
-          className="input text-sm"
-        >
-          <option value="">Publish to Commons</option>
-          {realms.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-gray-500">
-          {getSaveLabel()}
-        </p>
+      <div className="px-4 md:px-6 pt-4 pb-3 border-b border-gray-800 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Untitled story"
+            className="flex-1 bg-transparent text-lg font-bold text-gray-100 placeholder-gray-600 focus:outline-none"
+          />
+          <select
+            value={characterId}
+            onChange={(e) => setCharacterId(Number(e.target.value))}
+            className="input text-sm"
+          >
+            {MOCK_CHARACTERS.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedRealmId ?? ''}
+            onChange={(e) =>
+              setSelectedRealmId(e.target.value ? Number(e.target.value) : null)
+            }
+            className="input text-sm"
+          >
+            <option value="">Publish to Commons</option>
+            {realms.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500">
+            {getSaveLabel()}
+          </p>
+          <button
+            className="lg:hidden btn btn-secondary text-xs"
+            onClick={() => setShowPanel(true)}
+          >
+            Options
+          </button>
+        </div>
       </div>
 
-      {/* B) Editor + C) Sidebar */}
-      <div className="flex gap-6 flex-1 min-h-0">
+      {/* B) Main content */}
+      <div className="flex flex-1 min-h-0 relative">
         {/* B) Editor column: toolbar + textarea */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0 px-4 md:px-6 py-4 gap-3">
           {/* Write / Preview toggle */}
-          <div className="flex items-center gap-2 mb-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
               type="button"
               onClick={() => setMode('write')}
@@ -318,7 +406,7 @@ export default function Workspace() {
           </div>
 
           {/* Formatting toolbar */}
-          <div className="flex flex-wrap gap-2 mb-2 flex-shrink-0">
+          <div className="flex gap-2 overflow-x-auto pb-1 flex-shrink-0">
             <button
               type="button"
               onClick={() => insertAroundSelection('**')}
@@ -348,7 +436,7 @@ export default function Workspace() {
               Scene break
             </button>
           </div>
-          <p className="text-xs text-gray-500 mb-3 flex-shrink-0">Formatting inserts Markdown.</p>
+          <p className="text-xs text-gray-500 flex-shrink-0">Formatting inserts Markdown.</p>
 
           {mode === 'write' ? (
             <textarea
@@ -356,10 +444,10 @@ export default function Workspace() {
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Start writing..."
-              className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 leading-relaxed resize-none outline-none text-gray-200 placeholder-gray-600 focus:border-gray-700"
+              className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 resize-none outline-none placeholder-gray-600 focus:border-gray-700"
             />
           ) : (
-            <div className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 overflow-y-auto text-gray-200">
+            <div className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 overflow-y-auto">
               <div className="text-gray-300 text-base leading-relaxed space-y-3">
                 {renderPreview(body)}
               </div>
@@ -367,81 +455,42 @@ export default function Workspace() {
           )}
         </div>
 
-        {/* C) Right sidebar */}
-        <aside className="w-[340px] shrink-0 space-y-3 overflow-y-auto">
-          {/* Publish context */}
-          <div className="text-xs text-gray-500 space-y-1 border-b border-gray-800 pb-3">
-            <div>
-              <span>Posting to: </span>
-              <span className="text-gray-300">
-                {selectedRealmName ?? 'Commons'}
-              </span>
-            </div>
-            <div>
-              <span>Posting as: </span>
-              <span className="text-gray-300">
-                {characterId !== 0
-                  ? MOCK_CHARACTERS.find((c) => c.id === characterId)?.name
-                  : 'No character selected'}
-              </span>
-            </div>
-          </div>
-
-          <button
-            onClick={handlePublishToCommons}
-            disabled={publishing || !body.trim()}
-            className="btn btn-primary w-full"
-          >
-            {publishing
-              ? 'Publishing\u2026'
-              : selectedRealmId === null
-                ? 'Publish to Commons'
-                : 'Publish to Realm'}
-          </button>
-          {publishError && (
-            <p className="text-xs text-red-400">{publishError}</p>
-          )}
-          <button className="btn btn-secondary w-full">
-            Download text
-          </button>
-
-          <div className="border-t border-gray-800 pt-3 space-y-2">
-            <button
-              type="button"
-              onClick={async () => {
-                if (!body.trim()) {
-                  setCopyStatus('failed');
-                  return;
-                }
-                const ok = await copyToClipboard(body);
-                setCopyStatus(ok ? 'copied' : 'failed');
-              }}
-              className="btn btn-secondary w-full"
-            >
-              Copy for posting
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                localStorage.setItem(PASTE_HINT_KEY, 'true');
-                navigate('/');
-              }}
-              className="btn btn-secondary w-full"
-            >
-              Go to Home &amp; paste
-            </button>
-            {copyStatus === 'copied' && (
-              <p className="text-xs text-gray-400">Copied.</p>
-            )}
-            {copyStatus === 'failed' && (
-              <p className="text-xs text-gray-500">
-                {body.trim()
-                  ? 'Copy failed \u2014 select text and copy manually.'
-                  : 'Nothing to copy yet.'}
-              </p>
-            )}
-          </div>
+        {/* C) Desktop sidebar */}
+        <aside
+          className="
+            hidden lg:flex flex-col
+            w-[340px] shrink-0
+            border-l border-gray-800
+            bg-gray-950
+            p-4
+            overflow-y-auto
+          "
+        >
+          {renderSidebarContent()}
         </aside>
+      </div>
+
+      {/* D) Mobile slide-over drawer */}
+      {showPanel && (
+        <div className="fixed inset-0 z-40 flex">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowPanel(false)}
+          />
+          <div className="relative ml-auto w-[85%] max-w-sm h-full bg-gray-950 border-l border-gray-800 p-4 overflow-y-auto">
+            {renderSidebarContent()}
+          </div>
+        </div>
+      )}
+
+      {/* E) Mobile sticky bottom bar */}
+      <div className="lg:hidden sticky bottom-0 border-t border-gray-800 bg-gray-950 px-4 py-3 flex gap-2">
+        <button className="btn btn-primary flex-1">
+          Publish
+        </button>
+        <button className="btn btn-secondary flex-1">
+          Preview
+        </button>
       </div>
     </div>
   );
