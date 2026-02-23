@@ -271,8 +271,8 @@ export default function Workspace() {
     }
   }
 
-  function handleSuggestionClick(id: string, kind: ReviewSuggestion['kind'], matchText: string) {
-    setMode('preview');
+  function handleSuggestionClick(id: string, kind: ReviewSuggestion['kind'], matchText: string, destinationMode: 'preview' | 'review' = 'preview') {
+    setMode(destinationMode);
     setShowPanel(false);
     if (kind !== 'info' && matchText) {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
@@ -314,7 +314,7 @@ export default function Workspace() {
                 <li key={s.id}>
                   <button
                     type="button"
-                    onClick={() => handleSuggestionClick(s.id, s.kind, s.matchText)}
+                    onClick={() => handleSuggestionClick(s.id, s.kind, s.matchText, 'review')}
                     className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-800/60 transition-colors"
                   >
                     <div>{snippet}</div>
