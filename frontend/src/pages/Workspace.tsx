@@ -198,6 +198,8 @@ export default function Workspace() {
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fixTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [formatFlash, setFormatFlash] = useState<string>('');
+  const formatFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounced autosave — persists draft content + UI context
   useEffect(() => {
@@ -248,6 +250,7 @@ export default function Workspace() {
     return () => {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       if (fixTimerRef.current) clearTimeout(fixTimerRef.current);
+      if (formatFlashTimerRef.current) clearTimeout(formatFlashTimerRef.current);
     };
   }, []);
 
@@ -351,6 +354,68 @@ export default function Workspace() {
   function revealFormatting() {
     setMode('preview');
     setShowPanel(false);
+  }
+
+  function flash(msg: string) {
+    if (formatFlashTimerRef.current) clearTimeout(formatFlashTimerRef.current);
+    setFormatFlash(msg);
+    formatFlashTimerRef.current = setTimeout(() => setFormatFlash(''), 1500);
+  }
+
+  function wrapOrInsertPlaceholder(before: string, after: string, placeholder: string, flashMsg: string) {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end   = el.selectionEnd ?? 0;
+    if (start !== end) {
+      insertAroundSelection(before, after);
+      flash(flashMsg);
+      revealFormatting();
+      return;
+    }
+    const newText = body.slice(0, start) + before + placeholder + after + body.slice(start);
+    setBody(newText);
+    setTimeout(() => {
+      el.setSelectionRange(start + before.length, start + before.length + placeholder.length);
+      el.focus();
+    }, 0);
+    flash(flashMsg);
+    revealFormatting();
+  }
+
+  function insertHeaderSmart() {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end   = el.selectionEnd ?? 0;
+    if (start !== end) {
+      insertHeaderPrefix();
+      flash('Heading inserted');
+      revealFormatting();
+      return;
+    }
+    const lineStart  = body.lastIndexOf('\n', start - 1) + 1;
+    const lineEndIdx = body.indexOf('\n', start);
+    const lineContent = body.slice(lineStart, lineEndIdx === -1 ? body.length : lineEndIdx);
+    const placeholder = 'Heading';
+    const prefix = '## ';
+    if (lineContent.trim() === '') {
+      const newText = body.slice(0, lineStart) + prefix + placeholder + body.slice(lineStart);
+      setBody(newText);
+      setTimeout(() => {
+        el.setSelectionRange(lineStart + prefix.length, lineStart + prefix.length + placeholder.length);
+        el.focus();
+      }, 0);
+    } else {
+      const newText = body.slice(0, lineStart) + prefix + body.slice(lineStart);
+      setBody(newText);
+      setTimeout(() => {
+        el.setSelectionRange(start + prefix.length, start + prefix.length);
+        el.focus();
+      }, 0);
+    }
+    flash('Heading inserted');
+    revealFormatting();
   }
 
   function clearDraft() {
@@ -839,6 +904,7 @@ export default function Workspace() {
           <p className="text-xs text-gray-500">
             {getSaveLabel()}
           </p>
+          {formatFlash && <span className="text-xs text-emerald-400">{formatFlash}</span>}
           <button
             type="button"
             onClick={() => setFocusMode((v) => !v)}
@@ -942,28 +1008,28 @@ export default function Workspace() {
           <div className={`flex gap-2 py-1 overflow-x-auto flex-shrink-0 top-0 z-10${focusMode ? ' opacity-60 hover:opacity-100 transition' : ''}`}>
             <button
               type="button"
-              onClick={() => { insertAroundSelection('**'); revealFormatting(); }}
+              onClick={() => wrapOrInsertPlaceholder('**', '**', 'bold text', 'Bold applied')}
               className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Bold
             </button>
             <button
               type="button"
-              onClick={() => { insertAroundSelection('*', '*'); revealFormatting(); }}
+              onClick={() => wrapOrInsertPlaceholder('*', '*', 'italic text', 'Italic applied')}
               className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Italic
             </button>
             <button
               type="button"
-              onClick={() => { insertHeaderPrefix(); revealFormatting(); }}
+              onClick={() => { insertHeaderSmart(); }}
               className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Header
             </button>
             <button
               type="button"
-              onClick={() => { setBody((prev) => prev + '\n\n---\n\n'); revealFormatting(); }}
+              onClick={() => { setBody((prev) => prev + '\n\n---\n\n'); flash('Scene break inserted'); revealFormatting(); }}
               className="h-9 px-3 text-sm rounded-lg border border-gray-700 hover:bg-gray-800"
             >
               Scene break
