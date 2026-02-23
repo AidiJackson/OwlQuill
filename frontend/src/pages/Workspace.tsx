@@ -397,6 +397,37 @@ export default function Workspace() {
     );
   }
 
+  function renderWriteOverlay(text: string) {
+    if (!text) return null;
+
+    // Escape HTML to prevent injection via dangerouslySetInnerHTML
+    const esc = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Split on sentence-ending punctuation, keeping delimiters
+    const parts = text.split(/([.!?]+)/);
+    const rebuilt: string[] = [];
+
+    for (let i = 0; i < parts.length; i += 2) {
+      const sentence = (parts[i] ?? '') + (parts[i + 1] ?? '');
+      if (!sentence) continue;
+      const words = sentence.trim().split(/\s+/).filter(Boolean).length;
+      if (words > 28) {
+        rebuilt.push(`<span class="ws-long">${esc(sentence)}</span>`);
+      } else {
+        rebuilt.push(esc(sentence));
+      }
+    }
+
+    return (
+      <div
+        className="ws-write-overlay"
+        aria-hidden="true"
+        dangerouslySetInnerHTML={{ __html: rebuilt.join('') }}
+      />
+    );
+  }
+
   function renderPreview(text: string) {
     if (!text.trim()) {
       return <p className="text-gray-500 text-sm">Nothing to preview yet.</p>;
@@ -714,6 +745,8 @@ export default function Workspace() {
         .ws-ul-sentence{text-decoration:underline;text-decoration-color:rgba(251,191,36,.6);text-decoration-thickness:2px}
         .ws-ul-passive{text-decoration:underline dotted;text-decoration-color:rgba(96,165,250,.7)}
         .ws-ul-para{background:rgba(251,191,36,.06);border-radius:4px}
+        .ws-write-overlay{position:absolute;inset:0;padding:1rem;white-space:pre-wrap;word-break:break-word;color:transparent;pointer-events:none;font:inherit;line-height:inherit;overflow:hidden}
+        .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px}
       `}</style>
       {/* A) Header bar */}
       <div className="px-4 md:px-6 pt-4 pb-3 border-b border-gray-800 flex-shrink-0">
@@ -902,19 +935,22 @@ export default function Workspace() {
               </div>
             </div>
           ) : (
-            <textarea
-              ref={textareaRef}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Start writing..."
-              spellCheck={true}
-              autoCorrect="on"
-              autoCapitalize="sentences"
-              inputMode="text"
-              aria-label="WriteSpace editor"
-              aria-describedby="writespace-editor-hints"
-              className="flex-1 min-h-0 bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 resize-none outline-none placeholder-gray-600 focus:border-gray-700"
-            />
+            <div className="relative flex-1 min-h-0">
+              <textarea
+                ref={textareaRef}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="Start writing..."
+                spellCheck={true}
+                autoCorrect="on"
+                autoCapitalize="sentences"
+                inputMode="text"
+                aria-label="WriteSpace editor"
+                aria-describedby="writespace-editor-hints"
+                className="absolute inset-0 w-full h-full bg-gray-900 border border-gray-800 rounded-xl p-4 text-base leading-relaxed text-gray-200 resize-none outline-none placeholder-gray-600 focus:border-gray-700"
+              />
+              {mode === 'write' && renderWriteOverlay(body)}
+            </div>
           )}
 
           {mode === 'write' && body.trim() && renderLiveChecks()}
