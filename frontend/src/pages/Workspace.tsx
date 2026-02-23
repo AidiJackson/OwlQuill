@@ -654,6 +654,40 @@ export default function Workspace() {
             </button>
           </div>
 
+          {/* Ambient status row — write mode only */}
+          {mode === 'write' && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span>{review.words} words</span>
+                <span>·</span>
+                <span>{review.sentences} sentences</span>
+                <span>·</span>
+                <span>Readability: {review.readabilityLabel === 'N/A' ? '\u2014' : review.readabilityLabel}</span>
+              </div>
+              {!body.trim() ? (
+                <span className="px-2 py-1 rounded-md bg-gray-900 border border-gray-800 text-gray-600">
+                  Start writing
+                </span>
+              ) : (review.longSentenceCount + review.passiveCount) > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => { setMode('review'); setShowPanel(false); }}
+                  className="px-2 py-1 rounded-md bg-gray-900 border border-gray-800 text-amber-300 hover:text-amber-200 hover:border-gray-700 transition-colors"
+                >
+                  {'\u26a0\ufe0f '}
+                  {[
+                    review.longSentenceCount > 0 && `${review.longSentenceCount} long ${review.longSentenceCount === 1 ? 'sentence' : 'sentences'}`,
+                    review.passiveCount > 0 && `${review.passiveCount} passive`,
+                  ].filter(Boolean).join(' · ')}
+                </button>
+              ) : (
+                <span className="px-2 py-1 rounded-md bg-gray-900 border border-gray-800 text-emerald-300">
+                  All good
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Formatting toolbar */}
           <div className="flex gap-2 overflow-x-auto pb-1 flex-shrink-0">
             <button
