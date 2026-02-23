@@ -24,9 +24,10 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <img src="/brand/ficshon-logo-v1.jpg" alt="Ficshon" className="h-12 w-auto mx-auto" />
-          <p className="text-gray-400 mt-2">Roleplay-first social network</p>
+        <div className="flex flex-col items-center gap-4 mb-6">
+          <img src="/brand/ficshon-mark-v1.png" alt="Ficshon" className="h-12 w-12 rounded-xl object-contain" />
+          <h1 className="text-3xl font-semibold tracking-tight">Ficshon</h1>
+          <p className="text-gray-400">Roleplay-first social network</p>
         </div>
 
         <div className="card">

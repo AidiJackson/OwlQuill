@@ -1,0 +1,104 @@
+TASK: Replace Ficshon logo with cropped icon mark and standardise usage
+
+GOAL:
+Use the uploaded cropped icon as the official Ficshon brand mark.
+UI should render:
+[ICON] Ficshon  (text separate everywhere)
+
+--------------------------------------------------
+
+1️⃣ FILE PLACEMENT
+
+Move the uploaded image to:
+
+frontend/public/brand/ficshon-mark-v1.png
+
+If a previous logo exists:
+- keep it for now
+- do NOT delete anything yet
+
+--------------------------------------------------
+
+2️⃣ SIDEBAR HEADER (Layout.tsx)
+
+Find current logo usage and replace with:
+
+<div className="flex items-center gap-3">
+  <img
+    src="/brand/ficshon-mark-v1.png"
+    alt="Ficshon"
+    className="h-7 w-7 rounded-lg object-contain"
+  />
+  <span className="text-lg font-semibold tracking-tight">
+    Ficshon
+  </span>
+</div>
+
+--------------------------------------------------
+
+3️⃣ MOBILE TOP BAR
+
+Ensure the same pattern is used:
+
+icon size: h-6 w-6
+gap: gap-2
+text unchanged
+
+--------------------------------------------------
+
+4️⃣ LOGIN PAGE HERO
+
+Replace logo block with:
+
+<div className="flex flex-col items-center gap-4 mb-6">
+  <img
+    src="/brand/ficshon-mark-v1.png"
+    alt="Ficshon"
+    className="h-12 w-12 rounded-xl object-contain"
+  />
+  <h1 className="text-3xl font-semibold tracking-tight">
+    Ficshon
+  </h1>
+  <p className="text-gray-400">
+    Roleplay-first social network
+  </p>
+</div>
+
+--------------------------------------------------
+
+5️⃣ OPTIONAL (IF EASY)
+
+Add favicon support:
+
+Copy file to:
+frontend/public/favicon.png
+
+Do not wire HTML yet unless trivial.
+
+--------------------------------------------------
+
+6️⃣ DO NOT TOUCH
+
+- routing
+- auth
+- WriteSpace
+- sidebar structure
+- styling tokens
+- colours
+
+Only replace logo usage.
+
+--------------------------------------------------
+
+7️⃣ VERIFY
+
+After changes:
+
+- Sidebar shows icon + Ficshon text
+- Mobile header shows icon + Ficshon text
+- Login hero shows centered icon + text
+- No OwlQuill anywhere
+
+Return:
+✔ files changed
+✔ confirmation everything builds
