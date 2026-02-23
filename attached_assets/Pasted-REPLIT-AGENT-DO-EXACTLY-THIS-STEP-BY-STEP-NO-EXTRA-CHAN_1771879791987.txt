@@ -1,0 +1,60 @@
+REPLIT AGENT — DO EXACTLY THIS, STEP BY STEP (NO EXTRA CHANGES)
+
+GOAL:
+Add Ficshon Logo v1 image to the repo and use it in the UI (Layout sidebar + mobile header + Login page). Keep text fallback. Replace visible “OwlQuill” branding in these areas.
+
+0) ROLLBACK CHECKPOINT (MANDATORY)
+- Run:
+  git status
+  git tag fic-checkpoint-logo-v1-prewire-2026-02-23
+  git push origin fic-checkpoint-logo-v1-prewire-2026-02-23
+
+1) ADD THE LOGO FILE (BINARY UPLOAD)
+- Create folder:
+  frontend/public/brand/
+- Upload the user-provided image file into:
+  frontend/public/brand/ficshon-logo-v1.jpg
+  (If the image is currently only in chat, ask the user to download it locally and upload it via Replit file upload into that path.)
+
+2) UPDATE LAYOUT BRANDING (SIDEBAR + MOBILE TOP BAR)
+- Edit: frontend/src/components/Layout.tsx
+- Replace the text-only brand (“Ficshon” / previously “OwlQuill”) with:
+  - <img src="/brand/ficshon-logo-v1.jpg" alt="Ficshon" className="h-7 w-auto" />
+  - Keep the brand text as fallback right next to it, but visually secondary:
+    <span className="ml-2 font-semibold tracking-tight text-gray-100">Ficshon</span>
+- Ensure both desktop sidebar header and mobile top bar header use the same logo row.
+- Do NOT change routes or nav items beyond branding.
+
+3) UPDATE LOGIN PAGE BRANDING
+- Find the Login page component (likely one of):
+  - frontend/src/pages/Login.tsx
+  - frontend/src/pages/Auth/Login.tsx
+  - frontend/src/pages/auth/Login.tsx
+  - frontend/src/pages/LoginPage.tsx
+- Replace the big “OwlQuill” heading/logo area with:
+  - the same image:
+    <img src="/brand/ficshon-logo-v1.jpg" alt="Ficshon" className="h-12 w-auto mx-auto" />
+  - Under it, the subtitle should become:
+    “Roleplay-first social network” (keep as-is unless it still says OwlQuill)
+- If any “OwlQuill” word appears on login, change it to “Ficshon”.
+
+4) VERIFY
+- Run:
+  cd frontend
+  npx tsc --noEmit
+- If TypeScript fails, fix it minimally.
+- Run the app and confirm:
+  - Sidebar shows Ficshon logo
+  - Mobile header shows Ficshon logo
+  - /login shows Ficshon logo and no OwlQuill text
+
+5) COMMIT + PUSH + TAG
+- Run:
+  git add frontend/public/brand/ficshon-logo-v1.jpg frontend/src/components/Layout.tsx <login file path you edited>
+  git commit -m "Brand: add Ficshon logo v1 and wire into layout + login"
+  git push
+  git tag fic-checkpoint-logo-v1-wired-2026-02-23
+  git push origin fic-checkpoint-logo-v1-wired-2026-02-23
+
+OUTPUT:
+- Reply with the exact file paths edited and a short diff summary (branding-only).
