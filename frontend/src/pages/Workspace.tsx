@@ -226,6 +226,34 @@ export default function Workspace() {
   const grammarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const grammarAbortRef = useRef<AbortController | null>(null);
 
+  // ── StoryLab ──────────────────────────────────────────────────────────────
+  type SLStoryState = {
+    tone: string; pacing: string; stakes: number | string; scene_type: string;
+    intimacy_level: number; tension: number; emotional_weight: number;
+  };
+  type SLStateJson = { story_state: SLStoryState; characters: unknown[]; relationships: unknown[] };
+  type SLDelta    = { path: string; delta: number };
+  type SLControls = { direction: string; tone_intensity: string; pacing: string; length: string; boundary: string };
+  type SLState    = { story_summary: string; state_json: SLStateJson; updated_at: string };
+
+  const [sidebarTab,      setSidebarTab]      = useState<'tools' | 'storylab'>('tools');
+  const [storylabState,   setStorylabState]   = useState<SLState | null>(null);
+  const [storylabDeltas,  setStorylabDeltas]  = useState<SLDelta[]>([]);
+  const [slControls,      setSlControls]      = useState<SLControls>({
+    direction: 'advance_plot', tone_intensity: 'moderate',
+    pacing: 'balanced', length: 'medium', boundary: 'sfw',
+  });
+  const [isLoadingSlState, setIsLoadingSlState] = useState(false);
+  const [isGenerating,     setIsGenerating]     = useState(false);
+  const [storylabError,    setStorylabError]    = useState('');
+  const slStateAbortRef    = useRef<AbortController | null>(null);
+  const slGenerateAbortRef = useRef<AbortController | null>(null);
+  // Stable story_id — derived from persisted realm+character selection
+  const storyId = useMemo(
+    () => `writespace:${selectedRealmId ?? 'none'}:${characterId !== 0 ? characterId : 'none'}`,
+    [selectedRealmId, characterId],
+  );
+
   // Debounced autosave — persists draft content + UI context
   useEffect(() => {
     setIsSaving(true);
@@ -278,6 +306,8 @@ export default function Workspace() {
       if (formatFlashTimerRef.current) clearTimeout(formatFlashTimerRef.current);
       if (grammarTimerRef.current) clearTimeout(grammarTimerRef.current);
       if (grammarAbortRef.current) grammarAbortRef.current.abort();
+      if (slStateAbortRef.current) slStateAbortRef.current.abort();
+      if (slGenerateAbortRef.current) slGenerateAbortRef.current.abort();
     };
   }, []);
 
@@ -529,6 +559,72 @@ export default function Workspace() {
     }
   }
 
+  async function fetchStorylabState(id: string) {
+    if (slStateAbortRef.current) slStateAbortRef.current.abort();
+    const ctrl = new AbortController();
+    slStateAbortRef.current = ctrl;
+    setIsLoadingSlState(true);
+    setStorylabError('');
+    try {
+      const resp = await fetch(`/api/storylab/state?story_id=${encodeURIComponent(id)}`, {
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await resp.json() as any;
+      setStorylabState(data as Parameters<typeof setStorylabState>[0]);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setStorylabError('Could not load story state.');
+    } finally {
+      setIsLoadingSlState(false);
+    }
+  }
+
+  async function generateStorylab() {
+    if (!body.trim()) { setStorylabError('Add some text before generating.'); return; }
+    if (slGenerateAbortRef.current) slGenerateAbortRef.current.abort();
+    const ctrl = new AbortController();
+    slGenerateAbortRef.current = ctrl;
+    setIsGenerating(true);
+    setStorylabError('');
+    setStorylabDeltas([]);
+    try {
+      const resp = await fetch('/api/storylab/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ story_id: storyId, text: body, controls: slControls }),
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const errData = await resp.json().catch(() => ({})) as any;
+        const raw = errData?.detail?.message || errData?.detail || `HTTP ${resp.status}`;
+        throw new Error(typeof raw === 'string' ? raw : JSON.stringify(raw));
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await resp.json() as any;
+      const generated = (data?.generated?.text as string | undefined) ?? '';
+      if (generated) {
+        setBody((prev) => prev + (prev.endsWith('\n') ? '\n' : '\n\n') + generated);
+      }
+      if (data?.state) {
+        const newStateJson = (data.state.state_json ?? null) as SLStateJson | null;
+        setStorylabState((prev) => ({
+          story_summary: (data.state.story_summary as string) ?? prev?.story_summary ?? '',
+          state_json: (newStateJson ?? prev?.state_json) as SLStateJson,
+          updated_at: new Date().toISOString(),
+        }));
+        setStorylabDeltas((data.state.deltas as SLDelta[]) ?? []);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setStorylabError((err as Error).message || 'Generation failed.');
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
   // Debounced grammar check — fires 800 ms after body/mode changes in review mode
   useEffect(() => {
     if (mode !== 'review') {
@@ -549,6 +645,13 @@ export default function Workspace() {
   // body / mode are the only values that should retrigger this effect
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [body, mode]);
+
+  // Fetch StoryLab state whenever the tab becomes active or story_id changes
+  useEffect(() => {
+    if (sidebarTab !== 'storylab') return;
+    void fetchStorylabState(storyId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sidebarTab, storyId]);
 
   function renderLiveChecks() {
     const checks = review.suggestions.filter((s) => s.kind !== 'info').slice(0, 6);
@@ -749,7 +852,187 @@ export default function Workspace() {
     );
   }
 
+  function renderStorylabPanel() {
+    const ss = storylabState?.state_json?.story_state;
+    const fmtNum = (v: number | string | undefined) =>
+      typeof v === 'number' ? v.toFixed(2) : (v ?? '—');
+
+    return (
+      <div className="space-y-3">
+        {/* Controls */}
+        <div className="border border-gray-800 rounded-xl p-4 space-y-3">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Controls</p>
+
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Direction</p>
+            <select
+              value={slControls.direction}
+              onChange={(e) => setSlControls((p) => ({ ...p, direction: e.target.value }))}
+              className="input text-sm w-full"
+            >
+              <option value="advance_plot">Advance plot</option>
+              <option value="add_dialogue">Add dialogue</option>
+              <option value="sad_moment">Sad moment</option>
+              <option value="argument_begins">Argument begins</option>
+              <option value="romantic_moment">Romantic moment</option>
+              <option value="sensual_scene">Sensual scene</option>
+              <option value="intimate_scene">Intimate scene</option>
+              <option value="twist_event">Twist event</option>
+              <option value="quiet_reflection">Quiet reflection</option>
+              <option value="action_sequence">Action sequence</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Boundary</p>
+            <select
+              value={slControls.boundary}
+              onChange={(e) => setSlControls((p) => ({ ...p, boundary: e.target.value }))}
+              className="input text-sm w-full"
+            >
+              <option value="sfw">SFW</option>
+              <option value="fade_to_black">Fade to black</option>
+              <option value="sensual">Sensual</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500">Tone</p>
+              <select
+                value={slControls.tone_intensity}
+                onChange={(e) => setSlControls((p) => ({ ...p, tone_intensity: e.target.value }))}
+                className="input text-xs w-full"
+              >
+                <option value="light">Light</option>
+                <option value="moderate">Moderate</option>
+                <option value="intense">Intense</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500">Pacing</p>
+              <select
+                value={slControls.pacing}
+                onChange={(e) => setSlControls((p) => ({ ...p, pacing: e.target.value }))}
+                className="input text-xs w-full"
+              >
+                <option value="slow">Slow</option>
+                <option value="balanced">Balanced</option>
+                <option value="fast">Fast</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500">Length</p>
+              <select
+                value={slControls.length}
+                onChange={(e) => setSlControls((p) => ({ ...p, length: e.target.value }))}
+                className="input text-xs w-full"
+              >
+                <option value="short">Short</option>
+                <option value="medium">Medium</option>
+                <option value="long">Long</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Generate button */}
+        <button
+          type="button"
+          onClick={() => void generateStorylab()}
+          disabled={isGenerating || !body.trim()}
+          className="w-full py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isGenerating ? 'Generating\u2026' : 'Continue with StoryLab'}
+        </button>
+
+        {storylabError && (
+          <p className="text-xs text-red-400">{storylabError}</p>
+        )}
+
+        {/* What changed */}
+        {storylabDeltas.length > 0 && (
+          <div className="border border-gray-800 rounded-xl p-3 space-y-1">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">What changed</p>
+            <ul className="space-y-0.5">
+              {storylabDeltas.map((d, i) => (
+                <li key={i} className="flex justify-between text-xs">
+                  <span className="text-gray-500">{d.path.split('.').pop()}</span>
+                  <span className={d.delta >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                    {d.delta > 0 ? '+' : ''}{d.delta.toFixed(2)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Story state summary */}
+        <div className="border border-gray-800 rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Story State</p>
+            {isLoadingSlState && <span className="text-xs text-gray-500">Loading\u2026</span>}
+          </div>
+          {ss ? (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <span className="text-gray-500">Tone</span>
+              <span className="text-gray-200">{ss.tone}</span>
+              <span className="text-gray-500">Pacing</span>
+              <span className="text-gray-200">{ss.pacing}</span>
+              <span className="text-gray-500">Stakes</span>
+              <span className="text-gray-200">{fmtNum(ss.stakes)}</span>
+              <span className="text-gray-500">Tension</span>
+              <span className="text-gray-200">{fmtNum(ss.tension)}</span>
+              <span className="text-gray-500">Emotion</span>
+              <span className="text-gray-200">{fmtNum(ss.emotional_weight)}</span>
+              <span className="text-gray-500">Intimacy</span>
+              <span className="text-gray-200">{fmtNum(ss.intimacy_level)}</span>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500">{isLoadingSlState ? 'Loading\u2026' : 'No state loaded.'}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function renderSidebarContent(variant: 'desktop' | 'drawer') {
+    const tabBar = (
+      <div className="flex gap-1 mb-3 p-1 bg-gray-900/60 rounded-xl border border-gray-800">
+        <button
+          type="button"
+          onClick={() => setSidebarTab('tools')}
+          className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition ${
+            sidebarTab === 'tools'
+              ? 'bg-gray-800 text-gray-100'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          Tools
+        </button>
+        <button
+          type="button"
+          onClick={() => setSidebarTab('storylab')}
+          className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition ${
+            sidebarTab === 'storylab'
+              ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-800/50'
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          StoryLab
+        </button>
+      </div>
+    );
+
+    if (sidebarTab === 'storylab') {
+      return (
+        <>
+          {tabBar}
+          {renderStorylabPanel()}
+        </>
+      );
+    }
+
     const drawerSelectors = variant === 'drawer' ? (
       <div className="space-y-3 border-b border-gray-800 pb-4 mb-1">
         <div className="space-y-1">
@@ -783,6 +1066,7 @@ export default function Workspace() {
     if (mode === 'review') {
       return (
         <>
+          {tabBar}
           {drawerSelectors}
           <div className="space-y-4">
           {/* Stats card */}
@@ -913,6 +1197,7 @@ export default function Workspace() {
 
     return (
       <>
+      {tabBar}
       {drawerSelectors}
       <div className="space-y-3">
         {/* Publish context */}
@@ -1083,6 +1368,7 @@ export default function Workspace() {
       suggestions: suggestions.slice(0, 8),
     };
   }, [body]);
+
 
   return (
     <div className={
