@@ -463,7 +463,7 @@ def test_openrouter_provider_returns_model_text(monkeypatch):
     mock_client = _make_openrouter_mock(model_output)
 
     with patch.object(gen.httpx, "Client", return_value=mock_client):
-        result = gen.generate_storylab_continuation(
+        text, _delta = gen.generate_storylab_continuation(
             text="She reached for the handle.",
             controls=StoryLabControls(),
             state_json={},
@@ -472,7 +472,7 @@ def test_openrouter_provider_returns_model_text(monkeypatch):
             story_id="test-or-story",
         )
 
-    assert result == model_output
+    assert text == model_output
     mock_client.post.assert_called_once()
     call_kwargs = mock_client.post.call_args
     payload = call_kwargs.kwargs.get("json") or call_kwargs.args[1]
@@ -502,7 +502,7 @@ def test_openrouter_fallback_on_http_error(monkeypatch):
     mock_client.post = _bad_post
 
     with patch.object(gen.httpx, "Client", return_value=mock_client):
-        result = gen.generate_storylab_continuation(
+        text, delta = gen.generate_storylab_continuation(
             text="The fire crackled.",
             controls=StoryLabControls(),
             state_json={},
@@ -511,9 +511,10 @@ def test_openrouter_fallback_on_http_error(monkeypatch):
             story_id="fallback-story",
         )
 
-    # Must return a non-empty string (stub output)
-    assert isinstance(result, str)
-    assert len(result) > 0
+    # Must return a non-empty string (stub output) with no delta signals
+    assert isinstance(text, str)
+    assert len(text) > 0
+    assert delta is None
 
 
 def test_openrouter_fallback_on_timeout(monkeypatch):
@@ -535,7 +536,7 @@ def test_openrouter_fallback_on_timeout(monkeypatch):
     mock_client.post = _timeout_post
 
     with patch.object(gen.httpx, "Client", return_value=mock_client):
-        result = gen.generate_storylab_continuation(
+        text, delta = gen.generate_storylab_continuation(
             text="Rain fell on the cobblestones.",
             controls=StoryLabControls(),
             state_json={},
@@ -544,8 +545,9 @@ def test_openrouter_fallback_on_timeout(monkeypatch):
             story_id="timeout-story",
         )
 
-    assert isinstance(result, str)
-    assert len(result) > 0
+    assert isinstance(text, str)
+    assert len(text) > 0
+    assert delta is None
 
 
 def test_openrouter_missing_key_uses_stub(monkeypatch):
@@ -556,7 +558,7 @@ def test_openrouter_missing_key_uses_stub(monkeypatch):
     monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
     monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "")
 
-    result = gen.generate_storylab_continuation(
+    text, delta = gen.generate_storylab_continuation(
         text="The village was quiet at dawn.",
         controls=StoryLabControls(),
         state_json={},
@@ -565,8 +567,9 @@ def test_openrouter_missing_key_uses_stub(monkeypatch):
         story_id="no-key-story",
     )
 
-    assert isinstance(result, str)
-    assert len(result) > 0
+    assert isinstance(text, str)
+    assert len(text) > 0
+    assert delta is None
 
 
 def test_openrouter_via_endpoint(client):
@@ -592,3 +595,292 @@ def test_openrouter_via_endpoint(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["generated"]["text"] == model_output
+
+
+# ── apply_model_deltas unit tests ─────────────────────────────────────────────
+
+def test_apply_model_deltas_applies_values():
+    """apply_model_deltas merges model signals into story_state correctly."""
+    from app.api.routes.storylab import apply_model_deltas
+    from app.schemas.storylab import Boundary
+
+    state = {
+        "story_state": {"tension": 0.2, "emotional_weight": 0.1, "stakes": 0.3, "intimacy_level": 0},
+        "characters": [],
+    }
+    model_deltas = {
+        "tension_delta": 0.1,
+        "emotional_weight_delta": 0.05,
+        "stakes_delta": 0.0,
+        "intimacy_delta": 0.0,
+    }
+    result = apply_model_deltas(state, model_deltas, Boundary.sfw)
+    ss = result["story_state"]
+    assert ss["tension"] == pytest.approx(0.3, abs=1e-3)
+    assert ss["emotional_weight"] == pytest.approx(0.15, abs=1e-3)
+    assert ss["stakes"] == pytest.approx(0.3, abs=1e-3)  # unchanged
+
+
+def test_apply_model_deltas_clamps_extreme_values():
+    """Values outside ±0.2 are clamped before being applied."""
+    from app.api.routes.storylab import apply_model_deltas
+    from app.schemas.storylab import Boundary
+
+    state = {"story_state": {"tension": 0.5, "emotional_weight": 0.5}, "characters": []}
+    # Supply deltas well beyond the ±0.2 cap
+    model_deltas = {"tension_delta": 0.9, "emotional_weight_delta": -0.9}
+    result = apply_model_deltas(state, model_deltas, Boundary.sfw)
+    ss = result["story_state"]
+    # 0.5 + 0.2 (clamped) = 0.7
+    assert ss["tension"] == pytest.approx(0.7, abs=1e-3)
+    # 0.5 + (-0.2) (clamped) = 0.3
+    assert ss["emotional_weight"] == pytest.approx(0.3, abs=1e-3)
+
+
+def test_apply_model_deltas_ignores_unknown_keys():
+    """Keys not in the allowed set are silently ignored."""
+    from app.api.routes.storylab import apply_model_deltas
+    from app.schemas.storylab import Boundary
+
+    state = {"story_state": {"tension": 0.3, "tone": "neutral"}, "characters": []}
+    model_deltas = {
+        "tension_delta": 0.05,
+        "unknown_field_delta": 999.9,   # must be ignored
+        "scene_type": "revelation",      # must be ignored
+    }
+    result = apply_model_deltas(state, model_deltas, Boundary.sfw)
+    ss = result["story_state"]
+    assert ss["tension"] == pytest.approx(0.35, abs=1e-3)
+    assert "unknown_field_delta" not in ss
+    # tone should be untouched
+    assert ss.get("tone") == "neutral"
+
+
+def test_apply_model_deltas_respects_intimacy_cap():
+    """intimacy_delta is capped at the boundary's intimacy ceiling."""
+    from app.api.routes.storylab import apply_model_deltas
+    from app.schemas.storylab import Boundary
+
+    state = {"story_state": {"intimacy_level": 1.8}, "characters": []}
+    # sfw cap = 2; delta 0.2 would bring it to 2.0 exactly
+    result_sfw = apply_model_deltas(state, {"intimacy_delta": 0.2}, Boundary.sfw)
+    assert result_sfw["story_state"]["intimacy_level"] == pytest.approx(2.0, abs=1e-3)
+
+    # sensual cap = 8; same delta should bring it to 2.0
+    result_sensual = apply_model_deltas(state, {"intimacy_delta": 0.2}, Boundary.sensual)
+    assert result_sensual["story_state"]["intimacy_level"] == pytest.approx(2.0, abs=1e-3)
+
+    # Attempting to push past sfw cap (2) should be clamped to 2
+    state_at_cap = {"story_state": {"intimacy_level": 2.0}, "characters": []}
+    result_capped = apply_model_deltas(state_at_cap, {"intimacy_delta": 0.2}, Boundary.sfw)
+    assert result_capped["story_state"]["intimacy_level"] == pytest.approx(2.0, abs=1e-3)
+
+
+def test_generate_stub_returns_none_delta():
+    """Stub path returns (str, None) — no delta signals from deterministic output."""
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls
+
+    text, delta = gen.generate_storylab_continuation(
+        text="The lantern swayed in the breeze.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+        story_id="stub-delta-test",
+    )
+    assert isinstance(text, str) and len(text) > 0
+    assert delta is None
+
+
+def test_openrouter_with_delta_signals_updates_state(client):
+    """When OpenRouter returns DELTA_SIGNALS, they are merged into the state."""
+    from unittest.mock import patch
+    import app.services.storylab_generator as gen
+
+    # Model output includes both STORY and DELTA_SIGNALS tags
+    model_output = (
+        "<STORY>The tension in the room was unmistakable.</STORY>\n"
+        '<DELTA_SIGNALS>{"tension_delta":0.15,"emotional_weight_delta":0.1,'
+        '"intimacy_delta":0.0,"stakes_delta":0.0,"scene_type":"confrontation"}'
+        "</DELTA_SIGNALS>"
+    )
+    mock_client = _make_openrouter_mock(model_output)
+
+    original_provider = gen.settings.STORYLAB_PROVIDER
+    original_key = gen.settings.OPENROUTER_API_KEY
+    gen.settings.STORYLAB_PROVIDER = "openrouter"
+    gen.settings.OPENROUTER_API_KEY = "test-key-delta"
+    try:
+        with patch.object(gen.httpx, "Client", return_value=mock_client):
+            resp = client.post(
+                "/api/storylab/generate",
+                json={**_BASE_GENERATE, "story_id": "delta-signal-story",
+                      "controls": {**_BASE_GENERATE["controls"], "direction": "argument_begins"}},
+            )
+    finally:
+        gen.settings.STORYLAB_PROVIDER = original_provider
+        gen.settings.OPENROUTER_API_KEY = original_key
+
+    assert resp.status_code == 200
+    data = resp.json()
+    # The story text should be the extracted <STORY> content
+    assert data["generated"]["text"] == "The tension in the room was unmistakable."
+    # State should reflect both deterministic deltas AND model signals
+    ss = data["state"]["state_json"]["story_state"]
+    # argument_begins deterministically nudges tension by 0.15; model adds another 0.15 (clamped to 0.2)
+    # Starting tension = 0.2; after deterministic = 0.35; after model clamp = 0.35 + 0.15 = 0.50
+    assert float(ss["tension"]) > 0.3
+
+
+# ── quality guardrails unit tests ─────────────────────────────────────────────
+
+def test_build_prompt_includes_word_target_and_cap():
+    """User message contains the target word count and hard cap for the selected length."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls, Length
+
+    for length, (target, cap) in [
+        (Length.short, (350, 500)),
+        (Length.medium, (1000, 1300)),
+        (Length.long, (2000, 2400)),
+    ]:
+        controls = StoryLabControls(length=length)
+        messages = build_storylab_prompt(
+            text="The lantern flickered once, then steadied.",
+            controls=controls,
+            state_json={},
+            summary="",
+            characters=[],
+        )
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert str(target) in user_content, f"target {target} missing for length={length}"
+        assert str(cap) in user_content, f"cap {cap} missing for length={length}"
+
+
+def test_build_prompt_includes_recent_endings():
+    """When recent_endings is provided the user message contains an avoidance block."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    endings = [
+        "She turned and did not look back.",
+        "The question hung unanswered in the air.",
+    ]
+    messages = build_storylab_prompt(
+        text="The door stood open.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+        recent_endings=endings,
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert "Endings to avoid" in user_content
+    assert endings[0] in user_content
+    assert endings[1] in user_content
+
+
+def test_build_prompt_no_endings_block_when_empty():
+    """When recent_endings is empty or None the avoidance block is absent."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    for endings_arg in (None, []):
+        messages = build_storylab_prompt(
+            text="The fog rolled in from the harbour.",
+            controls=StoryLabControls(),
+            state_json={},
+            summary="",
+            characters=[],
+            recent_endings=endings_arg,
+        )
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert "Endings to avoid" not in user_content
+
+
+def test_trim_to_cap_no_op_under_cap():
+    """_trim_to_cap returns the original text unchanged when under the cap."""
+    from app.services.storylab_generator import _trim_to_cap
+
+    short_text = "The wind carried the scent of pine. It was cold but clear."
+    wc = len(short_text.split())
+    result = _trim_to_cap(short_text, wc + 50)
+    assert result == short_text
+
+
+def test_trim_to_cap_paragraph_boundary():
+    """_trim_to_cap cuts at a paragraph boundary and stays within cap."""
+    from app.services.storylab_generator import _trim_to_cap
+
+    # Three paragraphs of 200 words each = 600 words total
+    para = " ".join(["word"] * 200)
+    text = f"{para}\n\n{para}\n\n{para}"
+    cap = 450  # fits exactly two paragraphs (400 words) but not three
+
+    result = _trim_to_cap(text, cap)
+    assert len(result.split()) <= cap
+    # Result should be at least one full paragraph
+    assert len(result.split()) >= 100
+    # No mid-word or mid-paragraph cut should leave partial paragraphs
+    assert "\n\nword word" not in result or result.count("\n\n") <= 1
+
+
+def test_trim_to_cap_sentence_boundary():
+    """_trim_to_cap falls back to sentence-level cutting for a single long paragraph."""
+    from app.services.storylab_generator import _trim_to_cap
+
+    # Single paragraph: 10 sentences of ~60 words = ~600 words
+    sentence = "The river bent sharply here and the banks were steep, overgrown with reeds that caught the current and held it before releasing it downstream with a soft persistent sound. "
+    text = sentence * 10  # ~600 words, no paragraph breaks
+    cap = 350
+
+    result = _trim_to_cap(text, cap)
+    assert len(result.split()) <= cap
+    assert len(result) > 0
+    # Result should end on sentence-ending punctuation
+    assert result.rstrip()[-1] in ".!?\""
+
+
+def test_extract_ending_phrase_single_line():
+    """extract_ending_phrase returns the last non-empty line for short text."""
+    from app.services.storylab_generator import extract_ending_phrase
+
+    text = "First sentence here.\nSecond sentence here.\nShe closed the door."
+    assert extract_ending_phrase(text) == "She closed the door."
+
+
+def test_extract_ending_phrase_multiline():
+    """extract_ending_phrase returns last non-empty line ignoring trailing whitespace."""
+    from app.services.storylab_generator import extract_ending_phrase
+
+    text = "Para one ends here.\n\nPara two ends with a question?"
+    assert extract_ending_phrase(text) == "Para two ends with a question?"
+
+
+def test_generate_passes_recent_endings_after_first_call(client):
+    """After a first generation, the second call includes recent endings in the prompt."""
+    from unittest.mock import patch
+    import app.services.storylab_generator as gen
+
+    story_id = "anti-rep-integration-story"
+    base = {**_BASE_GENERATE, "story_id": story_id}
+
+    # First call — creates a generation log entry for this story_id
+    resp1 = client.post("/api/storylab/generate", json=base)
+    assert resp1.status_code == 200
+
+    # Second call — spy on generate_storylab_continuation via the route's own import binding
+    captured: dict = {}
+    orig = gen.generate_storylab_continuation
+
+    def spy(text, controls, state_json, summary, characters, story_id="", recent_endings=None):
+        captured["recent_endings"] = recent_endings
+        return orig(text, controls, state_json, summary, characters, story_id, recent_endings)
+
+    with patch("app.api.routes.storylab.generate_storylab_continuation", side_effect=spy):
+        resp2 = client.post("/api/storylab/generate", json=base)
+
+    assert resp2.status_code == 200
+    assert captured.get("recent_endings") is not None, "recent_endings was not passed"
+    assert len(captured["recent_endings"]) >= 1, "recent_endings should be non-empty after first call"

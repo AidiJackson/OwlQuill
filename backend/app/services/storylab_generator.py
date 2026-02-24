@@ -12,11 +12,12 @@ STORYLAB_PROVIDER=openrouter
 
 Public helpers (importable for testing)
 ----------------------------------------
-    direction_instructions(direction)  -> str
-    boundary_instructions(boundary)    -> str
-    pacing_instructions(pacing)        -> str
-    tone_instructions(tone_intensity)  -> str
-    build_storylab_prompt(...)         -> list[dict]  # messages payload
+    direction_instructions(direction)     -> str
+    boundary_instructions(boundary)       -> str
+    pacing_instructions(pacing)           -> str
+    tone_instructions(tone_intensity)     -> str
+    build_storylab_prompt(...)            -> list[dict]  # messages payload
+    generate_storylab_continuation(...)   -> tuple[str, dict | None]
 """
 import json
 import logging
@@ -39,13 +40,23 @@ logger = logging.getLogger(__name__)
 
 _REQUEST_TIMEOUT = 25.0  # seconds for LLM calls
 
-# ── length → approximate word targets ────────────────────────────────────────
+# ── length → (target_words, hard_cap_words) ──────────────────────────────────
 
-_LENGTH_WORDS = {
-    Length.short: 75,
-    Length.medium: 150,
-    Length.long: 250,
+_LENGTH_CONFIG: dict[str, tuple[int, int]] = {
+    Length.short:  (350,  500),
+    Length.medium: (1000, 1300),
+    Length.long:   (2000, 2400),
 }
+
+
+def _length_target(length: Any) -> int:
+    """Target word count for a Length value."""
+    return _LENGTH_CONFIG.get(length, (1000, 1300))[0]
+
+
+def _length_cap(length: Any) -> int:
+    """Hard word cap for a Length value; output is trimmed to this after generation."""
+    return _LENGTH_CONFIG.get(length, (1000, 1300))[1]
 
 
 # ── direction-specific narrative instructions ─────────────────────────────────
@@ -204,8 +215,11 @@ emotional state. No generic dramatic lines.
 difficult through the beat.
 - Show character through action, object, and sensory detail. Avoid direct labelling of \
 emotions ("she felt sad", "he was angry").
-- End on a natural pause that contains a small forward hook — a question, an unresolved \
-tension, a detail that demands attention. Do not resolve the scene completely.\
+- End on a varied, specific forward hook — a question, an implication, an unresolved \
+physical detail, or an action that invites a response. No melodramatic cliffhangers \
+("little did they know", "everything was about to change", "but then —"). \
+Do not resolve the scene completely. Each ending must differ in structure and closing \
+image from the previous one.\
 """
 
 
@@ -255,8 +269,13 @@ def build_storylab_prompt(
     state_json: dict[str, Any],
     summary: str,
     characters: list[Any],
+    recent_endings: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """Build and return the messages list for the OpenRouter chat completions call.
+
+    Args:
+        recent_endings: Last N ending phrases from this story's GenerationLog,
+                        used to drive anti-repetition instructions.
 
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
@@ -278,8 +297,19 @@ def build_storylab_prompt(
         or "None specified"
     )
 
-    target_words = _LENGTH_WORDS.get(controls.length, 150)
+    target_words = _length_target(controls.length)
+    cap_words = _length_cap(controls.length)
     scene_tail = text[-6000:] if len(text) > 6000 else text
+
+    endings_block = ""
+    if recent_endings:
+        bullets = "\n".join(f'- "{e}"' for e in recent_endings)
+        endings_block = (
+            "\n\n## Endings to avoid\n"
+            "Do NOT end your continuation with the same opening words, closing image, "
+            "or structural pattern as any of these recent endings from this story:\n"
+            f"{bullets}"
+        )
 
     user_content = f"""\
 ## Story context
@@ -302,16 +332,16 @@ Characters: {char_names}
 {tone_instructions(controls.tone_intensity)}
 
 ## Target length
-~{target_words} words of continuation prose.
+Aim for ~{target_words} words (hard cap: {cap_words} words).
 
 ## Recent scene
 {scene_tail}
 
 ## Task
 Continue directly from where the scene ends. Apply all direction, boundary, pacing, \
-and tone instructions above. Write approximately {target_words} words. \
-Use the required output format.\
-"""
+and tone instructions above. Write approximately {target_words} words (max {cap_words}). \
+End on a natural pause with a distinct forward hook. Use the required output format.\
+{endings_block}"""
 
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -344,6 +374,80 @@ def _parse_delta_signals(raw: str) -> dict[str, Any] | None:
         return json.loads(m.group(1).strip())
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+# ── text utilities (public for testing / route use) ──────────────────────────
+
+def extract_ending_phrase(text: str, max_chars: int = 150) -> str:
+    """Return the final sentence or short phrase of *text*.
+
+    Used by the route to build the anti-repetition list passed to the prompt.
+    """
+    if not text:
+        return ""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    last_line = lines[-1]
+    if len(last_line) > max_chars:
+        sentences = re.split(r"(?<=[.!?])\s+", last_line)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        last = sentences[-1] if sentences else last_line
+        return last[:max_chars]
+    return last_line
+
+
+def _trim_to_cap(text: str, cap_words: int) -> str:
+    """Trim *text* to at most *cap_words* words at a clean paragraph or sentence boundary.
+
+    Strategy:
+    1. If already within cap, return as-is.
+    2. Greedily add whole paragraphs until the next would exceed cap.
+    3. If even the first paragraph exceeds cap, fall back to sentence-level trimming.
+    4. Hard word-count truncation as a last resort (should never be reached for real prose).
+    """
+    if len(text.split()) <= cap_words:
+        return text
+
+    # ── paragraph-level cut ───────────────────────────────────────────────────
+    paragraphs = re.split(r"\n\n+", text)
+    kept: list[str] = []
+    running = 0
+    for para in paragraphs:
+        para_wc = len(para.split())
+        if running + para_wc > cap_words:
+            if kept:
+                break  # stop before this over-budget paragraph
+            # First paragraph alone already exceeds cap — fall through
+        else:
+            kept.append(para)
+            running += para_wc
+
+    if kept:
+        return "\n\n".join(kept)
+
+    # ── sentence-level fallback ───────────────────────────────────────────────
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    kept_sents: list[str] = []
+    running = 0
+    for sent in sentences:
+        wc = len(sent.split())
+        if running + wc > cap_words:
+            break
+        kept_sents.append(sent)
+        running += wc
+
+    if kept_sents:
+        result = " ".join(kept_sents).strip()
+        # Ensure the result ends on proper punctuation
+        if result and result[-1] not in ".!?\"'\u2019\u201d":
+            last_punc = max(result.rfind("."), result.rfind("!"), result.rfind("?"))
+            if last_punc > len(result) // 2:
+                result = result[: last_punc + 1]
+        return result
+
+    # ── hard fallback (last resort) ───────────────────────────────────────────
+    return " ".join(text.split()[:cap_words])
 
 
 # ── stub (fallback / default provider) ───────────────────────────────────────
@@ -443,13 +547,16 @@ def _call_openrouter(
     state_json: dict[str, Any],
     summary: str,
     characters: list[Any],
-) -> str:
+    recent_endings: list[str] | None = None,
+) -> tuple[str, dict[str, Any] | None]:
     """Call OpenRouter; parse <STORY> tag from response; fall back to raw on missing tags."""
     url = "https://openrouter.ai/api/v1/chat/completions"
-    messages = build_storylab_prompt(text, controls, state_json, summary, characters)
-    target_words = _LENGTH_WORDS.get(controls.length, 150)
-    # Extra headroom for tags + delta block; words ≈ 0.75 tokens
-    max_tokens = max(400, int(target_words * 2.5))
+    messages = build_storylab_prompt(
+        text, controls, state_json, summary, characters, recent_endings
+    )
+    cap_words = _length_cap(controls.length)
+    # cap_words / 0.75 ≈ cap in tokens; ×2.0 gives comfortable headroom for tags + delta block
+    max_tokens = max(400, int(cap_words * 2.0))
 
     payload = {
         "model": settings.STORYLAB_MODEL,
@@ -471,12 +578,12 @@ def _call_openrouter(
     data = resp.json()
     raw: str = data["choices"][0]["message"]["content"]
 
-    # Log delta signals if present (future use)
     delta = _parse_delta_signals(raw)
     if delta:
         logger.debug("StoryLab delta signals: %s", delta)
 
-    return _parse_model_output(raw)
+    story_text = _trim_to_cap(_parse_model_output(raw), cap_words)
+    return story_text, delta
 
 
 # ── public entry point ────────────────────────────────────────────────────────
@@ -488,12 +595,15 @@ def generate_storylab_continuation(
     summary: str,
     characters: list[Any],
     story_id: str = "",
-) -> str:
-    """Return a story continuation string.
+    recent_endings: list[str] | None = None,
+) -> tuple[str, dict[str, Any] | None]:
+    """Return (story_text, delta_signals_or_none).
 
     Routes to OpenRouter when STORYLAB_PROVIDER=openrouter and
     OPENROUTER_API_KEY is set; falls back to the deterministic stub
     on any error so the endpoint never returns empty-handed.
+    Stub always returns None for delta signals.
+    recent_endings is forwarded to the prompt for anti-repetition guidance.
     """
     provider = settings.STORYLAB_PROVIDER
 
@@ -502,7 +612,9 @@ def generate_storylab_continuation(
             logger.warning("STORYLAB_PROVIDER=openrouter but OPENROUTER_API_KEY is empty; using stub")
         else:
             try:
-                return _call_openrouter(text, controls, state_json, summary, characters)
+                return _call_openrouter(
+                    text, controls, state_json, summary, characters, recent_endings
+                )
             except httpx.TimeoutException:
                 logger.warning("OpenRouter request timed out; falling back to stub")
             except httpx.HTTPStatusError as exc:
@@ -510,4 +622,4 @@ def generate_storylab_continuation(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("OpenRouter error (%s); falling back to stub", exc)
 
-    return _generate_stub_text(story_id, controls)
+    return _generate_stub_text(story_id, controls), None
