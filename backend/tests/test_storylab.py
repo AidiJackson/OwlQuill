@@ -1050,3 +1050,82 @@ def test_openrouter_default_variant_uses_base_temperature(monkeypatch):
 
     payload = mock_client.post.call_args.kwargs.get("json") or mock_client.post.call_args.args[1]
     assert payload["temperature"] == pytest.approx(0.85, abs=1e-6)
+
+
+# ── User Material Handling / beat-rendering prompt tests ──────────────────────
+
+def test_prompt_contains_user_material_handling_section():
+    """Prompt includes the User Material Handling section regardless of manuscript content."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    controls = StoryLabControls()
+    messages = build_storylab_prompt(
+        text="She looked out the window.",
+        controls=controls,
+        state_json={},
+        summary="A quiet scene.",
+        characters=[],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+
+    assert "User Material Handling" in user_content
+    assert "canonical" in user_content.lower()
+    assert "append" in user_content.lower() or "continuation" in user_content.lower()
+
+
+def test_prompt_instructs_beat_rendering_for_bullet_manuscript():
+    """When the manuscript contains bullet points, the prompt instructs the model
+    to render them as polished prose and NOT repeat them verbatim."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    bullet_manuscript = (
+        "The argument had been building for days.\n"
+        "- Marcus slams the door and refuses to look at Elena\n"
+        "- Elena tells him she knows about the letter\n"
+        "* The silence stretches until Marcus finally speaks\n"
+    )
+
+    controls = StoryLabControls()
+    messages = build_storylab_prompt(
+        text=bullet_manuscript,
+        controls=controls,
+        state_json={},
+        summary="Long-running tension between Marcus and Elena.",
+        characters=[{"name": "Marcus"}, {"name": "Elena"}],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+
+    # The section header is present
+    assert "User Material Handling" in user_content
+
+    # The prompt says beats must be rendered into prose
+    assert "polished" in user_content.lower() or "prose" in user_content.lower()
+
+    # The prompt explicitly forbids echoing bullets verbatim
+    assert "verbatim" in user_content.lower()
+
+    # The prompt explains what counts as a beat marker
+    assert '"-"' in user_content or "bullet" in user_content.lower() or "beat" in user_content.lower()
+
+
+def test_prompt_instructs_no_rewrite_of_existing_prose():
+    """Prompt forbids rewriting or paraphrasing the user's existing text."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    controls = StoryLabControls()
+    messages = build_storylab_prompt(
+        text="The rain began at midnight and did not stop.",
+        controls=controls,
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+
+    # Must not rewrite / paraphrase
+    assert "rewrite" in user_content.lower() or "paraphrase" in user_content.lower()
+    # Manuscript is described as canonical
+    assert "canonical" in user_content.lower()

@@ -328,6 +328,9 @@ export default function StoryLabEngine() {
               {storyText.trim() ? `${storyText.match(/[A-Za-z0-9\u2019']+/g)?.length ?? 0} words` : 'Empty'}
             </span>
           </div>
+          <p className="text-[11px] text-gray-600 mb-2 leading-relaxed">
+            Paste prose, dialogue, or bullet beats — StoryLab will continue your story and weave beats into the scene.
+          </p>
           <textarea
             value={storyText}
             onChange={(e) => setStoryText(e.target.value)}

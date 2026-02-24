@@ -325,6 +325,24 @@ Core rules:
 """
 
 
+# ── user material handling block (static, inserted per-request) ──────────────
+
+_USER_MATERIAL_HANDLING = """\
+## User Material Handling (MANDATORY)
+- The user's provided manuscript is canonical. Treat it as the authoritative text.
+- You MUST NOT rewrite, paraphrase, or alter any of the user's existing prose.
+- You MUST write a continuation that appends new text after the manuscript ends.
+- If the manuscript contains bullet points, notes, or outlines (lines starting \
+with "-", "*", "•", or numbered items like "1." / "2." etc.), treat them as \
+REQUIRED scene beats.
+- Render those beats into the continuation as polished narrative and dialogue — \
+they are story events, not instructions to display.
+- Do NOT repeat or reproduce the bullet list verbatim; convert every beat into prose.
+- Preserve any dialogue the user wrote exactly as written. You may continue it, \
+but never rewrite it.\
+"""
+
+
 # ── scene momentum block (static, inserted per-request) ─────────────────────
 
 _SCENE_MOMENTUM = """\
@@ -375,12 +393,13 @@ def build_storylab_prompt(
     Block order in the user message:
         1. Story context + narrative state
         2. Character voice block      (if characters present)
-        3. Scene momentum requirement (always)
-        4. Repetition dampening       (recurring phrases + recent endings, when present)
-        5. Direction / boundary / pacing / tone
-        6. Target length
-        7. Recent scene text
-        8. Task instruction
+        3. User material handling     (always — canonical manuscript + beat rendering rules)
+        4. Scene momentum requirement (always)
+        5. Repetition dampening       (recurring phrases + recent endings, when present)
+        6. Direction / boundary / pacing / tone
+        7. Target length
+        8. Recent scene text
+        9. Task instruction
 
     Args:
         recent_endings: Last N ending phrases from this story's GenerationLog,
@@ -441,6 +460,8 @@ def build_storylab_prompt(
 
     if voice_block:
         sections.append(voice_block)
+
+    sections.append(_USER_MATERIAL_HANDLING)
 
     sections.append(_SCENE_MOMENTUM)
 
