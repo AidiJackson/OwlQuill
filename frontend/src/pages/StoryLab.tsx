@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import StoryLabEngine from '@/features/storylab/StoryLabEngine';
 
 type Mode = null | 'collaborate';
 
@@ -8,11 +9,11 @@ export default function StoryLab() {
   const [mode, setMode] = useState<Mode>(null);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <div className="max-w-3xl mx-auto px-4 py-12 md:py-16">
+    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
 
-        {/* Header */}
-        <div className="mb-10">
+      {/* Header + mode selector (always visible) */}
+      <div className="max-w-3xl w-full mx-auto px-4 pt-10 pb-6 md:pt-12 md:pb-8">
+        <div className="mb-8">
           <h1 className="text-3xl font-semibold tracking-tight text-gray-100">StoryLab</h1>
           <p className="mt-2 text-gray-400 text-sm">
             Your narrative workspace. Write solo or let the AI direct the next beat.
@@ -47,32 +48,19 @@ export default function StoryLab() {
             <div className="mb-3 text-2xl select-none">🤝</div>
             <p className="font-semibold text-gray-100 text-base mb-1">Collaborate with AI</p>
             <p className="text-sm text-gray-500 leading-relaxed">
-              Use StoryLab to guide the narrative — direction chips, pacing, tone, and AI continuations.
+              Direction chips, pacing, tone, and AI-guided continuations — all in one view.
             </p>
           </button>
         </div>
-
-        {/* Collaborate placeholder panel */}
-        {mode === 'collaborate' && (
-          <div className="mt-6 rounded-2xl border border-emerald-800/40 bg-emerald-900/10 p-6 space-y-3">
-            <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">
-              Collaborate mode
-            </p>
-            <p className="text-sm text-gray-400 leading-relaxed">
-              AI-guided story continuation is available inside WriteSpace via the StoryLab sidebar.
-              Open your story there to access direction chips, pacing controls, and the generate panel.
-            </p>
-            <button
-              type="button"
-              onClick={() => navigate('/workspace')}
-              className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-sm font-medium transition"
-            >
-              Open WriteSpace
-            </button>
-          </div>
-        )}
-
       </div>
+
+      {/* Collaborate engine — full-width below selector */}
+      {mode === 'collaborate' && (
+        <div className="flex-1 flex flex-col border-t border-gray-800/60 min-h-0">
+          <StoryLabEngine />
+        </div>
+      )}
+
     </div>
   );
 }
