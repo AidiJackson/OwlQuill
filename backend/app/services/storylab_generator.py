@@ -9,8 +9,18 @@ STORYLAB_PROVIDER=openrouter
     Calls OpenRouter chat completions API with OPENROUTER_API_KEY.
     On any failure (timeout, bad response, missing key) falls back to stub
     and logs a warning so callers always get a usable string back.
+
+Public helpers (importable for testing)
+----------------------------------------
+    direction_instructions(direction)  -> str
+    boundary_instructions(boundary)    -> str
+    pacing_instructions(pacing)        -> str
+    tone_instructions(tone_intensity)  -> str
+    build_storylab_prompt(...)         -> list[dict]  # messages payload
 """
+import json
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -37,21 +47,306 @@ _LENGTH_WORDS = {
     Length.long: 250,
 }
 
-# ── boundary instruction phrases ──────────────────────────────────────────────
 
-_BOUNDARY_INSTRUCTION = {
-    Boundary.sfw: "Keep content suitable for all audiences. No explicit, intimate, or suggestive content.",
-    Boundary.fade_to_black: (
-        "Fade to black for any intimate or sensual content — imply but never describe explicitly. "
-        "The scene should dissolve gracefully before anything explicit occurs."
-    ),
-    Boundary.sensual: (
-        "Sensual and suggestive content is permitted. Remain literary and non-graphic; "
-        "prioritise mood, touch, and implication over explicit description."
-    ),
-}
+# ── direction-specific narrative instructions ─────────────────────────────────
 
-# ── stub templates keyed by Direction ────────────────────────────────────────
+def direction_instructions(direction: str) -> str:
+    """Return craft-focused narrative guidance for the requested direction."""
+    _map: dict[str, str] = {
+        Direction.advance_plot: (
+            "Introduce a complication, revelation, or decision that shifts what is possible. "
+            "Let consequences ripple forward from the last beat rather than introducing "
+            "something entirely new. The forward movement should feel inevitable in retrospect."
+        ),
+        Direction.add_dialogue: (
+            "Let characters speak in their own distinct voices — what they say should "
+            "reveal what they want, fear, or are hiding from each other. "
+            "Ground every line in a specific want. Avoid dialogue that exists only to "
+            "exchange information; let subtext carry half the meaning."
+        ),
+        Direction.sad_moment: (
+            "Render grief or loss through the body and the physical environment — "
+            "not through declarations of feeling. Avoid the word 'sad'. "
+            "Resist premature resolution; let the weight sit. "
+            "Specific detail (a particular object, a sound, the quality of light) "
+            "carries more emotional force than general statements."
+        ),
+        Direction.argument_begins: (
+            "Root the conflict in something each character genuinely wants or believes. "
+            "Avoid clichéd argument starters. Not every grievance is stated directly — "
+            "let subtext, deflection, and misdirection do work. "
+            "The argument should reveal character, not just advance a dispute."
+        ),
+        Direction.romantic_moment: (
+            "Lean into proximity, noticing, and restraint. "
+            "Describe what the character observes about the other person — specific, "
+            "sensory detail rather than abstract attraction. "
+            "The moment should feel earned by what preceded it. "
+            "Silence and small gestures carry more weight than declarations."
+        ),
+        Direction.sensual_scene: (
+            "Build through sensation and implication. "
+            "Focus on textures, warmth, breath, and the small precise gestures "
+            "that register before anything is named. Mood over mechanics. "
+            "The charge comes from anticipation and from what is noticed, not described."
+        ),
+        Direction.intimate_scene: (
+            "Write emotional and physical closeness together — vulnerability as carefully "
+            "as anything physical. The scene should feel private and specific to these "
+            "characters, not generic. Interior experience has equal weight to action."
+        ),
+        Direction.twist_event: (
+            "Plant the consequences before the twist lands fully — let something feel "
+            "slightly wrong in the sentence before the reveal. "
+            "The surprise should make the reader reconsider what came before. "
+            "Resist the urge to over-explain; trust the reader to catch up."
+        ),
+        Direction.quiet_reflection: (
+            "Interior space: a character sifts through what they know, feel, or suspect. "
+            "Revelations should arrive tentatively, not declaratively — "
+            "as questions or half-formed recognitions, not conclusions. "
+            "The environment should mirror or complicate the interior state."
+        ),
+        Direction.action_sequence: (
+            "Propulsive short sentences. Compress time ruthlessly. "
+            "Track orientation — who is where relative to whom, what is at stake "
+            "at every beat. Use sensory specifics to ground the chaos. "
+            "Stakes must be legible; confusion should feel deliberate, not accidental."
+        ),
+    }
+    return _map.get(direction, _map[Direction.advance_plot])
+
+
+# ── boundary-specific narrative constraints ───────────────────────────────────
+
+def boundary_instructions(boundary: str) -> str:
+    """Return narrative-framed boundary guidance (what to write, not just what to avoid)."""
+    _map: dict[str, str] = {
+        Boundary.sfw: (
+            "The scene lives in emotion, dialogue, and physical environment. "
+            "Intimacy, if present, remains in glances, proximity, and the weight "
+            "of unspoken things. Nothing explicit or suggestive."
+        ),
+        Boundary.fade_to_black: (
+            "When the scene moves toward intimacy, let it dissolve gracefully — "
+            "a closing door, a cut to dawn, a final sentence that completes the "
+            "emotional arc before anything explicit. The absence is the statement. "
+            "Sensual atmosphere is permitted up to the fade point."
+        ),
+        Boundary.sensual: (
+            "Sensation and literary implication are your tools. "
+            "Write what the body notices — warmth, pressure, breath, texture — "
+            "without clinical specificity. Stay literary; the charge comes from "
+            "what is shown and felt, not named or described in clinical terms."
+        ),
+    }
+    return _map.get(boundary, _map[Boundary.sfw])
+
+
+# ── pacing instructions ───────────────────────────────────────────────────────
+
+def pacing_instructions(pacing: str) -> str:
+    """Return sentence-rhythm and structural guidance for the requested pacing."""
+    _map: dict[str, str] = {
+        Pacing.slow: (
+            "Long, layered sentences. Let the moment breathe. "
+            "Interior experience has weight here — pause on physical sensation, "
+            "on the gap between action and meaning. White space between thoughts."
+        ),
+        Pacing.balanced: (
+            "Vary sentence length with intention — momentum and reflection in equal measure. "
+            "Neither racing nor stalling. Let each paragraph have a rhythm of its own."
+        ),
+        Pacing.fast: (
+            "Short sentences. Action cuts. Trust the reader to keep up. "
+            "Compress time ruthlessly; a paragraph covers seconds. "
+            "Interiority is brief and transactional, never ruminative."
+        ),
+    }
+    return _map.get(pacing, _map[Pacing.balanced])
+
+
+# ── tone instructions ─────────────────────────────────────────────────────────
+
+def tone_instructions(tone_intensity: str) -> str:
+    """Return prose-register guidance for the requested tone intensity."""
+    _map: dict[str, str] = {
+        ToneIntensity.light: (
+            "The prose stays near the surface — observational, precise, "
+            "emotionally available without heaviness. "
+            "Difficulty exists but is carried lightly. Irony and wry observation welcome."
+        ),
+        ToneIntensity.moderate: (
+            "Full emotional range available. "
+            "Let the scene register what it means without editorialising. "
+            "Match the weight of the moment honestly."
+        ),
+        ToneIntensity.intense: (
+            "Nothing softened. Sentences carry weight and press forward. "
+            "Emotions are specific, immediate, and physical — not abstract. "
+            "The reader should feel the pressure of the scene. "
+            "Economy of language; every word earns its place."
+        ),
+    }
+    return _map.get(tone_intensity, _map[ToneIntensity.moderate])
+
+
+# ── anti-generic style rules ──────────────────────────────────────────────────
+
+_STYLE_RULES = """\
+Style rules (enforce strictly):
+- No stock phrases or clichés: avoid "heart pounded", "tears welled", "silence hung", \
+"a knot in their stomach", "the air felt thick", and similar.
+- Dialogue must be specific to these characters — their vocabulary, register, and current \
+emotional state. No generic dramatic lines.
+- No sudden scene jumps or time skips unless the direction explicitly calls for it.
+- No instant emotional resolution. If a character feels something difficult, it stays \
+difficult through the beat.
+- Show character through action, object, and sensory detail. Avoid direct labelling of \
+emotions ("she felt sad", "he was angry").
+- End on a natural pause that contains a small forward hook — a question, an unresolved \
+tension, a detail that demands attention. Do not resolve the scene completely.\
+"""
+
+
+# ── output format contract ────────────────────────────────────────────────────
+
+_OUTPUT_CONTRACT = """\
+Output format — you MUST follow this exactly:
+
+<STORY>
+[Your continuation prose here — nothing else inside these tags]
+</STORY>
+<DELTA_SIGNALS>
+{"tension_delta":0.0,"emotional_weight_delta":0.0,"intimacy_delta":0.0,"stakes_delta":0.0,"scene_type":"continuation"}
+</DELTA_SIGNALS>
+
+Fill DELTA_SIGNALS with your honest estimate of how this beat shifts the narrative \
+state (values between -0.3 and +0.3; 0.0 if unchanged). scene_type should be a \
+brief label for this beat (e.g. "sad_moment", "confrontation", "revelation"). \
+STORY must contain only prose — no tags, headers, or meta-commentary.\
+"""
+
+
+# ── system prompt (stable, cache-friendly) ────────────────────────────────────
+
+_SYSTEM_PROMPT = f"""\
+You are StoryLab, Ficshon's narrative continuation engine. You continue stories \
+with the voice, tense, and POV already established — never explaining, never \
+summarising, never breaking the fourth wall.
+
+Core rules:
+- Write ONLY the continuation. No preamble, no titles, no commentary.
+- Do not repeat or paraphrase any text from the scene provided to you.
+- Match the established POV (default: third person limited if unclear).
+- Honour boundary and direction instructions exactly.
+
+{_STYLE_RULES}
+
+{_OUTPUT_CONTRACT}\
+"""
+
+
+# ── prompt builder (public, testable) ────────────────────────────────────────
+
+def build_storylab_prompt(
+    text: str,
+    controls: StoryLabControls,
+    state_json: dict[str, Any],
+    summary: str,
+    characters: list[Any],
+) -> list[dict[str, str]]:
+    """Build and return the messages list for the OpenRouter chat completions call.
+
+    Returns:
+        [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
+    """
+    ss = state_json.get("story_state", {})
+
+    def _fmt(v: object) -> str:
+        return f"{v:.2f}" if isinstance(v, float) else str(v)
+
+    state_lines = "\n".join(
+        f"  {k}: {_fmt(v)}" for k, v in ss.items() if k != "scene_type"
+    ) or "  (default)"
+
+    char_names = (
+        ", ".join(
+            c.get("name", "Unknown") if isinstance(c, dict) else str(c)
+            for c in (characters or [])
+        )
+        or "None specified"
+    )
+
+    target_words = _LENGTH_WORDS.get(controls.length, 150)
+    scene_tail = text[-6000:] if len(text) > 6000 else text
+
+    user_content = f"""\
+## Story context
+Summary: {summary or "No summary yet."}
+Characters: {char_names}
+
+## Narrative state
+{state_lines}
+
+## Direction: {controls.direction}
+{direction_instructions(controls.direction)}
+
+## Boundary: {controls.boundary}
+{boundary_instructions(controls.boundary)}
+
+## Pacing: {controls.pacing}
+{pacing_instructions(controls.pacing)}
+
+## Tone: {controls.tone_intensity}
+{tone_instructions(controls.tone_intensity)}
+
+## Target length
+~{target_words} words of continuation prose.
+
+## Recent scene
+{scene_tail}
+
+## Task
+Continue directly from where the scene ends. Apply all direction, boundary, pacing, \
+and tone instructions above. Write approximately {target_words} words. \
+Use the required output format.\
+"""
+
+    return [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+
+
+# ── output parser ─────────────────────────────────────────────────────────────
+
+_STORY_RE = re.compile(r"<STORY>(.*?)</STORY>", re.DOTALL)
+_DELTA_RE = re.compile(r"<DELTA_SIGNALS>(.*?)</DELTA_SIGNALS>", re.DOTALL)
+
+
+def _parse_model_output(raw: str) -> str:
+    """Extract <STORY> content; fall back to the full raw string if tags are absent."""
+    m = _STORY_RE.search(raw)
+    if m:
+        return m.group(1).strip()
+    # Tags missing — return raw output stripped of any stray tag fragments
+    cleaned = re.sub(r"</?(?:STORY|DELTA_SIGNALS)>", "", raw)
+    return cleaned.strip()
+
+
+def _parse_delta_signals(raw: str) -> dict[str, Any] | None:
+    """Extract and parse <DELTA_SIGNALS> JSON. Returns None on any failure."""
+    m = _DELTA_RE.search(raw)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(1).strip())
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+# ── stub (fallback / default provider) ───────────────────────────────────────
 
 _STUB_TEMPLATES: dict[str, list[str]] = {
     Direction.advance_plot: [
@@ -101,21 +396,17 @@ _SENSUAL_SUFFIX = " The moment lingered at the edge of restraint, intimate but u
 
 
 def _qualify(text: str, tone: ToneIntensity, pacing: Pacing, length: Length) -> str:
-    """Expand stub text based on tone/pacing/length controls."""
     prefix = ""
     if tone == ToneIntensity.intense:
         prefix = "With sharp, unflinching clarity — "
     elif tone == ToneIntensity.light:
         prefix = "Gently, almost imperceptibly — "
-
     pace_suffix = ""
     if pacing == Pacing.fast:
         pace_suffix = " It happened quickly."
     elif pacing == Pacing.slow:
         pace_suffix = " Time stretched around the moment."
-
     result = prefix + text + pace_suffix
-
     if length == Length.long:
         result += (
             "\n\nThe aftermath settled like dust after movement: slowly, inevitably."
@@ -130,7 +421,6 @@ def _generate_stub_text(story_id: str, controls: StoryLabControls) -> str:
     idx = hash(story_id + controls.direction) % len(templates)
     text = templates[idx]
     text = _qualify(text, controls.tone_intensity, controls.pacing, controls.length)
-
     if controls.boundary == Boundary.fade_to_black and controls.direction in (
         Direction.sensual_scene,
         Direction.intimate_scene,
@@ -142,78 +432,10 @@ def _generate_stub_text(story_id: str, controls: StoryLabControls) -> str:
         Direction.intimate_scene,
     ):
         text += _SENSUAL_SUFFIX
-
     return text
 
 
 # ── OpenRouter ────────────────────────────────────────────────────────────────
-
-_SYSTEM_PROMPT = (
-    "You are StoryLab, Ficshon's narrative continuation engine. "
-    "Your role is to generate immersive, character-aware story continuations that "
-    "respect the writer's creative voice and the current narrative state.\n\n"
-    "Rules:\n"
-    "- Output ONLY the continuation prose. No preamble, no commentary, no titles.\n"
-    "- Do not quote or repeat the scene text that was given to you.\n"
-    "- Write in the POV and tense established by the scene. Default to third person if unclear.\n"
-    "- Honour the boundary instruction exactly."
-)
-
-
-def _build_prompt(
-    text: str,
-    controls: StoryLabControls,
-    state_json: dict[str, Any],
-    summary: str,
-    characters: list[Any],
-) -> str:
-    ss = state_json.get("story_state", {})
-
-    def _fmt(v: object) -> str:
-        if isinstance(v, float):
-            return f"{v:.2f}"
-        return str(v)
-
-    state_lines = "\n".join(
-        f"  - {k}: {_fmt(v)}"
-        for k, v in ss.items()
-        if k not in ("scene_type",)
-    )
-
-    char_names = ", ".join(
-        c.get("name", "Unknown") if isinstance(c, dict) else str(c)
-        for c in (characters or [])
-    ) or "None specified"
-
-    target_words = _LENGTH_WORDS.get(controls.length, 150)
-    boundary_instr = _BOUNDARY_INSTRUCTION.get(controls.boundary, "SFW content only.")
-
-    # Tail the scene text to keep the prompt focused
-    scene_tail = text[-6000:] if len(text) > 6000 else text
-
-    return (
-        f"## Story context\n"
-        f"Summary: {summary or 'No summary yet.'}\n"
-        f"Characters: {char_names}\n\n"
-        f"Current narrative state:\n{state_lines or '  (default)'}\n\n"
-        f"## Generation controls\n"
-        f"Direction: {controls.direction}\n"
-        f"Tone intensity: {controls.tone_intensity}\n"
-        f"Pacing: {controls.pacing}\n"
-        f"Target length: ~{target_words} words\n"
-        f"Boundary: {controls.boundary} — {boundary_instr}\n\n"
-        f"## Recent scene\n"
-        f"{scene_tail}\n\n"
-        f"## Task\n"
-        f"Continue the scene naturally from where it ends. "
-        f"Direction: {controls.direction}. "
-        f"Tone intensity: {controls.tone_intensity}. "
-        f"Pacing: {controls.pacing}. "
-        f"Write approximately {target_words} words. "
-        f"Boundary rule: {boundary_instr} "
-        f"Output ONLY the continuation prose."
-    )
-
 
 def _call_openrouter(
     text: str,
@@ -222,19 +444,16 @@ def _call_openrouter(
     summary: str,
     characters: list[Any],
 ) -> str:
-    """Call OpenRouter chat completions; returns the assistant message content."""
+    """Call OpenRouter; parse <STORY> tag from response; fall back to raw on missing tags."""
     url = "https://openrouter.ai/api/v1/chat/completions"
-    prompt = _build_prompt(text, controls, state_json, summary, characters)
+    messages = build_storylab_prompt(text, controls, state_json, summary, characters)
     target_words = _LENGTH_WORDS.get(controls.length, 150)
-    # Allow ~1.5x headroom over word target; words ≈ 0.75 tokens on average
-    max_tokens = max(256, int(target_words * 2.0))
+    # Extra headroom for tags + delta block; words ≈ 0.75 tokens
+    max_tokens = max(400, int(target_words * 2.5))
 
     payload = {
         "model": settings.STORYLAB_MODEL,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": messages,
         "max_tokens": max_tokens,
         "temperature": 0.85,
     }
@@ -250,8 +469,14 @@ def _call_openrouter(
         resp.raise_for_status()
 
     data = resp.json()
-    content: str = data["choices"][0]["message"]["content"]
-    return content.strip()
+    raw: str = data["choices"][0]["message"]["content"]
+
+    # Log delta signals if present (future use)
+    delta = _parse_delta_signals(raw)
+    if delta:
+        logger.debug("StoryLab delta signals: %s", delta)
+
+    return _parse_model_output(raw)
 
 
 # ── public entry point ────────────────────────────────────────────────────────

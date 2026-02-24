@@ -2,6 +2,259 @@
 import pytest
 from fastapi.testclient import TestClient
 
+# ── prompt builder unit tests ─────────────────────────────────────────────────
+
+def _make_controls(**overrides):
+    from app.schemas.storylab import StoryLabControls
+    return StoryLabControls(**overrides)
+
+
+def test_build_prompt_contains_direction_instructions():
+    """Prompt user block includes direction-specific guidance text."""
+    from app.services.storylab_generator import build_storylab_prompt, direction_instructions
+    from app.schemas.storylab import StoryLabControls, Direction
+
+    controls = StoryLabControls(direction=Direction.sad_moment)
+    messages = build_storylab_prompt(
+        text="She stood at the window, watching the rain.",
+        controls=controls,
+        state_json={},
+        summary="A quiet afternoon turns painful.",
+        characters=[],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    # Direction label present
+    assert "sad_moment" in user_content
+    # Direction-specific craft instruction present
+    assert "grief" in user_content.lower() or "loss" in user_content.lower() or "body" in user_content.lower()
+    # The instruction function itself is non-empty and direction-specific
+    sad_instr = direction_instructions(Direction.sad_moment)
+    assert len(sad_instr) > 30
+    # Different directions produce different guidance
+    assert sad_instr != direction_instructions(Direction.argument_begins)
+    assert sad_instr != direction_instructions(Direction.twist_event)
+
+
+def test_build_prompt_contains_boundary_instructions():
+    """Prompt includes boundary guidance for each boundary value."""
+    from app.services.storylab_generator import build_storylab_prompt, boundary_instructions
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    for boundary in (Boundary.sfw, Boundary.fade_to_black, Boundary.sensual):
+        controls = StoryLabControls(boundary=boundary)
+        messages = build_storylab_prompt(
+            text="The candle burned low.",
+            controls=controls,
+            state_json={},
+            summary="",
+            characters=[],
+        )
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert boundary in user_content
+        instr = boundary_instructions(boundary)
+        assert len(instr) > 20
+        # Instructions are distinct across boundaries
+    assert boundary_instructions(Boundary.sfw) != boundary_instructions(Boundary.sensual)
+    assert boundary_instructions(Boundary.fade_to_black) != boundary_instructions(Boundary.sfw)
+
+
+def test_build_prompt_contains_pacing_instructions():
+    """Prompt includes pacing guidance and instructions differ across values."""
+    from app.services.storylab_generator import build_storylab_prompt, pacing_instructions
+    from app.schemas.storylab import StoryLabControls, Pacing
+
+    for pacing in (Pacing.slow, Pacing.balanced, Pacing.fast):
+        controls = StoryLabControls(pacing=pacing)
+        messages = build_storylab_prompt(
+            text="He waited.",
+            controls=controls,
+            state_json={},
+            summary="",
+            characters=[],
+        )
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert pacing in user_content
+
+    assert pacing_instructions(Pacing.slow) != pacing_instructions(Pacing.fast)
+    assert pacing_instructions(Pacing.balanced) != pacing_instructions(Pacing.slow)
+
+
+def test_build_prompt_contains_tone_instructions():
+    """Prompt includes tone guidance and instructions differ across values."""
+    from app.services.storylab_generator import build_storylab_prompt, tone_instructions
+    from app.schemas.storylab import StoryLabControls, ToneIntensity
+
+    for tone in (ToneIntensity.light, ToneIntensity.moderate, ToneIntensity.intense):
+        controls = StoryLabControls(tone_intensity=tone)
+        messages = build_storylab_prompt(
+            text="The letter arrived unopened.",
+            controls=controls,
+            state_json={},
+            summary="",
+            characters=[],
+        )
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert tone in user_content
+
+    assert tone_instructions(ToneIntensity.light) != tone_instructions(ToneIntensity.intense)
+
+
+def test_build_prompt_scene_text_included():
+    """The scene text (or a tail of it) is present in the user message."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    scene = "Mara turned away from the fire. The smoke tasted of pine and something older."
+    messages = build_storylab_prompt(
+        text=scene,
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert "Mara" in user_content
+    assert "pine" in user_content
+
+
+def test_build_prompt_continuation_requirement_present():
+    """User message contains a continuation instruction."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    messages = build_storylab_prompt(
+        text="The crowd fell silent.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert "Continue" in user_content or "continuation" in user_content.lower()
+
+
+def test_build_prompt_returns_system_and_user_messages():
+    """build_storylab_prompt returns exactly two messages: system + user."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    messages = build_storylab_prompt(
+        text="It began with a letter.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    assert len(messages) == 2
+    roles = {m["role"] for m in messages}
+    assert roles == {"system", "user"}
+    assert all(isinstance(m["content"], str) and m["content"] for m in messages)
+
+
+def test_build_prompt_includes_output_contract():
+    """System message contains the <STORY> output contract."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    messages = build_storylab_prompt(
+        text="The old bridge creaked underfoot.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    system_content = next(m["content"] for m in messages if m["role"] == "system")
+    assert "<STORY>" in system_content
+    assert "<DELTA_SIGNALS>" in system_content
+
+
+def test_parse_model_output_extracts_story_tag():
+    """_parse_model_output extracts text inside <STORY> tags."""
+    from app.services.storylab_generator import _parse_model_output
+
+    raw = (
+        "<STORY>\nThe door opened slowly.\n</STORY>\n"
+        '<DELTA_SIGNALS>\n{"tension_delta":0.1}\n</DELTA_SIGNALS>'
+    )
+    result = _parse_model_output(raw)
+    assert result == "The door opened slowly."
+
+
+def test_parse_model_output_falls_back_to_raw():
+    """_parse_model_output returns raw text when tags are absent."""
+    from app.services.storylab_generator import _parse_model_output
+
+    raw = "She stepped back into the shadow of the doorway."
+    assert _parse_model_output(raw) == raw
+
+
+def test_parse_delta_signals_valid_json():
+    """_parse_delta_signals extracts and parses the JSON block correctly."""
+    from app.services.storylab_generator import _parse_delta_signals
+
+    raw = (
+        "<STORY>Some prose.</STORY>\n"
+        '<DELTA_SIGNALS>\n{"tension_delta":0.05,"emotional_weight_delta":0.1,'
+        '"intimacy_delta":0.0,"stakes_delta":0.0,"scene_type":"sad_moment"}\n</DELTA_SIGNALS>'
+    )
+    result = _parse_delta_signals(raw)
+    assert result is not None
+    assert result["tension_delta"] == pytest.approx(0.05)
+    assert result["scene_type"] == "sad_moment"
+
+
+def test_parse_delta_signals_returns_none_on_missing():
+    """_parse_delta_signals returns None when the block is absent."""
+    from app.services.storylab_generator import _parse_delta_signals
+
+    assert _parse_delta_signals("Just some prose, no tags.") is None
+
+
+def test_parse_delta_signals_returns_none_on_bad_json():
+    """_parse_delta_signals returns None when the JSON is malformed."""
+    from app.services.storylab_generator import _parse_delta_signals
+
+    raw = "<DELTA_SIGNALS>{broken json here}</DELTA_SIGNALS>"
+    assert _parse_delta_signals(raw) is None
+
+
+def test_direction_instructions_all_directions_covered():
+    """direction_instructions returns non-empty, distinct text for all Direction values."""
+    from app.services.storylab_generator import direction_instructions
+    from app.schemas.storylab import Direction
+
+    results = {d: direction_instructions(d) for d in Direction}
+    assert all(len(v) > 20 for v in results.values()), "Some direction instructions are too short"
+    # All 10 directions have unique instructions
+    assert len(set(results.values())) == len(Direction), "Direction instructions are not all unique"
+
+
+def test_state_json_included_in_prompt():
+    """State json fields (tension, intimacy_level) appear in the user message."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    state_json = {
+        "story_state": {
+            "tone": "neutral",
+            "pacing": "balanced",
+            "stakes": 0.4,
+            "tension": 0.65,
+            "emotional_weight": 0.3,
+            "intimacy_level": 2,
+        }
+    }
+    messages = build_storylab_prompt(
+        text="The meeting had not gone well.",
+        controls=StoryLabControls(),
+        state_json=state_json,
+        summary="",
+        characters=[],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert "tension" in user_content
+    assert "0.65" in user_content
+
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
