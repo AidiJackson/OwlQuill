@@ -1,6 +1,6 @@
 """Schemas for the StoryLab generate + state endpoints."""
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -55,6 +55,7 @@ class StoryLabGenerateRequest(BaseModel):
     cursor: Optional[int] = Field(None, description="Cursor position (char offset)")
     controls: StoryLabControls = Field(default_factory=StoryLabControls)
     context: Optional[str] = Field(None, description="Optional extra narrative context")
+    variant: Literal["default", "alt"] = "default"
 
 
 # ── response ──────────────────────────────────────────────────────────────────

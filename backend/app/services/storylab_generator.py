@@ -368,6 +368,7 @@ def build_storylab_prompt(
     summary: str,
     characters: list[Any],
     recent_endings: list[str] | None = None,
+    variant: str = "default",
 ) -> list[dict[str, str]]:
     """Build and return the messages list for the OpenRouter chat completions call.
 
@@ -462,9 +463,14 @@ def build_storylab_prompt(
         f"## Target length\nAim for ~{target_words} words (hard cap: {cap_words} words)."
     )
     sections.append(f"## Recent scene\n{scene_tail}")
+    alt_clause = (
+        " Write a distinctly different alternative take — vary the opening beat, "
+        "narrative approach, and closing hook from the default continuation."
+        if variant == "alt" else ""
+    )
     sections.append(
         f"## Task\n"
-        f"Continue directly from where the scene ends. Apply all direction, boundary, "
+        f"Continue directly from where the scene ends.{alt_clause} Apply all direction, boundary, "
         f"pacing, and tone instructions above. Write approximately {target_words} words "
         f"(max {cap_words}). End on a natural pause with a distinct forward hook. "
         f"Use the required output format."
@@ -677,21 +683,23 @@ def _call_openrouter(
     summary: str,
     characters: list[Any],
     recent_endings: list[str] | None = None,
+    variant: str = "default",
 ) -> tuple[str, dict[str, Any] | None]:
     """Call OpenRouter; parse <STORY> tag from response; fall back to raw on missing tags."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     messages = build_storylab_prompt(
-        text, controls, state_json, summary, characters, recent_endings
+        text, controls, state_json, summary, characters, recent_endings, variant=variant
     )
     cap_words = _length_cap(controls.length)
     # cap_words / 0.75 ≈ cap in tokens; ×2.0 gives comfortable headroom for tags + delta block
     max_tokens = max(400, int(cap_words * 2.0))
+    temperature = 0.85 + (0.15 if variant == "alt" else 0.0)
 
     payload = {
         "model": settings.STORYLAB_MODEL,
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": 0.85,
+        "temperature": temperature,
     }
     headers = {
         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
@@ -725,6 +733,7 @@ def generate_storylab_continuation(
     characters: list[Any],
     story_id: str = "",
     recent_endings: list[str] | None = None,
+    variant: str = "default",
 ) -> tuple[str, dict[str, Any] | None]:
     """Return (story_text, delta_signals_or_none).
 
@@ -742,7 +751,7 @@ def generate_storylab_continuation(
         else:
             try:
                 return _call_openrouter(
-                    text, controls, state_json, summary, characters, recent_endings
+                    text, controls, state_json, summary, characters, recent_endings, variant=variant
                 )
             except httpx.TimeoutException:
                 logger.warning("OpenRouter request timed out; falling back to stub")

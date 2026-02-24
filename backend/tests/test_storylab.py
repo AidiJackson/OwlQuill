@@ -875,9 +875,9 @@ def test_generate_passes_recent_endings_after_first_call(client):
     captured: dict = {}
     orig = gen.generate_storylab_continuation
 
-    def spy(text, controls, state_json, summary, characters, story_id="", recent_endings=None):
+    def spy(text, controls, state_json, summary, characters, story_id="", recent_endings=None, variant="default"):
         captured["recent_endings"] = recent_endings
-        return orig(text, controls, state_json, summary, characters, story_id, recent_endings)
+        return orig(text, controls, state_json, summary, characters, story_id, recent_endings, variant)
 
     with patch("app.api.routes.storylab.generate_storylab_continuation", side_effect=spy):
         resp2 = client.post("/api/storylab/generate", json=base)
@@ -950,3 +950,103 @@ def test_build_prompt_contains_character_voice_block():
     )
     user_no_chars = next(m["content"] for m in messages_no_chars if m["role"] == "user")
     assert "Character voices" not in user_no_chars
+
+
+# ── variant="alt" tests ───────────────────────────────────────────────────────
+
+def test_generate_accepts_variant_alt(client: TestClient):
+    """POST /generate with variant='alt' returns 200 and generated text."""
+    resp = client.post("/api/storylab/generate", json={**_BASE_GENERATE, "variant": "alt"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["generated"]["text"]
+
+
+def test_generate_default_variant_unchanged(client: TestClient):
+    """POST /generate without variant field (default) still returns 200."""
+    resp = client.post("/api/storylab/generate", json=_BASE_GENERATE)
+    assert resp.status_code == 200
+
+
+def test_build_prompt_variant_alt_includes_alternative_instruction():
+    """build_storylab_prompt with variant='alt' adds distinct-take instruction to Task section."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    messages_alt = build_storylab_prompt(
+        text="The door stood open.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+        variant="alt",
+    )
+    messages_default = build_storylab_prompt(
+        text="The door stood open.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+        variant="default",
+    )
+    user_alt = next(m["content"] for m in messages_alt if m["role"] == "user")
+    user_default = next(m["content"] for m in messages_default if m["role"] == "user")
+
+    assert "alternative" in user_alt.lower() or "distinct" in user_alt.lower()
+    # Default prompt must NOT contain the alt clause
+    assert "alternative take" not in user_default.lower()
+    # The two prompts differ
+    assert user_alt != user_default
+
+
+def test_openrouter_variant_alt_bumps_temperature(monkeypatch):
+    """variant='alt' sends temperature=1.0 (0.85+0.15) to OpenRouter."""
+    from unittest.mock import patch
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key-alt")
+
+    model_output = "A different path unfolded through the mist."
+    mock_client = _make_openrouter_mock(model_output)
+
+    with patch.object(gen.httpx, "Client", return_value=mock_client):
+        gen.generate_storylab_continuation(
+            text="She reached for the handle.",
+            controls=StoryLabControls(),
+            state_json={},
+            summary="",
+            characters=[],
+            story_id="alt-temp-story",
+            variant="alt",
+        )
+
+    payload = mock_client.post.call_args.kwargs.get("json") or mock_client.post.call_args.args[1]
+    assert payload["temperature"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_openrouter_default_variant_uses_base_temperature(monkeypatch):
+    """variant='default' sends temperature=0.85 to OpenRouter."""
+    from unittest.mock import patch
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key-default")
+
+    mock_client = _make_openrouter_mock("The story continued as expected.")
+
+    with patch.object(gen.httpx, "Client", return_value=mock_client):
+        gen.generate_storylab_continuation(
+            text="The candle burned low.",
+            controls=StoryLabControls(),
+            state_json={},
+            summary="",
+            characters=[],
+            story_id="default-temp-story",
+            variant="default",
+        )
+
+    payload = mock_client.post.call_args.kwargs.get("json") or mock_client.post.call_args.args[1]
+    assert payload["temperature"] == pytest.approx(0.85, abs=1e-6)

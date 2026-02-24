@@ -245,6 +245,7 @@ export default function Workspace() {
   });
   const [isLoadingSlState, setIsLoadingSlState] = useState(false);
   const [isGenerating,     setIsGenerating]     = useState(false);
+  const [isGeneratingAlt,  setIsGeneratingAlt]  = useState(false);
   const [storylabError,    setStorylabError]    = useState('');
   const slStateAbortRef    = useRef<AbortController | null>(null);
   const slGenerateAbortRef = useRef<AbortController | null>(null);
@@ -581,19 +582,21 @@ export default function Workspace() {
     }
   }
 
-  async function generateStorylab() {
+  async function generateStorylab(variant: 'default' | 'alt' = 'default') {
     if (!body.trim()) { setStorylabError('Add some text before generating.'); return; }
     if (slGenerateAbortRef.current) slGenerateAbortRef.current.abort();
     const ctrl = new AbortController();
     slGenerateAbortRef.current = ctrl;
-    setIsGenerating(true);
+    if (variant === 'alt') { setIsGeneratingAlt(true); } else { setIsGenerating(true); }
     setStorylabError('');
     setStorylabDeltas([]);
     try {
+      const payload: Record<string, unknown> = { story_id: storyId, text: body, controls: slControls };
+      if (variant === 'alt') payload.variant = 'alt';
       const resp = await fetch('/api/storylab/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ story_id: storyId, text: body, controls: slControls }),
+        body: JSON.stringify(payload),
         signal: ctrl.signal,
       });
       if (!resp.ok) {
@@ -621,7 +624,7 @@ export default function Workspace() {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setStorylabError((err as Error).message || 'Generation failed.');
     } finally {
-      setIsGenerating(false);
+      if (variant === 'alt') { setIsGeneratingAlt(false); } else { setIsGenerating(false); }
     }
   }
 
@@ -1023,15 +1026,25 @@ export default function Workspace() {
           </div>
         </div>
 
-        {/* Generate button */}
-        <button
-          type="button"
-          onClick={() => void generateStorylab()}
-          disabled={isGenerating || !body.trim()}
-          className="w-full py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isGenerating ? 'Generating\u2026' : 'Continue with StoryLab'}
-        </button>
+        {/* Generate buttons */}
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={() => void generateStorylab()}
+            disabled={isGenerating || isGeneratingAlt || !body.trim()}
+            className="w-full py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isGenerating ? 'Generating\u2026' : 'Continue with StoryLab'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void generateStorylab('alt')}
+            disabled={isGenerating || isGeneratingAlt || !body.trim()}
+            className="w-full py-1.5 px-4 rounded-xl border border-gray-700/60 bg-gray-900/40 hover:bg-gray-800/50 hover:border-gray-600 text-gray-400 hover:text-gray-300 text-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isGeneratingAlt ? 'Generating\u2026' : 'Try another version'}
+          </button>
+        </div>
 
         {storylabError && (
           <p className="text-xs text-red-400">{storylabError}</p>

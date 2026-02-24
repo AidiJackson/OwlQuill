@@ -258,6 +258,7 @@ def generate(
         characters=current_state.get("characters", []),
         story_id=req.story_id,
         recent_endings=recent_endings,
+        variant=req.variant,
     )
     word_count = len(generated_text.split())
     request_id = str(uuid.uuid4())
