@@ -854,8 +854,6 @@ export default function Workspace() {
 
   function renderStorylabPanel() {
     const ss = storylabState?.state_json?.story_state;
-    const fmtNum = (v: number | string | undefined) =>
-      typeof v === 'number' ? v.toFixed(2) : (v ?? '—');
 
     function buildSuggestions(state: typeof ss): string[] {
       if (!state) return [];
@@ -1056,28 +1054,46 @@ export default function Workspace() {
           </div>
         )}
 
-        {/* Story state summary */}
-        <div className="border border-gray-800 rounded-xl p-3 space-y-2">
+        {/* Story progress */}
+        <div className="border border-gray-800 rounded-xl p-3 space-y-2.5">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Story State</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Story Progress</p>
             {isLoadingSlState && <span className="text-xs text-gray-500">Loading\u2026</span>}
           </div>
-          {ss ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-              <span className="text-gray-500">Tone</span>
-              <span className="text-gray-200">{ss.tone}</span>
-              <span className="text-gray-500">Pacing</span>
-              <span className="text-gray-200">{ss.pacing}</span>
-              <span className="text-gray-500">Stakes</span>
-              <span className="text-gray-200">{fmtNum(ss.stakes)}</span>
-              <span className="text-gray-500">Tension</span>
-              <span className="text-gray-200">{fmtNum(ss.tension)}</span>
-              <span className="text-gray-500">Emotion</span>
-              <span className="text-gray-200">{fmtNum(ss.emotional_weight)}</span>
-              <span className="text-gray-500">Intimacy</span>
-              <span className="text-gray-200">{fmtNum(ss.intimacy_level)}</span>
-            </div>
-          ) : (
+          {ss ? (() => {
+            const clamp = (v: number | string | undefined) =>
+              Math.min(1, Math.max(0, typeof v === 'number' ? v : 0));
+            const bars: { label: string; value: number; dim?: boolean }[] = [
+              { label: 'Emotion', value: clamp(ss.emotional_weight) },
+              { label: 'Tension', value: clamp(ss.tension) },
+              { label: 'Stakes',  value: clamp(ss.stakes) },
+              { label: 'Intimacy', value: clamp(ss.intimacy_level), dim: slControls.boundary === 'sfw' },
+            ];
+            return (
+              <div className="space-y-2">
+                {bars.map(({ label, value, dim }) => (
+                  <div key={label} className={dim ? 'opacity-40' : undefined}>
+                    <div className="flex justify-between mb-0.5">
+                      <span className="text-[10px] text-gray-500">{label}</span>
+                      <span className="text-[10px] text-gray-600">{Math.round(value * 100)}%</span>
+                    </div>
+                    <div className="h-1.5 bg-gray-800/80 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-600/70 rounded-full transition-[width] duration-500 ease-out"
+                        style={{ width: `${value * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+                <div className="pt-1 border-t border-gray-800/60 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
+                  <span className="text-gray-600">Tone</span>
+                  <span className="text-gray-400">{ss.tone}</span>
+                  <span className="text-gray-600">Pacing</span>
+                  <span className="text-gray-400">{ss.pacing}</span>
+                </div>
+              </div>
+            );
+          })() : (
             <p className="text-xs text-gray-500">{isLoadingSlState ? 'Loading\u2026' : 'No state loaded.'}</p>
           )}
         </div>
