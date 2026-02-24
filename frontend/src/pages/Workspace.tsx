@@ -857,8 +857,66 @@ export default function Workspace() {
     const fmtNum = (v: number | string | undefined) =>
       typeof v === 'number' ? v.toFixed(2) : (v ?? '—');
 
+    function buildSuggestions(state: typeof ss): string[] {
+      if (!state) return [];
+      const n = (v: number | string | undefined) => (typeof v === 'number' ? v : 0);
+      const tension  = n(state.tension);
+      const emotional = n(state.emotional_weight);
+      const stakes   = n(state.stakes);
+      const intimacy = n(state.intimacy_level);
+
+      type S = { p: number; t: string };
+      const pool: S[] = [];
+
+      // Tension
+      if (tension < 0.35)                       pool.push({ p: 10, t: "Consider adding friction — a disagreement, interruption, or external pressure." });
+      if (tension >= 0.35 && tension < 0.65)    pool.push({ p:  7, t: "Introduce a complication to stop the scene from resolving too easily." });
+      if (tension >= 0.65)                      pool.push({ p:  9, t: "The pressure is high — use short sentences and concrete sensory detail." });
+
+      // Emotional weight
+      if (emotional < 0.35)                     pool.push({ p:  9, t: "Deepen emotion through action and subtext — avoid direct declarations." });
+      if (emotional >= 0.65)                    pool.push({ p:  7, t: "Let the emotional weight land through silence or a small physical gesture." });
+
+      // Stakes
+      if (stakes < 0.4)                         pool.push({ p:  8, t: "Raise the stakes: attach a real consequence to the next choice." });
+      if (stakes >= 0.7)                        pool.push({ p:  6, t: "Stakes are established — make a character act against their own interest." });
+
+      // Intimacy
+      if (intimacy >= 0.5)                      pool.push({ p:  7, t: "Let closeness show in proximity and restraint — small details carry more than declarations." });
+      if (intimacy < 0.2)                       pool.push({ p:  4, t: "A moment of small vulnerability could deepen the scene's emotional core." });
+
+      pool.sort((a, b) => b.p - a.p);
+      const out = pool.slice(0, 3).map((s) => s.t);
+      if (out.length === 0) out.push("Begin the next beat with a specific sensory detail to ground the scene.");
+      return out;
+    }
+
+    const suggestions = buildSuggestions(ss);
+
     return (
       <div className="space-y-3">
+        {/* StoryLab suggests strip */}
+        {isLoadingSlState && !ss ? (
+          <div className="border border-gray-800 rounded-xl p-4 space-y-2.5 animate-pulse">
+            <div className="h-2.5 w-28 bg-gray-800 rounded" />
+            <div className="h-2 bg-gray-800/80 rounded w-full" />
+            <div className="h-2 bg-gray-800/80 rounded w-5/6" />
+            <div className="h-2 bg-gray-800/80 rounded w-4/6" />
+          </div>
+        ) : ss ? (
+          <div className="border border-gray-800 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">StoryLab suggests</p>
+            <ul className="space-y-1.5">
+              {suggestions.map((s, i) => (
+                <li key={i} className="flex gap-2 text-xs text-gray-300 leading-relaxed">
+                  <span className="mt-0.5 shrink-0 text-emerald-500">›</span>
+                  <span>{s}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {/* Controls */}
         <div className="border border-gray-800 rounded-xl p-4 space-y-4">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Controls</p>
