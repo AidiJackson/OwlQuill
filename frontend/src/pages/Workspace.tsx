@@ -860,29 +860,43 @@ export default function Workspace() {
     return (
       <div className="space-y-3">
         {/* Controls */}
-        <div className="border border-gray-800 rounded-xl p-4 space-y-3">
+        <div className="border border-gray-800 rounded-xl p-4 space-y-4">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Controls</p>
 
-          <div className="space-y-1">
+          {/* Direction — grouped chips */}
+          <div className="space-y-2">
             <p className="text-xs text-gray-500">Direction</p>
-            <select
-              value={slControls.direction}
-              onChange={(e) => setSlControls((p) => ({ ...p, direction: e.target.value }))}
-              className="input text-sm w-full"
-            >
-              <option value="advance_plot">Advance plot</option>
-              <option value="add_dialogue">Add dialogue</option>
-              <option value="sad_moment">Sad moment</option>
-              <option value="argument_begins">Argument begins</option>
-              <option value="romantic_moment">Romantic moment</option>
-              <option value="sensual_scene">Sensual scene</option>
-              <option value="intimate_scene">Intimate scene</option>
-              <option value="twist_event">Twist event</option>
-              <option value="quiet_reflection">Quiet reflection</option>
-              <option value="action_sequence">Action sequence</option>
-            </select>
+            {(
+              [
+                { group: 'Emotion',     chips: [{ value: 'sad_moment', label: 'Sad Moment' }, { value: 'quiet_reflection', label: 'Reflective' }] },
+                { group: 'Conflict',    chips: [{ value: 'argument_begins', label: 'Argument' }, { value: 'twist_event', label: 'Twist' }] },
+                { group: 'Movement',    chips: [{ value: 'advance_plot', label: 'Advance Plot' }, { value: 'action_sequence', label: 'Action' }, { value: 'add_dialogue', label: 'Dialogue' }] },
+                { group: 'Connection',  chips: [{ value: 'romantic_moment', label: 'Romantic' }, { value: 'sensual_scene', label: 'Sensual' }, { value: 'intimate_scene', label: 'Intimate' }] },
+              ] as { group: string; chips: { value: string; label: string }[] }[]
+            ).map(({ group, chips }) => (
+              <div key={group} className="space-y-1">
+                <p className="text-[10px] text-gray-600 uppercase tracking-wider">{group}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {chips.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setSlControls((p) => ({ ...p, direction: value }))}
+                      className={`px-2.5 py-1 text-xs rounded-lg border transition ${
+                        slControls.direction === value
+                          ? 'bg-emerald-600/30 border-emerald-500/60 text-emerald-300'
+                          : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
 
+          {/* Boundary — keep select (content policy control) */}
           <div className="space-y-1">
             <p className="text-xs text-gray-500">Boundary</p>
             <select
@@ -896,43 +910,60 @@ export default function Workspace() {
             </select>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            <div className="space-y-1">
-              <p className="text-xs text-gray-500">Tone</p>
-              <select
-                value={slControls.tone_intensity}
-                onChange={(e) => setSlControls((p) => ({ ...p, tone_intensity: e.target.value }))}
-                className="input text-xs w-full"
-              >
-                <option value="light">Light</option>
-                <option value="moderate">Moderate</option>
-                <option value="intense">Intense</option>
-              </select>
+          {/* Tone chips */}
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Tone</p>
+            <div className="flex gap-1.5">
+              {([{ value: 'light', label: 'Light' }, { value: 'moderate', label: 'Moderate' }, { value: 'intense', label: 'Intense' }] as const).map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setSlControls((p) => ({ ...p, tone_intensity: value }))}
+                  className={`flex-1 py-1 text-xs rounded-lg border transition ${
+                    slControls.tone_intensity === value
+                      ? 'bg-violet-600/30 border-violet-500/60 text-violet-300'
+                      : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <div className="space-y-1">
-              <p className="text-xs text-gray-500">Pacing</p>
-              <select
-                value={slControls.pacing}
-                onChange={(e) => setSlControls((p) => ({ ...p, pacing: e.target.value }))}
-                className="input text-xs w-full"
-              >
-                <option value="slow">Slow</option>
-                <option value="balanced">Balanced</option>
-                <option value="fast">Fast</option>
-              </select>
+          </div>
+
+          {/* Pacing chips */}
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Pacing</p>
+            <div className="flex gap-1.5">
+              {([{ value: 'slow', label: 'Slow' }, { value: 'balanced', label: 'Balanced' }, { value: 'fast', label: 'Fast' }] as const).map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setSlControls((p) => ({ ...p, pacing: value }))}
+                  className={`flex-1 py-1 text-xs rounded-lg border transition ${
+                    slControls.pacing === value
+                      ? 'bg-sky-600/30 border-sky-500/60 text-sky-300'
+                      : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <div className="space-y-1">
-              <p className="text-xs text-gray-500">Length</p>
-              <select
-                value={slControls.length}
-                onChange={(e) => setSlControls((p) => ({ ...p, length: e.target.value }))}
-                className="input text-xs w-full"
-              >
-                <option value="short">Short</option>
-                <option value="medium">Medium</option>
-                <option value="long">Long</option>
-              </select>
-            </div>
+          </div>
+
+          {/* Length — keep select */}
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Length</p>
+            <select
+              value={slControls.length}
+              onChange={(e) => setSlControls((p) => ({ ...p, length: e.target.value }))}
+              className="input text-xs w-full"
+            >
+              <option value="short">Short</option>
+              <option value="medium">Medium</option>
+              <option value="long">Long</option>
+            </select>
           </div>
         </div>
 
