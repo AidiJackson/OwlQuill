@@ -178,3 +178,164 @@ def test_generate_direction_enum_invalid(client: TestClient):
     body = {**_BASE_GENERATE, "controls": {**_BASE_GENERATE["controls"], "direction": "explode_everything"}}
     resp = client.post("/api/storylab/generate", json=body)
     assert resp.status_code == 422
+
+
+# ── provider / OpenRouter tests ───────────────────────────────────────────────
+
+def _make_openrouter_mock(content: str):
+    """Return a mock httpx.Client context manager that yields *content*."""
+    from unittest.mock import MagicMock
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock(return_value=None)
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": content}}]
+    }
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.post = MagicMock(return_value=mock_resp)
+    return mock_client
+
+
+def test_openrouter_provider_returns_model_text(monkeypatch):
+    """With STORYLAB_PROVIDER=openrouter the service returns the model's content."""
+    from unittest.mock import patch
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key-abc")
+
+    model_output = "The door creaked open, revealing a silhouette neither of them expected."
+    mock_client = _make_openrouter_mock(model_output)
+
+    with patch.object(gen.httpx, "Client", return_value=mock_client):
+        result = gen.generate_storylab_continuation(
+            text="She reached for the handle.",
+            controls=StoryLabControls(),
+            state_json={},
+            summary="A mystery unfolds in a quiet village.",
+            characters=[],
+            story_id="test-or-story",
+        )
+
+    assert result == model_output
+    mock_client.post.assert_called_once()
+    call_kwargs = mock_client.post.call_args
+    payload = call_kwargs.kwargs.get("json") or call_kwargs.args[1]
+    assert payload["model"] == gen.settings.STORYLAB_MODEL
+    assert any(m["role"] == "system" for m in payload["messages"])
+    assert any(m["role"] == "user" for m in payload["messages"])
+
+
+def test_openrouter_fallback_on_http_error(monkeypatch):
+    """When OpenRouter returns a non-2xx status the service falls back to stub."""
+    from unittest.mock import MagicMock, patch
+    import httpx as _httpx
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key-abc")
+
+    def _bad_post(*args, **kwargs):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        raise _httpx.HTTPStatusError("boom", request=MagicMock(), response=mock_resp)
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.post = _bad_post
+
+    with patch.object(gen.httpx, "Client", return_value=mock_client):
+        result = gen.generate_storylab_continuation(
+            text="The fire crackled.",
+            controls=StoryLabControls(),
+            state_json={},
+            summary="",
+            characters=[],
+            story_id="fallback-story",
+        )
+
+    # Must return a non-empty string (stub output)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_openrouter_fallback_on_timeout(monkeypatch):
+    """When OpenRouter times out the service falls back to stub."""
+    from unittest.mock import MagicMock, patch
+    import httpx as _httpx
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key-abc")
+
+    def _timeout_post(*args, **kwargs):
+        raise _httpx.TimeoutException("timed out")
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.post = _timeout_post
+
+    with patch.object(gen.httpx, "Client", return_value=mock_client):
+        result = gen.generate_storylab_continuation(
+            text="Rain fell on the cobblestones.",
+            controls=StoryLabControls(),
+            state_json={},
+            summary="",
+            characters=[],
+            story_id="timeout-story",
+        )
+
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_openrouter_missing_key_uses_stub(monkeypatch):
+    """When STORYLAB_PROVIDER=openrouter but key is empty, stub is used directly."""
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "")
+
+    result = gen.generate_storylab_continuation(
+        text="The village was quiet at dawn.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+        story_id="no-key-story",
+    )
+
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_openrouter_via_endpoint(client):
+    """POST /generate works end-to-end with openrouter provider (mocked)."""
+    from unittest.mock import patch
+    import app.services.storylab_generator as gen
+
+    model_output = "The stars above watched, indifferent to what was unfolding below."
+    mock_client = _make_openrouter_mock(model_output)
+
+    # Temporarily patch settings on the imported settings object in the service module
+    original_provider = gen.settings.STORYLAB_PROVIDER
+    original_key = gen.settings.OPENROUTER_API_KEY
+    gen.settings.STORYLAB_PROVIDER = "openrouter"
+    gen.settings.OPENROUTER_API_KEY = "test-key-endpoint"
+    try:
+        with patch.object(gen.httpx, "Client", return_value=mock_client):
+            resp = client.post("/api/storylab/generate", json=_BASE_GENERATE)
+    finally:
+        gen.settings.STORYLAB_PROVIDER = original_provider
+        gen.settings.OPENROUTER_API_KEY = original_key
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["generated"]["text"] == model_output

@@ -1,9 +1,12 @@
-"""StoryLab backend loop v1 — deterministic stub generator (no LLM).
+"""StoryLab backend loop — state management + provider-routed generation.
 
 Routes
 ------
 GET  /storylab/state?story_id=...    Return (or create) story state.
-POST /storylab/generate              Generate a stub continuation + update state.
+POST /storylab/generate              Generate continuation + update state.
+
+Generation is delegated to app.services.storylab_generator which routes to
+the configured provider (stub / openrouter) with automatic stub fallback.
 """
 import logging
 import uuid
@@ -18,17 +21,15 @@ from app.models.storylab import GenerationLog, StoryState
 from app.schemas.storylab import (
     Boundary,
     Direction,
-    Length,
-    Pacing,
     SafetyInfo,
     StateDelta,
     StoryLabGenerateRequest,
     StoryLabGenerateResponse,
     StoryLabStateResponse,
     StoryLabStateSnapshot,
-    ToneIntensity,
     GeneratedText,
 )
+from app.services.storylab_generator import generate_storylab_continuation
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,55 +52,6 @@ _DEFAULT_STATE: dict[str, Any] = {
     "relationships": [],
 }
 
-# ── stub templates keyed by Direction ────────────────────────────────────────
-
-_STUB_TEMPLATES: dict[str, list[str]] = {
-    Direction.advance_plot: [
-        "The path ahead shifted unexpectedly. New complications unfolded as events gathered momentum, pulling the story forward with quiet insistence.",
-        "Something clicked into place. The threads that had been gathering finally converged, nudging the narrative into its next chapter.",
-    ],
-    Direction.add_dialogue: [
-        '"I need to tell you something," she said, breaking the silence that had lingered too long between them.',
-        '"You never asked," he replied, letting the words settle before adding anything more.',
-    ],
-    Direction.sad_moment: [
-        "The weight of it arrived slowly — not all at once, but in the quiet moments between breaths, when there was nothing left to do but feel it.",
-        "There was a particular kind of sadness in knowing. Not anger, not confusion — just a hollow ache that asked for no explanation.",
-    ],
-    Direction.argument_begins: [
-        'The tension had been building for hours. "That\'s not what I said," came the sharp reply, and just like that, the dam broke.',
-        "A single word landed wrong. The air changed instantly — thick, charged — and neither of them reached for calm.",
-    ],
-    Direction.romantic_moment: [
-        "The moment stretched — unplanned, unhurried. Something unspoken passed between them, softer than words and twice as clear.",
-        "She noticed it first: the way he looked at her when he thought she wasn't watching. Warmth gathered in the space between them.",
-    ],
-    Direction.sensual_scene: [
-        "The evening grew warm around the edges. Words gave way to proximity, and proximity to a silence that said more than either expected.",
-        "There was an awareness — heightened, careful — in every small movement. The air between them felt charged, full of quiet permission.",
-    ],
-    Direction.intimate_scene: [
-        "The world narrowed to this room, this light, this person. Tenderness moved through the scene like a current beneath still water.",
-        "It was not dramatic. It was close and honest and real — the kind of intimacy that doesn't announce itself.",
-    ],
-    Direction.twist_event: [
-        "Everything changed in a single moment. What had seemed certain dissolved, and the story pivoted on a truth no one had seen coming.",
-        "The revelation arrived quietly — but its implications were anything but. Nothing would read the same after this.",
-    ],
-    Direction.quiet_reflection: [
-        "The character sat with their thoughts, letting the day unspool. In the stillness, something became clear that noise had been hiding.",
-        "No one spoke. The silence wasn't uncomfortable — it was necessary, the kind that allows things to settle and be seen.",
-    ],
-    Direction.action_sequence: [
-        "Movement exploded into the scene. There was no time to think — only react, each second collapsing into the next.",
-        "The pace surged. Bodies in motion, decisions made in fragments of time, the world shrinking to the next three feet.",
-    ],
-}
-
-# Fade-to-black override suffix
-_FADE_TO_BLACK_SUFFIX = " The scene dissolved softly, drawing a discreet curtain over what followed."
-_SENSUAL_SUFFIX = " The moment lingered at the edge of restraint, intimate but unhurried, its full weight implied rather than shown."
-
 # ── state mutation helpers ────────────────────────────────────────────────────
 
 _BOUNDARY_INTIMACY_CAP = {
@@ -109,7 +61,11 @@ _BOUNDARY_INTIMACY_CAP = {
 }
 
 
-def _build_deltas(direction: Direction, boundary: Boundary, state: dict[str, Any]) -> tuple[dict[str, Any], list[StateDelta]]:
+def _build_deltas(
+    direction: Direction,
+    boundary: Boundary,
+    state: dict[str, Any],
+) -> tuple[dict[str, Any], list[StateDelta]]:
     """Apply conservative state mutations; return updated state + delta list."""
     s = {k: v for k, v in state.items()}
     story = dict(s.get("story_state", {}))
@@ -144,57 +100,6 @@ def _build_deltas(direction: Direction, boundary: Boundary, state: dict[str, Any
 
     s["story_state"] = story
     return s, deltas
-
-
-# ── tone/pacing qualifiers ────────────────────────────────────────────────────
-
-def _qualify(text: str, tone: ToneIntensity, pacing: Pacing, length: Length) -> str:
-    """Optionally expand stub text based on controls."""
-    prefix = ""
-    if tone == ToneIntensity.intense:
-        prefix = "With sharp, unflinching clarity — "
-    elif tone == ToneIntensity.light:
-        prefix = "Gently, almost imperceptibly — "
-
-    pace_suffix = ""
-    if pacing == Pacing.fast:
-        pace_suffix = " It happened quickly."
-    elif pacing == Pacing.slow:
-        pace_suffix = " Time stretched around the moment."
-
-    result = prefix + text + pace_suffix
-
-    if length == Length.long:
-        result += (
-            "\n\nThe aftermath settled like dust after movement: slowly, inevitably."
-            " Whatever came next would carry the mark of this."
-        )
-    return result
-
-
-# ── stub generator ────────────────────────────────────────────────────────────
-
-def _generate_stub(req: StoryLabGenerateRequest) -> str:
-    templates = _STUB_TEMPLATES.get(req.controls.direction, _STUB_TEMPLATES[Direction.advance_plot])
-    # Deterministically pick template by hashing story_id + direction
-    idx = hash(req.story_id + req.controls.direction) % len(templates)
-    text = templates[idx]
-    text = _qualify(text, req.controls.tone_intensity, req.controls.pacing, req.controls.length)
-
-    # Boundary-aware suffix
-    if req.controls.boundary == Boundary.fade_to_black and req.controls.direction in (
-        Direction.sensual_scene,
-        Direction.intimate_scene,
-        Direction.romantic_moment,
-    ):
-        text += _FADE_TO_BLACK_SUFFIX
-    elif req.controls.boundary == Boundary.sensual and req.controls.direction in (
-        Direction.sensual_scene,
-        Direction.intimate_scene,
-    ):
-        text += _SENSUAL_SUFFIX
-
-    return text
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -236,7 +141,7 @@ def generate(
     req: StoryLabGenerateRequest,
     db: Session = Depends(get_db),
 ) -> StoryLabGenerateResponse:
-    """Generate a deterministic stub continuation and persist updated state."""
+    """Generate a story continuation and persist updated state."""
     # ── input validation ──────────────────────────────────────────────────────
     text_stripped = req.text.strip()
     if not text_stripped:
@@ -268,9 +173,16 @@ def generate(
     state_row = _get_or_create_state(req.story_id, db)
     current_state: dict[str, Any] = dict(state_row.state_json or _DEFAULT_STATE)
 
-    # ── generate stub ─────────────────────────────────────────────────────────
-    stub_text = _generate_stub(req)
-    word_count = len(stub_text.split())
+    # ── generate continuation (provider-routed; stub is fallback) ─────────────
+    generated_text = generate_storylab_continuation(
+        text=req.text,
+        controls=req.controls,
+        state_json=current_state,
+        summary=state_row.story_summary or "",
+        characters=current_state.get("characters", []),
+        story_id=req.story_id,
+    )
+    word_count = len(generated_text.split())
     request_id = str(uuid.uuid4())
 
     # ── compute state deltas ──────────────────────────────────────────────────
@@ -292,7 +204,7 @@ def generate(
             "boundary": req.controls.boundary,
         },
         prompt_snapshot=None,
-        response_text=stub_text,
+        response_text=generated_text,
         word_count=word_count,
         created_at=datetime.utcnow(),
     )
@@ -302,7 +214,7 @@ def generate(
 
     return StoryLabGenerateResponse(
         request_id=request_id,
-        generated=GeneratedText(text=stub_text),
+        generated=GeneratedText(text=generated_text),
         state=StoryLabStateSnapshot(
             story_summary=state_row.story_summary or "",
             state_json=state_row.state_json,

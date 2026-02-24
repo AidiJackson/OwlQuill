@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     # Public fallback: https://api.languagetool.org/v2 (rate-limited, no key needed)
     LANGUAGETOOL_URL: str = "https://api.languagetool.org/v2"
 
+    # StoryLab narrative engine
+    # STORYLAB_PROVIDER: "stub" (deterministic, no key needed) | "openrouter"
+    # STORYLAB_MODEL: any OpenRouter-supported model slug
+    STORYLAB_PROVIDER: str = "stub"
+    OPENROUTER_API_KEY: str = ""
+    STORYLAB_MODEL: str = "anthropic/claude-3.5-sonnet"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
