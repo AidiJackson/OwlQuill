@@ -776,7 +776,7 @@ def test_build_prompt_includes_recent_endings():
         recent_endings=endings,
     )
     user_content = next(m["content"] for m in messages if m["role"] == "user")
-    assert "Endings to avoid" in user_content
+    assert "Repetition dampening" in user_content  # section renamed from "Endings to avoid"
     assert endings[0] in user_content
     assert endings[1] in user_content
 
@@ -796,7 +796,8 @@ def test_build_prompt_no_endings_block_when_empty():
             recent_endings=endings_arg,
         )
         user_content = next(m["content"] for m in messages if m["role"] == "user")
-        assert "Endings to avoid" not in user_content
+        # No recent endings → the endings sub-block must not appear
+        assert "Do NOT end with the same opening" not in user_content
 
 
 def test_trim_to_cap_no_op_under_cap():
@@ -884,3 +885,68 @@ def test_generate_passes_recent_endings_after_first_call(client):
     assert resp2.status_code == 200
     assert captured.get("recent_endings") is not None, "recent_endings was not passed"
     assert len(captured["recent_endings"]) >= 1, "recent_endings should be non-empty after first call"
+
+
+# ── character voice + scene momentum tests ────────────────────────────────────
+
+def test_build_prompt_contains_momentum_instruction():
+    """User message always includes the scene momentum requirement block."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    for direction in ("advance_plot", "quiet_reflection", "add_dialogue"):
+        controls = StoryLabControls(direction=direction)
+        messages = build_storylab_prompt(
+            text="The candle guttered in the draught.",
+            controls=controls,
+            state_json={},
+            summary="",
+            characters=[],
+        )
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert "momentum" in user_content.lower(), f"momentum block missing for direction={direction}"
+        # Must name at least one of the required triggers
+        triggers = ("emotional shift", "tension", "decision", "new information")
+        assert any(t in user_content.lower() for t in triggers), (
+            f"no momentum trigger found for direction={direction}"
+        )
+
+
+def test_build_prompt_contains_character_voice_block():
+    """User message includes character voice guidance when characters have trait data."""
+    from app.services.storylab_generator import build_storylab_prompt, build_character_voice_block
+    from app.schemas.storylab import StoryLabControls
+
+    characters = [
+        {"name": "Alice", "personality": "analytical, guarded"},
+        {"name": "Ben", "speech_style": "terse, blunt"},
+        {"name": "Clara"},  # no trait data — still listed by name
+    ]
+    messages = build_storylab_prompt(
+        text="They faced each other across the table.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=characters,
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert "Alice" in user_content
+    assert "Ben" in user_content
+    assert "Clara" in user_content
+    assert "analytical" in user_content or "Character voices" in user_content
+    assert "terse" in user_content or "blunt" in user_content
+
+    # build_character_voice_block returns empty string for empty/None input
+    assert build_character_voice_block([]) == ""
+    assert build_character_voice_block(None) == ""  # type: ignore[arg-type]
+
+    # Voice block absent when no characters provided
+    messages_no_chars = build_storylab_prompt(
+        text="The room was silent.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user_no_chars = next(m["content"] for m in messages_no_chars if m["role"] == "user")
+    assert "Character voices" not in user_no_chars

@@ -16,6 +16,7 @@ Public helpers (importable for testing)
     boundary_instructions(boundary)       -> str
     pacing_instructions(pacing)           -> str
     tone_instructions(tone_intensity)     -> str
+    build_character_voice_block(chars)    -> str   # character voice instructions
     build_storylab_prompt(...)            -> list[dict]  # messages payload
     generate_storylab_continuation(...)   -> tuple[str, dict | None]
 """
@@ -202,6 +203,62 @@ def tone_instructions(tone_intensity: str) -> str:
     return _map.get(tone_intensity, _map[ToneIntensity.moderate])
 
 
+# ── character voice helper (public) ──────────────────────────────────────────
+
+_VOICE_FIELDS = ("personality", "traits", "voice", "speech_style", "tone", "description")
+
+
+def build_character_voice_block(characters: list[Any]) -> str:
+    """Return a compact character-voice instruction block for the prompt.
+
+    Inspects each character dict for personality/voice fields and formats
+    them as brief craft instructions. Returns empty string when there are
+    no characters or none have usable trait data.
+    Max ~400–500 chars total — kept tight to avoid bloating the prompt.
+    """
+    if not characters:
+        return ""
+
+    lines: list[str] = []
+    for c in characters:
+        if not isinstance(c, dict):
+            name = str(c).strip()
+            if name:
+                lines.append(f"- {name}")
+            continue
+
+        name = (c.get("name") or "Unknown").strip()
+        traits: list[str] = []
+        for field in _VOICE_FIELDS:
+            val = c.get(field)
+            if not val:
+                continue
+            if isinstance(val, list):
+                traits.extend(str(v).strip() for v in val if str(v).strip())
+            else:
+                stripped = str(val).strip()
+                if stripped:
+                    traits.append(stripped)
+
+        if traits:
+            trait_str = ", ".join(traits)
+            if len(trait_str) > 80:
+                trait_str = trait_str[:77] + "..."
+            lines.append(f"- {name}: {trait_str}")
+        else:
+            lines.append(f"- {name}")
+
+    if not lines:
+        return ""
+
+    return (
+        "## Character voices\n"
+        + "\n".join(lines)
+        + "\nDialogue must reflect these differences — vocabulary, rhythm, and register "
+        "distinct to each character. Avoid interchangeable or generic speech."
+    )
+
+
 # ── anti-generic style rules ──────────────────────────────────────────────────
 
 _STYLE_RULES = """\
@@ -215,6 +272,13 @@ emotional state. No generic dramatic lines.
 difficult through the beat.
 - Show character through action, object, and sensory detail. Avoid direct labelling of \
 emotions ("she felt sad", "he was angry").
+- Vary sentence openings — do not start successive sentences or paragraphs with the same \
+word, pronoun, or syntactic construction.
+- Do not over-use internal monologue. Anchor emotional states in physical detail, action, \
+or dialogue rather than interior narration.
+- Avoid stock AI phrasing: "a mix of", "something shifted", "she found herself", \
+"he couldn't help but", "a wave of", "deep down", "a pang of", "in that moment".
+- Do not repeat metaphors, images, or descriptive phrases already present in the scene.
 - End on a varied, specific forward hook — a question, an implication, an unresolved \
 physical detail, or an action that invites a response. No melodramatic cliffhangers \
 ("little did they know", "everything was about to change", "but then —"). \
@@ -261,6 +325,40 @@ Core rules:
 """
 
 
+# ── scene momentum block (static, inserted per-request) ─────────────────────
+
+_SCENE_MOMENTUM = """\
+## Scene momentum (required)
+The continuation MUST introduce at least ONE of:
+- an emotional shift in a character
+- a new tension, complication, or obstacle
+- a decision, action, or gesture that changes something
+- new information or a detail that reframes what came before
+
+Do NOT produce static descriptive filler. Something must shift.\
+"""
+
+
+# ── recurring-phrase extractor (private) ─────────────────────────────────────
+
+def _extract_recurring_phrases(text: str, max_phrases: int = 2) -> list[str]:
+    """Return up to *max_phrases* bigrams that appear 2+ times in *text*.
+
+    Used to populate the per-request repetition dampening block so the model
+    avoids re-using phrases it has already leaned on in the current scene.
+    """
+    words = re.findall(r"\b[a-z]{4,}\b", text.lower())
+    counts: dict[str, int] = {}
+    for i in range(len(words) - 1):
+        bg = f"{words[i]} {words[i + 1]}"
+        counts[bg] = counts.get(bg, 0) + 1
+    repeated = sorted(
+        [(bg, n) for bg, n in counts.items() if n >= 2],
+        key=lambda x: -x[1],
+    )
+    return [bg for bg, _ in repeated[:max_phrases]]
+
+
 # ── prompt builder (public, testable) ────────────────────────────────────────
 
 def build_storylab_prompt(
@@ -273,9 +371,19 @@ def build_storylab_prompt(
 ) -> list[dict[str, str]]:
     """Build and return the messages list for the OpenRouter chat completions call.
 
+    Block order in the user message:
+        1. Story context + narrative state
+        2. Character voice block      (if characters present)
+        3. Scene momentum requirement (always)
+        4. Repetition dampening       (recurring phrases + recent endings, when present)
+        5. Direction / boundary / pacing / tone
+        6. Target length
+        7. Recent scene text
+        8. Task instruction
+
     Args:
         recent_endings: Last N ending phrases from this story's GenerationLog,
-                        used to drive anti-repetition instructions.
+                        used to drive repetition dampening.
 
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
@@ -301,47 +409,68 @@ def build_storylab_prompt(
     cap_words = _length_cap(controls.length)
     scene_tail = text[-6000:] if len(text) > 6000 else text
 
-    endings_block = ""
+    # ── build optional blocks ─────────────────────────────────────────────────
+
+    voice_block = build_character_voice_block(characters or [])
+
+    dampen_parts: list[str] = []
+    recurring = _extract_recurring_phrases(scene_tail)
+    if recurring:
+        phrase_bullets = "\n".join(f'- "{p}"' for p in recurring)
+        dampen_parts.append(
+            "Avoid repeating phrases overused in the provided scene:\n" + phrase_bullets
+        )
     if recent_endings:
-        bullets = "\n".join(f'- "{e}"' for e in recent_endings)
-        endings_block = (
-            "\n\n## Endings to avoid\n"
-            "Do NOT end your continuation with the same opening words, closing image, "
-            "or structural pattern as any of these recent endings from this story:\n"
-            f"{bullets}"
+        endings_bullets = "\n".join(f'- "{e}"' for e in recent_endings)
+        dampen_parts.append(
+            "Do NOT end with the same opening words, closing image, or structural "
+            "pattern as any of these recent endings from this story:\n" + endings_bullets
         )
 
-    user_content = f"""\
-## Story context
-Summary: {summary or "No summary yet."}
-Characters: {char_names}
+    # ── assemble sections (joined with blank lines) ───────────────────────────
 
-## Narrative state
-{state_lines}
+    sections: list[str] = []
 
-## Direction: {controls.direction}
-{direction_instructions(controls.direction)}
+    sections.append(
+        f"## Story context\n"
+        f"Summary: {summary or 'No summary yet.'}\n"
+        f"Characters: {char_names}"
+    )
+    sections.append(f"## Narrative state\n{state_lines}")
 
-## Boundary: {controls.boundary}
-{boundary_instructions(controls.boundary)}
+    if voice_block:
+        sections.append(voice_block)
 
-## Pacing: {controls.pacing}
-{pacing_instructions(controls.pacing)}
+    sections.append(_SCENE_MOMENTUM)
 
-## Tone: {controls.tone_intensity}
-{tone_instructions(controls.tone_intensity)}
+    if dampen_parts:
+        sections.append("## Repetition dampening\n" + "\n\n".join(dampen_parts))
 
-## Target length
-Aim for ~{target_words} words (hard cap: {cap_words} words).
+    sections.append(
+        f"## Direction: {controls.direction}\n{direction_instructions(controls.direction)}"
+    )
+    sections.append(
+        f"## Boundary: {controls.boundary}\n{boundary_instructions(controls.boundary)}"
+    )
+    sections.append(
+        f"## Pacing: {controls.pacing}\n{pacing_instructions(controls.pacing)}"
+    )
+    sections.append(
+        f"## Tone: {controls.tone_intensity}\n{tone_instructions(controls.tone_intensity)}"
+    )
+    sections.append(
+        f"## Target length\nAim for ~{target_words} words (hard cap: {cap_words} words)."
+    )
+    sections.append(f"## Recent scene\n{scene_tail}")
+    sections.append(
+        f"## Task\n"
+        f"Continue directly from where the scene ends. Apply all direction, boundary, "
+        f"pacing, and tone instructions above. Write approximately {target_words} words "
+        f"(max {cap_words}). End on a natural pause with a distinct forward hook. "
+        f"Use the required output format."
+    )
 
-## Recent scene
-{scene_tail}
-
-## Task
-Continue directly from where the scene ends. Apply all direction, boundary, pacing, \
-and tone instructions above. Write approximately {target_words} words (max {cap_words}). \
-End on a natural pause with a distinct forward hook. Use the required output format.\
-{endings_block}"""
+    user_content = "\n\n".join(sections)
 
     return [
         {"role": "system", "content": _SYSTEM_PROMPT},
