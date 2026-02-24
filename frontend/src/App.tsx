@@ -22,6 +22,7 @@ import ConversationThread from '@/features/messaging/ConversationThread';
 import Images from '@/pages/Images';
 import ImageNew from '@/pages/ImageNew';
 import Workspace from '@/pages/Workspace';
+import StoryLab from '@/pages/StoryLab';
 
 function RouteLogger() {
   const location = useLocation();
@@ -75,6 +76,7 @@ function App() {
           <Route path="/realms/:realmId" element={<RealmDetail />} />
           <Route path="/characters" element={<Characters />} />
           <Route path="/workspace" element={<Workspace />} />
+          <Route path="/storylab" element={<StoryLab />} />
           <Route path="/scenes/:sceneId" element={<SceneDetail />} />
           <Route path="/profile" element={<Profile />} />
         </Route>

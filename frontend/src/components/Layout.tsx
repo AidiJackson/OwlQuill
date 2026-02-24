@@ -39,6 +39,7 @@ export default function Layout() {
   const isRealms     = p.startsWith('/realms');
   const isChars      = p.startsWith('/characters');
   const isWorkspace  = p.startsWith('/workspace');
+  const isStoryLab   = p.startsWith('/storylab');
   const isImages     = p.startsWith('/images');
   const isMessages   = p.startsWith('/messages');
   const isProfile    = p.startsWith('/u/') || p === '/profile';
@@ -80,6 +81,13 @@ export default function Layout() {
           onClick={closeSidebar}
         >
           WriteSpace
+        </Link>
+        <Link
+          to="/storylab"
+          className={navCls(isStoryLab)}
+          onClick={closeSidebar}
+        >
+          StoryLab
         </Link>
         <Link
           to="/images"
