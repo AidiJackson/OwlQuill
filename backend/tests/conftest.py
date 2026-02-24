@@ -4,7 +4,7 @@ import os
 # Set test environment variables BEFORE any app imports
 # This ensures Settings() sees these values when instantiated at import time
 os.environ["SECRET_KEY"] = "test-secret-key-not-for-prod"
-os.environ.setdefault("DEBUG", "true")
+os.environ["DEBUG"] = "true"  # force override — Replit sets DEBUG=False in shell env
 # Ensure tests use stub image generator, never the real OpenAI or fal API
 os.environ.pop("OPENAI_API_KEY", None)
 os.environ.pop("FAL_KEY", None)
