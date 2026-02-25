@@ -19,8 +19,10 @@ Public helpers (importable for testing)
     build_character_voice_block(chars)    -> str   # character voice instructions
     build_storylab_prompt(...)            -> list[dict]  # messages payload
     build_chapter_prompt(...)             -> list[dict]  # chapter messages payload
+    build_story_summary_prompt(...)       -> list[dict]  # summary update messages
     generate_storylab_continuation(...)   -> tuple[str, dict | None]
     generate_chapter(...)                 -> tuple[str, list[str], dict | None]
+    generate_story_summary(...)           -> str
 """
 import json
 import logging
@@ -869,14 +871,15 @@ def build_chapter_prompt(
     appending after a manuscript. The user prompt is scene guidance/beats.
 
     Block order in the user message:
-        1. Story context + narrative state
+        1. Story context (characters only) + Narrative state
         2. Character voice block      (if characters present)
         3. Character fidelity         (always)
-        4. Previous chapter context   (last 2 000 chars, or '(No previous chapters)')
-        5. Direction / boundary / pacing / tone
-        6. Target length
-        7. User guidance for this chapter
-        8. Task instruction
+        4. Story so far               (only if summary is non-empty)
+        5. Last chapter               (only if previous_chapter_text is non-empty)
+        6. Direction / boundary / pacing / tone
+        7. Target length
+        8. User guidance for this chapter
+        9. Task instruction
 
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
@@ -903,18 +906,10 @@ def build_chapter_prompt(
 
     voice_block = build_character_voice_block(characters or [])
 
-    # Previous chapter — last 2 000 chars as continuity reference
-    if previous_chapter_text and previous_chapter_text.strip():
-        prev_tail = previous_chapter_text[-2000:] if len(previous_chapter_text) > 2000 else previous_chapter_text
-        prev_block = f"## Previous chapter (continuity reference — do NOT copy or repeat)\n{prev_tail}"
-    else:
-        prev_block = "## Previous chapter\n(No previous chapters — this is the opening chapter.)"
-
     sections: list[str] = []
 
     sections.append(
         f"## Story context\n"
-        f"Summary: {summary or 'No summary yet.'}\n"
         f"Characters: {char_names}"
     )
     sections.append(f"## Narrative state\n{state_lines}")
@@ -924,7 +919,16 @@ def build_chapter_prompt(
 
     sections.append(_CHARACTER_FIDELITY_BLOCK)
 
-    sections.append(prev_block)
+    # STORY SO FAR — only injected when a persisted summary exists
+    if summary and summary.strip():
+        sections.append(f"## Story so far\n{summary.strip()}")
+
+    # LAST CHAPTER — full text for maximum continuity fidelity; omitted for opening chapter
+    if previous_chapter_text and previous_chapter_text.strip():
+        sections.append(
+            f"## Last chapter (do NOT copy or repeat — use for continuity only)\n"
+            f"{previous_chapter_text.strip()}"
+        )
 
     sections.append(
         f"## Direction: {controls.direction}\n{direction_instructions(controls.direction)}"
@@ -1112,3 +1116,136 @@ def generate_chapter(
     stub_text = _generate_stub_text(story_id, controls)
     suggestions = _fallback_suggestions(state_json)
     return stub_text, suggestions, None
+
+
+# ── story summary system prompt ───────────────────────────────────────────────
+
+_SUMMARY_SYSTEM = """\
+You are a story summarizer for an AI writing assistant. \
+Produce a concise, craft-focused summary of the story so far.
+
+Rules:
+- Write 150–300 words of continuous prose.
+- Focus on: character arcs, relationship dynamics, active tensions, unresolved threads, \
+tone and emotional register.
+- Emphasise what happened most recently (the latest chapter).
+- Do NOT include chapter numbers, structural labels, or bullet points.
+- Write as if briefing a collaborator who is about to write the next chapter.
+- Return ONLY the summary — no preamble, no meta-commentary.\
+"""
+
+
+# ── story summary prompt builder (public) ────────────────────────────────────
+
+def build_story_summary_prompt(
+    existing_summary: str,
+    new_chapter_text: str,
+    chapter_number: int,
+) -> list[dict[str, str]]:
+    """Build the messages list for a story-summary update call.
+
+    Returns:
+        [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
+    """
+    parts: list[str] = []
+
+    if existing_summary and existing_summary.strip():
+        parts.append(f"## Story so far\n{existing_summary.strip()}")
+    else:
+        parts.append("## Story so far\n(This is the first chapter — no prior summary exists.)")
+
+    parts.append(f"## Chapter {chapter_number}\n{new_chapter_text.strip()}")
+
+    parts.append(
+        "## Task\n"
+        "Write a 150–300 word story summary capturing key character arcs, "
+        "relationship dynamics, active tensions, unresolved threads, and the emotional register. "
+        "Emphasise what happened most recently. Continuous prose — no chapter labels or bullets. "
+        "Return ONLY the summary text."
+    )
+
+    return [
+        {"role": "system", "content": _SUMMARY_SYSTEM},
+        {"role": "user", "content": "\n\n".join(parts)},
+    ]
+
+
+# ── summary stub ──────────────────────────────────────────────────────────────
+
+def _generate_stub_summary(story_id: str, chapter_number: int) -> str:
+    """Deterministic stub summary — no API call, always works in tests."""
+    return (
+        f"The story is in motion after chapter {chapter_number}. "
+        "Central characters are positioned with competing motivations and unresolved history "
+        "that neither party has yet chosen to address directly. "
+        "An atmosphere of tension runs beneath the surface of every exchange — "
+        "something significant remains unspoken between the key figures. "
+        "Pressure has been building through accumulated small moments rather than "
+        "direct confrontation, leaving the core conflict visible but unresolved. "
+        "The story's tone is intimate and deliberate; pacing allows tension to accumulate "
+        "rather than discharge. "
+        "Active threads: the origin of the central conflict, what each character truly needs "
+        "versus what they outwardly pursue, and whether the existing dynamic can hold "
+        "as external and internal pressures escalate. "
+        "Most recent events have raised the stakes without providing resolution."
+    )
+
+
+# ── OpenRouter summary call ───────────────────────────────────────────────────
+
+def _call_openrouter_summary(
+    existing_summary: str,
+    chapter_text: str,
+    chapter_number: int,
+) -> str:
+    """Call OpenRouter to generate/update the story summary. Returns plain text."""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    messages = build_story_summary_prompt(existing_summary, chapter_text, chapter_number)
+    payload = {
+        "model": settings.STORYLAB_MODEL,
+        "messages": messages,
+        "max_tokens": 600,   # ~300 words × 2 tokens/word with headroom
+        "temperature": 0.4,  # lower for consistency
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://ficshon.com",
+        "X-Title": "Ficshon StoryLab",
+    }
+    with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+        resp = client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["message"]["content"].strip()
+
+
+# ── story summary entry point (public) ───────────────────────────────────────
+
+def generate_story_summary(
+    existing_summary: str,
+    chapter_text: str,
+    chapter_number: int,
+    story_id: str = "",
+) -> str:
+    """Return an updated story summary (150–300 words).
+
+    Routes to OpenRouter when STORYLAB_PROVIDER=openrouter and key is set.
+    Falls back to the deterministic stub on any error — never raises.
+    """
+    provider = settings.STORYLAB_PROVIDER
+
+    if provider == "openrouter":
+        if not settings.OPENROUTER_API_KEY:
+            logger.warning("STORYLAB_PROVIDER=openrouter but OPENROUTER_API_KEY empty; using stub summary")
+        else:
+            try:
+                return _call_openrouter_summary(existing_summary, chapter_text, chapter_number)
+            except httpx.TimeoutException:
+                logger.warning("OpenRouter summary request timed out; using stub summary")
+            except httpx.HTTPStatusError as exc:
+                logger.warning("OpenRouter summary HTTP %s; using stub summary", exc.response.status_code)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("OpenRouter summary error (%s); using stub summary", exc)
+
+    return _generate_stub_summary(story_id, chapter_number)

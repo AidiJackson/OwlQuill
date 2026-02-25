@@ -1354,3 +1354,189 @@ def test_parse_suggestions_bad_json_returns_none():
     """_parse_suggestions returns None on malformed JSON."""
     from app.services.storylab_generator import _parse_suggestions
     assert _parse_suggestions("<SUGGESTIONS>not json[</SUGGESTIONS>") is None
+
+
+# ── story memory window tests ──────────────────────────────────────────────────
+# These tests verify STORY SO FAR + LAST CHAPTER injection in build_chapter_prompt
+# and the generate_story_summary pipeline.
+
+def _make_chapter_messages(summary="", prev_text=None):
+    """Helper: build chapter prompt messages with given summary and previous chapter."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+    return build_chapter_prompt(
+        prompt="She opens the letter.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary=summary,
+        characters=[],
+        previous_chapter_text=prev_text,
+    )
+
+
+def test_chapter_prompt_story_so_far_present_when_summary_set():
+    """STORY SO FAR block is injected when a non-empty summary is provided."""
+    summary = "Marcus and Elena have a fraught history rooted in a shared loss."
+    msgs = _make_chapter_messages(summary=summary)
+    user = msgs[1]["content"]
+    assert "## Story so far" in user
+    assert summary in user
+
+
+def test_chapter_prompt_story_so_far_absent_when_empty():
+    """STORY SO FAR block is absent when summary is empty or None."""
+    for s in ("", None, "   "):
+        msgs = _make_chapter_messages(summary=s or "")
+        user = msgs[1]["content"]
+        assert "## Story so far" not in user, f"Expected STORY SO FAR to be absent for summary={s!r}"
+
+
+def test_chapter_prompt_last_chapter_present_when_provided():
+    """LAST CHAPTER block is injected when previous chapter text is provided."""
+    prev = "The rain began at midnight and did not stop."
+    msgs = _make_chapter_messages(prev_text=prev)
+    user = msgs[1]["content"]
+    assert "## Last chapter" in user
+    assert prev in user
+
+
+def test_chapter_prompt_last_chapter_absent_when_none():
+    """LAST CHAPTER block is absent when no previous chapter text is given."""
+    msgs = _make_chapter_messages(prev_text=None)
+    user = msgs[1]["content"]
+    assert "## Last chapter" not in user
+
+    # Also check empty string
+    msgs2 = _make_chapter_messages(prev_text="")
+    assert "## Last chapter" not in msgs2[1]["content"]
+
+
+def test_chapter_prompt_last_chapter_full_text_not_truncated():
+    """Full previous-chapter text is included verbatim (no 2 000-char truncation)."""
+    long_text = "word " * 600  # ~3 000 chars, well above former 2 000-char limit
+    msgs = _make_chapter_messages(prev_text=long_text)
+    user = msgs[1]["content"]
+    assert long_text.strip() in user
+
+
+def test_chapter_prompt_both_blocks_correct_order():
+    """STORY SO FAR appears before LAST CHAPTER in the user message."""
+    summary = "A brewing conflict between old friends."
+    prev = "She slammed the door. The silence after was worse."
+    msgs = _make_chapter_messages(summary=summary, prev_text=prev)
+    user = msgs[1]["content"]
+    pos_summary = user.find("## Story so far")
+    pos_last = user.find("## Last chapter")
+    assert pos_summary != -1 and pos_last != -1
+    assert pos_summary < pos_last
+
+
+def test_build_story_summary_prompt_structure():
+    """build_story_summary_prompt returns [system, user] with chapter text in user block."""
+    from app.services.storylab_generator import build_story_summary_prompt
+
+    msgs = build_story_summary_prompt(
+        existing_summary="She has been hiding something for years.",
+        new_chapter_text="Marcus finally saw the letter she had concealed.",
+        chapter_number=3,
+    )
+    assert len(msgs) == 2
+    assert msgs[0]["role"] == "system"
+    assert msgs[1]["role"] == "user"
+    user = msgs[1]["content"]
+    assert "Marcus finally saw the letter" in user
+    assert "## Chapter 3" in user
+    assert "She has been hiding something" in user
+
+
+def test_build_story_summary_prompt_first_chapter_no_prior():
+    """When existing_summary is empty, user message notes no prior summary exists."""
+    from app.services.storylab_generator import build_story_summary_prompt
+
+    msgs = build_story_summary_prompt(
+        existing_summary="",
+        new_chapter_text="The story begins here.",
+        chapter_number=1,
+    )
+    user = msgs[1]["content"]
+    assert "first chapter" in user.lower() or "no prior summary" in user.lower()
+
+
+def test_generate_story_summary_stub_returns_nonempty_string():
+    """generate_story_summary (stub path) returns a non-empty string."""
+    from app.services.storylab_generator import generate_story_summary
+
+    result = generate_story_summary(
+        existing_summary="",
+        chapter_text="She opened the letter at last.",
+        chapter_number=1,
+        story_id="summary-stub-test",
+    )
+    assert isinstance(result, str) and len(result) > 50
+
+
+def test_generate_story_summary_stub_includes_chapter_number():
+    """Stub summary references the chapter number."""
+    from app.services.storylab_generator import generate_story_summary
+
+    result = generate_story_summary(
+        existing_summary="Some prior context.",
+        chapter_text="The confrontation arrived.",
+        chapter_number=4,
+        story_id="summary-chapter-num-test",
+    )
+    assert "4" in result
+
+
+def test_chapter_generate_persists_story_summary(client, db_session):
+    """After generating a chapter, the StoryState row has a non-empty story_summary."""
+    from app.models.storylab import StoryState
+
+    story_id = "summary-persist-test-001"
+    resp = client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json={
+            "prompt": "The letter changes everything.",
+            "mode": "roleplay",
+            "controls": {
+                "direction": "twist_event",
+                "tone_intensity": "intense",
+                "pacing": "fast",
+                "length": "short",
+                "boundary": "sfw",
+            },
+        },
+    )
+    assert resp.status_code == 200
+
+    # Verify the state row now has a story_summary (use the test db_session fixture)
+    db_session.expire_all()  # refresh cached objects
+    state_row = db_session.query(StoryState).filter(StoryState.story_id == story_id).first()
+    assert state_row is not None
+    assert state_row.story_summary is not None
+    assert len(state_row.story_summary) > 20
+
+
+def test_chapter_generate_summary_used_in_next_prompt():
+    """When story_summary is set on state_row, the second chapter's prompt includes it."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    summary = "Elena discovered Marcus was involved in the incident three years ago."
+    prev_text = "She walked away without looking back."
+
+    msgs = build_chapter_prompt(
+        prompt="The confrontation the story has been building toward.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary=summary,
+        characters=[],
+        previous_chapter_text=prev_text,
+    )
+    user = msgs[1]["content"]
+
+    # Both memory blocks present
+    assert "## Story so far" in user
+    assert summary in user
+    assert "## Last chapter" in user
+    assert prev_text in user
