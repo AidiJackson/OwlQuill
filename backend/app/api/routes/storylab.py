@@ -41,6 +41,7 @@ from app.schemas.storylab import (
 from app.services.storylab_generator import (
     extract_ending_phrase,
     generate_chapter,
+    generate_story_summary,
     generate_storylab_continuation,
     _fallback_suggestions,
 )
@@ -394,6 +395,33 @@ def _run_chapter_generation(
     return chapter_text, suggestions, model_deltas
 
 
+def _update_story_summary(
+    story_id: str,
+    state_row: StoryState,
+    chapter_text: str,
+    chapter_number: int,
+    db: Session,
+) -> None:
+    """Generate and persist an updated story summary after a chapter is saved.
+
+    Non-fatal: if summarisation fails the chapter is already committed and the
+    summary will be regenerated on the next chapter generation.
+    """
+    try:
+        new_summary = generate_story_summary(
+            existing_summary=state_row.story_summary or "",
+            chapter_text=chapter_text,
+            chapter_number=chapter_number,
+            story_id=story_id,
+        )
+        state_row.story_summary = new_summary
+        state_row.updated_at = datetime.utcnow()
+        db.add(state_row)
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Story summary update failed for %s: %s", story_id, exc)
+
+
 # ── chapter routes ─────────────────────────────────────────────────────────────
 
 @router.get("/chapters", response_model=list[ChapterListItem])
@@ -468,6 +496,10 @@ def generate_chapter_endpoint(
     db.commit()
     db.refresh(ch)
 
+    # Update story summary (non-fatal; chapter already committed)
+    state_row = _get_or_create_state(story_id, db)
+    _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
+
     return ChapterGenerateResponse(
         chapter_number=chapter_number,
         generated_text=chapter_text,
@@ -534,6 +566,10 @@ def regenerate_chapter(
     ch.updated_at = datetime.utcnow()
     db.add(ch)
     db.commit()
+
+    # Update story summary (non-fatal; chapter already committed)
+    state_row = _get_or_create_state(story_id, db)
+    _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
 
     return ChapterGenerateResponse(
         chapter_number=chapter_number,
