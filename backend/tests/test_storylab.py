@@ -1129,3 +1129,228 @@ def test_prompt_instructs_no_rewrite_of_existing_prose():
     assert "rewrite" in user_content.lower() or "paraphrase" in user_content.lower()
     # Manuscript is described as canonical
     assert "canonical" in user_content.lower()
+
+
+# ── chapter endpoint tests ────────────────────────────────────────────────────
+# All tests use STORYLAB_PROVIDER=stub (set in conftest) so no live API calls.
+
+_STORY_ID_CH = "ch-test-story-001"
+
+_CH_GENERATE_BODY = {
+    "prompt": "She finally confronts Marcus about the letter.",
+    "mode": "roleplay",
+    "controls": {
+        "direction": "argument_begins",
+        "tone_intensity": "moderate",
+        "pacing": "balanced",
+        "length": "medium",
+        "boundary": "sfw",
+    },
+}
+
+
+def test_chapter_list_empty(client):
+    """GET /chapters returns empty list for a story with no chapters."""
+    resp = client.get(f"/api/storylab/chapters?story_id={_STORY_ID_CH}_empty")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_chapter_generate_returns_200(client):
+    """POST /chapters/generate returns 200 with required fields."""
+    resp = client.post(
+        f"/api/storylab/chapters/generate?story_id={_STORY_ID_CH}",
+        json=_CH_GENERATE_BODY,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "chapter_number" in data
+    assert data["chapter_number"] == 1
+    assert isinstance(data["generated_text"], str) and len(data["generated_text"]) > 0
+    assert isinstance(data["suggestions"], list) and len(data["suggestions"]) >= 1
+    assert "prompt_text" in data
+    assert "meta" in data
+
+
+def test_chapter_generate_increments_number(client):
+    """Second generation creates chapter 2."""
+    story_id = f"{_STORY_ID_CH}_increment"
+    resp1 = client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    assert resp1.status_code == 200
+    assert resp1.json()["chapter_number"] == 1
+
+    resp2 = client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["chapter_number"] == 2
+
+
+def test_chapter_list_shows_generated(client):
+    """GET /chapters lists stored chapters after generation."""
+    story_id = f"{_STORY_ID_CH}_list"
+    client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 1
+    ch = items[0]
+    assert ch["chapter_number"] == 1
+    assert ch["words"] > 0
+    assert ch["mode"] == "roleplay"
+    assert ch["boundary"] == "sfw"
+
+
+def test_chapter_get_returns_detail(client):
+    """GET /chapters/{n} returns chapter detail with prompt_text and suggestions."""
+    story_id = f"{_STORY_ID_CH}_get"
+    gen_resp = client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    assert gen_resp.status_code == 200
+
+    resp = client.get(f"/api/storylab/chapters/1?story_id={story_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["chapter_number"] == 1
+    assert isinstance(data["generated_text"], str) and len(data["generated_text"]) > 0
+    assert data["prompt_text"] == _CH_GENERATE_BODY["prompt"]
+    assert isinstance(data["suggestions"], list)
+
+
+def test_chapter_get_404_on_missing(client):
+    """GET /chapters/{n} returns 404 when chapter does not exist."""
+    resp = client.get(f"/api/storylab/chapters/99?story_id={_STORY_ID_CH}_missing")
+    assert resp.status_code == 404
+
+
+def test_chapter_delete_removes_from_list(client):
+    """DELETE /chapters/{n} removes the chapter and returns 204."""
+    story_id = f"{_STORY_ID_CH}_delete"
+    client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    del_resp = client.delete(f"/api/storylab/chapters/1?story_id={story_id}")
+    assert del_resp.status_code == 204
+
+    list_resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
+    assert list_resp.json() == []
+
+
+def test_chapter_delete_404_on_missing(client):
+    """DELETE /chapters/{n} returns 404 when chapter does not exist."""
+    resp = client.delete(f"/api/storylab/chapters/42?story_id={_STORY_ID_CH}_nomatch")
+    assert resp.status_code == 404
+
+
+def test_chapter_regenerate_overwrites_text(client):
+    """POST /chapters/{n}/regenerate replaces the chapter text in-place."""
+    story_id = f"{_STORY_ID_CH}_regen"
+    gen_resp = client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    original_text = gen_resp.json()["generated_text"]
+
+    regen_body = {**_CH_GENERATE_BODY, "prompt": "A revised opening beat."}
+    regen_resp = client.post(
+        f"/api/storylab/chapters/1/regenerate?story_id={story_id}",
+        json=regen_body,
+    )
+    assert regen_resp.status_code == 200
+    data = regen_resp.json()
+    assert data["chapter_number"] == 1
+    assert isinstance(data["generated_text"], str)
+
+    # Chapter list still has exactly 1 chapter (not 2)
+    list_resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
+    assert len(list_resp.json()) == 1
+
+
+def test_chapter_build_prompt_structure(client):
+    """build_chapter_prompt returns [system, user] messages with required blocks."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    controls = StoryLabControls()
+    messages = build_chapter_prompt(
+        prompt="She opens the letter.",
+        controls=controls,
+        state_json={},
+        summary="A slow-burn mystery.",
+        characters=[],
+    )
+    assert len(messages) == 2
+    system = messages[0]["content"]
+    user = messages[1]["content"]
+
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+
+    # System prompt contains chapter output contract markers
+    assert "<STORY>" in system
+    assert "<SUGGESTIONS>" in system
+    assert "<DELTA_SIGNALS>" in system
+
+    # User message contains key blocks
+    assert "Story context" in user
+    assert "User guidance for this chapter" in user
+    assert "She opens the letter." in user
+    assert "Character Fidelity" in user
+
+
+def test_chapter_generate_stub_returns_suggestions(client):
+    """Stub provider generates valid text and at least 1 suggestion."""
+    story_id = f"{_STORY_ID_CH}_stub_sugg"
+    resp = client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data["suggestions"], list)
+    assert len(data["suggestions"]) >= 1
+    assert all(isinstance(s, str) and len(s) > 0 for s in data["suggestions"])
+
+
+def test_fallback_suggestions_returns_list():
+    """_fallback_suggestions always returns a non-empty list."""
+    from app.services.storylab_generator import _fallback_suggestions
+
+    # Default empty state
+    result = _fallback_suggestions({})
+    assert isinstance(result, list) and len(result) >= 1
+
+    # High tension state
+    result = _fallback_suggestions({"story_state": {"tension": 0.8, "emotional_weight": 0.7, "stakes": 0.8}})
+    assert len(result) >= 1
+
+
+def test_parse_suggestions_valid():
+    """_parse_suggestions extracts JSON array from <SUGGESTIONS> block."""
+    from app.services.storylab_generator import _parse_suggestions
+
+    raw = '<SUGGESTIONS>["First suggestion.", "Second suggestion.", "Third."]</SUGGESTIONS>'
+    result = _parse_suggestions(raw)
+    assert result == ["First suggestion.", "Second suggestion.", "Third."]
+
+
+def test_parse_suggestions_missing_returns_none():
+    """_parse_suggestions returns None when block is absent."""
+    from app.services.storylab_generator import _parse_suggestions
+    assert _parse_suggestions("no suggestions here") is None
+
+
+def test_parse_suggestions_bad_json_returns_none():
+    """_parse_suggestions returns None on malformed JSON."""
+    from app.services.storylab_generator import _parse_suggestions
+    assert _parse_suggestions("<SUGGESTIONS>not json[</SUGGESTIONS>") is None

@@ -8,6 +8,9 @@ os.environ["DEBUG"] = "true"  # force override — Replit sets DEBUG=False in sh
 # Ensure tests use stub image generator, never the real OpenAI or fal API
 os.environ.pop("OPENAI_API_KEY", None)
 os.environ.pop("FAL_KEY", None)
+# Force deterministic stub provider for all StoryLab tests — never call live OpenRouter
+os.environ["STORYLAB_PROVIDER"] = "stub"
+os.environ.pop("OPENROUTER_API_KEY", None)
 
 import pytest
 from fastapi.testclient import TestClient

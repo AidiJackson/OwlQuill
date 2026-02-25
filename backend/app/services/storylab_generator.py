@@ -18,7 +18,9 @@ Public helpers (importable for testing)
     tone_instructions(tone_intensity)     -> str
     build_character_voice_block(chars)    -> str   # character voice instructions
     build_storylab_prompt(...)            -> list[dict]  # messages payload
+    build_chapter_prompt(...)             -> list[dict]  # chapter messages payload
     generate_storylab_continuation(...)   -> tuple[str, dict | None]
+    generate_chapter(...)                 -> tuple[str, list[str], dict | None]
 """
 import json
 import logging
@@ -343,6 +345,26 @@ but never rewrite it.\
 """
 
 
+# ── character fidelity block (static, inserted per-request) ──────────────────
+
+_CHARACTER_FIDELITY_BLOCK = """
+## Character Fidelity (MANDATORY)
+
+- Characters must behave consistently with their known personality, role, status, and relationship dynamics.
+- Character psychology overrides requested scene intensity if a direct escalation would feel unrealistic.
+- Do not force characters into actions they would not plausibly initiate.
+- Scene escalation must arise naturally from:
+  - emotional tension
+  - power dynamics
+  - dialogue subtext
+  - internal conflict
+  - situational pressure
+- If a requested tone implies intimacy or confrontation, the AI must choose a believable psychological route to reach that point.
+- Spice level affects the depth and intensity of the scene, not the speed or bluntness of character actions.
+- Avoid shortcuts to dramatic payoff; prefer gradual, character-driven progression.
+"""
+
+
 # ── scene momentum block (static, inserted per-request) ─────────────────────
 
 _SCENE_MOMENTUM = """\
@@ -394,12 +416,13 @@ def build_storylab_prompt(
         1. Story context + narrative state
         2. Character voice block      (if characters present)
         3. User material handling     (always — canonical manuscript + beat rendering rules)
-        4. Scene momentum requirement (always)
-        5. Repetition dampening       (recurring phrases + recent endings, when present)
-        6. Direction / boundary / pacing / tone
-        7. Target length
-        8. Recent scene text
-        9. Task instruction
+        4. Character fidelity         (always — psychology-first escalation constraint)
+        5. Scene momentum requirement (always)
+        6. Repetition dampening       (recurring phrases + recent endings, when present)
+        7. Direction / boundary / pacing / tone
+        8. Target length
+        9. Recent scene text
+       10. Task instruction
 
     Args:
         recent_endings: Last N ending phrases from this story's GenerationLog,
@@ -462,6 +485,8 @@ def build_storylab_prompt(
         sections.append(voice_block)
 
     sections.append(_USER_MATERIAL_HANDLING)
+
+    sections.append(_CHARACTER_FIDELITY_BLOCK)
 
     sections.append(_SCENE_MOMENTUM)
 
@@ -782,3 +807,308 @@ def generate_storylab_continuation(
                 logger.warning("OpenRouter error (%s); falling back to stub", exc)
 
     return _generate_stub_text(story_id, controls), None
+
+
+# ── chapter output contract ───────────────────────────────────────────────────
+
+_CHAPTER_OUTPUT_CONTRACT = """\
+Output format — you MUST follow this exactly:
+
+<STORY>
+[Your chapter prose here — nothing else inside these tags]
+</STORY>
+<SUGGESTIONS>
+["First suggestion for what to explore in the next chapter.", "Second suggestion — a different angle or beat.", "Third suggestion — an escalation, revelation, or shift."]
+</SUGGESTIONS>
+<DELTA_SIGNALS>
+{"tension_delta":0.0,"emotional_weight_delta":0.0,"intimacy_delta":0.0,"stakes_delta":0.0,"scene_type":"chapter"}
+</DELTA_SIGNALS>
+
+STORY must contain only prose — no tags, headers, or meta-commentary.
+SUGGESTIONS must be a valid JSON array of exactly 3 strings, each 1–2 sentences, \
+describing concrete next-chapter beats or directions.
+Fill DELTA_SIGNALS with your honest estimate of narrative shifts (values between -0.3 and +0.3). \
+scene_type should label this beat (e.g. "confrontation", "revelation", "intimacy", "action").\
+"""
+
+
+# ── chapter system prompt ─────────────────────────────────────────────────────
+
+_CHAPTER_SYSTEM_PROMPT = f"""\
+You are StoryLab, Ficshon's narrative chapter engine. You write complete, polished chapters \
+based on user guidance and story context — never summarising, never breaking the fourth wall.
+
+Core rules:
+- Write ONLY the chapter prose. No titles, no headers, no preamble, no commentary.
+- Treat the user's guidance as REQUIRED scene beats — render every beat as prose and dialogue.
+- If the user includes rough dialogue or prose fragments, incorporate them naturally (light polishing permitted).
+- Match the established voice, tense, and POV from the story context provided.
+- Honour boundary and direction instructions exactly.
+- Do NOT add chapter numbers or headings to your output — prose only.
+
+{_STYLE_RULES}
+
+{_CHAPTER_OUTPUT_CONTRACT}\
+"""
+
+
+# ── chapter prompt builder (public) ──────────────────────────────────────────
+
+def build_chapter_prompt(
+    prompt: str,
+    controls: StoryLabControls,
+    state_json: dict[str, Any],
+    summary: str,
+    characters: list[Any],
+    previous_chapter_text: str | None = None,
+    variant: str = "default",
+) -> list[dict[str, str]]:
+    """Build the messages list for a chapter generation call.
+
+    Unlike build_storylab_prompt, this generates a FRESH chapter rather than
+    appending after a manuscript. The user prompt is scene guidance/beats.
+
+    Block order in the user message:
+        1. Story context + narrative state
+        2. Character voice block      (if characters present)
+        3. Character fidelity         (always)
+        4. Previous chapter context   (last 2 000 chars, or '(No previous chapters)')
+        5. Direction / boundary / pacing / tone
+        6. Target length
+        7. User guidance for this chapter
+        8. Task instruction
+
+    Returns:
+        [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
+    """
+    ss = state_json.get("story_state", {})
+
+    def _fmt(v: object) -> str:
+        return f"{v:.2f}" if isinstance(v, float) else str(v)
+
+    state_lines = "\n".join(
+        f"  {k}: {_fmt(v)}" for k, v in ss.items() if k != "scene_type"
+    ) or "  (default)"
+
+    char_names = (
+        ", ".join(
+            c.get("name", "Unknown") if isinstance(c, dict) else str(c)
+            for c in (characters or [])
+        )
+        or "None specified"
+    )
+
+    target_words = _length_target(controls.length)
+    cap_words = _length_cap(controls.length)
+
+    voice_block = build_character_voice_block(characters or [])
+
+    # Previous chapter — last 2 000 chars as continuity reference
+    if previous_chapter_text and previous_chapter_text.strip():
+        prev_tail = previous_chapter_text[-2000:] if len(previous_chapter_text) > 2000 else previous_chapter_text
+        prev_block = f"## Previous chapter (continuity reference — do NOT copy or repeat)\n{prev_tail}"
+    else:
+        prev_block = "## Previous chapter\n(No previous chapters — this is the opening chapter.)"
+
+    sections: list[str] = []
+
+    sections.append(
+        f"## Story context\n"
+        f"Summary: {summary or 'No summary yet.'}\n"
+        f"Characters: {char_names}"
+    )
+    sections.append(f"## Narrative state\n{state_lines}")
+
+    if voice_block:
+        sections.append(voice_block)
+
+    sections.append(_CHARACTER_FIDELITY_BLOCK)
+
+    sections.append(prev_block)
+
+    sections.append(
+        f"## Direction: {controls.direction}\n{direction_instructions(controls.direction)}"
+    )
+    sections.append(
+        f"## Boundary: {controls.boundary}\n{boundary_instructions(controls.boundary)}"
+    )
+    sections.append(
+        f"## Pacing: {controls.pacing}\n{pacing_instructions(controls.pacing)}"
+    )
+    sections.append(
+        f"## Tone: {controls.tone_intensity}\n{tone_instructions(controls.tone_intensity)}"
+    )
+    sections.append(
+        f"## Target length\nAim for ~{target_words} words (hard cap: {cap_words} words)."
+    )
+
+    guidance = prompt.strip() if prompt and prompt.strip() else "(No specific guidance — develop the story naturally.)"
+    sections.append(f"## User guidance for this chapter\n{guidance}")
+
+    alt_clause = (
+        " Write a distinctly different alternative take — vary the opening beat, "
+        "narrative approach, and closing hook."
+        if variant == "alt" else ""
+    )
+    sections.append(
+        f"## Task\n"
+        f"Write a complete chapter.{alt_clause} Every beat in the user guidance above is a REQUIRED "
+        f"scene event — render each beat as polished narrative and dialogue. Apply all direction, "
+        f"boundary, pacing, and tone instructions. Write approximately {target_words} words "
+        f"(max {cap_words}). Use the required output format including SUGGESTIONS."
+    )
+
+    user_content = "\n\n".join(sections)
+
+    return [
+        {"role": "system", "content": _CHAPTER_SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+
+
+# ── suggestion parser ─────────────────────────────────────────────────────────
+
+_SUGGESTIONS_RE = re.compile(r"<SUGGESTIONS>(.*?)</SUGGESTIONS>", re.DOTALL)
+
+
+def _parse_suggestions(raw: str) -> list[str] | None:
+    """Extract and parse <SUGGESTIONS> JSON array. Returns None on any failure."""
+    m = _SUGGESTIONS_RE.search(raw)
+    if not m:
+        return None
+    try:
+        result = json.loads(m.group(1).strip())
+        if isinstance(result, list) and result:
+            return [str(s) for s in result[:3]]
+        return None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+# ── fallback suggestion generator ────────────────────────────────────────────
+
+def _fallback_suggestions(state_json: dict[str, Any]) -> list[str]:
+    """Generate up to 3 context-aware suggestions from narrative state."""
+    ss = state_json.get("story_state", {})
+    tension   = float(ss.get("tension", 0.2))
+    emotional = float(ss.get("emotional_weight", 0.1))
+    stakes    = float(ss.get("stakes", 0.2))
+    intimacy  = float(ss.get("intimacy_level", 0))
+
+    pool: list[tuple[int, str]] = []
+    if tension < 0.35:
+        pool.append((10, "Add friction — a disagreement, interruption, or external pressure."))
+    if 0.35 <= tension < 0.65:
+        pool.append((7, "Introduce a complication to stop the scene from resolving too easily."))
+    if tension >= 0.65:
+        pool.append((9, "The pressure is high — use short sentences and concrete sensory detail."))
+    if emotional < 0.35:
+        pool.append((9, "Deepen emotion through action and subtext — avoid direct declarations."))
+    if emotional >= 0.65:
+        pool.append((7, "Let the emotional weight land through silence or a small physical gesture."))
+    if stakes < 0.4:
+        pool.append((8, "Raise the stakes: attach a real consequence to the next choice."))
+    if stakes >= 0.7:
+        pool.append((6, "Stakes are high — make a character act against their own interest."))
+    if intimacy >= 0.5:
+        pool.append((7, "Let closeness show in proximity and restraint — small details carry more than declarations."))
+    if intimacy < 0.2:
+        pool.append((4, "A moment of small vulnerability could deepen the scene's emotional core."))
+
+    pool.sort(key=lambda x: -x[0])
+    result = [t for _, t in pool[:3]]
+    if not result:
+        result = ["Begin the next beat with a specific sensory detail to ground the scene."]
+    return result
+
+
+# ── OpenRouter chapter call ───────────────────────────────────────────────────
+
+def _call_openrouter_chapter(
+    prompt: str,
+    controls: StoryLabControls,
+    state_json: dict[str, Any],
+    summary: str,
+    characters: list[Any],
+    previous_chapter_text: str | None = None,
+    variant: str = "default",
+) -> tuple[str, list[str], dict[str, Any] | None]:
+    """Call OpenRouter for chapter generation; parse STORY + SUGGESTIONS + DELTA_SIGNALS."""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    messages = build_chapter_prompt(
+        prompt, controls, state_json, summary, characters, previous_chapter_text, variant=variant
+    )
+    cap_words = _length_cap(controls.length)
+    # Extra headroom for SUGGESTIONS + DELTA_SIGNALS blocks on top of prose
+    max_tokens = max(400, int(cap_words * 2.5))
+    temperature = 0.85 + (0.15 if variant == "alt" else 0.0)
+
+    payload = {
+        "model": settings.STORYLAB_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://ficshon.com",
+        "X-Title": "Ficshon StoryLab",
+    }
+
+    with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+        resp = client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+
+    data = resp.json()
+    raw: str = data["choices"][0]["message"]["content"]
+
+    delta = _parse_delta_signals(raw)
+    suggestions = _parse_suggestions(raw)
+    if suggestions is None:
+        suggestions = _fallback_suggestions(state_json)
+
+    chapter_text = _trim_to_cap(_parse_model_output(raw), cap_words)
+    return chapter_text, suggestions, delta
+
+
+# ── chapter entry point ───────────────────────────────────────────────────────
+
+def generate_chapter(
+    prompt: str,
+    controls: StoryLabControls,
+    state_json: dict[str, Any],
+    summary: str,
+    characters: list[Any],
+    previous_chapter_text: str | None = None,
+    story_id: str = "",
+    variant: str = "default",
+) -> tuple[str, list[str], dict[str, Any] | None]:
+    """Return (chapter_text, suggestions, delta_signals_or_none).
+
+    Routes to OpenRouter when STORYLAB_PROVIDER=openrouter and
+    OPENROUTER_API_KEY is set; falls back to the deterministic stub
+    on any error so the endpoint never returns empty-handed.
+    Stub returns deterministic text + fallback suggestions.
+    """
+    provider = settings.STORYLAB_PROVIDER
+
+    if provider == "openrouter":
+        if not settings.OPENROUTER_API_KEY:
+            logger.warning("STORYLAB_PROVIDER=openrouter but OPENROUTER_API_KEY is empty; using stub")
+        else:
+            try:
+                return _call_openrouter_chapter(
+                    prompt, controls, state_json, summary, characters,
+                    previous_chapter_text, variant=variant,
+                )
+            except httpx.TimeoutException:
+                logger.warning("OpenRouter chapter request timed out; falling back to stub")
+            except httpx.HTTPStatusError as exc:
+                logger.warning("OpenRouter returned HTTP %s; falling back to stub", exc.response.status_code)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("OpenRouter chapter error (%s); falling back to stub", exc)
+
+    stub_text = _generate_stub_text(story_id, controls)
+    suggestions = _fallback_suggestions(state_json)
+    return stub_text, suggestions, None

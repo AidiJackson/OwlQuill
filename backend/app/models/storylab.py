@@ -1,7 +1,7 @@
-"""StoryLab DB models: story_state + generation_log."""
+"""StoryLab DB models: story_state + generation_log + story_chapter."""
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.types import JSON
 
 from app.core.database import Base
@@ -37,3 +37,30 @@ class GenerationLog(Base):
     response_text = Column(Text, nullable=False)
     word_count = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StoryChapter(Base):
+    """A generated chapter for a story workspace."""
+
+    __tablename__ = "story_chapter"
+
+    id = Column(Integer, primary_key=True, index=True)
+    story_id = Column(String, index=True, nullable=False)
+    chapter_number = Column(Integer, nullable=False)
+    title = Column(Text, nullable=True)
+    prompt_text = Column(Text, nullable=True)
+    mode = Column(String, nullable=False, default="roleplay")
+    controls_json = Column(JSON, nullable=False, default=dict)
+    generated_text = Column(Text, nullable=False)
+    word_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("story_id", "chapter_number", name="uq_story_chapter"),
+    )

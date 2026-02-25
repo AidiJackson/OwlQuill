@@ -1,9 +1,14 @@
-"""StoryLab backend loop — state management + provider-routed generation.
+"""StoryLab backend loop — state management + provider-routed generation + chapters.
 
 Routes
 ------
-GET  /storylab/state?story_id=...    Return (or create) story state.
-POST /storylab/generate              Generate continuation + update state.
+GET  /storylab/state?story_id=...                      Return (or create) story state.
+POST /storylab/generate                                 Generate continuation + update state.
+GET  /storylab/chapters?story_id=...                   List all chapters for a story.
+GET  /storylab/chapters/{chapter_number}?story_id=...  Get a specific chapter.
+POST /storylab/chapters/generate?story_id=...          Generate a new chapter.
+DELETE /storylab/chapters/{chapter_number}?story_id=... Delete a chapter.
+POST /storylab/chapters/{chapter_number}/regenerate?story_id=... Overwrite chapter with new generation.
 
 Generation is delegated to app.services.storylab_generator which routes to
 the configured provider (stub / openrouter) with automatic stub fallback.
@@ -17,9 +22,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.storylab import GenerationLog, StoryState
+from app.models.storylab import GenerationLog, StoryChapter, StoryState
 from app.schemas.storylab import (
     Boundary,
+    ChapterDetail,
+    ChapterGenerateRequest,
+    ChapterGenerateResponse,
+    ChapterListItem,
     Direction,
     SafetyInfo,
     StateDelta,
@@ -31,7 +40,9 @@ from app.schemas.storylab import (
 )
 from app.services.storylab_generator import (
     extract_ending_phrase,
+    generate_chapter,
     generate_storylab_continuation,
+    _fallback_suggestions,
 )
 
 logger = logging.getLogger(__name__)
@@ -305,4 +316,229 @@ def generate(
             policy_flags=[],
             boundary=req.controls.boundary,
         ),
+    )
+
+
+# ── chapter helpers ────────────────────────────────────────────────────────────
+
+def _get_next_chapter_number(story_id: str, db: Session) -> int:
+    """Return the next chapter_number for a story (1 if no chapters exist)."""
+    from sqlalchemy import func
+    result = db.query(func.max(StoryChapter.chapter_number)).filter(
+        StoryChapter.story_id == story_id
+    ).scalar()
+    return (result or 0) + 1
+
+
+def _chapter_to_list_item(ch: StoryChapter) -> ChapterListItem:
+    controls = ch.controls_json or {}
+    return ChapterListItem(
+        chapter_number=ch.chapter_number,
+        created_at=ch.created_at.isoformat(),
+        words=ch.word_count,
+        mode=ch.mode,
+        boundary=controls.get("boundary", "sfw"),
+        length=controls.get("length", "medium"),
+    )
+
+
+def _chapter_to_detail(ch: StoryChapter, suggestions: list[str]) -> ChapterDetail:
+    return ChapterDetail(
+        chapter_number=ch.chapter_number,
+        generated_text=ch.generated_text,
+        prompt_text=ch.prompt_text or "",
+        controls=ch.controls_json or {},
+        suggestions=suggestions,
+        words=ch.word_count,
+        created_at=ch.created_at.isoformat(),
+    )
+
+
+def _run_chapter_generation(
+    story_id: str,
+    req: ChapterGenerateRequest,
+    db: Session,
+) -> tuple[str, list[str], dict[str, Any] | None]:
+    """Shared generation logic: fetch state, get previous chapter, call generator."""
+    state_row = _get_or_create_state(story_id, db)
+    current_state: dict[str, Any] = dict(state_row.state_json or _DEFAULT_STATE)
+
+    # Last chapter text for continuity context
+    last_chapter = (
+        db.query(StoryChapter)
+        .filter(StoryChapter.story_id == story_id)
+        .order_by(StoryChapter.chapter_number.desc())
+        .first()
+    )
+    previous_text = last_chapter.generated_text if last_chapter else None
+
+    chapter_text, suggestions, model_deltas = generate_chapter(
+        prompt=req.prompt,
+        controls=req.controls,
+        state_json=current_state,
+        summary=state_row.story_summary or "",
+        characters=current_state.get("characters", []),
+        previous_chapter_text=previous_text,
+        story_id=story_id,
+        variant=req.variant,
+    )
+
+    # Update story state
+    new_state, _ = _build_deltas(req.controls.direction, req.controls.boundary, current_state)
+    if model_deltas:
+        new_state = apply_model_deltas(new_state, model_deltas, req.controls.boundary)
+    state_row.state_json = new_state
+    state_row.updated_at = datetime.utcnow()
+    db.add(state_row)
+
+    return chapter_text, suggestions, model_deltas
+
+
+# ── chapter routes ─────────────────────────────────────────────────────────────
+
+@router.get("/chapters", response_model=list[ChapterListItem])
+def list_chapters(
+    story_id: str = Query(..., description="Story workspace identifier"),
+    db: Session = Depends(get_db),
+) -> list[ChapterListItem]:
+    """Return all chapters for a story, ordered by chapter_number."""
+    rows = (
+        db.query(StoryChapter)
+        .filter(StoryChapter.story_id == story_id)
+        .order_by(StoryChapter.chapter_number)
+        .all()
+    )
+    return [_chapter_to_list_item(ch) for ch in rows]
+
+
+@router.get("/chapters/{chapter_number}", response_model=ChapterDetail)
+def get_chapter(
+    chapter_number: int,
+    story_id: str = Query(..., description="Story workspace identifier"),
+    db: Session = Depends(get_db),
+) -> ChapterDetail:
+    """Return a specific chapter with suggestions derived from current state."""
+    ch = (
+        db.query(StoryChapter)
+        .filter(
+            StoryChapter.story_id == story_id,
+            StoryChapter.chapter_number == chapter_number,
+        )
+        .first()
+    )
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
+    state_row = _get_or_create_state(story_id, db)
+    suggestions = _fallback_suggestions(state_row.state_json or _DEFAULT_STATE)
+    return _chapter_to_detail(ch, suggestions)
+
+
+@router.post("/chapters/generate", response_model=ChapterGenerateResponse)
+def generate_chapter_endpoint(
+    story_id: str = Query(..., description="Story workspace identifier"),
+    req: ChapterGenerateRequest = ...,
+    db: Session = Depends(get_db),
+) -> ChapterGenerateResponse:
+    """Generate a new chapter and store it."""
+    chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+    word_count = len(chapter_text.split())
+    chapter_number = _get_next_chapter_number(story_id, db)
+
+    controls_snapshot = {
+        "direction": req.controls.direction,
+        "tone_intensity": req.controls.tone_intensity,
+        "pacing": req.controls.pacing,
+        "length": req.controls.length,
+        "boundary": req.controls.boundary,
+    }
+    now = datetime.utcnow()
+    ch = StoryChapter(
+        story_id=story_id,
+        chapter_number=chapter_number,
+        prompt_text=req.prompt or "",
+        mode=req.mode,
+        controls_json=controls_snapshot,
+        generated_text=chapter_text,
+        word_count=word_count,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(ch)
+    db.commit()
+    db.refresh(ch)
+
+    return ChapterGenerateResponse(
+        chapter_number=chapter_number,
+        generated_text=chapter_text,
+        prompt_text=req.prompt or "",
+        suggestions=suggestions,
+        meta={"words": word_count, "delta": model_deltas},
+    )
+
+
+@router.delete("/chapters/{chapter_number}", status_code=204)
+def delete_chapter(
+    chapter_number: int,
+    story_id: str = Query(..., description="Story workspace identifier"),
+    db: Session = Depends(get_db),
+) -> None:
+    """Delete a chapter. Gaps in chapter_number are preserved (no renumbering)."""
+    ch = (
+        db.query(StoryChapter)
+        .filter(
+            StoryChapter.story_id == story_id,
+            StoryChapter.chapter_number == chapter_number,
+        )
+        .first()
+    )
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    db.delete(ch)
+    db.commit()
+
+
+@router.post("/chapters/{chapter_number}/regenerate", response_model=ChapterGenerateResponse)
+def regenerate_chapter(
+    chapter_number: int,
+    story_id: str = Query(..., description="Story workspace identifier"),
+    req: ChapterGenerateRequest = ...,
+    db: Session = Depends(get_db),
+) -> ChapterGenerateResponse:
+    """Regenerate a chapter in-place, overwriting its generated_text."""
+    ch = (
+        db.query(StoryChapter)
+        .filter(
+            StoryChapter.story_id == story_id,
+            StoryChapter.chapter_number == chapter_number,
+        )
+        .first()
+    )
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
+    chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+    word_count = len(chapter_text.split())
+
+    controls_snapshot = {
+        "direction": req.controls.direction,
+        "tone_intensity": req.controls.tone_intensity,
+        "pacing": req.controls.pacing,
+        "length": req.controls.length,
+        "boundary": req.controls.boundary,
+    }
+    ch.generated_text = chapter_text
+    ch.word_count = word_count
+    ch.prompt_text = req.prompt or ch.prompt_text
+    ch.controls_json = controls_snapshot
+    ch.updated_at = datetime.utcnow()
+    db.add(ch)
+    db.commit()
+
+    return ChapterGenerateResponse(
+        chapter_number=chapter_number,
+        generated_text=chapter_text,
+        prompt_text=req.prompt or ch.prompt_text or "",
+        suggestions=suggestions,
+        meta={"words": word_count, "delta": model_deltas},
     )

@@ -1,4 +1,4 @@
-"""Schemas for the StoryLab generate + state endpoints."""
+"""Schemas for the StoryLab generate + state + chapter endpoints."""
 from enum import Enum
 from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
@@ -93,3 +93,39 @@ class StoryLabStateResponse(BaseModel):
     story_summary: str
     state_json: dict[str, Any]
     updated_at: str
+
+
+# ── chapter schemas ────────────────────────────────────────────────────────────
+
+class ChapterGenerateRequest(BaseModel):
+    prompt: str = Field("", description="User guidance for this chapter (beats, notes, prose)")
+    mode: str = Field("roleplay", description="Generation mode: roleplay, duet, or play")
+    controls: StoryLabControls = Field(default_factory=StoryLabControls)
+    variant: Literal["default", "alt"] = "default"
+
+
+class ChapterListItem(BaseModel):
+    chapter_number: int
+    created_at: str
+    words: int
+    mode: str
+    boundary: str
+    length: str
+
+
+class ChapterDetail(BaseModel):
+    chapter_number: int
+    generated_text: str
+    prompt_text: str
+    controls: dict[str, Any]
+    suggestions: list[str]
+    words: int
+    created_at: str
+
+
+class ChapterGenerateResponse(BaseModel):
+    chapter_number: int
+    generated_text: str
+    prompt_text: str
+    suggestions: list[str]
+    meta: dict[str, Any]
