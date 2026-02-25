@@ -1644,3 +1644,45 @@ def test_chapter_prompt_contains_outcome_vs_path_block():
     assert "## Outcome vs Path" in user
     assert "MAXIMUM" in user or "maximum" in user.lower()
     assert "not a required outcome" in user or "not a requirement" in user
+
+
+# ── autoboot: model default + JSON error hardening ────────────────────────────
+
+def test_storylab_model_defaults_when_env_is_empty():
+    """STORYLAB_MODEL falls back to the built-in default when set to empty string."""
+    from app.core.config import Settings
+
+    s = Settings(STORYLAB_MODEL="")
+    assert s.STORYLAB_MODEL != ""
+    assert s.STORYLAB_MODEL == "anthropic/claude-3.5-sonnet"
+
+
+def test_generate_returns_json_error_on_db_failure(client, monkeypatch):
+    """If the DB raises OperationalError during generation, endpoint returns a structured JSON 503."""
+    from sqlalchemy.exc import OperationalError as SAOperationalError
+    from app.api.routes import storylab as sl_mod
+
+    # Simulate missing table by patching _get_or_create_state to raise
+    def _boom(story_id, db):
+        raise SAOperationalError("no such table: story_state", params=None, orig=None)
+
+    monkeypatch.setattr(sl_mod, "_get_or_create_state", _boom)
+
+    resp = client.post(
+        "/api/storylab/generate",
+        json={
+            "story_id": "err-test-db-001",
+            "text": "She paused at the door.",
+            "controls": {},
+        },
+    )
+
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["error"] == "storylab_failed"
+    assert "detail" in body
+    assert "hint" in body
+    assert "provider" in body
+    assert "model" in body
+    # Hint must reference migrations or database
+    assert "alembic" in body["hint"].lower() or "database" in body["hint"].lower()

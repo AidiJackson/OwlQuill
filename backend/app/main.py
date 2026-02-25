@@ -1,5 +1,6 @@
 """Ficshon FastAPI application."""
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,6 +19,29 @@ from app.api.routes import auth, users, characters, realms, posts, comments, rea
 logger = logging.getLogger(__name__)
 
 
+def _run_dev_migrations() -> None:
+    """Run `alembic upgrade head` programmatically in dev mode.
+
+    Non-fatal: if the migration fails the server remains alive and StoryLab
+    endpoints will return a structured JSON error instead of crashing.
+    """
+    try:
+        from alembic.config import Config
+        from alembic import command as alembic_command
+
+        # alembic.ini lives next to this package's parent (i.e. backend/)
+        alembic_ini = Path(__file__).resolve().parent.parent / "alembic.ini"
+        cfg = Config(str(alembic_ini))
+        alembic_command.upgrade(cfg, "head")
+        logger.info("DEV: Alembic migrations applied (upgrade head OK).")
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "DEV: Alembic migration failed — DB may be out of date. "
+            "StoryLab endpoints will return a 503 until this is resolved. Error: %s",
+            exc,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
@@ -26,6 +50,13 @@ async def lifespan(app: FastAPI):
         logger.info("Email: SMTP enabled (host=%s)", settings.SMTP_HOST)
     else:
         logger.info("Email: DEV console mode")
+
+    # DEV-only: auto-apply pending migrations so the server boots without
+    # manual `alembic upgrade head`. Skipped in test runs (TESTING=true) and
+    # in production (is_dev_mode() is False).
+    if settings.is_dev_mode() and not os.environ.get("TESTING"):
+        _run_dev_migrations()
+
     ensure_admin_user()
     ensure_commons_realm()
     try:

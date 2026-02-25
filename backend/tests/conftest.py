@@ -5,6 +5,8 @@ import os
 # This ensures Settings() sees these values when instantiated at import time
 os.environ["SECRET_KEY"] = "test-secret-key-not-for-prod"
 os.environ["DEBUG"] = "true"  # force override — Replit sets DEBUG=False in shell env
+# Suppress dev-only auto-migrate in lifespan — test DB uses Base.metadata.create_all()
+os.environ["TESTING"] = "true"
 # Ensure tests use stub image generator, never the real OpenAI or fal API
 os.environ.pop("OPENAI_API_KEY", None)
 os.environ.pop("FAL_KEY", None)

@@ -83,6 +83,14 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     STORYLAB_MODEL: str = "anthropic/claude-3.5-sonnet"
 
+    @field_validator("STORYLAB_MODEL", mode="before")
+    @classmethod
+    def storylab_model_nonempty(cls, v: object) -> str:
+        """Treat blank STORYLAB_MODEL as unset — fall back to the default model."""
+        if not v or not str(v).strip():
+            return "anthropic/claude-3.5-sonnet"
+        return str(v)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

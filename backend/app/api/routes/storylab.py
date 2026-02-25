@@ -19,8 +19,11 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError as SAOperationalError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.storylab import GenerationLog, StoryChapter, StoryState
 from app.schemas.storylab import (
@@ -204,6 +207,37 @@ def _get_or_create_state(story_id: str, db: Session) -> StoryState:
     return row
 
 
+# ── error helpers ─────────────────────────────────────────────────────────────
+
+def _storylab_error(
+    exc: Exception,
+    *,
+    hint: str | None = None,
+) -> JSONResponse:
+    """Return a structured JSON error payload for StoryLab generation failures.
+
+    Uses 503 for database/infrastructure errors (run `alembic upgrade head`)
+    and 502 for upstream provider failures.
+    """
+    is_db_error = isinstance(exc, (SAOperationalError,))
+    status_code = 503 if is_db_error else 502
+    default_hint = (
+        "The database may be out of date — run `alembic upgrade head` and restart."
+        if is_db_error
+        else "Check STORYLAB_PROVIDER and OPENROUTER_API_KEY settings."
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": "storylab_failed",
+            "detail": str(exc),
+            "hint": hint or default_hint,
+            "provider": settings.STORYLAB_PROVIDER,
+            "model": settings.STORYLAB_MODEL,
+        },
+    )
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/state", response_model=StoryLabStateResponse)
@@ -254,70 +288,76 @@ def generate(
             },
         )
 
-    # ── fetch/create state ────────────────────────────────────────────────────
-    state_row = _get_or_create_state(req.story_id, db)
-    current_state: dict[str, Any] = dict(state_row.state_json or _DEFAULT_STATE)
+    try:
+        # ── fetch/create state ────────────────────────────────────────────────
+        state_row = _get_or_create_state(req.story_id, db)
+        current_state: dict[str, Any] = dict(state_row.state_json or _DEFAULT_STATE)
 
-    # ── fetch recent endings for anti-repetition guidance ─────────────────────
-    recent_endings = _fetch_recent_endings(req.story_id, db)
+        # ── fetch recent endings for anti-repetition guidance ─────────────────
+        recent_endings = _fetch_recent_endings(req.story_id, db)
 
-    # ── generate continuation (provider-routed; stub is fallback) ─────────────
-    generated_text, model_deltas = generate_storylab_continuation(
-        text=req.text,
-        controls=req.controls,
-        state_json=current_state,
-        summary=state_row.story_summary or "",
-        characters=current_state.get("characters", []),
-        story_id=req.story_id,
-        recent_endings=recent_endings,
-        variant=req.variant,
-    )
-    word_count = len(generated_text.split())
-    request_id = str(uuid.uuid4())
+        # ── generate continuation (provider-routed; stub is fallback) ─────────
+        generated_text, model_deltas = generate_storylab_continuation(
+            text=req.text,
+            controls=req.controls,
+            state_json=current_state,
+            summary=state_row.story_summary or "",
+            characters=current_state.get("characters", []),
+            story_id=req.story_id,
+            recent_endings=recent_endings,
+            variant=req.variant,
+        )
+        word_count = len(generated_text.split())
+        request_id = str(uuid.uuid4())
 
-    # ── compute state deltas (deterministic baseline + optional model signals) ─
-    new_state, deltas = _build_deltas(req.controls.direction, req.controls.boundary, current_state)
-    if model_deltas:
-        new_state = apply_model_deltas(new_state, model_deltas, req.controls.boundary)
+        # ── compute state deltas (deterministic baseline + optional model signals)
+        new_state, deltas = _build_deltas(req.controls.direction, req.controls.boundary, current_state)
+        if model_deltas:
+            new_state = apply_model_deltas(new_state, model_deltas, req.controls.boundary)
 
-    # ── persist ───────────────────────────────────────────────────────────────
-    state_row.state_json = new_state
-    state_row.updated_at = datetime.utcnow()
-    db.add(state_row)
+        # ── persist ───────────────────────────────────────────────────────────
+        state_row.state_json = new_state
+        state_row.updated_at = datetime.utcnow()
+        db.add(state_row)
 
-    log = GenerationLog(
-        story_id=req.story_id,
-        request_id=request_id,
-        controls_json={
-            "direction": req.controls.direction,
-            "tone_intensity": req.controls.tone_intensity,
-            "pacing": req.controls.pacing,
-            "length": req.controls.length,
-            "boundary": req.controls.boundary,
-        },
-        prompt_snapshot=None,
-        response_text=generated_text,
-        word_count=word_count,
-        created_at=datetime.utcnow(),
-    )
-    db.add(log)
-    db.commit()
-    db.refresh(state_row)
+        log = GenerationLog(
+            story_id=req.story_id,
+            request_id=request_id,
+            controls_json={
+                "direction": req.controls.direction,
+                "tone_intensity": req.controls.tone_intensity,
+                "pacing": req.controls.pacing,
+                "length": req.controls.length,
+                "boundary": req.controls.boundary,
+            },
+            prompt_snapshot=None,
+            response_text=generated_text,
+            word_count=word_count,
+            created_at=datetime.utcnow(),
+        )
+        db.add(log)
+        db.commit()
+        db.refresh(state_row)
 
-    return StoryLabGenerateResponse(
-        request_id=request_id,
-        generated=GeneratedText(text=generated_text),
-        state=StoryLabStateSnapshot(
-            story_summary=state_row.story_summary or "",
-            state_json=state_row.state_json,
-            deltas=deltas,
-        ),
-        safety=SafetyInfo(
-            blocked=False,
-            policy_flags=[],
-            boundary=req.controls.boundary,
-        ),
-    )
+        return StoryLabGenerateResponse(
+            request_id=request_id,
+            generated=GeneratedText(text=generated_text),
+            state=StoryLabStateSnapshot(
+                story_summary=state_row.story_summary or "",
+                state_json=state_row.state_json,
+                deltas=deltas,
+            ),
+            safety=SafetyInfo(
+                blocked=False,
+                policy_flags=[],
+                boundary=req.controls.boundary,
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.error("StoryLab /generate failed for story_id=%s: %s", req.story_id, exc)
+        return _storylab_error(exc)
 
 
 # ── chapter helpers ────────────────────────────────────────────────────────────
@@ -469,44 +509,50 @@ def generate_chapter_endpoint(
     db: Session = Depends(get_db),
 ) -> ChapterGenerateResponse:
     """Generate a new chapter and store it."""
-    chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
-    word_count = len(chapter_text.split())
-    chapter_number = _get_next_chapter_number(story_id, db)
+    try:
+        chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+        word_count = len(chapter_text.split())
+        chapter_number = _get_next_chapter_number(story_id, db)
 
-    controls_snapshot = {
-        "direction": req.controls.direction,
-        "tone_intensity": req.controls.tone_intensity,
-        "pacing": req.controls.pacing,
-        "length": req.controls.length,
-        "boundary": req.controls.boundary,
-    }
-    now = datetime.utcnow()
-    ch = StoryChapter(
-        story_id=story_id,
-        chapter_number=chapter_number,
-        prompt_text=req.prompt or "",
-        mode=req.mode,
-        controls_json=controls_snapshot,
-        generated_text=chapter_text,
-        word_count=word_count,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(ch)
-    db.commit()
-    db.refresh(ch)
+        controls_snapshot = {
+            "direction": req.controls.direction,
+            "tone_intensity": req.controls.tone_intensity,
+            "pacing": req.controls.pacing,
+            "length": req.controls.length,
+            "boundary": req.controls.boundary,
+        }
+        now = datetime.utcnow()
+        ch = StoryChapter(
+            story_id=story_id,
+            chapter_number=chapter_number,
+            prompt_text=req.prompt or "",
+            mode=req.mode,
+            controls_json=controls_snapshot,
+            generated_text=chapter_text,
+            word_count=word_count,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(ch)
+        db.commit()
+        db.refresh(ch)
 
-    # Update story summary (non-fatal; chapter already committed)
-    state_row = _get_or_create_state(story_id, db)
-    _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
+        # Update story summary (non-fatal; chapter already committed)
+        state_row = _get_or_create_state(story_id, db)
+        _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
 
-    return ChapterGenerateResponse(
-        chapter_number=chapter_number,
-        generated_text=chapter_text,
-        prompt_text=req.prompt or "",
-        suggestions=suggestions,
-        meta={"words": word_count, "delta": model_deltas},
-    )
+        return ChapterGenerateResponse(
+            chapter_number=chapter_number,
+            generated_text=chapter_text,
+            prompt_text=req.prompt or "",
+            suggestions=suggestions,
+            meta={"words": word_count, "delta": model_deltas},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.error("StoryLab /chapters/generate failed for story_id=%s: %s", story_id, exc)
+        return _storylab_error(exc)
 
 
 @router.delete("/chapters/{chapter_number}", status_code=204)
@@ -538,43 +584,52 @@ def regenerate_chapter(
     db: Session = Depends(get_db),
 ) -> ChapterGenerateResponse:
     """Regenerate a chapter in-place, overwriting its generated_text."""
-    ch = (
-        db.query(StoryChapter)
-        .filter(
-            StoryChapter.story_id == story_id,
-            StoryChapter.chapter_number == chapter_number,
+    try:
+        ch = (
+            db.query(StoryChapter)
+            .filter(
+                StoryChapter.story_id == story_id,
+                StoryChapter.chapter_number == chapter_number,
+            )
+            .first()
         )
-        .first()
-    )
-    if ch is None:
-        raise HTTPException(status_code=404, detail="Chapter not found")
+        if ch is None:
+            raise HTTPException(status_code=404, detail="Chapter not found")
 
-    chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
-    word_count = len(chapter_text.split())
+        chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+        word_count = len(chapter_text.split())
 
-    controls_snapshot = {
-        "direction": req.controls.direction,
-        "tone_intensity": req.controls.tone_intensity,
-        "pacing": req.controls.pacing,
-        "length": req.controls.length,
-        "boundary": req.controls.boundary,
-    }
-    ch.generated_text = chapter_text
-    ch.word_count = word_count
-    ch.prompt_text = req.prompt or ch.prompt_text
-    ch.controls_json = controls_snapshot
-    ch.updated_at = datetime.utcnow()
-    db.add(ch)
-    db.commit()
+        controls_snapshot = {
+            "direction": req.controls.direction,
+            "tone_intensity": req.controls.tone_intensity,
+            "pacing": req.controls.pacing,
+            "length": req.controls.length,
+            "boundary": req.controls.boundary,
+        }
+        ch.generated_text = chapter_text
+        ch.word_count = word_count
+        ch.prompt_text = req.prompt or ch.prompt_text
+        ch.controls_json = controls_snapshot
+        ch.updated_at = datetime.utcnow()
+        db.add(ch)
+        db.commit()
 
-    # Update story summary (non-fatal; chapter already committed)
-    state_row = _get_or_create_state(story_id, db)
-    _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
+        # Update story summary (non-fatal; chapter already committed)
+        state_row = _get_or_create_state(story_id, db)
+        _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
 
-    return ChapterGenerateResponse(
-        chapter_number=chapter_number,
-        generated_text=chapter_text,
-        prompt_text=req.prompt or ch.prompt_text or "",
-        suggestions=suggestions,
-        meta={"words": word_count, "delta": model_deltas},
-    )
+        return ChapterGenerateResponse(
+            chapter_number=chapter_number,
+            generated_text=chapter_text,
+            prompt_text=req.prompt or ch.prompt_text or "",
+            suggestions=suggestions,
+            meta={"words": word_count, "delta": model_deltas},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "StoryLab /chapters/%s/regenerate failed for story_id=%s: %s",
+            chapter_number, story_id, exc,
+        )
+        return _storylab_error(exc)
