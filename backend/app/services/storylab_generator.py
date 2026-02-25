@@ -12,17 +12,18 @@ STORYLAB_PROVIDER=openrouter
 
 Public helpers (importable for testing)
 ----------------------------------------
-    direction_instructions(direction)     -> str
-    boundary_instructions(boundary)       -> str
-    pacing_instructions(pacing)           -> str
-    tone_instructions(tone_intensity)     -> str
-    build_character_voice_block(chars)    -> str   # character voice instructions
-    build_storylab_prompt(...)            -> list[dict]  # messages payload
-    build_chapter_prompt(...)             -> list[dict]  # chapter messages payload
-    build_story_summary_prompt(...)       -> list[dict]  # summary update messages
-    generate_storylab_continuation(...)   -> tuple[str, dict | None]
-    generate_chapter(...)                 -> tuple[str, list[str], dict | None]
-    generate_story_summary(...)           -> str
+    direction_instructions(direction)              -> str
+    boundary_instructions(boundary)               -> str
+    pacing_instructions(pacing)                   -> str
+    tone_instructions(tone_intensity)             -> str
+    build_character_voice_block(chars)            -> str   # character voice instructions
+    build_character_behaviour_anchors(chars, rels) -> str  # character behaviour anchors
+    build_storylab_prompt(...)                    -> list[dict]  # messages payload
+    build_chapter_prompt(...)                     -> list[dict]  # chapter messages payload
+    build_story_summary_prompt(...)               -> list[dict]  # summary update messages
+    generate_storylab_continuation(...)           -> tuple[str, dict | None]
+    generate_chapter(...)                         -> tuple[str, list[str], dict | None]
+    generate_story_summary(...)                   -> str
 """
 import json
 import logging
@@ -261,6 +262,149 @@ def build_character_voice_block(characters: list[Any]) -> str:
         + "\nDialogue must reflect these differences — vocabulary, rhythm, and register "
         "distinct to each character. Avoid interchangeable or generic speech."
     )
+
+
+# ── character behaviour anchors helper (public) ───────────────────────────────
+
+_ANCHOR_BEHAVIOUR_FIELDS = ("pursuit_style", "behavior", "motivation")
+_ANCHOR_PACING_FIELDS = ("emotional_pacing", "pacing_style")
+_ANCHOR_NEVER_FIELDS = ("never", "boundaries", "taboos", "moral_lines")
+# Role tokens used to lightly infer power dynamic when power_style is absent
+_POWER_ROLE_HIGH = ("lord", "master", "boss", "king", "queen", "commander", "captain", "chief")
+_POWER_ROLE_LOW = ("servant", "maid", "assistant", "subordinate", "attendant", "aide")
+
+
+def build_character_behaviour_anchors(
+    characters: list[Any],
+    relationships: list[Any] | None = None,
+) -> str:
+    """Return a compact character-behaviour-anchor block for the chapter prompt.
+
+    For each character emits: role/status header, pursuit style, emotional
+    pacing, power dynamic, and "would never" constraints.
+
+    Hard caps:
+        ~220 chars per character block.
+        ~1200 chars for the whole block (trimmed at complete bullet boundaries).
+
+    Returns empty string when characters is empty or no anchor data is present.
+    """
+    if not characters:
+        return ""
+
+    char_blocks: list[str] = []
+
+    for c in characters:
+        if not isinstance(c, dict):
+            continue
+
+        name = (c.get("name") or "Unknown").strip()
+        bullets: list[str] = []
+
+        # Header: Name (role, status)
+        role = str(c.get("role") or "").strip()
+        status = str(c.get("status") or "").strip()
+        header_parts = [p for p in [role, status] if p]
+        header = f"**{name}**"
+        if header_parts:
+            header += f" ({', '.join(header_parts)})"
+
+        # Pursuit / behavioural style
+        for field in _ANCHOR_BEHAVIOUR_FIELDS:
+            val = str(c.get(field) or "").strip()
+            if val:
+                bullets.append(f"- Pursues: {val}")
+                break
+
+        # Emotional pacing
+        for field in _ANCHOR_PACING_FIELDS:
+            val = str(c.get(field) or "").strip()
+            if val:
+                bullets.append(f"- Pacing: {val}")
+                break
+
+        # Power dynamic — explicit field first, light role-inference fallback
+        power = str(c.get("power_style") or "").strip()
+        if power:
+            bullets.append(f"- Power: {power}")
+        elif role:
+            role_lower = role.lower()
+            if any(w in role_lower for w in _POWER_ROLE_HIGH):
+                bullets.append("- Power: authority/control")
+            elif any(w in role_lower for w in _POWER_ROLE_LOW):
+                bullets.append("- Power: deference/compliance")
+
+        # "Would never" constraints (first 2 entries to stay compact)
+        never_parts: list[str] = []
+        for field in _ANCHOR_NEVER_FIELDS:
+            val = c.get(field)
+            if not val:
+                continue
+            if isinstance(val, list):
+                never_parts.extend(str(v).strip() for v in val if str(v).strip())
+            else:
+                s = str(val).strip()
+                if s:
+                    never_parts.append(s)
+        if never_parts:
+            bullets.append(f"- Would never: {'; '.join(never_parts[:2])}")
+
+        if not bullets:
+            continue
+
+        block = header + "\n" + "\n".join(bullets)
+
+        # Per-character hard cap ~220 chars — trim trailing bullets
+        if len(block) > 220:
+            while len(block) > 220 and bullets:
+                bullets.pop()
+                block = header + "\n" + "\n".join(bullets)
+            if len(block) > 220:
+                block = block[:217] + "..."
+
+        char_blocks.append(block)
+
+    if not char_blocks:
+        return ""
+
+    # Optional 1–2 relationship rules (not per-character — keeps block compact)
+    rel_lines: list[str] = []
+    if relationships:
+        for r in (relationships or [])[:2]:
+            if not isinstance(r, dict):
+                continue
+            subj = str(r.get("subject") or r.get("from") or "").strip()
+            obj = str(r.get("object") or r.get("to") or "").strip()
+            rel_type = str(r.get("type") or r.get("dynamic") or r.get("relationship") or "").strip()
+            desc = str(r.get("description") or r.get("rule") or "").strip()
+            if subj and obj and rel_type:
+                line = f"- {subj} → {obj}: {rel_type}"
+                if desc:
+                    line += f" ({desc})"
+                rel_lines.append(line)
+            elif desc:
+                rel_lines.append(f"- {desc}")
+
+    def _assemble(blocks: list[str], rels: list[str]) -> str:
+        parts = blocks[:]
+        if rels:
+            parts.append("Relationship rules:\n" + "\n".join(rels))
+        return "## Character behaviour anchors\n" + "\n\n".join(parts)
+
+    result = _assemble(char_blocks, rel_lines)
+
+    # Whole-block hard cap ~1200 chars — trim character blocks from the end
+    if len(result) > 1200:
+        while len(result) > 1200 and len(char_blocks) > 1:
+            char_blocks.pop()
+            result = _assemble(char_blocks, rel_lines)
+        if len(result) > 1200 and rel_lines:
+            rel_lines = []
+            result = _assemble(char_blocks, rel_lines)
+        if len(result) > 1200:
+            result = result[:1197] + "..."
+
+    return result
 
 
 # ── anti-generic style rules ──────────────────────────────────────────────────
@@ -871,15 +1015,16 @@ def build_chapter_prompt(
     appending after a manuscript. The user prompt is scene guidance/beats.
 
     Block order in the user message:
-        1. Story context (characters only) + Narrative state
-        2. Character voice block      (if characters present)
-        3. Character fidelity         (always)
-        4. Story so far               (only if summary is non-empty)
-        5. Last chapter               (only if previous_chapter_text is non-empty)
-        6. Direction / boundary / pacing / tone
-        7. Target length
-        8. User guidance for this chapter
-        9. Task instruction
+        1.  Story context (characters only) + Narrative state
+        2.  Character voice block         (if characters present)
+        3.  Character behaviour anchors   (if anchor data present)
+        4.  Character fidelity            (always)
+        5.  Story so far                  (only if summary is non-empty)
+        6.  Last chapter                  (only if previous_chapter_text is non-empty)
+        7.  Direction / boundary / pacing / tone
+        8.  Target length
+        9.  User guidance for this chapter
+        10. Task instruction
 
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
@@ -905,6 +1050,7 @@ def build_chapter_prompt(
     cap_words = _length_cap(controls.length)
 
     voice_block = build_character_voice_block(characters or [])
+    anchor_block = build_character_behaviour_anchors(characters or [])
 
     sections: list[str] = []
 
@@ -916,6 +1062,9 @@ def build_chapter_prompt(
 
     if voice_block:
         sections.append(voice_block)
+
+    if anchor_block:
+        sections.append(anchor_block)
 
     sections.append(_CHARACTER_FIDELITY_BLOCK)
 

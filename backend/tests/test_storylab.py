@@ -1540,3 +1540,86 @@ def test_chapter_generate_summary_used_in_next_prompt():
     assert summary in user
     assert "## Last chapter" in user
     assert prev_text in user
+
+
+# ── character behaviour anchors ───────────────────────────────────────────────
+
+def test_chapter_prompt_includes_behaviour_anchors_when_characters_present():
+    """build_chapter_prompt injects ## Character behaviour anchors when characters carry anchor data."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    characters = [
+        {
+            "name": "Lord Ashford",
+            "role": "lord",
+            "status": "noble",
+            "power_style": "cold authority",
+            "emotional_pacing": "slow burn",
+            "never": "beg or show weakness",
+        },
+        {
+            "name": "Mira",
+            "role": "maid",
+            "pursuit_style": "quiet observation",
+            "boundaries": "will not betray her mistress",
+        },
+    ]
+
+    msgs = build_chapter_prompt(
+        prompt="A tense confrontation in the library.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=characters,
+    )
+    user = msgs[1]["content"]
+
+    assert "## Character behaviour anchors" in user
+    assert "Lord Ashford" in user
+    assert "cold authority" in user
+    assert "slow burn" in user
+    assert "Would never" in user or "would never" in user
+    assert "beg or show weakness" in user
+    assert "Mira" in user
+
+
+def test_chapter_prompt_omits_behaviour_anchors_when_no_characters():
+    """build_chapter_prompt omits ## Character behaviour anchors when characters list is empty."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    msgs = build_chapter_prompt(
+        prompt="A quiet morning.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user = msgs[1]["content"]
+
+    assert "## Character behaviour anchors" not in user
+
+
+def test_behaviour_anchors_respects_hard_cap():
+    """build_character_behaviour_anchors result never exceeds 1200 chars regardless of input size."""
+    from app.services.storylab_generator import build_character_behaviour_anchors
+
+    # Generate a large character list to stress the cap
+    characters = [
+        {
+            "name": f"Character {i}",
+            "role": "powerful commander with decades of experience in the northern campaigns",
+            "status": "high nobility with military authority",
+            "power_style": "iron-fisted control through fear and respect",
+            "emotional_pacing": "volcanic — long fuse but catastrophic when triggered",
+            "pursuit_style": "relentless, methodical, never leaves a loose end",
+            "never": "show mercy to traitors; reveal personal weakness to subordinates",
+        }
+        for i in range(10)
+    ]
+
+    result = build_character_behaviour_anchors(characters)
+
+    assert result != ""
+    assert len(result) <= 1200
