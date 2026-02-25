@@ -1623,3 +1623,24 @@ def test_behaviour_anchors_respects_hard_cap():
 
     assert result != ""
     assert len(result) <= 1200
+
+
+# ── outcome vs path ───────────────────────────────────────────────────────────
+
+def test_chapter_prompt_contains_outcome_vs_path_block():
+    """build_chapter_prompt always includes ## Outcome vs Path rules."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    msgs = build_chapter_prompt(
+        prompt="A heated argument breaks out.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user = msgs[1]["content"]
+
+    assert "## Outcome vs Path" in user
+    assert "MAXIMUM" in user or "maximum" in user.lower()
+    assert "not a required outcome" in user or "not a requirement" in user

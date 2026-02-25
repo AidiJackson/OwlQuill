@@ -511,6 +511,20 @@ _CHARACTER_FIDELITY_BLOCK = """
 """
 
 
+# ── outcome-vs-path block (static, chapter prompt only) ──────────────────────
+
+_OUTCOME_VS_PATH_BLOCK = """\
+## Outcome vs Path (MANDATORY)
+- Controls (boundary/spice/tone/pacing/length) define the MAXIMUM allowed intensity, not a required outcome.
+- Never warp character behaviour to "hit" the allowed ceiling. Characters must remain consistent with their anchors and roles.
+- If an explicit scene (intimacy/violence/betrayal) occurs, it must be reached through believable escalation beats \
+(tension, consent cues, leverage, opportunity, emotional logic) appropriate to these specific characters.
+- If the user's prompt requests intensity that conflicts with character anchors, satisfy the intent via a \
+character-consistent path (slower burn, different tactic) — not via out-of-character shortcuts.
+- If intensity is not demanded by the prompt, stay below the ceiling.\
+"""
+
+
 # ── scene momentum block (static, inserted per-request) ─────────────────────
 
 _SCENE_MOMENTUM = """\
@@ -1022,9 +1036,10 @@ def build_chapter_prompt(
         5.  Story so far                  (only if summary is non-empty)
         6.  Last chapter                  (only if previous_chapter_text is non-empty)
         7.  Direction / boundary / pacing / tone
-        8.  Target length
-        9.  User guidance for this chapter
-        10. Task instruction
+        8.  Outcome vs Path               (always — governs control interpretation)
+        9.  Target length
+        10. User guidance for this chapter
+        11. Task instruction
 
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
@@ -1091,6 +1106,7 @@ def build_chapter_prompt(
     sections.append(
         f"## Tone: {controls.tone_intensity}\n{tone_instructions(controls.tone_intensity)}"
     )
+    sections.append(_OUTCOME_VS_PATH_BLOCK)
     sections.append(
         f"## Target length\nAim for ~{target_words} words (hard cap: {cap_words} words)."
     )
