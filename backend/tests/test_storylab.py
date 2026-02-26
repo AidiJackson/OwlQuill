@@ -1644,3 +1644,93 @@ def test_chapter_prompt_contains_outcome_vs_path_block():
     assert "## Outcome vs Path" in user
     assert "MAXIMUM" in user or "maximum" in user.lower()
     assert "not a required outcome" in user or "not a requirement" in user
+
+
+# ── style packs ────────────────────────────────────────────────────────────────
+
+def test_style_packs_block_known_pack_injected():
+    """build_style_packs_block returns non-empty string for a known pack key."""
+    from app.services.storylab_generator import build_style_packs_block
+
+    block = build_style_packs_block(["baroque"])
+    assert "## Style Packs" in block
+    assert "Baroque" in block
+    # The block includes the craft-layer caveat
+    assert "craft" in block.lower() or "boundary" in block.lower()
+
+
+def test_style_packs_block_unknown_keys_filtered():
+    """build_style_packs_block silently drops unknown pack keys."""
+    from app.services.storylab_generator import build_style_packs_block
+
+    block = build_style_packs_block(["totally_unknown", "also_fake"])
+    assert block == ""
+
+    # Mix of known and unknown — only known rendered
+    block2 = build_style_packs_block(["totally_unknown", "sparse"])
+    assert "Sparse" in block2
+    assert "unknown" not in block2.lower()
+
+
+def test_style_packs_max_3_enforced_by_schema():
+    """ChapterGenerateRequest raises 422 when more than 3 style_packs are submitted."""
+    from fastapi.testclient import TestClient
+    from app.main import app as fastapi_app
+    import os
+    os.environ.setdefault("TESTING", "true")
+
+    client = TestClient(fastapi_app, raise_server_exceptions=False)
+    resp = client.post(
+        "/api/storylab/chapters/generate?story_id=packs-422-test",
+        json={
+            "prompt": "A scene.",
+            "mode": "roleplay",
+            "controls": {},
+            "style_packs": ["baroque", "sparse", "kinetic", "gothic"],  # 4 — too many
+        },
+    )
+    assert resp.status_code == 422
+
+
+def test_style_packs_prompt_block_order(client):
+    """Outcome-vs-Path appears before Style Packs which appears before Target length."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    msgs = build_chapter_prompt(
+        prompt="The argument erupts.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+        style_packs=["gothic", "sparse"],
+    )
+    user = msgs[1]["content"]
+
+    pos_ovp   = user.find("## Outcome vs Path")
+    pos_packs = user.find("## Style Packs")
+    pos_len   = user.find("## Target length")
+
+    assert pos_ovp   != -1, "Outcome vs Path block missing"
+    assert pos_packs != -1, "Style Packs block missing"
+    assert pos_len   != -1, "Target length block missing"
+    assert pos_ovp < pos_packs < pos_len, (
+        f"Expected OvP({pos_ovp}) < Packs({pos_packs}) < Len({pos_len})"
+    )
+
+
+def test_style_packs_accepted_via_endpoint(client):
+    """POST /chapters/generate with <=3 known style_packs returns 200 and echoes them in meta."""
+    resp = client.post(
+        "/api/storylab/chapters/generate?story_id=packs-ok-test-001",
+        json={
+            "prompt": "She enters the abandoned manor.",
+            "mode": "roleplay",
+            "controls": {},
+            "style_packs": ["gothic", "sensory_rich"],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["generated_text"]
+    assert set(body["meta"]["style_packs"]) == {"gothic", "sensory_rich"}

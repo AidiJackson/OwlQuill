@@ -75,6 +75,23 @@ type SLControls = {
   boundary: string;
 };
 
+// ── Style Packs ───────────────────────────────────────────────────────────────
+
+const STYLE_PACKS: { value: string; label: string; hint: string }[] = [
+  { value: 'baroque',          label: 'Baroque',         hint: 'Ornate, layered sentence architecture' },
+  { value: 'sparse',           label: 'Sparse',          hint: 'Hemingway compression; restraint as statement' },
+  { value: 'sensory_rich',     label: 'Sensory-rich',    hint: 'Specific sensation anchors every moment' },
+  { value: 'unreliable_voice', label: 'Unreliable Voice',hint: 'Narrator withholds, deflects, misremembers' },
+  { value: 'gothic',           label: 'Gothic',          hint: 'Dread pressed into atmosphere and objects' },
+  { value: 'kinetic',          label: 'Kinetic',         hint: 'Propulsive pull; every sentence hooks forward' },
+  { value: 'interior_depth',   label: 'Interior Depth',  hint: 'Extended consciousness; thought equals action' },
+  { value: 'sharp_dialogue',   label: 'Sharp Dialogue',  hint: 'Oblique speech; silence and interruption land' },
+  { value: 'mythic_register',  label: 'Mythic Register', hint: 'Elevated diction; events feel historically weighted' },
+  { value: 'fragmented',       label: 'Fragmented',      hint: 'Non-linear; present and memory alternate' },
+];
+
+const MAX_STYLE_PACKS = 3;
+
 type SLStoryState = {
   tone: string;
   pacing: string;
@@ -118,11 +135,14 @@ export default function StoryLabEngine() {
     length: 'medium',
     boundary: 'sfw',
   });
+  const [selectedStylePacks, setSelectedStylePacks] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
 
   // ── UI state ───────────────────────────────────────────────────────────────
 
+  const [packsExpanded, setPacksExpanded] = useState(false);
+  const [packsMaxHint, setPacksMaxHint] = useState(false);
   const [promptRevealOpen, setPromptRevealOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'delete' | 'regenerate' | null>(null);
 
@@ -215,6 +235,7 @@ export default function StoryLabEngine() {
         prompt: promptInput,
         mode,
         controls: slControls,
+        style_packs: selectedStylePacks,
       };
       const resp = await fetch(
         `/api/storylab/chapters/generate?story_id=${encodeURIComponent(currentStoryId)}`,
@@ -300,6 +321,7 @@ export default function StoryLabEngine() {
         prompt: currentChapter.prompt_text,
         mode,
         controls: slControls,
+        style_packs: selectedStylePacks,
       };
       const resp = await fetch(
         `/api/storylab/chapters/${currentChapter.chapter_number}/regenerate?story_id=${encodeURIComponent(currentStoryId)}`,
@@ -710,6 +732,74 @@ export default function StoryLabEngine() {
                 <option value="long">Long (~2 000 w)</option>
               </select>
             </div>
+          </div>
+
+          {/* Style Packs */}
+          <div className="border border-gray-800 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setPacksExpanded((p) => !p)}
+              className="w-full flex items-center justify-between px-4 py-3 text-xs hover:bg-gray-900/30 transition"
+            >
+              <span className="font-semibold uppercase tracking-wide text-gray-400">
+                Style Packs
+                {selectedStylePacks.length > 0 && (
+                  <span className="ml-2 text-violet-400 normal-case tracking-normal font-normal">
+                    {selectedStylePacks.length} active
+                  </span>
+                )}
+              </span>
+              <span className={`text-gray-600 transition-transform duration-150 ${packsExpanded ? 'rotate-90' : ''}`}>›</span>
+            </button>
+            {packsExpanded && (
+              <div className="px-4 pb-4 space-y-2">
+                <p className="text-[10px] text-gray-600 leading-relaxed">
+                  Optional — up to {MAX_STYLE_PACKS}. Craft layer only; never overrides boundary or character anchors.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {STYLE_PACKS.map(({ value, label, hint }) => {
+                    const isSelected = selectedStylePacks.includes(value);
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        title={hint}
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedStylePacks((p) => p.filter((k) => k !== value));
+                            setPacksMaxHint(false);
+                          } else if (selectedStylePacks.length >= MAX_STYLE_PACKS) {
+                            setPacksMaxHint(true);
+                          } else {
+                            setSelectedStylePacks((p) => [...p, value]);
+                            setPacksMaxHint(false);
+                          }
+                        }}
+                        className={`px-2.5 py-1 text-xs rounded-lg border transition ${
+                          isSelected
+                            ? 'bg-violet-600/30 border-violet-500/60 text-violet-300'
+                            : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {packsMaxHint && (
+                  <p className="text-[10px] text-amber-500/80">Max {MAX_STYLE_PACKS} packs</p>
+                )}
+                {selectedStylePacks.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedStylePacks([]); setPacksMaxHint(false); }}
+                    className="text-[10px] text-gray-600 hover:text-gray-400 transition"
+                  >
+                    Clear packs
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Generate button */}
