@@ -42,11 +42,11 @@ class Boundary(str, Enum):
 
 
 class StoryLabControls(BaseModel):
-    direction: Direction = Direction.advance_plot
+    direction: Optional[Direction] = None
     tone_intensity: ToneIntensity = ToneIntensity.moderate
     pacing: Pacing = Pacing.balanced
     length: Length = Length.medium
-    boundary: Boundary = Boundary.sfw
+    boundary: Boundary = Boundary.fade_to_black
 
 
 class StoryLabGenerateRequest(BaseModel):

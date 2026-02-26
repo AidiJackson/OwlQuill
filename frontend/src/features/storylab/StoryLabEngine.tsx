@@ -68,11 +68,19 @@ type ChapterDetail = {
 };
 
 type SLControls = {
-  direction: string;
+  direction: string | null;
   tone_intensity: string;
   pacing: string;
   length: string;
   boundary: string;
+};
+
+const DEFAULT_CONTROLS: SLControls = {
+  direction: null,
+  tone_intensity: 'moderate',
+  pacing: 'balanced',
+  length: 'medium',
+  boundary: 'fade_to_black',
 };
 
 type SLStoryState = {
@@ -111,13 +119,7 @@ export default function StoryLabEngine() {
 
   const [promptInput, setPromptInput] = useState('');
   const [mode, setMode] = useState<'roleplay' | 'duet' | 'play'>('roleplay');
-  const [slControls, setSlControls] = useState<SLControls>({
-    direction: 'advance_plot',
-    tone_intensity: 'moderate',
-    pacing: 'balanced',
-    length: 'medium',
-    boundary: 'sfw',
-  });
+  const [slControls, setSlControls] = useState<SLControls>(DEFAULT_CONTROLS);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
 
@@ -606,7 +608,16 @@ export default function StoryLabEngine() {
 
           {/* Controls */}
           <div className="border border-gray-800 rounded-xl p-4 space-y-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Controls</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Controls</p>
+              <button
+                type="button"
+                onClick={() => setSlControls(DEFAULT_CONTROLS)}
+                className="text-[10px] text-gray-600 hover:text-gray-400 transition"
+              >
+                Reset
+              </button>
+            </div>
 
             {/* Direction */}
             <div className="space-y-2">
@@ -626,7 +637,7 @@ export default function StoryLabEngine() {
                       <button
                         key={value}
                         type="button"
-                        onClick={() => setSlControls((p) => ({ ...p, direction: value }))}
+                        onClick={() => setSlControls((p) => ({ ...p, direction: p.direction === value ? null : value }))}
                         className={`px-2.5 py-1 text-xs rounded-lg border transition ${
                           slControls.direction === value
                             ? 'bg-emerald-600/30 border-emerald-500/60 text-emerald-300'

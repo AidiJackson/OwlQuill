@@ -1003,7 +1003,7 @@ def test_openrouter_variant_alt_bumps_temperature(monkeypatch):
     """variant='alt' sends temperature=0.85 (SFW base 0.75 + alt bump 0.10) to OpenRouter."""
     from unittest.mock import patch
     import app.services.storylab_generator as gen
-    from app.schemas.storylab import StoryLabControls
+    from app.schemas.storylab import StoryLabControls, Boundary
 
     monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
     monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key-alt")
@@ -1014,7 +1014,7 @@ def test_openrouter_variant_alt_bumps_temperature(monkeypatch):
     with patch.object(gen.httpx, "Client", return_value=mock_client):
         gen.generate_storylab_continuation(
             text="She reached for the handle.",
-            controls=StoryLabControls(),
+            controls=StoryLabControls(boundary=Boundary.sfw),
             state_json={},
             summary="",
             characters=[],
@@ -1030,7 +1030,7 @@ def test_openrouter_default_variant_uses_base_temperature(monkeypatch):
     """variant='default' sends temperature=0.75 (SFW base) to OpenRouter."""
     from unittest.mock import patch
     import app.services.storylab_generator as gen
-    from app.schemas.storylab import StoryLabControls
+    from app.schemas.storylab import StoryLabControls, Boundary
 
     monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
     monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key-default")
@@ -1040,7 +1040,7 @@ def test_openrouter_default_variant_uses_base_temperature(monkeypatch):
     with patch.object(gen.httpx, "Client", return_value=mock_client):
         gen.generate_storylab_continuation(
             text="The candle burned low.",
-            controls=StoryLabControls(),
+            controls=StoryLabControls(boundary=Boundary.sfw),
             state_json={},
             summary="",
             characters=[],
@@ -1996,7 +1996,7 @@ def test_routing_matrix_direction_does_not_break_routing():
     model_a, params_a, notes_a = select_storylab_model_and_params(ctrl_with_direction, mode="continuation")
     model_b, params_b, notes_b = select_storylab_model_and_params(ctrl_default,        mode="continuation")
 
-    # Same model + params regardless of direction (both SFW boundary default)
+    # Same model + params regardless of direction (both fade_to_black boundary default)
     assert model_a == model_b
     assert params_a["temperature"] == params_b["temperature"]
     assert params_a["max_tokens"]  == params_b["max_tokens"]
@@ -2077,3 +2077,45 @@ def test_policy_notes_in_debug_metadata(client, monkeypatch):
     assert "policy_notes" in body["_debug"]
     assert "sensual" in body["_debug"]["policy_notes"]
     assert "temp=" in body["_debug"]["policy_notes"]
+
+
+# ── Step 2: premium defaults ──────────────────────────────────────────────────
+
+def test_default_controls_use_fade_to_black():
+    """StoryLabControls() defaults to boundary=fade_to_black and direction=None."""
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    controls = StoryLabControls()
+    assert controls.boundary == Boundary.fade_to_black
+    assert controls.direction is None
+
+
+def test_null_direction_chapter_generate_returns_200(client):
+    """POST /chapters/generate with direction=null does not error."""
+    resp = client.post(
+        "/api/storylab/chapters/generate?story_id=null-dir-test-001",
+        json={
+            "prompt": "A quiet morning in the village.",
+            "mode": "roleplay",
+            "controls": {"direction": None, "boundary": "fade_to_black"},
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["generated_text"]
+
+
+def test_omitted_controls_defaults_to_fade_to_black(client):
+    """POST /chapters/generate with controls={} gets boundary=fade_to_black default."""
+    resp = client.post(
+        "/api/storylab/chapters/generate?story_id=omit-ctrl-test-001",
+        json={"prompt": "The day began.", "mode": "roleplay", "controls": {}},
+    )
+    assert resp.status_code == 200
+    # Response records controls used — boundary must default to fade_to_black
+    detail_resp = client.get(
+        "/api/storylab/chapters/1?story_id=omit-ctrl-test-001"
+    )
+    assert detail_resp.status_code == 200
+    ch = detail_resp.json()
+    assert ch["controls"].get("boundary") == "fade_to_black"

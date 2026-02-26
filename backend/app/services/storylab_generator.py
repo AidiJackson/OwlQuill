@@ -835,9 +835,15 @@ def build_storylab_prompt(
     if dampen_parts:
         sections.append("## Repetition dampening\n" + "\n\n".join(dampen_parts))
 
-    sections.append(
-        f"## Direction: {controls.direction}\n{direction_instructions(controls.direction)}"
-    )
+    if controls.direction is not None:
+        sections.append(
+            f"## Direction: {controls.direction}\n{direction_instructions(controls.direction)}"
+        )
+    else:
+        sections.append(
+            "## Direction\nContinue the story naturally — follow where the scene and "
+            "characters lead without a prescribed destination. Trust the momentum already present."
+        )
     sections.append(
         f"## Boundary: {controls.boundary}\n{boundary_instructions(controls.boundary)}"
     )
@@ -1044,17 +1050,18 @@ def _qualify(text: str, tone: ToneIntensity, pacing: Pacing, length: Length) -> 
 
 def _generate_stub_text(story_id: str, controls: StoryLabControls) -> str:
     """Deterministic stub — picks template by hashing story_id + direction."""
-    templates = _STUB_TEMPLATES.get(controls.direction, _STUB_TEMPLATES[Direction.advance_plot])
-    idx = hash(story_id + controls.direction) % len(templates)
+    direction_key = controls.direction or Direction.advance_plot
+    templates = _STUB_TEMPLATES.get(direction_key, _STUB_TEMPLATES[Direction.advance_plot])
+    idx = hash(story_id + direction_key) % len(templates)
     text = templates[idx]
     text = _qualify(text, controls.tone_intensity, controls.pacing, controls.length)
-    if controls.boundary == Boundary.fade_to_black and controls.direction in (
+    if controls.boundary == Boundary.fade_to_black and direction_key in (
         Direction.sensual_scene,
         Direction.intimate_scene,
         Direction.romantic_moment,
     ):
         text += _FADE_TO_BLACK_SUFFIX
-    elif controls.boundary == Boundary.sensual and controls.direction in (
+    elif controls.boundary == Boundary.sensual and direction_key in (
         Direction.sensual_scene,
         Direction.intimate_scene,
     ):
@@ -1276,9 +1283,15 @@ def build_chapter_prompt(
             f"{previous_chapter_text.strip()}"
         )
 
-    sections.append(
-        f"## Direction: {controls.direction}\n{direction_instructions(controls.direction)}"
-    )
+    if controls.direction is not None:
+        sections.append(
+            f"## Direction: {controls.direction}\n{direction_instructions(controls.direction)}"
+        )
+    else:
+        sections.append(
+            "## Direction\nWrite the chapter naturally — follow where the characters and "
+            "story logic lead without a prescribed direction. Trust the scene's own momentum."
+        )
     sections.append(
         f"## Boundary: {controls.boundary}\n{boundary_instructions(controls.boundary)}"
     )
