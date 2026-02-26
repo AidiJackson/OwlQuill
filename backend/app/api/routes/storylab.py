@@ -382,6 +382,7 @@ def _run_chapter_generation(
         previous_chapter_text=previous_text,
         story_id=story_id,
         variant=req.variant,
+        style_packs=req.style_packs,
     )
 
     # Update story state
@@ -479,6 +480,7 @@ def generate_chapter_endpoint(
         "pacing": req.controls.pacing,
         "length": req.controls.length,
         "boundary": req.controls.boundary,
+        "style_packs": req.style_packs,
     }
     now = datetime.utcnow()
     ch = StoryChapter(
@@ -505,7 +507,7 @@ def generate_chapter_endpoint(
         generated_text=chapter_text,
         prompt_text=req.prompt or "",
         suggestions=suggestions,
-        meta={"words": word_count, "delta": model_deltas},
+        meta={"words": word_count, "delta": model_deltas, "style_packs": req.style_packs},
     )
 
 
@@ -558,6 +560,7 @@ def regenerate_chapter(
         "pacing": req.controls.pacing,
         "length": req.controls.length,
         "boundary": req.controls.boundary,
+        "style_packs": req.style_packs,
     }
     ch.generated_text = chapter_text
     ch.word_count = word_count
@@ -576,5 +579,5 @@ def regenerate_chapter(
         generated_text=chapter_text,
         prompt_text=req.prompt or ch.prompt_text or "",
         suggestions=suggestions,
-        meta={"words": word_count, "delta": model_deltas},
+        meta={"words": word_count, "delta": model_deltas, "style_packs": req.style_packs},
     )

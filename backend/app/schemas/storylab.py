@@ -1,7 +1,7 @@
 """Schemas for the StoryLab generate + state + chapter endpoints."""
 from enum import Enum
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Direction(str, Enum):
@@ -102,6 +102,17 @@ class ChapterGenerateRequest(BaseModel):
     mode: str = Field("roleplay", description="Generation mode: roleplay, duet, or play")
     controls: StoryLabControls = Field(default_factory=StoryLabControls)
     variant: Literal["default", "alt"] = "default"
+    style_packs: list[str] = Field(
+        default_factory=list,
+        description="Optional curated style modifiers injected into the prompt (max 3).",
+    )
+
+    @field_validator("style_packs")
+    @classmethod
+    def validate_style_packs_max_3(cls, v: list[str]) -> list[str]:
+        if len(v) > 3:
+            raise ValueError("style_packs may contain at most 3 entries")
+        return v
 
 
 class ChapterListItem(BaseModel):

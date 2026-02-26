@@ -18,6 +18,7 @@ Public helpers (importable for testing)
     tone_instructions(tone_intensity)             -> str
     build_character_voice_block(chars)            -> str   # character voice instructions
     build_character_behaviour_anchors(chars, rels) -> str  # character behaviour anchors
+    build_style_packs_block(style_packs)          -> str   # style pack prompt block (max 3)
     build_storylab_prompt(...)                    -> list[dict]  # messages payload
     build_chapter_prompt(...)                     -> list[dict]  # chapter messages payload
     build_story_summary_prompt(...)               -> list[dict]  # summary update messages
@@ -525,6 +526,86 @@ character-consistent path (slower burn, different tactic) — not via out-of-cha
 """
 
 
+# ── style packs (optional chaos layer) ───────────────────────────────────────
+# Each entry: key -> (display_title, instruction_text)
+# instruction_text <= ~250 chars; no banned stock phrases.
+# Applied AFTER Outcome-vs-Path; modulates sentence craft only — never overrides
+# boundary, direction, or character anchors.
+
+_STYLE_PACKS: dict[str, tuple[str, str]] = {
+    "baroque": (
+        "Baroque",
+        "Ornate, layered sentence architecture. Subordinate clauses weighted with implication. "
+        "The visual and tactile are carried into abstraction. Density as earned beauty.",
+    ),
+    "sparse": (
+        "Sparse",
+        "Hemingway-adjacent compression. Short declarative sentences. "
+        "What is omitted carries weight. Restraint is the statement; trust the reader.",
+    ),
+    "sensory_rich": (
+        "Sensory-rich",
+        "Every moment anchored in specific sensation: temperature, texture, smell, precise quality of sound. "
+        "No abstract feeling unless earned by physical detail first.",
+    ),
+    "unreliable_voice": (
+        "Unreliable Voice",
+        "The narrating consciousness withholds, deflects, or misremembers. "
+        "The gap between what is said and what is real is where the meaning lives.",
+    ),
+    "gothic": (
+        "Gothic",
+        "Atmosphere pressed close to dread. Architecture, weather, and objects conspire. "
+        "Beauty and rot coexist without irony. Unease is the ambient register.",
+    ),
+    "kinetic": (
+        "Kinetic",
+        "Propulsive forward pull. Every sentence ends on an open action or a hook. "
+        "Stasis is brief and deliberate — never a resting state.",
+    ),
+    "interior_depth": (
+        "Interior Depth",
+        "Extended access to the observing consciousness. Sensations become thoughts become memory "
+        "without announcement. Interiority carries equal weight to action.",
+    ),
+    "sharp_dialogue": (
+        "Sharp Dialogue",
+        "Characters speak obliquely, at cross-purposes, or too directly. "
+        "Silence and interruption carry as much as words. No line exists only to convey information.",
+    ),
+    "mythic_register": (
+        "Mythic Register",
+        "Slightly elevated diction; archaic echoes beneath modern cadences. "
+        "Events feel weighted, as if they have occurred before and will again.",
+    ),
+    "fragmented": (
+        "Fragmented",
+        "Non-linear structure. Present, memory, and implication alternate without announcement. "
+        "White space and ellipsis serve as punctuation. Discontinuity is deliberate.",
+    ),
+}
+
+
+def build_style_packs_block(style_packs: list[str]) -> str:
+    """Return the ## Style Packs prompt block for the given pack keys.
+
+    Filters unknown keys, caps at 3, returns '' when nothing valid remains.
+    Never overrides boundary, direction, or character anchors — modulates
+    sentence-level craft and register only.
+    """
+    valid = [k for k in style_packs[:3] if k in _STYLE_PACKS]
+    if not valid:
+        return ""
+    lines = [f"- {_STYLE_PACKS[k][0]}: {_STYLE_PACKS[k][1]}" for k in valid]
+    return (
+        "## Style Packs\n"
+        + "\n".join(lines)
+        + "\nApply the listed style qualities as a layer on top of all other instructions. "
+        "These do not override boundary, direction, or character anchors — they modulate "
+        "sentence-level craft, register, and rhythm only."
+    )
+
+
 # ── scene momentum block (static, inserted per-request) ─────────────────────
 
 _SCENE_MOMENTUM = """\
@@ -1022,6 +1103,7 @@ def build_chapter_prompt(
     characters: list[Any],
     previous_chapter_text: str | None = None,
     variant: str = "default",
+    style_packs: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """Build the messages list for a chapter generation call.
 
@@ -1037,9 +1119,10 @@ def build_chapter_prompt(
         6.  Last chapter                  (only if previous_chapter_text is non-empty)
         7.  Direction / boundary / pacing / tone
         8.  Outcome vs Path               (always — governs control interpretation)
-        9.  Target length
-        10. User guidance for this chapter
-        11. Task instruction
+        9.  Style Packs                   (optional, after Outcome vs Path)
+        10. Target length
+        11. User guidance for this chapter
+        12. Task instruction
 
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
@@ -1107,6 +1190,10 @@ def build_chapter_prompt(
         f"## Tone: {controls.tone_intensity}\n{tone_instructions(controls.tone_intensity)}"
     )
     sections.append(_OUTCOME_VS_PATH_BLOCK)
+    if style_packs:
+        packs_block = build_style_packs_block(style_packs)
+        if packs_block:
+            sections.append(packs_block)
     sections.append(
         f"## Target length\nAim for ~{target_words} words (hard cap: {cap_words} words)."
     )
@@ -1201,12 +1288,18 @@ def _call_openrouter_chapter(
     characters: list[Any],
     previous_chapter_text: str | None = None,
     variant: str = "default",
+    style_packs: list[str] | None = None,
 ) -> tuple[str, list[str], dict[str, Any] | None]:
     """Call OpenRouter for chapter generation; parse STORY + SUGGESTIONS + DELTA_SIGNALS."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     messages = build_chapter_prompt(
-        prompt, controls, state_json, summary, characters, previous_chapter_text, variant=variant
+        prompt, controls, state_json, summary, characters, previous_chapter_text,
+        variant=variant, style_packs=style_packs or [],
     )
+    if style_packs:
+        active = [k for k in style_packs if k in _STYLE_PACKS]
+        if active:
+            logger.debug("StoryLab style packs active: %s", ", ".join(active))
     cap_words = _length_cap(controls.length)
     # Extra headroom for SUGGESTIONS + DELTA_SIGNALS blocks on top of prose
     max_tokens = max(400, int(cap_words * 2.5))
@@ -1252,6 +1345,7 @@ def generate_chapter(
     previous_chapter_text: str | None = None,
     story_id: str = "",
     variant: str = "default",
+    style_packs: list[str] | None = None,
 ) -> tuple[str, list[str], dict[str, Any] | None]:
     """Return (chapter_text, suggestions, delta_signals_or_none).
 
@@ -1259,6 +1353,7 @@ def generate_chapter(
     OPENROUTER_API_KEY is set; falls back to the deterministic stub
     on any error so the endpoint never returns empty-handed.
     Stub returns deterministic text + fallback suggestions.
+    style_packs are injected into the prompt when provided; ignored by stub path.
     """
     provider = settings.STORYLAB_PROVIDER
 
@@ -1270,6 +1365,7 @@ def generate_chapter(
                 return _call_openrouter_chapter(
                     prompt, controls, state_json, summary, characters,
                     previous_chapter_text, variant=variant,
+                    style_packs=style_packs or [],
                 )
             except httpx.TimeoutException:
                 logger.warning("OpenRouter chapter request timed out; falling back to stub")
