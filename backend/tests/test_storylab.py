@@ -1000,7 +1000,7 @@ def test_build_prompt_variant_alt_includes_alternative_instruction():
 
 
 def test_openrouter_variant_alt_bumps_temperature(monkeypatch):
-    """variant='alt' sends temperature=1.0 (0.85+0.15) to OpenRouter."""
+    """variant='alt' sends temperature=0.85 (SFW base 0.75 + alt bump 0.10) to OpenRouter."""
     from unittest.mock import patch
     import app.services.storylab_generator as gen
     from app.schemas.storylab import StoryLabControls
@@ -1023,11 +1023,11 @@ def test_openrouter_variant_alt_bumps_temperature(monkeypatch):
         )
 
     payload = mock_client.post.call_args.kwargs.get("json") or mock_client.post.call_args.args[1]
-    assert payload["temperature"] == pytest.approx(1.0, abs=1e-6)
+    assert payload["temperature"] == pytest.approx(0.85, abs=1e-6)
 
 
 def test_openrouter_default_variant_uses_base_temperature(monkeypatch):
-    """variant='default' sends temperature=0.85 to OpenRouter."""
+    """variant='default' sends temperature=0.75 (SFW base) to OpenRouter."""
     from unittest.mock import patch
     import app.services.storylab_generator as gen
     from app.schemas.storylab import StoryLabControls
@@ -1049,7 +1049,7 @@ def test_openrouter_default_variant_uses_base_temperature(monkeypatch):
         )
 
     payload = mock_client.post.call_args.kwargs.get("json") or mock_client.post.call_args.args[1]
-    assert payload["temperature"] == pytest.approx(0.85, abs=1e-6)
+    assert payload["temperature"] == pytest.approx(0.75, abs=1e-6)
 
 
 # ── User Material Handling / beat-rendering prompt tests ──────────────────────
@@ -1698,29 +1698,37 @@ def test_select_model_sfw_boundary_uses_sfw_config():
 
     cfg = Settings(
         STORYLAB_MODEL_DEFAULT_SFW="openai/gpt-4o",
+        STORYLAB_MODEL_DEFAULT_FADE="anthropic/claude-3.5-sonnet",
         STORYLAB_MODEL_DEFAULT_SENSUAL="anthropic/claude-3.5-sonnet",
         STORYLAB_MODEL_DEFAULT_EXPLICIT="anthropic/claude-3.5-sonnet",
     )
     controls = StoryLabControls(boundary=Boundary.sfw)
-    model, params = select_storylab_model_and_params(controls, mode="continuation", cfg=cfg)
+    model, params, policy_notes = select_storylab_model_and_params(
+        controls, mode="continuation", cfg=cfg
+    )
     assert model == "openai/gpt-4o"
     assert "temperature" in params
     assert "max_tokens" in params
+    assert "sfw" in policy_notes
 
 
-def test_select_model_fade_to_black_uses_sfw_config():
-    """Policy treats fade_to_black as SFW-tier."""
+def test_select_model_fade_to_black_uses_fade_config():
+    """Policy routes fade_to_black to its own FADE model tier, not SFW."""
     from app.services.storylab_generator import select_storylab_model_and_params
     from app.schemas.storylab import StoryLabControls, Boundary
     from app.core.config import Settings
 
     cfg = Settings(
         STORYLAB_MODEL_DEFAULT_SFW="openai/gpt-4o",
-        STORYLAB_MODEL_DEFAULT_SENSUAL="anthropic/claude-opus-4",
+        STORYLAB_MODEL_DEFAULT_FADE="anthropic/claude-opus-4",
+        STORYLAB_MODEL_DEFAULT_SENSUAL="anthropic/claude-3.5-sonnet",
     )
     controls = StoryLabControls(boundary=Boundary.fade_to_black)
-    model, params = select_storylab_model_and_params(controls, mode="continuation", cfg=cfg)
-    assert model == "openai/gpt-4o"
+    model, params, policy_notes = select_storylab_model_and_params(
+        controls, mode="continuation", cfg=cfg
+    )
+    assert model == "anthropic/claude-opus-4"
+    assert "fade" in policy_notes
 
 
 def test_select_model_sensual_boundary_uses_sensual_config():
@@ -1731,11 +1739,15 @@ def test_select_model_sensual_boundary_uses_sensual_config():
 
     cfg = Settings(
         STORYLAB_MODEL_DEFAULT_SFW="openai/gpt-4o",
+        STORYLAB_MODEL_DEFAULT_FADE="openai/gpt-4o",
         STORYLAB_MODEL_DEFAULT_SENSUAL="anthropic/claude-opus-4",
     )
     controls = StoryLabControls(boundary=Boundary.sensual)
-    model, params = select_storylab_model_and_params(controls, mode="continuation", cfg=cfg)
+    model, params, policy_notes = select_storylab_model_and_params(
+        controls, mode="continuation", cfg=cfg
+    )
     assert model == "anthropic/claude-opus-4"
+    assert "sensual" in policy_notes
 
 
 def test_select_model_policy_fallback_when_envs_blank():
@@ -1744,33 +1756,36 @@ def test_select_model_policy_fallback_when_envs_blank():
 
     s = Settings(
         STORYLAB_MODEL_DEFAULT_SFW="",
+        STORYLAB_MODEL_DEFAULT_FADE="",
         STORYLAB_MODEL_DEFAULT_SENSUAL="",
         STORYLAB_MODEL_DEFAULT_EXPLICIT="",
     )
     assert s.STORYLAB_MODEL_DEFAULT_SFW == "anthropic/claude-3.5-sonnet"
+    assert s.STORYLAB_MODEL_DEFAULT_FADE == "anthropic/claude-3.5-sonnet"
     assert s.STORYLAB_MODEL_DEFAULT_SENSUAL == "anthropic/claude-3.5-sonnet"
     assert s.STORYLAB_MODEL_DEFAULT_EXPLICIT == "anthropic/claude-3.5-sonnet"
 
 
 def test_select_model_alt_variant_bumps_temperature():
-    """Policy increments temperature by 0.15 for alt variant."""
-    from app.services.storylab_generator import select_storylab_model_and_params
+    """Policy increments temperature by exactly ALT_VARIANT_TEMP_BUMP (0.10) for alt variant."""
+    from app.services.storylab_generator import select_storylab_model_and_params, _ALT_VARIANT_TEMP_BUMP
     from app.schemas.storylab import StoryLabControls
 
     controls = StoryLabControls()
-    _, default_params = select_storylab_model_and_params(controls, mode="continuation", variant="default")
-    _, alt_params = select_storylab_model_and_params(controls, mode="continuation", variant="alt")
-    assert abs(alt_params["temperature"] - (default_params["temperature"] + 0.15)) < 0.001
+    _, default_params, _ = select_storylab_model_and_params(controls, mode="continuation", variant="default")
+    _, alt_params, _ = select_storylab_model_and_params(controls, mode="continuation", variant="alt")
+    assert abs(alt_params["temperature"] - (default_params["temperature"] + _ALT_VARIANT_TEMP_BUMP)) < 0.001
 
 
 def test_select_model_summary_mode_returns_fixed_params():
     """Summary mode always returns temperature=0.4 and max_tokens=600."""
     from app.services.storylab_generator import select_storylab_model_and_params
 
-    model, params = select_storylab_model_and_params(None, mode="summary")
+    model, params, policy_notes = select_storylab_model_and_params(None, mode="summary")
     assert params["temperature"] == 0.4
     assert params["max_tokens"] == 600
     assert model == "anthropic/claude-3.5-sonnet"
+    assert "summary" in policy_notes
 
 
 def test_select_model_chapter_mode_has_larger_max_tokens_than_continuation():
@@ -1779,8 +1794,8 @@ def test_select_model_chapter_mode_has_larger_max_tokens_than_continuation():
     from app.schemas.storylab import StoryLabControls
 
     controls = StoryLabControls()
-    _, cont_params = select_storylab_model_and_params(controls, mode="continuation")
-    _, chap_params = select_storylab_model_and_params(controls, mode="chapter")
+    _, cont_params, _ = select_storylab_model_and_params(controls, mode="continuation")
+    _, chap_params, _ = select_storylab_model_and_params(controls, mode="chapter")
     assert chap_params["max_tokens"] > cont_params["max_tokens"]
 
 
@@ -1864,3 +1879,201 @@ def test_debug_field_absent_in_prod_mode(client, monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert "_debug" not in body, "_debug must be absent in production mode"
+
+
+# ── routing matrix: explicit parameter verification ───────────────────────────
+
+def test_routing_matrix_sfw_gets_safe_params():
+    """SFW boundary produces conservative temperature and low penalties."""
+    from app.services.storylab_generator import select_storylab_model_and_params, _BOUNDARY_BASE_TEMP
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    controls = StoryLabControls(boundary=Boundary.sfw)
+    _, params, policy_notes = select_storylab_model_and_params(controls, mode="continuation")
+
+    assert params["temperature"] == _BOUNDARY_BASE_TEMP[Boundary.sfw]
+    assert params["top_p"] == 0.92
+    assert params["presence_penalty"] == 0.05
+    assert params["frequency_penalty"] == 0.05
+    assert "sfw" in policy_notes
+
+
+def test_routing_matrix_fade_gets_mid_params():
+    """fade_to_black boundary produces mid-range temperature and penalties."""
+    from app.services.storylab_generator import select_storylab_model_and_params, _BOUNDARY_BASE_TEMP
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    controls = StoryLabControls(boundary=Boundary.fade_to_black)
+    _, params, policy_notes = select_storylab_model_and_params(controls, mode="continuation")
+
+    assert params["temperature"] == _BOUNDARY_BASE_TEMP[Boundary.fade_to_black]
+    assert params["top_p"] == 0.93
+    assert params["presence_penalty"] == 0.08
+    assert params["frequency_penalty"] == 0.08
+    assert "fade" in policy_notes
+
+
+def test_routing_matrix_sensual_gets_creative_params():
+    """sensual boundary produces highest creative params."""
+    from app.services.storylab_generator import select_storylab_model_and_params, _BOUNDARY_BASE_TEMP
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    controls = StoryLabControls(boundary=Boundary.sensual)
+    _, params, policy_notes = select_storylab_model_and_params(controls, mode="continuation")
+
+    assert params["temperature"] == _BOUNDARY_BASE_TEMP[Boundary.sensual]
+    assert params["top_p"] == 0.95
+    assert params["presence_penalty"] == 0.10
+    assert params["frequency_penalty"] == 0.10
+    assert "sensual" in policy_notes
+
+
+def test_routing_matrix_sensual_intense_boosts_temperature():
+    """sensual boundary + tone=intense applies extra temperature boost."""
+    from app.services.storylab_generator import (
+        select_storylab_model_and_params,
+        _BOUNDARY_BASE_TEMP,
+        _SENSUAL_INTENSE_TEMP_BUMP,
+    )
+    from app.schemas.storylab import StoryLabControls, Boundary, ToneIntensity
+
+    base_controls = StoryLabControls(boundary=Boundary.sensual, tone_intensity=ToneIntensity.moderate)
+    intense_controls = StoryLabControls(boundary=Boundary.sensual, tone_intensity=ToneIntensity.intense)
+
+    _, base_params, _ = select_storylab_model_and_params(base_controls, mode="continuation")
+    _, intense_params, intense_notes = select_storylab_model_and_params(intense_controls, mode="continuation")
+
+    expected_boost = _BOUNDARY_BASE_TEMP[Boundary.sensual] + _SENSUAL_INTENSE_TEMP_BUMP
+    assert intense_params["temperature"] == pytest.approx(expected_boost, abs=0.001)
+    assert intense_params["temperature"] > base_params["temperature"]
+    assert "intense" in intense_notes
+
+
+def test_routing_matrix_sfw_intense_no_temp_boost():
+    """tone=intense does NOT boost temperature outside the sensual tier."""
+    from app.services.storylab_generator import select_storylab_model_and_params, _BOUNDARY_BASE_TEMP
+    from app.schemas.storylab import StoryLabControls, Boundary, ToneIntensity
+
+    moderate = StoryLabControls(boundary=Boundary.sfw, tone_intensity=ToneIntensity.moderate)
+    intense  = StoryLabControls(boundary=Boundary.sfw, tone_intensity=ToneIntensity.intense)
+
+    _, mod_params, _ = select_storylab_model_and_params(moderate, mode="continuation")
+    _, int_params, _ = select_storylab_model_and_params(intense, mode="continuation")
+
+    # SFW + intense should NOT get a temperature bump
+    assert int_params["temperature"] == mod_params["temperature"]
+    assert int_params["temperature"] == _BOUNDARY_BASE_TEMP[Boundary.sfw]
+
+
+def test_routing_matrix_pacing_affects_max_tokens():
+    """Pacing deterministically scales max_tokens: slow > balanced > fast."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+    from app.schemas.storylab import StoryLabControls, Pacing
+
+    slow_ctrl     = StoryLabControls(pacing=Pacing.slow)
+    balanced_ctrl = StoryLabControls(pacing=Pacing.balanced)
+    fast_ctrl     = StoryLabControls(pacing=Pacing.fast)
+
+    _, slow_params, slow_notes     = select_storylab_model_and_params(slow_ctrl,     mode="chapter")
+    _, balanced_params, _          = select_storylab_model_and_params(balanced_ctrl, mode="chapter")
+    _, fast_params, fast_notes     = select_storylab_model_and_params(fast_ctrl,     mode="chapter")
+
+    assert slow_params["max_tokens"] > balanced_params["max_tokens"]
+    assert balanced_params["max_tokens"] > fast_params["max_tokens"]
+    # Policy notes should mention pacing when non-balanced
+    assert "pacing" in slow_notes
+    assert "pacing" in fast_notes
+
+
+def test_routing_matrix_direction_does_not_break_routing():
+    """Direction parameter never affects model/param selection; null/empty safe too."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+    from app.schemas.storylab import StoryLabControls, Direction
+
+    ctrl_with_direction = StoryLabControls(direction=Direction.sensual_scene)
+    ctrl_default        = StoryLabControls()
+
+    model_a, params_a, notes_a = select_storylab_model_and_params(ctrl_with_direction, mode="continuation")
+    model_b, params_b, notes_b = select_storylab_model_and_params(ctrl_default,        mode="continuation")
+
+    # Same model + params regardless of direction (both SFW boundary default)
+    assert model_a == model_b
+    assert params_a["temperature"] == params_b["temperature"]
+    assert params_a["max_tokens"]  == params_b["max_tokens"]
+    # Direction is mentioned in policy notes when set
+    assert "sensual_scene" in notes_a
+
+
+def test_routing_matrix_direction_none_safe():
+    """Controls=None (summary mode) never raises regardless of missing direction."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+
+    # Should not raise for None controls in any mode
+    model, params, notes = select_storylab_model_and_params(None, mode="summary")
+    assert model
+    assert params["temperature"] == 0.4
+
+    model2, params2, notes2 = select_storylab_model_and_params(None, mode="continuation")
+    assert model2
+    assert "temperature" in params2
+
+
+def test_routing_matrix_fade_model_env_fallback_when_blank():
+    """STORYLAB_MODEL_DEFAULT_FADE falls back to built-in default when blank."""
+    from app.core.config import Settings
+
+    s = Settings(STORYLAB_MODEL_DEFAULT_FADE="")
+    assert s.STORYLAB_MODEL_DEFAULT_FADE == "anthropic/claude-3.5-sonnet"
+
+
+def test_routing_matrix_params_deterministic_for_same_inputs():
+    """Policy always returns identical output for identical inputs (no randomness)."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+    from app.schemas.storylab import StoryLabControls, Boundary, ToneIntensity, Pacing, Length
+
+    controls = StoryLabControls(
+        boundary=Boundary.sensual,
+        tone_intensity=ToneIntensity.intense,
+        pacing=Pacing.slow,
+        length=Length.long,
+    )
+
+    result_a = select_storylab_model_and_params(controls, mode="chapter", variant="alt")
+    result_b = select_storylab_model_and_params(controls, mode="chapter", variant="alt")
+
+    assert result_a[0] == result_b[0]   # same model
+    assert result_a[1] == result_b[1]   # same params
+    assert result_a[2] == result_b[2]   # same policy_notes
+
+
+def test_policy_notes_in_debug_metadata(client, monkeypatch):
+    """_debug field includes policy_notes when DEV-only _debug is active."""
+    fake_debug = {
+        "provider":     "openrouter",
+        "model":        "anthropic/claude-3.5-sonnet",
+        "params":       {"temperature": 0.85, "top_p": 0.95,
+                         "presence_penalty": 0.10, "frequency_penalty": 0.10,
+                         "max_tokens": 3575},
+        "policy_notes": "boundary=sensual(sensual) tone=intense(+0.10 temp) → temp=0.95 max_tokens=3575",
+    }
+
+    def _patched_generate_chapter(**kwargs):
+        return "Chapter prose.", ["S1.", "S2.", "S3."], None, fake_debug
+
+    from app.core import config as config_mod
+    from app.api.routes import storylab as sl_mod
+
+    monkeypatch.setattr(config_mod.settings, "TESTING", False)
+    monkeypatch.setattr(sl_mod, "generate_chapter", _patched_generate_chapter)
+
+    resp = client.post(
+        "/api/storylab/chapters/generate?story_id=policy-notes-test-001",
+        json={"prompt": "A scene.", "controls": {}, "mode": "scene"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "_debug" in body
+    assert "policy_notes" in body["_debug"]
+    assert "sensual" in body["_debug"]["policy_notes"]
+    assert "temp=" in body["_debug"]["policy_notes"]

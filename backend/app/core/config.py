@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     STORYLAB_MODEL: str = "anthropic/claude-3.5-sonnet"
     STORYLAB_MODEL_DEFAULT_SFW: str = "anthropic/claude-3.5-sonnet"
+    STORYLAB_MODEL_DEFAULT_FADE: str = "anthropic/claude-3.5-sonnet"
     STORYLAB_MODEL_DEFAULT_SENSUAL: str = "anthropic/claude-3.5-sonnet"
     STORYLAB_MODEL_DEFAULT_EXPLICIT: str = "anthropic/claude-3.5-sonnet"
 
@@ -102,6 +103,13 @@ class Settings(BaseSettings):
     @field_validator("STORYLAB_MODEL_DEFAULT_SFW", mode="before")
     @classmethod
     def storylab_model_sfw_nonempty(cls, v: object) -> str:
+        if not v or not str(v).strip():
+            return "anthropic/claude-3.5-sonnet"
+        return str(v)
+
+    @field_validator("STORYLAB_MODEL_DEFAULT_FADE", mode="before")
+    @classmethod
+    def storylab_model_fade_nonempty(cls, v: object) -> str:
         if not v or not str(v).strip():
             return "anthropic/claude-3.5-sonnet"
         return str(v)

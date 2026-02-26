@@ -18,7 +18,7 @@ The primary selector is controls.boundary; length drives max_tokens.
 
 Public helpers (importable for testing)
 ----------------------------------------
-    select_storylab_model_and_params(...)         -> tuple[str, dict]  # model + params policy
+    select_storylab_model_and_params(...)         -> tuple[str, dict, str]  # model + params + policy_notes
     direction_instructions(direction)              -> str
     boundary_instructions(boundary)               -> str
     pacing_instructions(pacing)                   -> str
@@ -72,6 +72,50 @@ def _length_cap(length: Any) -> int:
     return _LENGTH_CONFIG.get(length, (1000, 1300))[1]
 
 
+# ── routing matrix constants ──────────────────────────────────────────────────
+# All values are carefully conservative; no parameter exceeds the recommended
+# safe range for narrative generation.
+
+# Base temperature per boundary tier.
+# SFW gets safer (lower) creativity; sensual tier allows the fullest range.
+_BOUNDARY_BASE_TEMP: dict[str, float] = {
+    Boundary.sfw:           0.75,
+    Boundary.fade_to_black: 0.80,
+    Boundary.sensual:       0.85,
+}
+
+# top_p nucleus sampling window — wider for more expressive tiers.
+_BOUNDARY_TOP_P: dict[str, float] = {
+    Boundary.sfw:           0.92,
+    Boundary.fade_to_black: 0.93,
+    Boundary.sensual:       0.95,
+}
+
+# (presence_penalty, frequency_penalty) per tier.
+# Higher penalties reduce repetition; sensual prose benefits from more variety.
+_BOUNDARY_PENALTIES: dict[str, tuple[float, float]] = {
+    Boundary.sfw:           (0.05, 0.05),
+    Boundary.fade_to_black: (0.08, 0.08),
+    Boundary.sensual:       (0.10, 0.10),
+}
+
+# Extra temperature bump when tone=intense for the sensual tier only.
+# Reaches creative peak (0.85 + 0.10 = 0.95) without losing coherence.
+_SENSUAL_INTENSE_TEMP_BUMP: float = 0.10
+
+# Temperature bump for variant="alt" (creative alternative take).
+_ALT_VARIANT_TEMP_BUMP: float = 0.10
+
+# Pacing multiplier on max_tokens.
+# Slow pacing = richer, longer prose needs more token headroom.
+# Fast pacing = punchy bursts, slightly less headroom.
+_PACING_TOKEN_MULT: dict[str, float] = {
+    Pacing.fast:     0.90,
+    Pacing.balanced: 1.00,
+    Pacing.slow:     1.10,
+}
+
+
 # ── model policy (server-side; users never see models) ────────────────────────
 
 def select_storylab_model_and_params(
@@ -79,7 +123,7 @@ def select_storylab_model_and_params(
     mode: str = "continuation",
     variant: str = "default",
     cfg: Any = None,
-) -> tuple[str, dict]:
+) -> tuple[str, dict, str]:
     """Select the OpenRouter model and generation params via server-side policy.
 
     This is the single authoritative source for model + param decisions.
@@ -92,50 +136,115 @@ def select_storylab_model_and_params(
         cfg:      Settings instance (defaults to module-level ``settings``).
 
     Returns:
-        (model_slug, params_dict) where params_dict contains all OpenRouter
-        payload fields (temperature, top_p, presence_penalty, frequency_penalty,
-        max_tokens).
+        (model_slug, params_dict, policy_notes) where:
+          - model_slug  is the OpenRouter model identifier
+          - params_dict contains temperature, top_p, presence_penalty,
+            frequency_penalty, max_tokens
+          - policy_notes is a short human-readable string describing the
+            routing decision (DEV-only; never exposed to users in production)
 
-    Boundary → model tier:
-        sfw / fade_to_black  →  STORYLAB_MODEL_DEFAULT_SFW
-        sensual              →  STORYLAB_MODEL_DEFAULT_SENSUAL
-        explicit (future)    →  STORYLAB_MODEL_DEFAULT_EXPLICIT
+    Routing matrix (boundary → tier):
+        sfw            →  STORYLAB_MODEL_DEFAULT_SFW    (safe params)
+        fade_to_black  →  STORYLAB_MODEL_DEFAULT_FADE   (mid params)
+        sensual        →  STORYLAB_MODEL_DEFAULT_SENSUAL (creative params)
+        explicit       →  STORYLAB_MODEL_DEFAULT_EXPLICIT (future tier)
+
+    Parameter modifiers (applied on top of boundary base):
+        tone=intense + boundary=sensual  →  +0.10 temperature (creative peak)
+        variant=alt                      →  +0.10 temperature
+        pacing=slow                      →  ×1.10 max_tokens
+        pacing=fast                      →  ×0.90 max_tokens
+        mode=chapter                     →  ×2.5 token headroom (vs ×2.0 continuation)
+        direction                        →  no effect on params (noted in policy_notes)
     """
     if cfg is None:
         cfg = settings
 
-    # --- model selection (boundary-driven) ---
-    boundary = getattr(controls, "boundary", Boundary.sfw) if controls is not None else Boundary.sfw
+    # ── extract controls fields (safe defaults when controls is None) ─────────
+    if controls is not None:
+        boundary  = getattr(controls, "boundary",       Boundary.sfw)
+        tone      = getattr(controls, "tone_intensity", ToneIntensity.moderate)
+        pacing    = getattr(controls, "pacing",         Pacing.balanced)
+        length    = getattr(controls, "length",         Length.medium)
+        direction = getattr(controls, "direction",      None)
+    else:
+        boundary, tone, pacing, length, direction = (
+            Boundary.sfw, ToneIntensity.moderate, Pacing.balanced, Length.medium, None
+        )
+
+    # ── model selection (boundary-driven) ────────────────────────────────────
     if boundary == Boundary.sensual:
         model = cfg.STORYLAB_MODEL_DEFAULT_SENSUAL
-    elif str(boundary) == "explicit":  # future-proofing
+        tier  = "sensual"
+    elif boundary == Boundary.fade_to_black:
+        model = cfg.STORYLAB_MODEL_DEFAULT_FADE
+        tier  = "fade"
+    elif str(boundary) == "explicit":       # future-proofing
         model = cfg.STORYLAB_MODEL_DEFAULT_EXPLICIT
+        tier  = "explicit"
     else:
-        # sfw, fade_to_black, or any unknown boundary → SFW model
         model = cfg.STORYLAB_MODEL_DEFAULT_SFW
+        tier  = "sfw"
 
-    # --- params ---
+    # ── params ────────────────────────────────────────────────────────────────
     if mode == "summary":
         params: dict = {
-            "temperature": 0.4,
-            "top_p": 0.95,
-            "presence_penalty": 0.0,
+            "temperature":       0.4,
+            "top_p":             0.95,
+            "presence_penalty":  0.0,
             "frequency_penalty": 0.0,
-            "max_tokens": 600,
+            "max_tokens":        600,
         }
+        policy_notes = (
+            f"mode=summary → fixed params; "
+            f"boundary={boundary}({tier}) model locked"
+        )
     else:
-        length = getattr(controls, "length", Length.medium) if controls is not None else Length.medium
-        cap_words = _length_cap(length)
-        headroom = 2.5 if mode == "chapter" else 2.0
+        # Base from boundary tier
+        base_temp  = _BOUNDARY_BASE_TEMP.get(boundary,  0.75)
+        top_p      = _BOUNDARY_TOP_P.get(boundary,      0.92)
+        pres, freq = _BOUNDARY_PENALTIES.get(boundary,  (0.05, 0.05))
+
+        # Tone bump: only sensual tier + intense unlocks creative peak
+        tone_bump = (
+            _SENSUAL_INTENSE_TEMP_BUMP
+            if (boundary == Boundary.sensual and tone == ToneIntensity.intense)
+            else 0.0
+        )
+
+        # Variant bump: alt for creative alternative takes
+        variant_bump = _ALT_VARIANT_TEMP_BUMP if variant == "alt" else 0.0
+
+        temperature = round(min(1.0, base_temp + tone_bump + variant_bump), 2)
+
+        # Max tokens: length cap × mode headroom × pacing multiplier
+        cap_words   = _length_cap(length)
+        headroom    = 2.5 if mode == "chapter" else 2.0
+        pacing_mult = _PACING_TOKEN_MULT.get(pacing, 1.00)
+        max_tokens  = max(400, int(cap_words * headroom * pacing_mult))
+
         params = {
-            "temperature": round(0.85 + (0.15 if variant == "alt" else 0.0), 2),
-            "top_p": 0.95,
-            "presence_penalty": 0.1,
-            "frequency_penalty": 0.1,
-            "max_tokens": max(400, int(cap_words * headroom)),
+            "temperature":       temperature,
+            "top_p":             top_p,
+            "presence_penalty":  pres,
+            "frequency_penalty": freq,
+            "max_tokens":        max_tokens,
         }
 
-    return model, params
+        # ── policy notes (DEV observability only) ─────────────────────────────
+        notes: list[str] = [f"boundary={boundary}({tier})"]
+        if tone_bump > 0:
+            notes.append(f"tone={tone}(+{tone_bump:.2f} temp)")
+        if variant_bump > 0:
+            notes.append(f"variant=alt(+{variant_bump:.2f} temp)")
+        if pacing != Pacing.balanced:
+            notes.append(f"pacing={pacing}(×{pacing_mult:.2f} tokens)")
+        if direction:
+            notes.append(f"direction={direction}")
+        notes.append(f"→ temp={temperature} top_p={top_p} max_tokens={max_tokens}")
+        policy_notes = " ".join(notes)
+
+    return model, params, policy_notes
 
 
 # ── direction-specific narrative instructions ─────────────────────────────────
@@ -969,7 +1078,10 @@ def _call_openrouter(
     messages = build_storylab_prompt(
         text, controls, state_json, summary, characters, recent_endings, variant=variant
     )
-    model, params = select_storylab_model_and_params(controls, mode="continuation", variant=variant)
+    model, params, policy_notes = select_storylab_model_and_params(
+        controls, mode="continuation", variant=variant
+    )
+    logger.debug("StoryLab continuation routing: %s", policy_notes)
     cap_words = _length_cap(controls.length)
 
     payload = {
@@ -1282,7 +1394,10 @@ def _call_openrouter_chapter(
     messages = build_chapter_prompt(
         prompt, controls, state_json, summary, characters, previous_chapter_text, variant=variant
     )
-    model, params = select_storylab_model_and_params(controls, mode="chapter", variant=variant)
+    model, params, policy_notes = select_storylab_model_and_params(
+        controls, mode="chapter", variant=variant
+    )
+    logger.debug("StoryLab chapter routing: %s", policy_notes)
     cap_words = _length_cap(controls.length)
 
     payload = {
@@ -1310,7 +1425,12 @@ def _call_openrouter_chapter(
         suggestions = _fallback_suggestions(state_json)
 
     chapter_text = _trim_to_cap(_parse_model_output(raw), cap_words)
-    debug_meta: dict[str, Any] = {"provider": "openrouter", "model": model, "params": params}
+    debug_meta: dict[str, Any] = {
+        "provider":     "openrouter",
+        "model":        model,
+        "params":       params,
+        "policy_notes": policy_notes,
+    }
     return chapter_text, suggestions, delta, debug_meta
 
 
@@ -1441,7 +1561,8 @@ def _call_openrouter_summary(
     url = "https://openrouter.ai/api/v1/chat/completions"
     messages = build_story_summary_prompt(existing_summary, chapter_text, chapter_number)
     # Summaries are always SFW; pass None controls to select SFW model with summary params.
-    model, params = select_storylab_model_and_params(None, mode="summary")
+    model, params, policy_notes = select_storylab_model_and_params(None, mode="summary")
+    logger.debug("StoryLab summary routing: %s", policy_notes)
     payload = {
         "model": model,
         "messages": messages,
