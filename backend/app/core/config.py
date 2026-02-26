@@ -78,15 +78,44 @@ class Settings(BaseSettings):
 
     # StoryLab narrative engine
     # STORYLAB_PROVIDER: "stub" (deterministic, no key needed) | "openrouter"
-    # STORYLAB_MODEL: any OpenRouter-supported model slug
+    # STORYLAB_MODEL: legacy fallback model slug (kept for backward-compat, unused by policy)
+    # Per-boundary model overrides — blank env values fall back to the built-in default.
     STORYLAB_PROVIDER: str = "stub"
     OPENROUTER_API_KEY: str = ""
     STORYLAB_MODEL: str = "anthropic/claude-3.5-sonnet"
+    STORYLAB_MODEL_DEFAULT_SFW: str = "anthropic/claude-3.5-sonnet"
+    STORYLAB_MODEL_DEFAULT_SENSUAL: str = "anthropic/claude-3.5-sonnet"
+    STORYLAB_MODEL_DEFAULT_EXPLICIT: str = "anthropic/claude-3.5-sonnet"
+
+    # Test / CI sentinel — set to true in conftest.py before app imports.
+    # When true, DEV-only fields (e.g. _debug) are suppressed even if DEBUG is also true.
+    TESTING: bool = False
 
     @field_validator("STORYLAB_MODEL", mode="before")
     @classmethod
     def storylab_model_nonempty(cls, v: object) -> str:
         """Treat blank STORYLAB_MODEL as unset — fall back to the default model."""
+        if not v or not str(v).strip():
+            return "anthropic/claude-3.5-sonnet"
+        return str(v)
+
+    @field_validator("STORYLAB_MODEL_DEFAULT_SFW", mode="before")
+    @classmethod
+    def storylab_model_sfw_nonempty(cls, v: object) -> str:
+        if not v or not str(v).strip():
+            return "anthropic/claude-3.5-sonnet"
+        return str(v)
+
+    @field_validator("STORYLAB_MODEL_DEFAULT_SENSUAL", mode="before")
+    @classmethod
+    def storylab_model_sensual_nonempty(cls, v: object) -> str:
+        if not v or not str(v).strip():
+            return "anthropic/claude-3.5-sonnet"
+        return str(v)
+
+    @field_validator("STORYLAB_MODEL_DEFAULT_EXPLICIT", mode="before")
+    @classmethod
+    def storylab_model_explicit_nonempty(cls, v: object) -> str:
         if not v or not str(v).strip():
             return "anthropic/claude-3.5-sonnet"
         return str(v)

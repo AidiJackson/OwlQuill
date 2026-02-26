@@ -1686,3 +1686,181 @@ def test_generate_returns_json_error_on_db_failure(client, monkeypatch):
     assert "model" in body
     # Hint must reference migrations or database
     assert "alembic" in body["hint"].lower() or "database" in body["hint"].lower()
+
+
+# ── model routing policy ──────────────────────────────────────────────────────
+
+def test_select_model_sfw_boundary_uses_sfw_config():
+    """Policy selects STORYLAB_MODEL_DEFAULT_SFW for sfw boundary."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+    from app.schemas.storylab import StoryLabControls, Boundary
+    from app.core.config import Settings
+
+    cfg = Settings(
+        STORYLAB_MODEL_DEFAULT_SFW="openai/gpt-4o",
+        STORYLAB_MODEL_DEFAULT_SENSUAL="anthropic/claude-3.5-sonnet",
+        STORYLAB_MODEL_DEFAULT_EXPLICIT="anthropic/claude-3.5-sonnet",
+    )
+    controls = StoryLabControls(boundary=Boundary.sfw)
+    model, params = select_storylab_model_and_params(controls, mode="continuation", cfg=cfg)
+    assert model == "openai/gpt-4o"
+    assert "temperature" in params
+    assert "max_tokens" in params
+
+
+def test_select_model_fade_to_black_uses_sfw_config():
+    """Policy treats fade_to_black as SFW-tier."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+    from app.schemas.storylab import StoryLabControls, Boundary
+    from app.core.config import Settings
+
+    cfg = Settings(
+        STORYLAB_MODEL_DEFAULT_SFW="openai/gpt-4o",
+        STORYLAB_MODEL_DEFAULT_SENSUAL="anthropic/claude-opus-4",
+    )
+    controls = StoryLabControls(boundary=Boundary.fade_to_black)
+    model, params = select_storylab_model_and_params(controls, mode="continuation", cfg=cfg)
+    assert model == "openai/gpt-4o"
+
+
+def test_select_model_sensual_boundary_uses_sensual_config():
+    """Policy selects STORYLAB_MODEL_DEFAULT_SENSUAL for sensual boundary."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+    from app.schemas.storylab import StoryLabControls, Boundary
+    from app.core.config import Settings
+
+    cfg = Settings(
+        STORYLAB_MODEL_DEFAULT_SFW="openai/gpt-4o",
+        STORYLAB_MODEL_DEFAULT_SENSUAL="anthropic/claude-opus-4",
+    )
+    controls = StoryLabControls(boundary=Boundary.sensual)
+    model, params = select_storylab_model_and_params(controls, mode="continuation", cfg=cfg)
+    assert model == "anthropic/claude-opus-4"
+
+
+def test_select_model_policy_fallback_when_envs_blank():
+    """All per-boundary model configs fall back to built-in default when blank."""
+    from app.core.config import Settings
+
+    s = Settings(
+        STORYLAB_MODEL_DEFAULT_SFW="",
+        STORYLAB_MODEL_DEFAULT_SENSUAL="",
+        STORYLAB_MODEL_DEFAULT_EXPLICIT="",
+    )
+    assert s.STORYLAB_MODEL_DEFAULT_SFW == "anthropic/claude-3.5-sonnet"
+    assert s.STORYLAB_MODEL_DEFAULT_SENSUAL == "anthropic/claude-3.5-sonnet"
+    assert s.STORYLAB_MODEL_DEFAULT_EXPLICIT == "anthropic/claude-3.5-sonnet"
+
+
+def test_select_model_alt_variant_bumps_temperature():
+    """Policy increments temperature by 0.15 for alt variant."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+    from app.schemas.storylab import StoryLabControls
+
+    controls = StoryLabControls()
+    _, default_params = select_storylab_model_and_params(controls, mode="continuation", variant="default")
+    _, alt_params = select_storylab_model_and_params(controls, mode="continuation", variant="alt")
+    assert abs(alt_params["temperature"] - (default_params["temperature"] + 0.15)) < 0.001
+
+
+def test_select_model_summary_mode_returns_fixed_params():
+    """Summary mode always returns temperature=0.4 and max_tokens=600."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+
+    model, params = select_storylab_model_and_params(None, mode="summary")
+    assert params["temperature"] == 0.4
+    assert params["max_tokens"] == 600
+    assert model == "anthropic/claude-3.5-sonnet"
+
+
+def test_select_model_chapter_mode_has_larger_max_tokens_than_continuation():
+    """Chapter mode uses 2.5× headroom vs continuation's 2.0× for the same length."""
+    from app.services.storylab_generator import select_storylab_model_and_params
+    from app.schemas.storylab import StoryLabControls
+
+    controls = StoryLabControls()
+    _, cont_params = select_storylab_model_and_params(controls, mode="continuation")
+    _, chap_params = select_storylab_model_and_params(controls, mode="chapter")
+    assert chap_params["max_tokens"] > cont_params["max_tokens"]
+
+
+# ── _debug field observability ────────────────────────────────────────────────
+
+def test_debug_field_absent_during_tests(client):
+    """_debug must NOT appear in chapter generate response during test runs (TESTING=true)."""
+    resp = client.post(
+        "/api/storylab/chapters/generate?story_id=debug-absent-test-001",
+        json={"prompt": "A morning scene.", "controls": {}, "mode": "scene"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "_debug" not in body, "_debug must be absent when TESTING=true"
+
+
+def test_debug_field_present_when_dev_mode_and_not_testing(client, monkeypatch):
+    """_debug appears when is_dev_mode()=True and TESTING=False, with correct structure.
+
+    Uses the ``client`` fixture so the DB is already set up. monkeypatch flips
+    TESTING to False while DEBUG remains True (as set by conftest), satisfying
+    the is_dev_mode() and not TESTING condition.
+    """
+    fake_debug = {
+        "provider": "openrouter",
+        "model": "anthropic/claude-3.5-sonnet",
+        "params": {
+            "temperature": 0.85,
+            "top_p": 0.95,
+            "presence_penalty": 0.1,
+            "frequency_penalty": 0.1,
+            "max_tokens": 3250,
+        },
+    }
+
+    def _patched_generate_chapter(**kwargs):
+        return "The chapter began quietly.", ["Explore the tension.", "Introduce a new character.", "Raise the stakes."], None, fake_debug
+
+    from app.core import config as config_mod
+    from app.api.routes import storylab as sl_mod
+
+    # conftest sets DEBUG=true; flip TESTING to False so _debug gate opens
+    monkeypatch.setattr(config_mod.settings, "TESTING", False)
+    monkeypatch.setattr(sl_mod, "generate_chapter", _patched_generate_chapter)
+
+    resp = client.post(
+        "/api/storylab/chapters/generate?story_id=debug-present-test-001",
+        json={"prompt": "A scene.", "controls": {}, "mode": "scene"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "_debug" in body, "_debug must be present when is_dev_mode()=True and TESTING=False"
+    assert body["_debug"]["provider"] == "openrouter"
+    assert body["_debug"]["model"] == "anthropic/claude-3.5-sonnet"
+    assert "params" in body["_debug"]
+    assert "temperature" in body["_debug"]["params"]
+
+
+def test_debug_field_absent_in_prod_mode(client, monkeypatch):
+    """_debug must NOT appear when is_dev_mode()=False regardless of debug_meta."""
+    fake_debug = {"provider": "openrouter", "model": "x", "params": {}}
+
+    def _patched_generate_chapter(**kwargs):
+        return "Chapter content.", ["A.", "B.", "C."], None, fake_debug
+
+    from app.core import config as config_mod
+    from app.api.routes import storylab as sl_mod
+
+    # Simulate production: DEBUG=False, DEV_MODE=False, TESTING=False
+    monkeypatch.setattr(config_mod.settings, "TESTING", False)
+    monkeypatch.setattr(config_mod.settings, "DEBUG", False)
+    monkeypatch.setattr(config_mod.settings, "DEV_MODE", False)
+    monkeypatch.setattr(sl_mod, "generate_chapter", _patched_generate_chapter)
+
+    resp = client.post(
+        "/api/storylab/chapters/generate?story_id=debug-prod-test-001",
+        json={"prompt": "A scene.", "controls": {}, "mode": "scene"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "_debug" not in body, "_debug must be absent in production mode"

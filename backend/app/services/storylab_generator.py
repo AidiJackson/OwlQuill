@@ -10,8 +10,15 @@ STORYLAB_PROVIDER=openrouter
     On any failure (timeout, bad response, missing key) falls back to stub
     and logs a warning so callers always get a usable string back.
 
+Model policy
+------------
+Model selection and generation parameters are resolved server-side through
+select_storylab_model_and_params(). Callers never choose models directly.
+The primary selector is controls.boundary; length drives max_tokens.
+
 Public helpers (importable for testing)
 ----------------------------------------
+    select_storylab_model_and_params(...)         -> tuple[str, dict]  # model + params policy
     direction_instructions(direction)              -> str
     boundary_instructions(boundary)               -> str
     pacing_instructions(pacing)                   -> str
@@ -22,7 +29,7 @@ Public helpers (importable for testing)
     build_chapter_prompt(...)                     -> list[dict]  # chapter messages payload
     build_story_summary_prompt(...)               -> list[dict]  # summary update messages
     generate_storylab_continuation(...)           -> tuple[str, dict | None]
-    generate_chapter(...)                         -> tuple[str, list[str], dict | None]
+    generate_chapter(...)                         -> tuple[str, list[str], dict | None, dict | None]
     generate_story_summary(...)                   -> str
 """
 import json
@@ -63,6 +70,72 @@ def _length_target(length: Any) -> int:
 def _length_cap(length: Any) -> int:
     """Hard word cap for a Length value; output is trimmed to this after generation."""
     return _LENGTH_CONFIG.get(length, (1000, 1300))[1]
+
+
+# ── model policy (server-side; users never see models) ────────────────────────
+
+def select_storylab_model_and_params(
+    controls: "StoryLabControls | None",
+    mode: str = "continuation",
+    variant: str = "default",
+    cfg: Any = None,
+) -> tuple[str, dict]:
+    """Select the OpenRouter model and generation params via server-side policy.
+
+    This is the single authoritative source for model + param decisions.
+    Callers must not read STORYLAB_MODEL* settings directly.
+
+    Args:
+        controls: StoryLabControls for the current request (None for summary mode).
+        mode:     "continuation" | "chapter" | "summary"
+        variant:  "default" | "alt" — alt bumps temperature for creative variation.
+        cfg:      Settings instance (defaults to module-level ``settings``).
+
+    Returns:
+        (model_slug, params_dict) where params_dict contains all OpenRouter
+        payload fields (temperature, top_p, presence_penalty, frequency_penalty,
+        max_tokens).
+
+    Boundary → model tier:
+        sfw / fade_to_black  →  STORYLAB_MODEL_DEFAULT_SFW
+        sensual              →  STORYLAB_MODEL_DEFAULT_SENSUAL
+        explicit (future)    →  STORYLAB_MODEL_DEFAULT_EXPLICIT
+    """
+    if cfg is None:
+        cfg = settings
+
+    # --- model selection (boundary-driven) ---
+    boundary = getattr(controls, "boundary", Boundary.sfw) if controls is not None else Boundary.sfw
+    if boundary == Boundary.sensual:
+        model = cfg.STORYLAB_MODEL_DEFAULT_SENSUAL
+    elif str(boundary) == "explicit":  # future-proofing
+        model = cfg.STORYLAB_MODEL_DEFAULT_EXPLICIT
+    else:
+        # sfw, fade_to_black, or any unknown boundary → SFW model
+        model = cfg.STORYLAB_MODEL_DEFAULT_SFW
+
+    # --- params ---
+    if mode == "summary":
+        params: dict = {
+            "temperature": 0.4,
+            "top_p": 0.95,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "max_tokens": 600,
+        }
+    else:
+        length = getattr(controls, "length", Length.medium) if controls is not None else Length.medium
+        cap_words = _length_cap(length)
+        headroom = 2.5 if mode == "chapter" else 2.0
+        params = {
+            "temperature": round(0.85 + (0.15 if variant == "alt" else 0.0), 2),
+            "top_p": 0.95,
+            "presence_penalty": 0.1,
+            "frequency_penalty": 0.1,
+            "max_tokens": max(400, int(cap_words * headroom)),
+        }
+
+    return model, params
 
 
 # ── direction-specific narrative instructions ─────────────────────────────────
@@ -896,16 +969,13 @@ def _call_openrouter(
     messages = build_storylab_prompt(
         text, controls, state_json, summary, characters, recent_endings, variant=variant
     )
+    model, params = select_storylab_model_and_params(controls, mode="continuation", variant=variant)
     cap_words = _length_cap(controls.length)
-    # cap_words / 0.75 ≈ cap in tokens; ×2.0 gives comfortable headroom for tags + delta block
-    max_tokens = max(400, int(cap_words * 2.0))
-    temperature = 0.85 + (0.15 if variant == "alt" else 0.0)
 
     payload = {
-        "model": settings.STORYLAB_MODEL,
+        "model": model,
         "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
+        **params,
     }
     headers = {
         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
@@ -1201,22 +1271,24 @@ def _call_openrouter_chapter(
     characters: list[Any],
     previous_chapter_text: str | None = None,
     variant: str = "default",
-) -> tuple[str, list[str], dict[str, Any] | None]:
-    """Call OpenRouter for chapter generation; parse STORY + SUGGESTIONS + DELTA_SIGNALS."""
+) -> tuple[str, list[str], dict[str, Any] | None, dict[str, Any]]:
+    """Call OpenRouter for chapter generation; parse STORY + SUGGESTIONS + DELTA_SIGNALS.
+
+    Returns:
+        (chapter_text, suggestions, delta_signals, debug_meta)
+        debug_meta contains provider/model/params for DEV-only observability.
+    """
     url = "https://openrouter.ai/api/v1/chat/completions"
     messages = build_chapter_prompt(
         prompt, controls, state_json, summary, characters, previous_chapter_text, variant=variant
     )
+    model, params = select_storylab_model_and_params(controls, mode="chapter", variant=variant)
     cap_words = _length_cap(controls.length)
-    # Extra headroom for SUGGESTIONS + DELTA_SIGNALS blocks on top of prose
-    max_tokens = max(400, int(cap_words * 2.5))
-    temperature = 0.85 + (0.15 if variant == "alt" else 0.0)
 
     payload = {
-        "model": settings.STORYLAB_MODEL,
+        "model": model,
         "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
+        **params,
     }
     headers = {
         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
@@ -1238,7 +1310,8 @@ def _call_openrouter_chapter(
         suggestions = _fallback_suggestions(state_json)
 
     chapter_text = _trim_to_cap(_parse_model_output(raw), cap_words)
-    return chapter_text, suggestions, delta
+    debug_meta: dict[str, Any] = {"provider": "openrouter", "model": model, "params": params}
+    return chapter_text, suggestions, delta, debug_meta
 
 
 # ── chapter entry point ───────────────────────────────────────────────────────
@@ -1252,13 +1325,14 @@ def generate_chapter(
     previous_chapter_text: str | None = None,
     story_id: str = "",
     variant: str = "default",
-) -> tuple[str, list[str], dict[str, Any] | None]:
-    """Return (chapter_text, suggestions, delta_signals_or_none).
+) -> tuple[str, list[str], dict[str, Any] | None, dict[str, Any] | None]:
+    """Return (chapter_text, suggestions, delta_signals_or_none, debug_meta_or_none).
 
     Routes to OpenRouter when STORYLAB_PROVIDER=openrouter and
     OPENROUTER_API_KEY is set; falls back to the deterministic stub
     on any error so the endpoint never returns empty-handed.
-    Stub returns deterministic text + fallback suggestions.
+    Stub returns deterministic text + fallback suggestions + None for debug_meta.
+    debug_meta is only populated when the OpenRouter path succeeds.
     """
     provider = settings.STORYLAB_PROVIDER
 
@@ -1280,7 +1354,7 @@ def generate_chapter(
 
     stub_text = _generate_stub_text(story_id, controls)
     suggestions = _fallback_suggestions(state_json)
-    return stub_text, suggestions, None
+    return stub_text, suggestions, None, None
 
 
 # ── story summary system prompt ───────────────────────────────────────────────
@@ -1366,11 +1440,12 @@ def _call_openrouter_summary(
     """Call OpenRouter to generate/update the story summary. Returns plain text."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     messages = build_story_summary_prompt(existing_summary, chapter_text, chapter_number)
+    # Summaries are always SFW; pass None controls to select SFW model with summary params.
+    model, params = select_storylab_model_and_params(None, mode="summary")
     payload = {
-        "model": settings.STORYLAB_MODEL,
+        "model": model,
         "messages": messages,
-        "max_tokens": 600,   # ~300 words × 2 tokens/word with headroom
-        "temperature": 0.4,  # lower for consistency
+        **params,
     }
     headers = {
         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",

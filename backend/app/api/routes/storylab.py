@@ -233,7 +233,7 @@ def _storylab_error(
             "detail": str(exc),
             "hint": hint or default_hint,
             "provider": settings.STORYLAB_PROVIDER,
-            "model": settings.STORYLAB_MODEL,
+            "model": settings.STORYLAB_MODEL_DEFAULT_SFW,
         },
     )
 
@@ -399,8 +399,13 @@ def _run_chapter_generation(
     story_id: str,
     req: ChapterGenerateRequest,
     db: Session,
-) -> tuple[str, list[str], dict[str, Any] | None]:
-    """Shared generation logic: fetch state, get previous chapter, call generator."""
+) -> tuple[str, list[str], dict[str, Any] | None, dict[str, Any] | None]:
+    """Shared generation logic: fetch state, get previous chapter, call generator.
+
+    Returns:
+        (chapter_text, suggestions, model_deltas, debug_meta)
+        debug_meta is only populated when the OpenRouter path succeeded.
+    """
     state_row = _get_or_create_state(story_id, db)
     current_state: dict[str, Any] = dict(state_row.state_json or _DEFAULT_STATE)
 
@@ -413,7 +418,7 @@ def _run_chapter_generation(
     )
     previous_text = last_chapter.generated_text if last_chapter else None
 
-    chapter_text, suggestions, model_deltas = generate_chapter(
+    chapter_text, suggestions, model_deltas, debug_meta = generate_chapter(
         prompt=req.prompt,
         controls=req.controls,
         state_json=current_state,
@@ -432,7 +437,7 @@ def _run_chapter_generation(
     state_row.updated_at = datetime.utcnow()
     db.add(state_row)
 
-    return chapter_text, suggestions, model_deltas
+    return chapter_text, suggestions, model_deltas, debug_meta
 
 
 def _update_story_summary(
@@ -507,10 +512,10 @@ def generate_chapter_endpoint(
     story_id: str = Query(..., description="Story workspace identifier"),
     req: ChapterGenerateRequest = ...,
     db: Session = Depends(get_db),
-) -> ChapterGenerateResponse:
+):
     """Generate a new chapter and store it."""
     try:
-        chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+        chapter_text, suggestions, model_deltas, debug_meta = _run_chapter_generation(story_id, req, db)
         word_count = len(chapter_text.split())
         chapter_number = _get_next_chapter_number(story_id, db)
 
@@ -541,13 +546,18 @@ def generate_chapter_endpoint(
         state_row = _get_or_create_state(story_id, db)
         _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
 
-        return ChapterGenerateResponse(
-            chapter_number=chapter_number,
-            generated_text=chapter_text,
-            prompt_text=req.prompt or "",
-            suggestions=suggestions,
-            meta={"words": word_count, "delta": model_deltas},
-        )
+        response_data = {
+            "chapter_number": chapter_number,
+            "generated_text": chapter_text,
+            "prompt_text": req.prompt or "",
+            "suggestions": suggestions,
+            "meta": {"words": word_count, "delta": model_deltas},
+        }
+        # DEV-only: expose model routing metadata for debugging.
+        # Suppressed in tests (TESTING=true) and in production (is_dev_mode()=false).
+        if settings.is_dev_mode() and not settings.TESTING and debug_meta:
+            response_data["_debug"] = debug_meta
+        return JSONResponse(content=response_data)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -582,7 +592,7 @@ def regenerate_chapter(
     story_id: str = Query(..., description="Story workspace identifier"),
     req: ChapterGenerateRequest = ...,
     db: Session = Depends(get_db),
-) -> ChapterGenerateResponse:
+):
     """Regenerate a chapter in-place, overwriting its generated_text."""
     try:
         ch = (
@@ -596,7 +606,7 @@ def regenerate_chapter(
         if ch is None:
             raise HTTPException(status_code=404, detail="Chapter not found")
 
-        chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+        chapter_text, suggestions, model_deltas, debug_meta = _run_chapter_generation(story_id, req, db)
         word_count = len(chapter_text.split())
 
         controls_snapshot = {
@@ -618,13 +628,17 @@ def regenerate_chapter(
         state_row = _get_or_create_state(story_id, db)
         _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
 
-        return ChapterGenerateResponse(
-            chapter_number=chapter_number,
-            generated_text=chapter_text,
-            prompt_text=req.prompt or ch.prompt_text or "",
-            suggestions=suggestions,
-            meta={"words": word_count, "delta": model_deltas},
-        )
+        response_data = {
+            "chapter_number": chapter_number,
+            "generated_text": chapter_text,
+            "prompt_text": req.prompt or ch.prompt_text or "",
+            "suggestions": suggestions,
+            "meta": {"words": word_count, "delta": model_deltas},
+        }
+        # DEV-only: expose model routing metadata for debugging.
+        if settings.is_dev_mode() and not settings.TESTING and debug_meta:
+            response_data["_debug"] = debug_meta
+        return JSONResponse(content=response_data)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
