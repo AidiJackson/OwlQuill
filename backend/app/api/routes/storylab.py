@@ -39,6 +39,8 @@ from app.schemas.storylab import (
     GeneratedText,
 )
 from app.services.storylab_generator import (
+    analyze_chapter_metrics,
+    compute_story_progress,
     extract_ending_phrase,
     generate_chapter,
     generate_story_summary,
@@ -322,6 +324,17 @@ def generate(
 
 # ── chapter helpers ────────────────────────────────────────────────────────────
 
+def _fetch_chapter_metrics(story_id: str, db: Session) -> list[dict[str, Any]]:
+    """Return metrics_json for all chapters of *story_id* ordered by chapter_number."""
+    rows = (
+        db.query(StoryChapter.metrics_json)
+        .filter(StoryChapter.story_id == story_id)
+        .order_by(StoryChapter.chapter_number)
+        .all()
+    )
+    return [m for (m,) in rows if m]
+
+
 def _get_next_chapter_number(story_id: str, db: Session) -> int:
     """Return the next chapter_number for a story (1 if no chapters exist)."""
     from sqlalchemy import func
@@ -352,6 +365,7 @@ def _chapter_to_detail(ch: StoryChapter, suggestions: list[str]) -> ChapterDetai
         suggestions=suggestions,
         words=ch.word_count,
         created_at=ch.created_at.isoformat(),
+        metrics=ch.metrics_json,
     )
 
 
@@ -496,6 +510,16 @@ def generate_chapter_endpoint(
     db.commit()
     db.refresh(ch)
 
+    # Analyze chapter metrics and persist (non-fatal; chapter already committed)
+    metrics = analyze_chapter_metrics(chapter_text, req.controls)
+    ch.metrics_json = metrics
+    db.add(ch)
+    db.commit()
+
+    # Compute rolling story progress over all chapters
+    all_metrics = _fetch_chapter_metrics(story_id, db)
+    story_progress = compute_story_progress(all_metrics)
+
     # Update story summary (non-fatal; chapter already committed)
     state_row = _get_or_create_state(story_id, db)
     _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
@@ -505,7 +529,7 @@ def generate_chapter_endpoint(
         generated_text=chapter_text,
         prompt_text=req.prompt or "",
         suggestions=suggestions,
-        meta={"words": word_count, "delta": model_deltas},
+        meta={"words": word_count, "delta": model_deltas, "metrics": metrics, "story_progress": story_progress},
     )
 
 
@@ -559,13 +583,21 @@ def regenerate_chapter(
         "length": req.controls.length,
         "boundary": req.controls.boundary,
     }
+    # Analyze metrics for the regenerated text
+    metrics = analyze_chapter_metrics(chapter_text, req.controls)
+
     ch.generated_text = chapter_text
     ch.word_count = word_count
     ch.prompt_text = req.prompt or ch.prompt_text
     ch.controls_json = controls_snapshot
+    ch.metrics_json = metrics
     ch.updated_at = datetime.utcnow()
     db.add(ch)
     db.commit()
+
+    # Compute rolling story progress
+    all_metrics = _fetch_chapter_metrics(story_id, db)
+    story_progress = compute_story_progress(all_metrics)
 
     # Update story summary (non-fatal; chapter already committed)
     state_row = _get_or_create_state(story_id, db)
@@ -576,5 +608,5 @@ def regenerate_chapter(
         generated_text=chapter_text,
         prompt_text=req.prompt or ch.prompt_text or "",
         suggestions=suggestions,
-        meta={"words": word_count, "delta": model_deltas},
+        meta={"words": word_count, "delta": model_deltas, "metrics": metrics, "story_progress": story_progress},
     )

@@ -24,6 +24,8 @@ Public helpers (importable for testing)
     generate_storylab_continuation(...)           -> tuple[str, dict | None]
     generate_chapter(...)                         -> tuple[str, list[str], dict | None]
     generate_story_summary(...)                   -> str
+    analyze_chapter_metrics(text, controls)       -> dict   # emotion/tension/stakes/intimacy 0-100
+    compute_story_progress(metrics_list, window)  -> dict   # rolling average
 """
 import json
 import logging
@@ -1414,3 +1416,124 @@ def generate_story_summary(
                 logger.warning("OpenRouter summary error (%s); using stub summary", exc)
 
     return _generate_stub_summary(story_id, chapter_number)
+
+
+# ── chapter metrics ────────────────────────────────────────────────────────────
+
+_CHAPTER_METRICS_SYSTEM = """\
+You are a narrative analyst for an AI writing assistant.
+Analyse the chapter text and return metrics as STRICT JSON — no preamble, no commentary.
+Output ONLY this JSON object:
+{
+  "emotion": <integer 0-100>,
+  "tension": <integer 0-100>,
+  "stakes": <integer 0-100>,
+  "intimacy": <integer 0-100>,
+  "notes": "<one sentence max>"
+}
+Metric definitions:
+- emotion: intensity of emotional content (grief, joy, longing, rage)
+- tension: narrative pressure / conflict / anticipation
+- stakes: how much the characters stand to lose or gain
+- intimacy: closeness / vulnerability / romantic or physical proximity\
+"""
+
+# Deterministic baseline per direction (0-100 integers)
+_DIRECTION_METRICS: dict[Any, dict[str, int]] = {
+    Direction.advance_plot:     {"emotion": 30, "tension": 40, "stakes": 60, "intimacy": 10},
+    Direction.add_dialogue:     {"emotion": 35, "tension": 30, "stakes": 30, "intimacy": 20},
+    Direction.sad_moment:       {"emotion": 80, "tension": 50, "stakes": 40, "intimacy": 25},
+    Direction.argument_begins:  {"emotion": 65, "tension": 85, "stakes": 55, "intimacy": 10},
+    Direction.romantic_moment:  {"emotion": 70, "tension": 30, "stakes": 20, "intimacy": 65},
+    Direction.sensual_scene:    {"emotion": 60, "tension": 45, "stakes": 20, "intimacy": 85},
+    Direction.intimate_scene:   {"emotion": 55, "tension": 40, "stakes": 15, "intimacy": 95},
+    Direction.twist_event:      {"emotion": 50, "tension": 80, "stakes": 85, "intimacy": 10},
+    Direction.quiet_reflection: {"emotion": 55, "tension": 15, "stakes": 20, "intimacy": 30},
+    Direction.action_sequence:  {"emotion": 45, "tension": 90, "stakes": 75, "intimacy":  5},
+}
+
+_LENGTH_METRIC_BOOST: dict[Any, int] = {
+    Length.short: 0,
+    Length.medium: 5,
+    Length.long: 10,
+}
+
+
+def _stub_chapter_metrics(controls: StoryLabControls) -> dict[str, Any]:
+    """Deterministic chapter metrics based on direction + length — no API call."""
+    base = dict(_DIRECTION_METRICS.get(controls.direction, _DIRECTION_METRICS[Direction.advance_plot]))
+    boost = _LENGTH_METRIC_BOOST.get(controls.length, 0)
+    base["emotion"] = min(100, base["emotion"] + boost)
+    base["tension"] = min(100, base["tension"] + boost)
+    base["notes"] = f"direction={controls.direction} length={controls.length}"
+    return base
+
+
+def _call_openrouter_metrics(text: str, controls: StoryLabControls) -> dict[str, Any]:
+    """Call OpenRouter to analyse chapter metrics. Returns dict with 0-100 integer values."""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    user_msg = (
+        f"Chapter text:\n\n{text[:3000]}\n\n"
+        f"Direction: {controls.direction}\n\n"
+        "Analyse and return the JSON metrics."
+    )
+    payload = {
+        "model": settings.STORYLAB_MODEL,
+        "messages": [
+            {"role": "system", "content": _CHAPTER_METRICS_SYSTEM},
+            {"role": "user", "content": user_msg},
+        ],
+        "max_tokens": 150,
+        "temperature": 0.1,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://ficshon.com",
+        "X-Title": "Ficshon StoryLab",
+    }
+    with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+        resp = client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+    data = resp.json()
+    raw: str = data["choices"][0]["message"]["content"].strip()
+    parsed: dict[str, Any] = json.loads(raw)
+    for k in ("emotion", "tension", "stakes", "intimacy"):
+        if k not in parsed:
+            raise ValueError(f"Missing key '{k}' in metrics response")
+        parsed[k] = max(0, min(100, int(parsed[k])))
+    parsed.setdefault("notes", "")
+    return parsed
+
+
+def analyze_chapter_metrics(
+    text: str,
+    controls: StoryLabControls,
+) -> dict[str, Any]:
+    """Return chapter metrics with emotion/tension/stakes/intimacy (0-100) + notes.
+
+    In stub mode (or when OpenRouter key is absent): deterministic heuristic.
+    In openrouter mode: calls API; falls back to stub on any failure.
+    """
+    provider = settings.STORYLAB_PROVIDER
+    if provider == "openrouter" and settings.OPENROUTER_API_KEY:
+        try:
+            return _call_openrouter_metrics(text, controls)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Chapter metrics analysis via OpenRouter failed (%s); using stub", exc)
+    return _stub_chapter_metrics(controls)
+
+
+def compute_story_progress(
+    metrics_list: list[dict[str, Any]],
+    window: int = 5,
+) -> dict[str, float]:
+    """Return rolling average of the last `window` chapters' metrics (0-100 scale)."""
+    recent = [m for m in metrics_list if m][-window:]
+    if not recent:
+        return {"emotion": 0.0, "tension": 0.0, "stakes": 0.0, "intimacy": 0.0}
+    keys = ("emotion", "tension", "stakes", "intimacy")
+    return {
+        k: round(sum(float(c.get(k, 0)) for c in recent) / len(recent), 1)
+        for k in keys
+    }

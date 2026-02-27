@@ -53,6 +53,7 @@ class StoryChapter(Base):
     controls_json = Column(JSON, nullable=False, default=dict)
     generated_text = Column(Text, nullable=False)
     word_count = Column(Integer, nullable=False, default=0)
+    metrics_json = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
         DateTime,

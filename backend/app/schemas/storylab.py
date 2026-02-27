@@ -95,6 +95,24 @@ class StoryLabStateResponse(BaseModel):
     updated_at: str
 
 
+# ── chapter metrics + story progress ──────────────────────────────────────────
+
+class ChapterMetrics(BaseModel):
+    emotion: int = Field(default=0, ge=0, le=100)
+    tension: int = Field(default=0, ge=0, le=100)
+    stakes: int = Field(default=0, ge=0, le=100)
+    intimacy: int = Field(default=0, ge=0, le=100)
+    notes: str = ""
+
+
+class StoryProgress(BaseModel):
+    """Rolling average of the last N chapters' metrics (0–100 scale)."""
+    emotion: float = 0.0
+    tension: float = 0.0
+    stakes: float = 0.0
+    intimacy: float = 0.0
+
+
 # ── chapter schemas ────────────────────────────────────────────────────────────
 
 class ChapterGenerateRequest(BaseModel):
@@ -121,6 +139,7 @@ class ChapterDetail(BaseModel):
     suggestions: list[str]
     words: int
     created_at: str
+    metrics: Optional[dict[str, Any]] = None
 
 
 class ChapterGenerateResponse(BaseModel):

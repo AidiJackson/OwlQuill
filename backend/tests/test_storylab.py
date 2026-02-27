@@ -1644,3 +1644,215 @@ def test_chapter_prompt_contains_outcome_vs_path_block():
     assert "## Outcome vs Path" in user
     assert "MAXIMUM" in user or "maximum" in user.lower()
     assert "not a required outcome" in user or "not a requirement" in user
+
+
+# ── escalation curve v1 — chapter metrics + story progress ────────────────────
+# All tests use STORYLAB_PROVIDER=stub (set in conftest) — no live API calls.
+
+_STORY_ID_METRICS = "metrics-test-story-001"
+
+
+def test_stub_chapter_metrics_returns_required_keys():
+    """_stub_chapter_metrics returns emotion/tension/stakes/intimacy/notes for all directions."""
+    from app.services.storylab_generator import _stub_chapter_metrics
+    from app.schemas.storylab import StoryLabControls, Direction
+
+    for direction in Direction:
+        controls = StoryLabControls(direction=direction)
+        m = _stub_chapter_metrics(controls)
+        for key in ("emotion", "tension", "stakes", "intimacy", "notes"):
+            assert key in m, f"key '{key}' missing for direction={direction}"
+        for key in ("emotion", "tension", "stakes", "intimacy"):
+            assert 0 <= m[key] <= 100, f"{key}={m[key]} out of 0-100 range"
+
+
+def test_stub_chapter_metrics_is_deterministic():
+    """_stub_chapter_metrics returns identical results on repeated calls."""
+    from app.services.storylab_generator import _stub_chapter_metrics
+    from app.schemas.storylab import StoryLabControls, Direction
+
+    controls = StoryLabControls(direction=Direction.argument_begins)
+    assert _stub_chapter_metrics(controls) == _stub_chapter_metrics(controls)
+
+
+def test_analyze_chapter_metrics_stub_path():
+    """analyze_chapter_metrics with stub provider returns valid metrics dict."""
+    from app.services.storylab_generator import analyze_chapter_metrics
+    from app.schemas.storylab import StoryLabControls, Direction
+
+    controls = StoryLabControls(direction=Direction.sad_moment)
+    m = analyze_chapter_metrics("She wept at the graveside.", controls)
+    for key in ("emotion", "tension", "stakes", "intimacy"):
+        assert 0 <= m[key] <= 100
+
+
+def test_compute_story_progress_rolling_average():
+    """compute_story_progress returns the mean of the last window chapters."""
+    from app.services.storylab_generator import compute_story_progress
+
+    metrics = [
+        {"emotion": 40, "tension": 60, "stakes": 50, "intimacy": 10},
+        {"emotion": 60, "tension": 80, "stakes": 70, "intimacy": 20},
+        {"emotion": 80, "tension": 40, "stakes": 30, "intimacy": 30},
+    ]
+    result = compute_story_progress(metrics, window=3)
+    assert result["emotion"] == pytest.approx(60.0, abs=0.1)
+    assert result["tension"] == pytest.approx(60.0, abs=0.1)
+    assert result["stakes"]  == pytest.approx(50.0, abs=0.1)
+    assert result["intimacy"] == pytest.approx(20.0, abs=0.1)
+
+
+def test_compute_story_progress_respects_window():
+    """compute_story_progress only uses the last `window` entries."""
+    from app.services.storylab_generator import compute_story_progress
+
+    metrics = [
+        {"emotion": 10, "tension": 10, "stakes": 10, "intimacy": 10},  # outside window
+        {"emotion": 90, "tension": 90, "stakes": 90, "intimacy": 90},
+        {"emotion": 90, "tension": 90, "stakes": 90, "intimacy": 90},
+    ]
+    result = compute_story_progress(metrics, window=2)
+    assert result["emotion"] == pytest.approx(90.0, abs=0.1)
+
+
+def test_compute_story_progress_empty_returns_zeros():
+    """compute_story_progress on empty list returns all zeros."""
+    from app.services.storylab_generator import compute_story_progress
+
+    result = compute_story_progress([])
+    assert result == {"emotion": 0.0, "tension": 0.0, "stakes": 0.0, "intimacy": 0.0}
+
+
+def test_chapter_generate_meta_includes_metrics(client):
+    """POST /chapters/generate meta includes 'metrics' with required keys."""
+    story_id = f"{_STORY_ID_METRICS}_meta"
+    resp = client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    assert resp.status_code == 200
+    meta = resp.json()["meta"]
+    assert "metrics" in meta
+    m = meta["metrics"]
+    for key in ("emotion", "tension", "stakes", "intimacy"):
+        assert key in m
+        assert 0 <= m[key] <= 100
+
+
+def test_chapter_generate_meta_includes_story_progress(client):
+    """POST /chapters/generate meta includes 'story_progress' with rolling-avg values."""
+    story_id = f"{_STORY_ID_METRICS}_sp"
+    resp = client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    assert resp.status_code == 200
+    meta = resp.json()["meta"]
+    assert "story_progress" in meta
+    sp = meta["story_progress"]
+    for key in ("emotion", "tension", "stakes", "intimacy"):
+        assert key in sp
+        assert 0 <= sp[key] <= 100
+
+
+def test_metrics_json_persisted_after_generate(client, db_session):
+    """After generating a chapter, metrics_json is stored on the StoryChapter row."""
+    from app.models.storylab import StoryChapter
+
+    story_id = f"{_STORY_ID_METRICS}_persist"
+    resp = client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    assert resp.status_code == 200
+
+    db_session.expire_all()
+    ch = (
+        db_session.query(StoryChapter)
+        .filter(StoryChapter.story_id == story_id)
+        .first()
+    )
+    assert ch is not None
+    assert ch.metrics_json is not None
+    for key in ("emotion", "tension", "stakes", "intimacy"):
+        assert key in ch.metrics_json
+
+
+def test_regenerate_updates_metrics_json(client, db_session):
+    """POST /chapters/{n}/regenerate overwrites metrics_json with fresh values."""
+    from app.models.storylab import StoryChapter
+
+    story_id = f"{_STORY_ID_METRICS}_regen"
+    # Generate chapter 1
+    client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    db_session.expire_all()
+    ch_before = (
+        db_session.query(StoryChapter)
+        .filter(StoryChapter.story_id == story_id)
+        .first()
+    )
+    original_notes = (ch_before.metrics_json or {}).get("notes", "")
+
+    # Regenerate with a different direction
+    regen_body = {
+        **_CH_GENERATE_BODY,
+        "controls": {**_CH_GENERATE_BODY["controls"], "direction": "quiet_reflection"},
+    }
+    regen_resp = client.post(
+        f"/api/storylab/chapters/1/regenerate?story_id={story_id}",
+        json=regen_body,
+    )
+    assert regen_resp.status_code == 200
+    regen_meta = regen_resp.json()["meta"]
+    assert "metrics" in regen_meta
+
+    db_session.expire_all()
+    ch_after = (
+        db_session.query(StoryChapter)
+        .filter(StoryChapter.story_id == story_id)
+        .first()
+    )
+    assert ch_after.metrics_json is not None
+    # Notes should reflect the new direction
+    new_notes = ch_after.metrics_json.get("notes", "")
+    assert new_notes != original_notes, "metrics_json notes should update after regenerate"
+
+
+def test_chapter_get_includes_metrics(client):
+    """GET /chapters/{n} includes 'metrics' key in response when metrics are stored."""
+    story_id = f"{_STORY_ID_METRICS}_get"
+    client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_CH_GENERATE_BODY,
+    )
+    resp = client.get(f"/api/storylab/chapters/1?story_id={story_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "metrics" in data
+    m = data["metrics"]
+    assert m is not None
+    for key in ("emotion", "tension", "stakes", "intimacy"):
+        assert key in m
+
+
+def test_story_progress_is_rolling_avg_of_chapters(client):
+    """story_progress after 3 chapters is the rolling avg of those 3 chapters' metrics."""
+    story_id = f"{_STORY_ID_METRICS}_rolling"
+    resps = []
+    for _ in range(3):
+        r = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+        )
+        assert r.status_code == 200
+        resps.append(r.json())
+
+    # Third response should have story_progress averaging all 3 chapters
+    sp3 = resps[2]["meta"]["story_progress"]
+    # All 3 chapters use same controls so metrics are identical — avg == individual value
+    m_single = resps[2]["meta"]["metrics"]
+    for key in ("emotion", "tension", "stakes", "intimacy"):
+        assert sp3[key] == pytest.approx(m_single[key], abs=0.2)

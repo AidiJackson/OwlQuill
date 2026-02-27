@@ -129,6 +129,8 @@ export default function StoryLabEngine() {
   // Story progress state (from /state endpoint)
   const [storyState, setStoryState] = useState<SLStoryState | null>(null);
   const [isLoadingState, setIsLoadingState] = useState(false);
+  // Rolling-average story progress from chapter generate/regen (0-100 scale)
+  const [storyProgress, setStoryProgress] = useState<{ emotion: number; tension: number; stakes: number; intimacy: number } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -256,6 +258,10 @@ export default function StoryLabEngine() {
           },
         ].sort((a, b) => a.chapter_number - b.chapter_number);
       });
+      if (data.meta?.story_progress) {
+        const sp = data.meta.story_progress;
+        setStoryProgress({ emotion: sp.emotion, tension: sp.tension, stakes: sp.stakes, intimacy: sp.intimacy });
+      }
       setPromptInput('');
       // Refresh state for progress bars
       void fetchStoryState(currentStoryId);
@@ -323,6 +329,10 @@ export default function StoryLabEngine() {
             : c
         )
       );
+      if (data.meta?.story_progress) {
+        const sp = data.meta.story_progress;
+        setStoryProgress({ emotion: sp.emotion, tension: sp.tension, stakes: sp.stakes, intimacy: sp.intimacy });
+      }
       void fetchStoryState(currentStoryId);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -345,6 +355,7 @@ export default function StoryLabEngine() {
     setPromptInput('');
     setError('');
     setStoryState(null);
+    setStoryProgress(null);
     setConfirmAction(null);
     void fetchChapters(id);
     void fetchStoryState(id);
@@ -361,6 +372,7 @@ export default function StoryLabEngine() {
     setPromptInput('');
     setError('');
     setStoryState(null);
+    setStoryProgress(null);
     setConfirmAction(null);
     void fetchStoryState(id);
   }
@@ -729,47 +741,62 @@ export default function StoryLabEngine() {
           )}
 
           {/* Story progress */}
-          <div className="border border-gray-800 rounded-xl p-3 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Story Progress</p>
-              {isLoadingState && <span className="text-xs text-gray-500">Loading\u2026</span>}
-            </div>
-            {storyState ? (
-              <div className="space-y-2">
-                {(
-                  [
-                    { label: 'Emotion',  value: clamp(storyState.emotional_weight) },
-                    { label: 'Tension',  value: clamp(storyState.tension) },
-                    { label: 'Stakes',   value: clamp(storyState.stakes) },
-                    { label: 'Intimacy', value: clamp(storyState.intimacy_level), dim: slControls.boundary === 'sfw' },
-                  ] as { label: string; value: number; dim?: boolean }[]
-                ).map(({ label, value, dim }) => (
-                  <div key={label} className={dim ? 'opacity-40' : undefined}>
-                    <div className="flex justify-between mb-0.5">
-                      <span className="text-[10px] text-gray-500">{label}</span>
-                      <span className="text-[10px] text-gray-600">{Math.round(value * 100)}%</span>
-                    </div>
-                    <div className="h-1.5 bg-gray-800/80 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-600/70 rounded-full transition-[width] duration-500 ease-out"
-                        style={{ width: `${value * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-                <div className="pt-1 border-t border-gray-800/60 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
-                  <span className="text-gray-600">Tone</span>
-                  <span className="text-gray-400">{storyState.tone}</span>
-                  <span className="text-gray-600">Pacing</span>
-                  <span className="text-gray-400">{storyState.pacing}</span>
+          {(() => {
+            type BarItem = { label: string; value: number; dim?: boolean };
+            const barItems: BarItem[] | null = storyProgress
+              ? [
+                  { label: 'Emotion',  value: storyProgress.emotion / 100 },
+                  { label: 'Tension',  value: storyProgress.tension / 100 },
+                  { label: 'Stakes',   value: storyProgress.stakes / 100 },
+                  { label: 'Intimacy', value: storyProgress.intimacy / 100, dim: slControls.boundary === 'sfw' },
+                ]
+              : storyState
+              ? [
+                  { label: 'Emotion',  value: clamp(storyState.emotional_weight) },
+                  { label: 'Tension',  value: clamp(storyState.tension) },
+                  { label: 'Stakes',   value: clamp(storyState.stakes) },
+                  { label: 'Intimacy', value: clamp(storyState.intimacy_level), dim: slControls.boundary === 'sfw' },
+                ]
+              : null;
+            return (
+              <div className="border border-gray-800 rounded-xl p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Story Progress</p>
+                  {isLoadingState && <span className="text-xs text-gray-500">Loading\u2026</span>}
                 </div>
+                {barItems ? (
+                  <div className="space-y-2">
+                    {barItems.map(({ label, value, dim }) => (
+                      <div key={label} className={dim ? 'opacity-40' : undefined}>
+                        <div className="flex justify-between mb-0.5">
+                          <span className="text-[10px] text-gray-500">{label}</span>
+                          <span className="text-[10px] text-gray-600">{Math.round(value * 100)}%</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-800/80 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-600/70 rounded-full transition-[width] duration-500 ease-out"
+                            style={{ width: `${value * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    {storyState && (
+                      <div className="pt-1 border-t border-gray-800/60 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
+                        <span className="text-gray-600">Tone</span>
+                        <span className="text-gray-400">{storyState.tone}</span>
+                        <span className="text-gray-600">Pacing</span>
+                        <span className="text-gray-400">{storyState.pacing}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    {isLoadingState ? 'Loading\u2026' : 'No state loaded.'}
+                  </p>
+                )}
               </div>
-            ) : (
-              <p className="text-xs text-gray-500">
-                {isLoadingState ? 'Loading\u2026' : 'No state loaded.'}
-              </p>
-            )}
-          </div>
+            );
+          })()}
 
         </div>
       </div>
