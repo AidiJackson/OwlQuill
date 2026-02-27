@@ -11,8 +11,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 // ── localStorage keys ─────────────────────────────────────────────────────────
 
-const LS_CURRENT = 'ficshon_storylab_current_story_id';
-const LS_RECENTS = 'ficshon_storylab_recent_story_ids';
+const LS_CURRENT      = 'ficshon_storylab_current_story_id';
+const LS_RECENTS      = 'ficshon_storylab_recent_story_ids';
+const LS_READER_SIZE  = 'ficshon_storylab_reader_size';
+
+type ReaderSize = 'S' | 'M' | 'L';
+
+const READER_TYPOGRAPHY: Record<ReaderSize, string> = {
+  S: 'text-[13px] leading-[1.75]',
+  M: 'text-[15px] leading-[1.85]',
+  L: 'text-[18px] leading-[1.9]',
+};
 
 // ── Story-ID helpers ──────────────────────────────────────────────────────────
 
@@ -125,6 +134,16 @@ export default function StoryLabEngine() {
 
   const [promptRevealOpen, setPromptRevealOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'delete' | 'regenerate' | null>(null);
+
+  const [readerSize, setReaderSize] = useState<ReaderSize>(() => {
+    const s = localStorage.getItem(LS_READER_SIZE);
+    return s === 'S' || s === 'M' || s === 'L' ? s : 'M';
+  });
+
+  function setAndPersistReaderSize(s: ReaderSize) {
+    setReaderSize(s);
+    localStorage.setItem(LS_READER_SIZE, s);
+  }
 
   // Story progress state (from /state endpoint)
   const [storyState, setStoryState] = useState<SLStoryState | null>(null);
@@ -457,7 +476,26 @@ export default function StoryLabEngine() {
                 <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
                   Chapter {currentChapter.chapter_number}
                 </span>
-                <span className="text-[10px] text-gray-600">{currentChapter.words} words</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-600">{currentChapter.words} words</span>
+                  {/* Reader size toggle */}
+                  <div className="flex items-center gap-0.5">
+                    {(['S', 'M', 'L'] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setAndPersistReaderSize(s)}
+                        className={`w-5 h-5 text-[9px] font-medium rounded transition ${
+                          readerSize === s
+                            ? 'bg-gray-700/80 text-gray-200'
+                            : 'text-gray-600 hover:text-gray-400'
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Prompt reveal */}
@@ -468,13 +506,15 @@ export default function StoryLabEngine() {
                     onClick={() => setPromptRevealOpen((p) => !p)}
                     className="flex items-center gap-1 text-[10px] text-gray-600 hover:text-gray-400 transition"
                   >
-                    <span className={`transition-transform duration-150 ${promptRevealOpen ? 'rotate-90' : ''}`}>›</span>
+                    <span className={`inline-block transition-transform duration-150 ${promptRevealOpen ? 'rotate-90' : ''}`}>›</span>
                     Prompt used for this chapter
                   </button>
                   {promptRevealOpen && (
-                    <p className="mt-1 pl-3 text-[11px] text-gray-500 leading-relaxed border-l border-gray-800">
-                      {currentChapter.prompt_text}
-                    </p>
+                    <div className="mt-2 rounded-lg bg-gray-950/70 border border-gray-800/80 px-3 py-2.5">
+                      <p className="text-[11px] font-mono text-gray-500 leading-relaxed whitespace-pre-wrap break-words">
+                        {currentChapter.prompt_text}
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
@@ -491,17 +531,28 @@ export default function StoryLabEngine() {
           )}
 
           {/* Chapter text */}
-          <div className="flex-1 min-h-[300px] md:min-h-0 overflow-y-auto rounded-xl bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)] p-5">
+          <div className="flex-1 min-h-[300px] md:min-h-0 overflow-y-auto rounded-xl bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)] p-5 md:p-7">
             {isLoadingChapter ? (
-              <div className="space-y-2.5 animate-pulse">
-                {[...Array(6)].map((_, i) => (
-                  <div key={i} className={`h-2 bg-gray-800 rounded ${i % 5 === 4 ? 'w-3/5' : 'w-full'}`} />
+              <div className="space-y-2.5 animate-pulse max-w-[72ch] mx-auto">
+                {[...Array(8)].map((_, i) => (
+                  <div key={i} className={`h-2 bg-gray-800 rounded ${i % 6 === 5 ? 'w-2/5' : i % 4 === 3 ? 'w-4/5' : 'w-full'}`} />
                 ))}
               </div>
             ) : currentChapter ? (
-              <p className="text-[15px] leading-[1.8] text-gray-100 whitespace-pre-wrap font-normal tracking-[0.01em]">
-                {currentChapter.generated_text}
-              </p>
+              <div className="max-w-[72ch] mx-auto">
+                {currentChapter.generated_text
+                  .split(/\n\n+/)
+                  .map((para) => para.trim())
+                  .filter((para) => para.length > 0)
+                  .map((para, i) => (
+                    <p
+                      key={i}
+                      className={`${READER_TYPOGRAPHY[readerSize]} text-gray-100 font-normal tracking-[0.01em] mb-[1.15em] last:mb-0`}
+                    >
+                      {para}
+                    </p>
+                  ))}
+              </div>
             ) : (
               <p className="text-gray-700 text-sm italic">Your chapter will appear here.</p>
             )}
