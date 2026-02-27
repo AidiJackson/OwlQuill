@@ -130,7 +130,10 @@ export default function StoryLabEngine() {
   const [storyState, setStoryState] = useState<SLStoryState | null>(null);
   const [isLoadingState, setIsLoadingState] = useState(false);
 
-  const abortRef = useRef<AbortController | null>(null);
+  const [activeSuggestion, setActiveSuggestion] = useState<number | null>(null);
+
+  const abortRef   = useRef<AbortController | null>(null);
+  const readerRef  = useRef<HTMLDivElement | null>(null);
 
   // ── Abort all in-flight requests ───────────────────────────────────────────
 
@@ -263,6 +266,70 @@ export default function StoryLabEngine() {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setError((err as Error).message || 'Generation failed.');
     } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function handleSuggestionClick(text: string, idx: number) {
+    if (isGenerating) return;
+    setActiveSuggestion(idx);
+    setError('');
+    setConfirmAction(null);
+    setIsGenerating(true);
+    try {
+      const payload = { prompt: text, mode, controls: slControls };
+      const resp = await fetch(
+        `/api/storylab/chapters/generate?story_id=${encodeURIComponent(currentStoryId)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: abortRef.current?.signal,
+        },
+      );
+      if (!resp.ok) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const err = await resp.json().catch(() => ({})) as any;
+        throw new Error(err?.detail?.message || err?.detail || `HTTP ${resp.status}`);
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = await resp.json() as any;
+      const newChapter: ChapterDetail = {
+        chapter_number: data.chapter_number,
+        generated_text: data.generated_text,
+        prompt_text: data.prompt_text,
+        controls: slControls,
+        suggestions: data.suggestions ?? [],
+        words: data.meta?.words ?? 0,
+        created_at: new Date().toISOString(),
+      };
+      setCurrentChapter(newChapter);
+      setChapters((prev) => {
+        const filtered = prev.filter((c) => c.chapter_number !== data.chapter_number);
+        return [
+          ...filtered,
+          {
+            chapter_number: data.chapter_number,
+            created_at: newChapter.created_at,
+            words: newChapter.words,
+            mode,
+            boundary: slControls.boundary,
+            length: slControls.length,
+          },
+        ].sort((a, b) => a.chapter_number - b.chapter_number);
+      });
+      void fetchStoryState(currentStoryId);
+      // Scroll reader to bottom once React has committed the new text to the DOM.
+      setTimeout(() => {
+        if (readerRef.current) {
+          readerRef.current.scrollTop = readerRef.current.scrollHeight;
+        }
+      }, 60);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setError((err as Error).message || 'Generation failed.');
+    } finally {
+      setActiveSuggestion(null);
       setIsGenerating(false);
     }
   }
@@ -491,7 +558,7 @@ export default function StoryLabEngine() {
           )}
 
           {/* Chapter text */}
-          <div className="flex-1 min-h-[300px] md:min-h-0 overflow-y-auto rounded-xl bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)] p-5">
+          <div ref={readerRef} className="flex-1 min-h-[300px] md:min-h-0 overflow-y-auto rounded-xl bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)] p-5">
             {isLoadingChapter ? (
               <div className="space-y-2.5 animate-pulse">
                 {[...Array(6)].map((_, i) => (
@@ -575,20 +642,41 @@ export default function StoryLabEngine() {
           {suggestions.length > 0 && (
             <div className="border border-gray-800 rounded-xl p-4 space-y-2">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">StoryLab suggests</p>
-              <ul className="space-y-1.5">
-                {suggestions.map((s, i) => (
-                  <li key={i}>
-                    <button
-                      type="button"
-                      onClick={() => setPromptInput(s)}
-                      className="text-left w-full flex gap-2 text-xs text-gray-300 hover:text-emerald-300 leading-relaxed transition group"
-                    >
-                      <span className="mt-0.5 shrink-0 text-emerald-600 group-hover:text-emerald-400 transition">›</span>
-                      <span>{s}</span>
-                    </button>
-                  </li>
-                ))}
+              <ul className="space-y-1">
+                {suggestions.map((s, i) => {
+                  const isActive   = activeSuggestion === i;
+                  const isDisabled = isGenerating && activeSuggestion !== i;
+                  return (
+                    <li key={i}>
+                      <button
+                        type="button"
+                        disabled={isGenerating}
+                        onClick={() => void handleSuggestionClick(s, i)}
+                        className={`text-left w-full flex items-start gap-2 text-xs leading-relaxed rounded-lg px-2 py-1.5 -mx-2 transition group ${
+                          isActive
+                            ? 'bg-emerald-900/20 text-emerald-300'
+                            : isDisabled
+                              ? 'text-gray-600 opacity-50 cursor-not-allowed'
+                              : 'text-gray-300 hover:bg-gray-800/40 hover:text-emerald-300'
+                        }`}
+                      >
+                        <span className={`mt-0.5 shrink-0 transition ${
+                          isActive
+                            ? 'text-emerald-400 animate-pulse'
+                            : 'text-emerald-700 group-hover:text-emerald-400'
+                        }`}>›</span>
+                        <span className="flex-1">{s}</span>
+                        {isActive && (
+                          <span className="shrink-0 text-[10px] text-emerald-500 animate-pulse self-center ml-1">
+                            generating…
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
+              <p className="text-[10px] text-gray-700 pt-0.5">Click to generate immediately</p>
             </div>
           )}
 
