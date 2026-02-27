@@ -539,6 +539,17 @@ Do NOT produce static descriptive filler. Something must shift.\
 """
 
 
+# ── chapter ending bias (chapter prompt only) ────────────────────────────────
+
+_CHAPTER_ENDING_BIAS_BLOCK = """\
+## Ending Constraint
+- The chapter must end with forward tension.
+- Do not fully resolve the central conflict introduced in this chapter.
+- Close on a shift, revelation, emotional destabilisation, or new complication.
+- Increase narrative momentum in the final paragraph — do not wind down.\
+"""
+
+
 # ── recurring-phrase extractor (private) ─────────────────────────────────────
 
 def _extract_recurring_phrases(text: str, max_phrases: int = 2) -> list[str]:
@@ -1038,8 +1049,9 @@ def build_chapter_prompt(
         7.  Direction / boundary / pacing / tone
         8.  Outcome vs Path               (always — governs control interpretation)
         9.  Target length
-        10. User guidance for this chapter
-        11. Task instruction
+        10. Ending Constraint             (always — forward-tension bias)
+        11. User guidance for this chapter
+        12. Task instruction
 
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
@@ -1110,6 +1122,7 @@ def build_chapter_prompt(
     sections.append(
         f"## Target length\nAim for ~{target_words} words (hard cap: {cap_words} words)."
     )
+    sections.append(_CHAPTER_ENDING_BIAS_BLOCK)
 
     guidance = prompt.strip() if prompt and prompt.strip() else "(No specific guidance — develop the story naturally.)"
     sections.append(f"## User guidance for this chapter\n{guidance}")

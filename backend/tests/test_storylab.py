@@ -1644,3 +1644,81 @@ def test_chapter_prompt_contains_outcome_vs_path_block():
     assert "## Outcome vs Path" in user
     assert "MAXIMUM" in user or "maximum" in user.lower()
     assert "not a required outcome" in user or "not a requirement" in user
+
+
+# ── chapter ending bias ────────────────────────────────────────────────────────
+
+def test_chapter_prompt_contains_ending_bias_block():
+    """build_chapter_prompt always injects the Ending Constraint block."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    msgs = build_chapter_prompt(
+        prompt="She steps into the darkened hallway.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user = msgs[1]["content"]
+
+    assert "## Ending Constraint" in user
+    assert "forward tension" in user.lower()
+    assert "fully resolve" in user.lower() or "do not fully" in user.lower()
+    assert "momentum" in user.lower()
+
+
+def test_chapter_prompt_ending_bias_after_target_length():
+    """Ending Constraint block appears after ## Target length in the chapter prompt."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    msgs = build_chapter_prompt(
+        prompt="The ship enters the fog.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user = msgs[1]["content"]
+
+    pos_len    = user.find("## Target length")
+    pos_ending = user.find("## Ending Constraint")
+
+    assert pos_len    != -1, "Target length block missing"
+    assert pos_ending != -1, "Ending Constraint block missing"
+    assert pos_len < pos_ending, (
+        f"Expected Target length ({pos_len}) before Ending Constraint ({pos_ending})"
+    )
+
+
+def test_summary_prompt_does_not_contain_ending_bias():
+    """build_story_summary_prompt must NOT include the Ending Constraint block."""
+    from app.services.storylab_generator import build_story_summary_prompt
+
+    msgs = build_story_summary_prompt(
+        existing_summary="They argued. She left.",
+        new_chapter_text="He followed her into the rain.",
+        chapter_number=2,
+    )
+    user = msgs[1]["content"]
+
+    assert "## Ending Constraint" not in user
+    assert "forward tension" not in user.lower()
+
+
+def test_storylab_prompt_does_not_contain_ending_bias():
+    """build_storylab_prompt (continuation) must NOT include the Ending Constraint block."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    msgs = build_storylab_prompt(
+        text="He reached for her hand.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user = msgs[1]["content"]
+
+    assert "## Ending Constraint" not in user
