@@ -77,17 +77,28 @@ type SLControls = {
 
 // ── Style Packs ───────────────────────────────────────────────────────────────
 
-const STYLE_PACKS: { value: string; label: string; hint: string }[] = [
-  { value: 'baroque',          label: 'Baroque',         hint: 'Ornate, layered sentence architecture' },
-  { value: 'sparse',           label: 'Sparse',          hint: 'Hemingway compression; restraint as statement' },
-  { value: 'sensory_rich',     label: 'Sensory-rich',    hint: 'Specific sensation anchors every moment' },
-  { value: 'unreliable_voice', label: 'Unreliable Voice',hint: 'Narrator withholds, deflects, misremembers' },
-  { value: 'gothic',           label: 'Gothic',          hint: 'Dread pressed into atmosphere and objects' },
-  { value: 'kinetic',          label: 'Kinetic',         hint: 'Propulsive pull; every sentence hooks forward' },
-  { value: 'interior_depth',   label: 'Interior Depth',  hint: 'Extended consciousness; thought equals action' },
-  { value: 'sharp_dialogue',   label: 'Sharp Dialogue',  hint: 'Oblique speech; silence and interruption land' },
-  { value: 'mythic_register',  label: 'Mythic Register', hint: 'Elevated diction; events feel historically weighted' },
-  { value: 'fragmented',       label: 'Fragmented',      hint: 'Non-linear; present and memory alternate' },
+type PackDef = { value: string; label: string; hint: string };
+
+const VOICE_PACKS: PackDef[] = [
+  { value: 'baroque',          label: 'Baroque',          hint: 'Ornate, layered sentence architecture' },
+  { value: 'sparse',           label: 'Sparse',           hint: 'Hemingway compression; restraint as statement' },
+  { value: 'sensory_rich',     label: 'Sensory-rich',     hint: 'Specific sensation anchors every moment' },
+  { value: 'unreliable_voice', label: 'Unreliable Voice', hint: 'Narrator withholds, deflects, misremembers' },
+  { value: 'gothic',           label: 'Gothic',           hint: 'Dread pressed into atmosphere and objects' },
+  { value: 'kinetic',          label: 'Kinetic',          hint: 'Propulsive pull; every sentence hooks forward' },
+  { value: 'interior_depth',   label: 'Interior Depth',   hint: 'Extended consciousness; thought equals action' },
+  { value: 'sharp_dialogue',   label: 'Sharp Dialogue',   hint: 'Oblique speech; silence and interruption land' },
+  { value: 'mythic_register',  label: 'Mythic Register',  hint: 'Elevated diction; events feel historically weighted' },
+  { value: 'fragmented',       label: 'Fragmented',       hint: 'Non-linear; present and memory alternate' },
+];
+
+const SCENE_PACKS: PackDef[] = [
+  { value: 'slow_burn',        label: 'Slow Burn',        hint: 'Restrained desire escalates through glance and proximity' },
+  { value: 'power_play',       label: 'Power Play',       hint: 'Authority and leverage shift across the scene' },
+  { value: 'jealousy',         label: 'Jealousy',         hint: 'Possessive attention colours every observation' },
+  { value: 'high_conflict',    label: 'High Conflict',    hint: 'Voices harden; every exchange escalates' },
+  { value: 'tender_aftercare', label: 'Tender Aftercare', hint: 'Protective softness follows intensity' },
+  { value: 'chaos',            label: 'Chaos',            hint: 'Events spiral; plans collapse mid-execution' },
 ];
 
 const MAX_STYLE_PACKS = 3;
@@ -752,42 +763,83 @@ export default function StoryLabEngine() {
               <span className={`text-gray-600 transition-transform duration-150 ${packsExpanded ? 'rotate-90' : ''}`}>›</span>
             </button>
             {packsExpanded && (
-              <div className="px-4 pb-4 space-y-2">
+              <div className="px-4 pb-4 space-y-3">
                 <p className="text-[10px] text-gray-600 leading-relaxed">
-                  Optional — up to {MAX_STYLE_PACKS}. Craft layer only; never overrides boundary or character anchors.
+                  Optional — up to {MAX_STYLE_PACKS} total. Craft layer only; never overrides boundary or character anchors.
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {STYLE_PACKS.map(({ value, label, hint }) => {
-                    const isSelected = selectedStylePacks.includes(value);
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        title={hint}
-                        onClick={() => {
-                          if (isSelected) {
-                            setSelectedStylePacks((p) => p.filter((k) => k !== value));
-                            setPacksMaxHint(false);
-                          } else if (selectedStylePacks.length >= MAX_STYLE_PACKS) {
-                            setPacksMaxHint(true);
-                          } else {
-                            setSelectedStylePacks((p) => [...p, value]);
-                            setPacksMaxHint(false);
-                          }
-                        }}
-                        className={`px-2.5 py-1 text-xs rounded-lg border transition ${
-                          isSelected
-                            ? 'bg-violet-600/30 border-violet-500/60 text-violet-300'
-                            : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
+
+                {/* Voice packs group */}
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider">Voice</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {VOICE_PACKS.map(({ value, label, hint }) => {
+                      const isSelected = selectedStylePacks.includes(value);
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          title={hint}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedStylePacks((p) => p.filter((k) => k !== value));
+                              setPacksMaxHint(false);
+                            } else if (selectedStylePacks.length >= MAX_STYLE_PACKS) {
+                              setPacksMaxHint(true);
+                            } else {
+                              setSelectedStylePacks((p) => [...p, value]);
+                              setPacksMaxHint(false);
+                            }
+                          }}
+                          className={`px-2.5 py-1 text-xs rounded-lg border transition ${
+                            isSelected
+                              ? 'bg-violet-600/30 border-violet-500/60 text-violet-300'
+                              : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+
+                {/* Scene packs group */}
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-gray-600 uppercase tracking-wider">Scene</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {SCENE_PACKS.map(({ value, label, hint }) => {
+                      const isSelected = selectedStylePacks.includes(value);
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          title={hint}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedStylePacks((p) => p.filter((k) => k !== value));
+                              setPacksMaxHint(false);
+                            } else if (selectedStylePacks.length >= MAX_STYLE_PACKS) {
+                              setPacksMaxHint(true);
+                            } else {
+                              setSelectedStylePacks((p) => [...p, value]);
+                              setPacksMaxHint(false);
+                            }
+                          }}
+                          className={`px-2.5 py-1 text-xs rounded-lg border transition ${
+                            isSelected
+                              ? 'bg-violet-600/30 border-violet-500/60 text-violet-300'
+                              : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {packsMaxHint && (
-                  <p className="text-[10px] text-amber-500/80">Max {MAX_STYLE_PACKS} packs</p>
+                  <p className="text-[10px] text-amber-500/80">Max {MAX_STYLE_PACKS} packs total</p>
                 )}
                 {selectedStylePacks.length > 0 && (
                   <button

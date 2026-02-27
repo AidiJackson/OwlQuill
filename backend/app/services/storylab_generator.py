@@ -18,7 +18,8 @@ Public helpers (importable for testing)
     tone_instructions(tone_intensity)             -> str
     build_character_voice_block(chars)            -> str   # character voice instructions
     build_character_behaviour_anchors(chars, rels) -> str  # character behaviour anchors
-    build_style_packs_block(style_packs)          -> str   # style pack prompt block (max 3)
+    build_style_packs_block(style_packs)          -> str   # voice/scene pack prompt block (max 3 total)
+    _build_policy_notes(controls, style_packs)    -> str   # DEV debug summary; includes packs= when active
     build_storylab_prompt(...)                    -> list[dict]  # messages payload
     build_chapter_prompt(...)                     -> list[dict]  # chapter messages payload
     build_story_summary_prompt(...)               -> list[dict]  # summary update messages
@@ -527,12 +528,13 @@ character-consistent path (slower burn, different tactic) — not via out-of-cha
 
 
 # ── style packs (optional chaos layer) ───────────────────────────────────────
+# Two categories: Voice (sentence craft + register) and Scene (dramatic texture).
 # Each entry: key -> (display_title, instruction_text)
 # instruction_text <= ~250 chars; no banned stock phrases.
-# Applied AFTER Outcome-vs-Path; modulates sentence craft only — never overrides
+# Applied AFTER Outcome-vs-Path; modulates craft only — never overrides
 # boundary, direction, or character anchors.
 
-_STYLE_PACKS: dict[str, tuple[str, str]] = {
+_VOICE_PACKS: dict[str, tuple[str, str]] = {
     "baroque": (
         "Baroque",
         "Ornate, layered sentence architecture. Subordinate clauses weighted with implication. "
@@ -585,25 +587,101 @@ _STYLE_PACKS: dict[str, tuple[str, str]] = {
     ),
 }
 
+_SCENE_PACKS: dict[str, tuple[str, str]] = {
+    "slow_burn": (
+        "Slow Burn",
+        "Restrained desire escalates through glance, proximity, and withheld action. "
+        "No payoff arrives early. The tension is the scene.",
+    ),
+    "power_play": (
+        "Power Play",
+        "Authority, social hierarchy, or physical dominance sets the scene's current. "
+        "Characters navigate who holds leverage and how it shifts.",
+    ),
+    "jealousy": (
+        "Jealousy",
+        "Possessive attention, misread signals, or a rival presence destabilises the POV. "
+        "Jealousy colours every observation without being named directly.",
+    ),
+    "high_conflict": (
+        "High Conflict",
+        "Stakes are immediate; voices raise or harden; bodies tense. "
+        "Every exchange escalates rather than resolves. Nothing is let go easily.",
+    ),
+    "tender_aftercare": (
+        "Tender Aftercare",
+        "Protective softness follows intensity. Small gestures — steadying hands, quiet words — "
+        "carry the emotional weight. Vulnerability is treated with care.",
+    ),
+    "chaos": (
+        "Chaos",
+        "Events spiral outside any character's control. Plans collapse mid-execution. "
+        "Unexpected intrusions, reversals, or absurdity drive the scene forward.",
+    ),
+}
+
+# Combined lookup used for prompt rendering and unknown-key filtering.
+_ALL_PACKS: dict[str, tuple[str, str]] = {**_VOICE_PACKS, **_SCENE_PACKS}
+
 
 def build_style_packs_block(style_packs: list[str]) -> str:
     """Return the ## Style Packs prompt block for the given pack keys.
 
     Filters unknown keys, caps at 3, returns '' when nothing valid remains.
+    Renders separate ### Voice and ### Scene subsections when both types are present.
     Never overrides boundary, direction, or character anchors — modulates
-    sentence-level craft and register only.
+    sentence-level craft and dramatic register only.
     """
-    valid = [k for k in style_packs[:3] if k in _STYLE_PACKS]
+    valid = [k for k in style_packs[:3] if k in _ALL_PACKS]
     if not valid:
         return ""
-    lines = [f"- {_STYLE_PACKS[k][0]}: {_STYLE_PACKS[k][1]}" for k in valid]
+
+    voice_keys = [k for k in valid if k in _VOICE_PACKS]
+    scene_keys = [k for k in valid if k in _SCENE_PACKS]
+
+    both = bool(voice_keys) and bool(scene_keys)
+    sections: list[str] = []
+
+    if voice_keys:
+        header = "### Voice\n" if both else ""
+        lines = "\n".join(f"- {_VOICE_PACKS[k][0]}: {_VOICE_PACKS[k][1]}" for k in voice_keys)
+        sections.append(header + lines)
+
+    if scene_keys:
+        header = "### Scene\n" if both else ""
+        lines = "\n".join(f"- {_SCENE_PACKS[k][0]}: {_SCENE_PACKS[k][1]}" for k in scene_keys)
+        sections.append(header + lines)
+
+    body = "\n\n".join(sections)
     return (
         "## Style Packs\n"
-        + "\n".join(lines)
+        + body
         + "\nApply the listed style qualities as a layer on top of all other instructions. "
         "These do not override boundary, direction, or character anchors — they modulate "
-        "sentence-level craft, register, and rhythm only."
+        "sentence-level craft, register, and dramatic texture only."
     )
+
+
+def _build_policy_notes(controls: Any, style_packs: list[str] | None = None) -> str:
+    """Build a DEV debug summary string for a generation request.
+
+    Included in logger.debug output when DEBUG logging is active.
+    When packs are passed and at least one is recognised, the string
+    contains a ``packs=<comma-joined-keys>`` segment so it is grep-able
+    in log output and testable as a unit.
+    """
+    parts = [
+        f"direction={controls.direction.value}",
+        f"boundary={controls.boundary.value}",
+        f"pacing={controls.pacing.value}",
+        f"tone={controls.tone_intensity.value}",
+        f"length={controls.length.value}",
+    ]
+    if style_packs:
+        active = [k for k in style_packs if k in _ALL_PACKS]
+        if active:
+            parts.append(f"packs={','.join(active)}")
+    return " | ".join(parts)
 
 
 # ── scene momentum block (static, inserted per-request) ─────────────────────
@@ -1297,9 +1375,7 @@ def _call_openrouter_chapter(
         variant=variant, style_packs=style_packs or [],
     )
     if style_packs:
-        active = [k for k in style_packs if k in _STYLE_PACKS]
-        if active:
-            logger.debug("StoryLab style packs active: %s", ", ".join(active))
+        logger.debug("StoryLab %s", _build_policy_notes(controls, style_packs))
     cap_words = _length_cap(controls.length)
     # Extra headroom for SUGGESTIONS + DELTA_SIGNALS blocks on top of prose
     max_tokens = max(400, int(cap_words * 2.5))

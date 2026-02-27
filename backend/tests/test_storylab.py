@@ -1734,3 +1734,132 @@ def test_style_packs_accepted_via_endpoint(client):
     body = resp.json()
     assert body["generated_text"]
     assert set(body["meta"]["style_packs"]) == {"gothic", "sensory_rich"}
+
+
+# ── scene packs ────────────────────────────────────────────────────────────────
+
+def test_scene_pack_injected_in_prompt_block():
+    """build_style_packs_block includes scene pack names and their instruction text."""
+    from app.services.storylab_generator import build_style_packs_block
+
+    block = build_style_packs_block(["slow_burn"])
+    assert "## Style Packs" in block
+    assert "Slow Burn" in block
+    # Instruction text references the slow-burn craft cue
+    assert "desire" in block.lower() or "proximity" in block.lower() or "tension" in block.lower()
+
+    # chaos pack
+    block2 = build_style_packs_block(["chaos"])
+    assert "Chaos" in block2
+    assert "spiral" in block2.lower() or "collapse" in block2.lower()
+
+
+def test_scene_pack_unknown_keys_filtered():
+    """build_style_packs_block drops unknown scene-like keys silently."""
+    from app.services.storylab_generator import build_style_packs_block
+
+    block = build_style_packs_block(["not_a_scene_pack", "also_fake_scene"])
+    assert block == ""
+
+    # Known scene + unknown — only known appears
+    block2 = build_style_packs_block(["not_a_scene_pack", "high_conflict"])
+    assert "High Conflict" in block2
+    assert "not_a_scene" not in block2.lower()
+
+
+def test_scene_packs_voice_subsections_rendered():
+    """When both voice and scene packs are selected, subsection headers appear."""
+    from app.services.storylab_generator import build_style_packs_block
+
+    block = build_style_packs_block(["sparse", "slow_burn"])
+    assert "### Voice" in block
+    assert "### Scene" in block
+    assert "Sparse" in block
+    assert "Slow Burn" in block
+
+
+def test_voice_only_no_subsections():
+    """When only voice packs are selected, no ### subsections appear."""
+    from app.services.storylab_generator import build_style_packs_block
+
+    block = build_style_packs_block(["gothic"])
+    assert "### Voice" not in block
+    assert "### Scene" not in block
+    assert "Gothic" in block
+
+
+def test_scene_pack_via_endpoint(client):
+    """POST /chapters/generate with scene packs returns 200 and echoes them in meta."""
+    resp = client.post(
+        "/api/storylab/chapters/generate?story_id=scene-packs-ok-001",
+        json={
+            "prompt": "The tension rises.",
+            "mode": "roleplay",
+            "controls": {},
+            "style_packs": ["slow_burn", "power_play"],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["generated_text"]
+    assert set(body["meta"]["style_packs"]) == {"slow_burn", "power_play"}
+
+
+# ── policy_notes debug ─────────────────────────────────────────────────────────
+
+def test_policy_notes_contains_packs_when_packs_passed():
+    """_build_policy_notes includes packs=<keys> segment when known packs are active."""
+    from app.services.storylab_generator import _build_policy_notes
+    from app.schemas.storylab import StoryLabControls
+
+    controls = StoryLabControls()
+
+    # With known voice pack
+    notes = _build_policy_notes(controls, style_packs=["gothic"])
+    assert "packs=" in notes
+    assert "gothic" in notes
+
+    # With known scene pack
+    notes2 = _build_policy_notes(controls, style_packs=["slow_burn"])
+    assert "packs=" in notes2
+    assert "slow_burn" in notes2
+
+    # Mixed voice + scene
+    notes3 = _build_policy_notes(controls, style_packs=["sparse", "high_conflict"])
+    assert "packs=" in notes3
+    assert "sparse" in notes3
+    assert "high_conflict" in notes3
+
+
+def test_policy_notes_no_packs_segment_when_empty():
+    """_build_policy_notes omits packs= when style_packs is empty or all unknown."""
+    from app.services.storylab_generator import _build_policy_notes
+    from app.schemas.storylab import StoryLabControls
+
+    controls = StoryLabControls()
+
+    notes = _build_policy_notes(controls, style_packs=[])
+    assert "packs=" not in notes
+
+    notes2 = _build_policy_notes(controls, style_packs=["unknown_pack"])
+    assert "packs=" not in notes2
+
+    notes3 = _build_policy_notes(controls)
+    assert "packs=" not in notes3
+
+
+def test_policy_notes_always_contains_core_fields():
+    """_build_policy_notes always contains direction, boundary, pacing, tone, length."""
+    from app.services.storylab_generator import _build_policy_notes
+    from app.schemas.storylab import StoryLabControls, Direction, Boundary, Pacing
+
+    controls = StoryLabControls(
+        direction=Direction.sad_moment,
+        boundary=Boundary.sfw,
+        pacing=Pacing.slow,
+    )
+    notes = _build_policy_notes(controls, style_packs=["sparse"])
+    assert "direction=sad_moment" in notes
+    assert "boundary=sfw" in notes
+    assert "pacing=slow" in notes
+    assert "packs=sparse" in notes
