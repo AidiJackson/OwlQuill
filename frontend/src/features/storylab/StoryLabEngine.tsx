@@ -11,8 +11,38 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 // ── localStorage keys ─────────────────────────────────────────────────────────
 
-const LS_CURRENT = 'ficshon_storylab_current_story_id';
-const LS_RECENTS = 'ficshon_storylab_recent_story_ids';
+const LS_CURRENT       = 'ficshon_storylab_current_story_id';
+const LS_RECENTS       = 'ficshon_storylab_recent_story_ids';
+const LS_READER_THEME  = 'ficshon_storylab_reader_theme';
+
+type ReaderTheme = 'dark' | 'soft' | 'paper';
+
+// Per-theme class sets — scoped to the reader container and its children only.
+const THEME_CONTAINER: Record<ReaderTheme, string> = {
+  dark:  'bg-gray-950        border-gray-800     shadow-[0_8px_30px_rgba(0,0,0,0.35)]',
+  soft:  'bg-[#0f1720]       border-gray-800     shadow-[0_8px_30px_rgba(0,0,0,0.30)]',
+  paper: 'bg-[#f5f1e8]       border-[#e7dfcf]    shadow-[0_4px_20px_rgba(0,0,0,0.08)]',
+};
+const THEME_PROSE: Record<ReaderTheme, string> = {
+  dark:  'text-gray-100',
+  soft:  'text-gray-300',
+  paper: 'text-[#1f2937]',
+};
+const THEME_SKELETON: Record<ReaderTheme, string> = {
+  dark:  'bg-gray-800',
+  soft:  'bg-[#1a2635]',
+  paper: 'bg-[#ddd5bf]',
+};
+const THEME_EMPTY: Record<ReaderTheme, string> = {
+  dark:  'text-gray-700',
+  soft:  'text-gray-600',
+  paper: 'text-[#9ca3af]',
+};
+const THEME_PROMPT_BOX: Record<ReaderTheme, string> = {
+  dark:  'bg-gray-900/70     border-gray-800   text-gray-500',
+  soft:  'bg-[#0a1218]/80    border-gray-800   text-gray-500',
+  paper: 'bg-[#ede8db]       border-[#cfc5b0]  text-[#6b7280]',
+};
 
 // ── Story-ID helpers ──────────────────────────────────────────────────────────
 
@@ -125,6 +155,16 @@ export default function StoryLabEngine() {
 
   const [promptRevealOpen, setPromptRevealOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'delete' | 'regenerate' | null>(null);
+
+  const [readerTheme, setReaderTheme] = useState<ReaderTheme>(() => {
+    const s = localStorage.getItem(LS_READER_THEME);
+    return s === 'dark' || s === 'soft' || s === 'paper' ? s : 'dark';
+  });
+
+  function setAndPersistTheme(t: ReaderTheme) {
+    setReaderTheme(t);
+    localStorage.setItem(LS_READER_THEME, t);
+  }
 
   // Story progress state (from /state endpoint)
   const [storyState, setStoryState] = useState<SLStoryState | null>(null);
@@ -457,7 +497,31 @@ export default function StoryLabEngine() {
                 <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
                   Chapter {currentChapter.chapter_number}
                 </span>
-                <span className="text-[10px] text-gray-600">{currentChapter.words} words</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-600">{currentChapter.words} words</span>
+                  {/* Reader theme toggle */}
+                  <div className="flex items-center gap-0.5">
+                    {([
+                      { key: 'dark'  as const, label: 'Dk' },
+                      { key: 'soft'  as const, label: 'Sf' },
+                      { key: 'paper' as const, label: 'Pp' },
+                    ]).map(({ key, label }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        title={key.charAt(0).toUpperCase() + key.slice(1)}
+                        onClick={() => setAndPersistTheme(key)}
+                        className={`w-6 h-5 text-[9px] font-medium rounded transition ${
+                          readerTheme === key
+                            ? 'bg-gray-700/80 text-gray-200 ring-1 ring-gray-600/60'
+                            : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800/40'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Prompt reveal */}
@@ -472,9 +536,11 @@ export default function StoryLabEngine() {
                     Prompt used for this chapter
                   </button>
                   {promptRevealOpen && (
-                    <p className="mt-1 pl-3 text-[11px] text-gray-500 leading-relaxed border-l border-gray-800">
-                      {currentChapter.prompt_text}
-                    </p>
+                    <div className={`mt-2 rounded-lg border px-3 py-2.5 ${THEME_PROMPT_BOX[readerTheme]}`}>
+                      <p className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-words">
+                        {currentChapter.prompt_text}
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
@@ -491,19 +557,19 @@ export default function StoryLabEngine() {
           )}
 
           {/* Chapter text */}
-          <div className="flex-1 min-h-[300px] md:min-h-0 overflow-y-auto rounded-xl bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)] p-5">
+          <div className={`flex-1 min-h-[300px] md:min-h-0 overflow-y-auto rounded-xl border ring-1 ring-black/10 p-5 transition-colors duration-200 ${THEME_CONTAINER[readerTheme]}`}>
             {isLoadingChapter ? (
               <div className="space-y-2.5 animate-pulse">
                 {[...Array(6)].map((_, i) => (
-                  <div key={i} className={`h-2 bg-gray-800 rounded ${i % 5 === 4 ? 'w-3/5' : 'w-full'}`} />
+                  <div key={i} className={`h-2 rounded ${THEME_SKELETON[readerTheme]} ${i % 5 === 4 ? 'w-3/5' : 'w-full'}`} />
                 ))}
               </div>
             ) : currentChapter ? (
-              <p className="text-[15px] leading-[1.8] text-gray-100 whitespace-pre-wrap font-normal tracking-[0.01em]">
+              <p className={`text-[15px] leading-[1.8] whitespace-pre-wrap font-normal tracking-[0.01em] ${THEME_PROSE[readerTheme]}`}>
                 {currentChapter.generated_text}
               </p>
             ) : (
-              <p className="text-gray-700 text-sm italic">Your chapter will appear here.</p>
+              <p className={`text-sm italic ${THEME_EMPTY[readerTheme]}`}>Your chapter will appear here.</p>
             )}
           </div>
 
