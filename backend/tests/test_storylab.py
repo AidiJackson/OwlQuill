@@ -1644,3 +1644,234 @@ def test_chapter_prompt_contains_outcome_vs_path_block():
     assert "## Outcome vs Path" in user
     assert "MAXIMUM" in user or "maximum" in user.lower()
     assert "not a required outcome" in user or "not a requirement" in user
+
+
+# ── quality policy — select_storylab_policy ───────────────────────────────────
+
+def test_select_storylab_policy_sfw(monkeypatch):
+    """SFW boundary returns exactly one candidate resolved from STORYLAB_MODEL_SFW."""
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SFW", "test/sfw-model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL", "test/base-model")
+
+    candidates = gen.select_storylab_policy(StoryLabControls(boundary=Boundary.sfw))
+    assert candidates == ["test/sfw-model"]
+
+
+def test_select_storylab_policy_fade_to_black(monkeypatch):
+    """Fade-to-black boundary returns [fade, sfw] candidates in priority order."""
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_FADE", "test/fade-model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SFW", "test/sfw-model")
+
+    candidates = gen.select_storylab_policy(StoryLabControls(boundary=Boundary.fade_to_black))
+    assert candidates == ["test/fade-model", "test/sfw-model"]
+
+
+def test_select_storylab_policy_sensual(monkeypatch):
+    """Sensual boundary returns [sensual, fade, sfw] candidates in priority order."""
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SENSUAL", "test/sensual-model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_FADE", "test/fade-model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SFW", "test/sfw-model")
+
+    candidates = gen.select_storylab_policy(StoryLabControls(boundary=Boundary.sensual))
+    assert candidates == ["test/sensual-model", "test/fade-model", "test/sfw-model"]
+
+
+def test_select_storylab_policy_deduplicates_same_model(monkeypatch):
+    """When all tiers resolve to the same slug, only one candidate is returned."""
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SENSUAL", "same/model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_FADE", "same/model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SFW", "same/model")
+
+    candidates = gen.select_storylab_policy(StoryLabControls(boundary=Boundary.sensual))
+    assert candidates == ["same/model"]
+
+
+def test_select_storylab_policy_blank_resolves_to_base_model(monkeypatch):
+    """A blank tier var falls back to STORYLAB_MODEL."""
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SFW", "")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL", "base/model")
+
+    candidates = gen.select_storylab_policy(StoryLabControls(boundary=Boundary.sfw))
+    assert candidates == ["base/model"]
+
+
+# ── fallback chain — multi-candidate retry ────────────────────────────────────
+
+def _make_sequential_post(responses):
+    """Return a post callable that yields responses in sequence.
+
+    Each entry in *responses* is either:
+    - a string  → success with that content
+    - an Exception subclass instance → raise it
+    """
+    from unittest.mock import MagicMock
+    calls = iter(responses)
+
+    def _post(*args, **kwargs):
+        item = next(calls)
+        if isinstance(item, BaseException):
+            raise item
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock(return_value=None)
+        mock_resp.json.return_value = {"choices": [{"message": {"content": item}}]}
+        return mock_resp
+
+    return _post
+
+
+def test_openrouter_fallback_503_tries_next_candidate(monkeypatch):
+    """When the first candidate returns HTTP 503, the second candidate is tried."""
+    from unittest.mock import MagicMock, patch
+    import httpx as _httpx
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_FADE", "test/fade-model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SFW", "test/sfw-model")
+
+    good_output = "The candle guttered and went out."
+    err_resp = MagicMock()
+    err_resp.status_code = 503
+    seq_post = _make_sequential_post([
+        _httpx.HTTPStatusError("503", request=MagicMock(), response=err_resp),
+        good_output,
+    ])
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.post = seq_post
+
+    with patch.object(gen.httpx, "Client", return_value=mock_client):
+        text, _delta = gen.generate_storylab_continuation(
+            text="She closed her eyes.",
+            controls=StoryLabControls(boundary=Boundary.fade_to_black),
+            state_json={}, summary="", characters=[], story_id="test-503-fallback",
+        )
+
+    assert text == good_output
+
+
+def test_openrouter_fallback_timeout_tries_next_candidate(monkeypatch):
+    """When the first candidate times out, the second candidate is tried."""
+    from unittest.mock import MagicMock, patch
+    import httpx as _httpx
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_FADE", "test/fade-model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SFW", "test/sfw-model")
+
+    good_output = "The lighthouse beam swept the water."
+    seq_post = _make_sequential_post([
+        _httpx.TimeoutException("timed out"),
+        good_output,
+    ])
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.post = seq_post
+
+    with patch.object(gen.httpx, "Client", return_value=mock_client):
+        text, _delta = gen.generate_storylab_continuation(
+            text="She watched from the shore.",
+            controls=StoryLabControls(boundary=Boundary.fade_to_black),
+            state_json={}, summary="", characters=[], story_id="test-timeout-fallback",
+        )
+
+    assert text == good_output
+
+
+def test_openrouter_all_candidates_exhausted_returns_stub_with_hint(monkeypatch):
+    """When all candidates fail (multi-candidate policy), stub + provider_fallback hint returned."""
+    from unittest.mock import MagicMock, patch
+    import httpx as _httpx
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_FADE", "test/fade-model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SFW", "test/sfw-model")
+
+    err_resp = MagicMock()
+    err_resp.status_code = 503
+
+    def _always_503(*args, **kwargs):
+        raise _httpx.HTTPStatusError("503", request=MagicMock(), response=err_resp)
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.post = _always_503
+
+    with patch.object(gen.httpx, "Client", return_value=mock_client):
+        text, delta = gen.generate_storylab_continuation(
+            text="The waves crashed against the shore.",
+            controls=StoryLabControls(boundary=Boundary.fade_to_black),
+            state_json={}, summary="", characters=[], story_id="test-exhausted",
+        )
+
+    assert isinstance(text, str) and len(text) > 0  # stub text
+    assert isinstance(delta, dict)
+    assert delta.get("provider_fallback") == "openrouter_exhausted"
+
+
+def test_openrouter_non_retryable_error_skips_remaining_candidates(monkeypatch):
+    """HTTP 401 (non-retryable) short-circuits the chain and falls back to stub immediately."""
+    from unittest.mock import MagicMock, patch
+    import httpx as _httpx
+    import app.services.storylab_generator as gen
+    from app.schemas.storylab import StoryLabControls, Boundary
+
+    monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+    monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_FADE", "test/fade-model")
+    monkeypatch.setattr(gen.settings, "STORYLAB_MODEL_SFW", "test/sfw-model")
+
+    call_count = 0
+
+    def _401_post(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        err_resp = MagicMock()
+        err_resp.status_code = 401
+        raise _httpx.HTTPStatusError("401", request=MagicMock(), response=err_resp)
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.post = _401_post
+
+    with patch.object(gen.httpx, "Client", return_value=mock_client):
+        text, delta = gen.generate_storylab_continuation(
+            text="The door creaked.",
+            controls=StoryLabControls(boundary=Boundary.fade_to_black),
+            state_json={}, summary="", characters=[], story_id="test-401",
+        )
+
+    # 401 is non-retryable — only one attempt should have been made
+    assert call_count == 1
+    assert isinstance(text, str) and len(text) > 0  # stub fallback
+    # Single-candidate exhaustion path returns None hint (401 re-raised via HTTPStatusError except)
+    assert delta is None

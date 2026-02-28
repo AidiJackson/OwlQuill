@@ -21,6 +21,7 @@ Public helpers (importable for testing)
     build_storylab_prompt(...)                    -> list[dict]  # messages payload
     build_chapter_prompt(...)                     -> list[dict]  # chapter messages payload
     build_story_summary_prompt(...)               -> list[dict]  # summary update messages
+    select_storylab_policy(controls)              -> list[str]   # ordered model candidates
     generate_storylab_continuation(...)           -> tuple[str, dict | None]
     generate_chapter(...)                         -> tuple[str, list[str], dict | None]
     generate_story_summary(...)                   -> str
@@ -45,6 +46,7 @@ from app.schemas.storylab import (
 logger = logging.getLogger(__name__)
 
 _REQUEST_TIMEOUT = 25.0  # seconds for LLM calls
+_RETRYABLE_STATUS: frozenset[int] = frozenset({429, 503})
 
 # ── length → (target_words, hard_cap_words) ──────────────────────────────────
 
@@ -63,6 +65,49 @@ def _length_target(length: Any) -> int:
 def _length_cap(length: Any) -> int:
     """Hard word cap for a Length value; output is trimmed to this after generation."""
     return _LENGTH_CONFIG.get(length, (1000, 1300))[1]
+
+
+# ── quality policy — boundary-aware model routing ─────────────────────────────
+
+def select_storylab_policy(controls: StoryLabControls) -> list[str]:
+    """Return ordered model candidates for the given controls.
+
+    The first entry is the preferred model; each subsequent entry is tried
+    automatically on retryable failures (HTTP 429, 503, timeout).
+
+    Routing table (boundary → candidates in priority order):
+        sfw           → [MODEL_SFW]
+        fade_to_black → [MODEL_FADE, MODEL_SFW]
+        sensual       → [MODEL_SENSUAL, MODEL_FADE, MODEL_SFW]
+
+    Model resolution: each STORYLAB_MODEL_<TIER> env var is used if non-blank;
+    otherwise falls back to STORYLAB_MODEL.  Operator-only; invisible to users.
+    Duplicates (same model slug at multiple tiers) are removed while preserving
+    priority order so the chain does not retry the same model twice.
+    """
+    def _resolve(env_val: str) -> str:
+        return env_val.strip() if env_val.strip() else settings.STORYLAB_MODEL
+
+    sfw_model     = _resolve(settings.STORYLAB_MODEL_SFW)
+    fade_model    = _resolve(settings.STORYLAB_MODEL_FADE)
+    sensual_model = _resolve(settings.STORYLAB_MODEL_SENSUAL)
+
+    boundary = controls.boundary
+    if boundary == Boundary.sensual:
+        raw = [sensual_model, fade_model, sfw_model]
+    elif boundary == Boundary.fade_to_black:
+        raw = [fade_model, sfw_model]
+    else:
+        raw = [sfw_model]
+
+    # Deduplicate while preserving priority order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for m in raw:
+        if m not in seen:
+            seen.add(m)
+            unique.append(m)
+    return unique
 
 
 # ── direction-specific narrative instructions ─────────────────────────────────
@@ -880,6 +925,72 @@ def _generate_stub_text(story_id: str, controls: StoryLabControls) -> str:
     return text
 
 
+# ── OpenRouter shared HTTP layer with fallback chain ─────────────────────────
+
+def _call_openrouter_with_fallback(
+    model_candidates: list[str],
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float,
+) -> tuple[str, str, int]:
+    """POST to OpenRouter, trying each candidate in order on retryable failures.
+
+    Returns:
+        (raw_content, chosen_model, fallback_attempts)
+        where fallback_attempts is 0 if the first candidate succeeded.
+
+    Retryable: TimeoutException, HTTP 429, HTTP 503.
+    Non-retryable HTTP errors (401, 400, …) are re-raised immediately.
+    Raises the last retryable exception when all candidates are exhausted.
+    """
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://ficshon.com",
+        "X-Title": "Ficshon StoryLab",
+    }
+    n = len(model_candidates)
+    last_exc: Exception | None = None
+
+    for attempt, model in enumerate(model_candidates):
+        try:
+            payload = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            }
+            with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+                resp = client.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
+            raw: str = resp.json()["choices"][0]["message"]["content"]
+            if attempt > 0:
+                logger.warning(
+                    "StoryLab: succeeded on fallback model %r after %d attempt(s)", model, attempt
+                )
+            return raw, model, attempt
+        except httpx.TimeoutException as exc:
+            tail = "trying next candidate" if attempt + 1 < n else "no more candidates"
+            logger.warning(
+                "StoryLab: model %r timed out (attempt %d/%d); %s", model, attempt + 1, n, tail
+            )
+            last_exc = exc
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in _RETRYABLE_STATUS:
+                tail = "trying next candidate" if attempt + 1 < n else "no more candidates"
+                logger.warning(
+                    "StoryLab: model %r returned HTTP %s (attempt %d/%d); %s",
+                    model, status, attempt + 1, n, tail,
+                )
+                last_exc = exc
+            else:
+                raise  # non-retryable (401, 400, …) — bubble up immediately
+
+    raise last_exc or RuntimeError("All model candidates exhausted")
+
+
 # ── OpenRouter ────────────────────────────────────────────────────────────────
 
 def _call_openrouter(
@@ -890,43 +1001,31 @@ def _call_openrouter(
     characters: list[Any],
     recent_endings: list[str] | None = None,
     variant: str = "default",
-) -> tuple[str, dict[str, Any] | None]:
-    """Call OpenRouter; parse <STORY> tag from response; fall back to raw on missing tags."""
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    model_candidates: list[str] | None = None,
+) -> tuple[str, dict[str, Any] | None, str, int]:
+    """Build prompt and call OpenRouter via the shared fallback chain.
+
+    Returns:
+        (story_text, delta_signals, chosen_model, fallback_attempts)
+    """
     messages = build_storylab_prompt(
         text, controls, state_json, summary, characters, recent_endings, variant=variant
     )
     cap_words = _length_cap(controls.length)
-    # cap_words / 0.75 ≈ cap in tokens; ×2.0 gives comfortable headroom for tags + delta block
     max_tokens = max(400, int(cap_words * 2.0))
     temperature = 0.85 + (0.15 if variant == "alt" else 0.0)
+    candidates = model_candidates or [settings.STORYLAB_MODEL]
 
-    payload = {
-        "model": settings.STORYLAB_MODEL,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://ficshon.com",
-        "X-Title": "Ficshon StoryLab",
-    }
-
-    with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
-        resp = client.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
-
-    data = resp.json()
-    raw: str = data["choices"][0]["message"]["content"]
+    raw, chosen_model, fallback_attempts = _call_openrouter_with_fallback(
+        candidates, messages, max_tokens, temperature
+    )
 
     delta = _parse_delta_signals(raw)
     if delta:
         logger.debug("StoryLab delta signals: %s", delta)
 
     story_text = _trim_to_cap(_parse_model_output(raw), cap_words)
-    return story_text, delta
+    return story_text, delta, chosen_model, fallback_attempts
 
 
 # ── public entry point ────────────────────────────────────────────────────────
@@ -955,14 +1054,33 @@ def generate_storylab_continuation(
         if not settings.OPENROUTER_API_KEY:
             logger.warning("STORYLAB_PROVIDER=openrouter but OPENROUTER_API_KEY is empty; using stub")
         else:
+            model_candidates = select_storylab_policy(controls)
             try:
-                return _call_openrouter(
-                    text, controls, state_json, summary, characters, recent_endings, variant=variant
+                story_text, delta, chosen_model, fallback_attempts = _call_openrouter(
+                    text, controls, state_json, summary, characters, recent_endings,
+                    variant=variant, model_candidates=model_candidates,
                 )
+                logger.debug(
+                    "StoryLab policy: model=%r fallback_attempts=%d candidates=%s",
+                    chosen_model, fallback_attempts, model_candidates,
+                )
+                return story_text, delta
             except httpx.TimeoutException:
-                logger.warning("OpenRouter request timed out; falling back to stub")
+                logger.warning("OpenRouter request timed out on all candidates; falling back to stub")
+                hint: dict[str, Any] | None = (
+                    {"provider_fallback": "openrouter_exhausted"} if len(model_candidates) > 1 else None
+                )
+                return _generate_stub_text(story_id, controls), hint
             except httpx.HTTPStatusError as exc:
-                logger.warning("OpenRouter returned HTTP %s; falling back to stub", exc.response.status_code)
+                status = exc.response.status_code
+                logger.warning("OpenRouter returned HTTP %s; falling back to stub", status)
+                # Hint only when retryable exhaustion (429/503 drained all candidates)
+                hint = (
+                    {"provider_fallback": "openrouter_exhausted"}
+                    if status in _RETRYABLE_STATUS and len(model_candidates) > 1
+                    else None
+                )
+                return _generate_stub_text(story_id, controls), hint
             except Exception as exc:  # noqa: BLE001
                 logger.warning("OpenRouter error (%s); falling back to stub", exc)
 
@@ -1201,36 +1319,24 @@ def _call_openrouter_chapter(
     characters: list[Any],
     previous_chapter_text: str | None = None,
     variant: str = "default",
-) -> tuple[str, list[str], dict[str, Any] | None]:
-    """Call OpenRouter for chapter generation; parse STORY + SUGGESTIONS + DELTA_SIGNALS."""
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    model_candidates: list[str] | None = None,
+) -> tuple[str, list[str], dict[str, Any] | None, str, int]:
+    """Build chapter prompt and call OpenRouter via the shared fallback chain.
+
+    Returns:
+        (chapter_text, suggestions, delta_signals, chosen_model, fallback_attempts)
+    """
     messages = build_chapter_prompt(
         prompt, controls, state_json, summary, characters, previous_chapter_text, variant=variant
     )
     cap_words = _length_cap(controls.length)
-    # Extra headroom for SUGGESTIONS + DELTA_SIGNALS blocks on top of prose
     max_tokens = max(400, int(cap_words * 2.5))
     temperature = 0.85 + (0.15 if variant == "alt" else 0.0)
+    candidates = model_candidates or [settings.STORYLAB_MODEL]
 
-    payload = {
-        "model": settings.STORYLAB_MODEL,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://ficshon.com",
-        "X-Title": "Ficshon StoryLab",
-    }
-
-    with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
-        resp = client.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
-
-    data = resp.json()
-    raw: str = data["choices"][0]["message"]["content"]
+    raw, chosen_model, fallback_attempts = _call_openrouter_with_fallback(
+        candidates, messages, max_tokens, temperature
+    )
 
     delta = _parse_delta_signals(raw)
     suggestions = _parse_suggestions(raw)
@@ -1238,7 +1344,7 @@ def _call_openrouter_chapter(
         suggestions = _fallback_suggestions(state_json)
 
     chapter_text = _trim_to_cap(_parse_model_output(raw), cap_words)
-    return chapter_text, suggestions, delta
+    return chapter_text, suggestions, delta, chosen_model, fallback_attempts
 
 
 # ── chapter entry point ───────────────────────────────────────────────────────
@@ -1266,15 +1372,32 @@ def generate_chapter(
         if not settings.OPENROUTER_API_KEY:
             logger.warning("STORYLAB_PROVIDER=openrouter but OPENROUTER_API_KEY is empty; using stub")
         else:
+            model_candidates = select_storylab_policy(controls)
             try:
-                return _call_openrouter_chapter(
+                chapter_text, suggestions, delta, chosen_model, fallback_attempts = _call_openrouter_chapter(
                     prompt, controls, state_json, summary, characters,
-                    previous_chapter_text, variant=variant,
+                    previous_chapter_text, variant=variant, model_candidates=model_candidates,
                 )
+                logger.debug(
+                    "StoryLab chapter policy: model=%r fallback_attempts=%d candidates=%s",
+                    chosen_model, fallback_attempts, model_candidates,
+                )
+                return chapter_text, suggestions, delta
             except httpx.TimeoutException:
-                logger.warning("OpenRouter chapter request timed out; falling back to stub")
+                logger.warning("OpenRouter chapter request timed out on all candidates; falling back to stub")
+                hint: dict[str, Any] | None = (
+                    {"provider_fallback": "openrouter_exhausted"} if len(model_candidates) > 1 else None
+                )
+                return _generate_stub_text(story_id, controls), _fallback_suggestions(state_json), hint
             except httpx.HTTPStatusError as exc:
-                logger.warning("OpenRouter returned HTTP %s; falling back to stub", exc.response.status_code)
+                status = exc.response.status_code
+                logger.warning("OpenRouter returned HTTP %s; falling back to stub", status)
+                hint = (
+                    {"provider_fallback": "openrouter_exhausted"}
+                    if status in _RETRYABLE_STATUS and len(model_candidates) > 1
+                    else None
+                )
+                return _generate_stub_text(story_id, controls), _fallback_suggestions(state_json), hint
             except Exception as exc:  # noqa: BLE001
                 logger.warning("OpenRouter chapter error (%s); falling back to stub", exc)
 

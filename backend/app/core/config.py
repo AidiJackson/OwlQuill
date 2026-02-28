@@ -78,10 +78,18 @@ class Settings(BaseSettings):
 
     # StoryLab narrative engine
     # STORYLAB_PROVIDER: "stub" (deterministic, no key needed) | "openrouter"
-    # STORYLAB_MODEL: any OpenRouter-supported model slug
+    # STORYLAB_MODEL: base fallback model slug (used when tier-specific model is blank)
+    # Quality policy — boundary-aware model routing (all invisible to users):
+    #   STORYLAB_MODEL_SFW     — boundary=sfw candidate
+    #   STORYLAB_MODEL_FADE    — boundary=fade_to_black primary; falls back to SFW
+    #   STORYLAB_MODEL_SENSUAL — boundary=sensual primary; falls back to FADE → SFW
+    # If any tier var is blank/unset it resolves to STORYLAB_MODEL.
     STORYLAB_PROVIDER: str = "stub"
     OPENROUTER_API_KEY: str = ""
     STORYLAB_MODEL: str = "anthropic/claude-3.5-sonnet"
+    STORYLAB_MODEL_SFW: str = ""
+    STORYLAB_MODEL_FADE: str = ""
+    STORYLAB_MODEL_SENSUAL: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
