@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # Public fallback: https://api.languagetool.org/v2 (rate-limited, no key needed)
     LANGUAGETOOL_URL: str = "https://api.languagetool.org/v2"
 
+    # Image quota — rolling 7-day window per user
+    IMAGE_WEEKLY_LIMIT: int = 1
+
     # StoryLab narrative engine
     # STORYLAB_PROVIDER: "stub" (deterministic, no key needed) | "openrouter"
     # STORYLAB_MODEL: any OpenRouter-supported model slug

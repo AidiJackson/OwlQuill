@@ -1,8 +1,12 @@
 """Image library endpoints — generate and list user images."""
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -17,6 +21,33 @@ router = APIRouter()
 
 class ImageGenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=250)
+
+
+def _check_weekly_quota(user: User, db: Session) -> JSONResponse | None:
+    """Return a 429 JSONResponse if the user has hit their weekly image limit, else None."""
+    if user.email.lower() in settings.get_admin_emails():
+        return None
+    since = datetime.utcnow() - timedelta(days=7)
+    count = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.user_id == user.id,
+            CharacterImage.created_at >= since,
+        )
+        .count()
+    )
+    if count >= settings.IMAGE_WEEKLY_LIMIT:
+        reset_in = int(timedelta(days=7).total_seconds())
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": "quota_exceeded",
+                "detail": "Weekly image limit reached.",
+                "limit": settings.IMAGE_WEEKLY_LIMIT,
+                "reset_in_seconds": reset_in,
+            },
+        )
+    return None
 
 
 def _pick_character(db: Session, user: User) -> Character:
@@ -46,6 +77,10 @@ def generate_library_image(
     db: Session = Depends(get_db),
 ):
     """Generate a stub image and save it to the user's image library."""
+    quota_error = _check_weekly_quota(current_user, db)
+    if quota_error is not None:
+        return quota_error
+
     character = _pick_character(db, current_user)
 
     file_path = generate_placeholder_png(
@@ -63,6 +98,12 @@ def generate_library_image(
         metadata_json={"library": True, "prompt": body.prompt},
     )
     image = create_character_image(db, character.id, data)
+
+    # Stamp user_id for weekly quota tracking
+    image.user_id = current_user.id
+    db.commit()
+    db.refresh(image)
+
     return image
 
 
