@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
-from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, grammar, storylab
+from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, grammar, storylab, admin_diagnostics
 
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,7 @@ api_router.include_router(messages.router, prefix="/messages", tags=["messages"]
 api_router.include_router(images.router, prefix="/images", tags=["images"])
 api_router.include_router(grammar.router, prefix="/grammar", tags=["grammar"])
 api_router.include_router(storylab.router, prefix="/storylab", tags=["storylab"])
+api_router.include_router(admin_diagnostics.router, prefix="/admin", tags=["admin"])
 app.include_router(api_router)
 
 
