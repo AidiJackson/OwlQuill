@@ -55,6 +55,8 @@ type ChapterListItem = {
   mode: string;
   boundary: string;
   length: string;
+  engine_mode?: string;
+  intent?: string;
 };
 
 type ChapterDetail = {
@@ -124,6 +126,7 @@ export default function StoryLabEngine() {
   // ── UI state ───────────────────────────────────────────────────────────────
 
   const [promptRevealOpen, setPromptRevealOpen] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'delete' | 'regenerate' | null>(null);
 
   // Story progress state (from /state endpoint)
@@ -420,21 +423,6 @@ export default function StoryLabEngine() {
           <option value="play">Play</option>
         </select>
 
-        {/* Chapter selector */}
-        {chapters.length > 0 && (
-          <select
-            value={currentChapter?.chapter_number ?? ''}
-            onChange={(e) => void loadChapter(currentStoryId, parseInt(e.target.value))}
-            className="h-7 px-2 text-xs rounded-lg bg-gray-900/60 border border-gray-800 text-gray-300 focus:outline-none focus:border-gray-700 transition"
-          >
-            {chapters.map((c) => (
-              <option key={c.chapter_number} value={c.chapter_number}>
-                Ch {c.chapter_number} · {c.words} w
-              </option>
-            ))}
-          </select>
-        )}
-
         <button
           type="button"
           onClick={newStory}
@@ -450,6 +438,49 @@ export default function StoryLabEngine() {
         {/* ── Left: Chapter display ────────────────────────────────────── */}
         <div className="flex flex-col flex-1 min-h-0">
 
+          {/* Chapter navigation strip */}
+          {chapters.length > 0 && (
+            <div className="mb-3 flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              {chapters.map((c) => {
+                const isActive = currentChapter?.chapter_number === c.chapter_number;
+                return (
+                  <button
+                    key={c.chapter_number}
+                    type="button"
+                    onClick={() => void loadChapter(currentStoryId, c.chapter_number)}
+                    className={`shrink-0 flex flex-col gap-1 px-3 py-2 rounded-xl border text-left transition ${
+                      isActive
+                        ? 'bg-gray-800/70 border-gray-700 text-gray-200'
+                        : 'bg-gray-900/40 border-gray-800/60 text-gray-400 hover:border-gray-700 hover:text-gray-300'
+                    }`}
+                  >
+                    <span className="text-xs font-semibold">Ch {c.chapter_number}</span>
+                    <span className="text-[10px] text-gray-500">{c.words}w</span>
+                    <div className="flex gap-1 flex-wrap mt-0.5">
+                      <span className="px-1.5 py-0.5 text-[9px] rounded bg-gray-800/80 border border-gray-700/60 text-gray-500 uppercase tracking-wide">
+                        {c.boundary}
+                      </span>
+                      {c.engine_mode && (
+                        <span className={`px-1.5 py-0.5 text-[9px] rounded border uppercase tracking-wide ${
+                          c.engine_mode === 'chaos'
+                            ? 'bg-red-900/40 border-red-800/60 text-red-400'
+                            : 'bg-gray-800/80 border-gray-700/60 text-gray-500'
+                        }`}>
+                          {c.engine_mode}
+                        </span>
+                      )}
+                      {c.intent && (
+                        <span className="px-1.5 py-0.5 text-[9px] rounded bg-gray-800/80 border border-gray-700/60 text-gray-500 uppercase tracking-wide">
+                          {c.intent.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Chapter header */}
           {currentChapter ? (
             <div className="mb-3">
@@ -460,21 +491,34 @@ export default function StoryLabEngine() {
                 <span className="text-[10px] text-gray-600">{currentChapter.words} words</span>
               </div>
 
-              {/* Prompt reveal */}
+              {/* Prompt reveal drawer */}
               {currentChapter.prompt_text && (
-                <div className="mt-1.5">
+                <div className="mt-2">
                   <button
                     type="button"
-                    onClick={() => setPromptRevealOpen((p) => !p)}
-                    className="flex items-center gap-1 text-[10px] text-gray-600 hover:text-gray-400 transition"
+                    onClick={() => { setPromptRevealOpen((p) => !p); setPromptCopied(false); }}
+                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition"
                   >
                     <span className={`transition-transform duration-150 ${promptRevealOpen ? 'rotate-90' : ''}`}>›</span>
-                    Prompt used for this chapter
+                    {promptRevealOpen ? 'Hide prompt' : 'Show prompt'}
                   </button>
                   {promptRevealOpen && (
-                    <p className="mt-1 pl-3 text-[11px] text-gray-500 leading-relaxed border-l border-gray-800">
-                      {currentChapter.prompt_text}
-                    </p>
+                    <div className="mt-2 relative">
+                      <pre className="text-[11px] text-gray-400 leading-relaxed bg-gray-900/80 border border-gray-800 rounded-lg p-3 pr-16 overflow-x-auto font-mono whitespace-pre-wrap">
+                        {currentChapter.prompt_text}
+                      </pre>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(currentChapter.prompt_text);
+                          setPromptCopied(true);
+                          setTimeout(() => setPromptCopied(false), 1500);
+                        }}
+                        className="absolute top-2 right-2 px-2 py-0.5 text-[10px] rounded bg-gray-800 border border-gray-700/60 text-gray-500 hover:text-gray-300 hover:border-gray-600 transition"
+                      >
+                        {promptCopied ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -594,7 +638,10 @@ export default function StoryLabEngine() {
 
           {/* Prompt box */}
           <div className="border border-gray-800 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">What happens next?</p>
+            <div>
+              <p className="text-xs font-semibold text-gray-300 tracking-wide">Continue &#8594; New Chapter</p>
+              <p className="text-[11px] text-gray-600 mt-0.5 leading-relaxed">Paste beats, outline, or a paragraph — StoryLab writes a full chapter.</p>
+            </div>
             <textarea
               value={promptInput}
               onChange={(e) => setPromptInput(e.target.value)}
