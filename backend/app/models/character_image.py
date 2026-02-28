@@ -40,6 +40,14 @@ class CharacterImage(Base):
         nullable=False,
         index=True,
     )
+    # user_id tracks which user generated this image (used for weekly quota).
+    # Nullable for legacy images created before quota enforcement.
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     kind = Column(SQLEnum(ImageKindEnum), nullable=False)
     status = Column(SQLEnum(ImageStatusEnum), default=ImageStatusEnum.ACTIVE, nullable=False)
