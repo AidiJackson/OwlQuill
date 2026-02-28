@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # Admin users (via ADMIN_EMAILS) are exempt from this limit.
     STORYLAB_DAILY_LIMIT: int = 10
 
+    # StoryLab quota — per-user, derived from JWT (0 = unlimited)
+    STORYLAB_DAILY_LIMIT: int = 20
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
