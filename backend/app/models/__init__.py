@@ -1,5 +1,6 @@
 """Database models."""
 from app.models.storylab import StoryState, GenerationLog, StoryChapter
+from app.models.report import Report, ReportTargetTypeEnum, ReportStatusEnum
 from app.models.user import User
 from app.models.character import Character, VisibilityEnum
 from app.models.character_dna import CharacterDNA
@@ -20,6 +21,9 @@ __all__ = [
     "StoryState",
     "GenerationLog",
     "StoryChapter",
+    "Report",
+    "ReportTargetTypeEnum",
+    "ReportStatusEnum",
     "User",
     "Character",
     "VisibilityEnum",
