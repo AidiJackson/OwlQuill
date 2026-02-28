@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     LANGUAGETOOL_URL: str = "https://api.languagetool.org/v2"
 
     # Image quota — rolling 7-day window per user
-    IMAGE_WEEKLY_LIMIT: int = 1
+    IMAGE_WEEKLY_LIMIT: int = 10
 
     # StoryLab narrative engine
     # STORYLAB_PROVIDER: "stub" (deterministic, no key needed) | "openrouter"
@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     STORYLAB_MODEL_SENSUAL: str = ""
     # Per-user daily chapter generation quota (0 = unlimited)
     STORYLAB_DAILY_LIMIT: int = 20
+
 
     model_config = SettingsConfigDict(
         env_file=".env",

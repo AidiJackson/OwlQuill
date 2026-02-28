@@ -1,4 +1,5 @@
 """Admin-only diagnostics endpoint for beta operational confidence."""
+import os
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -83,6 +84,8 @@ def admin_diagnostics(
     """Return operational status snapshot for beta readiness review.
 
     All credential values are redacted; only presence is reported.
+    Key presence is read from the live environment (os.getenv) so it reflects
+    the runtime process rather than a cached settings snapshot.
     """
     # ── DB ──
     db_ok = True
@@ -103,6 +106,7 @@ def admin_diagnostics(
     storylab_info = {
         "provider": settings.STORYLAB_PROVIDER,
         "daily_limit": settings.STORYLAB_DAILY_LIMIT,
+        "openrouter_key_present": bool(os.getenv("OPENROUTER_API_KEY")),
         "models": {
             "sfw": _resolve_model(settings.STORYLAB_MODEL_SFW),
             "fade": _resolve_model(settings.STORYLAB_MODEL_FADE),
@@ -113,9 +117,9 @@ def admin_diagnostics(
     # ── Images ──
     images_info = {
         "provider": settings.IMAGE_PROVIDER,
-        "weekly_limit": settings.IMAGE_GENERATION_WEEKLY_LIMIT,
-        "openai_key_present": bool(settings.OPENAI_API_KEY),
-        "fal_key_present": bool(settings.FAL_KEY),
+        "weekly_limit": settings.IMAGE_WEEKLY_LIMIT,
+        "openai_key_present": bool(os.getenv("OPENAI_API_KEY")),
+        "fal_key_present": bool(os.getenv("FAL_KEY")),
         "model": settings.IMAGE_MODEL,
     }
 
@@ -127,11 +131,11 @@ def admin_diagnostics(
         "port": settings.SMTP_PORT,
     }
 
-    # ── Safety features (report/block/ban not yet implemented) ──
+    # ── Safety — capabilities present in this codebase ──
     safety_info = {
-        "reports_enabled": False,
-        "blocks_enabled": False,
-        "ban_enabled": False,
+        "reports_enabled": True,
+        "blocks_enabled": True,
+        "ban_enabled": True,
     }
 
     return {
