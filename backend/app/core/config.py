@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     STORYLAB_DAILY_LIMIT: int = 20
 
     # Image generation quota (0 = unlimited)
-    IMAGE_GENERATION_WEEKLY_LIMIT: int = 10
+    IMAGE_WEEKLY_LIMIT: int = 10
 
     model_config = SettingsConfigDict(
         env_file=".env",

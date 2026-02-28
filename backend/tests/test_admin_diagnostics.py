@@ -86,6 +86,8 @@ def test_admin_diagnostics_payload_shape(client: TestClient, monkeypatch):
     assert "provider" in sl
     assert "daily_limit" in sl
     assert isinstance(sl["daily_limit"], int)
+    assert "openrouter_key_present" in sl
+    assert isinstance(sl["openrouter_key_present"], bool)
     assert "models" in sl
     assert {"sfw", "fade", "sensual"} == set(sl["models"].keys())
 
@@ -107,11 +109,25 @@ def test_admin_diagnostics_payload_shape(client: TestClient, monkeypatch):
     assert "from_email" in email
     assert "port" in email
 
-    # Safety section
+    # Safety section — all capabilities are present in this codebase
     safety = data["safety"]
-    assert "reports_enabled" in safety
-    assert "blocks_enabled" in safety
-    assert "ban_enabled" in safety
+    assert safety["reports_enabled"] is True
+    assert safety["blocks_enabled"] is True
+    assert safety["ban_enabled"] is True
+
+
+def test_admin_diagnostics_storylab_provider_mirrors_env(client: TestClient, monkeypatch):
+    """storylab.provider in diagnostics matches whatever STORYLAB_PROVIDER is set to."""
+    monkeypatch.setenv("ADMIN_EMAIL", _ADMIN_EMAIL)
+    from app.core import config as cfg_module
+    monkeypatch.setattr(cfg_module.settings, "ADMIN_EMAILS", "")
+    # Patch the live settings object to simulate openrouter being configured
+    monkeypatch.setattr(cfg_module.settings, "STORYLAB_PROVIDER", "openrouter")
+
+    token = _register_and_login(client, _ADMIN_EMAIL, _ADMIN_PASS, "diagadmin4")
+    resp = client.get("/api/admin/diagnostics", headers=_auth_headers(token))
+    assert resp.status_code == 200
+    assert resp.json()["storylab"]["provider"] == "openrouter"
 
 
 def test_admin_diagnostics_no_credentials_in_url(client: TestClient, monkeypatch):
