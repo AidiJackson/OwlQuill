@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     IMAGE_MODEL: str = "gpt-image-1.5"
     OPENAI_API_KEY: Optional[str] = None
     BACKEND_PUBLIC_URL: str = "http://localhost:8000"
+    # Per-user rolling 7-day library image quota (0 = unlimited)
+    IMAGE_WEEKLY_LIMIT: int = 10
 
     # Fallback image provider (used when primary blocks/fails in tier C)
     IMAGE_PROVIDER_FALLBACK: str = "fal"
