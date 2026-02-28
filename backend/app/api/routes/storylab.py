@@ -1,6 +1,6 @@
 """StoryLab backend loop — state management + provider-routed generation + chapters.
 
-Routes
+Routes (all require Bearer JWT)
 ------
 GET  /storylab/state?story_id=...                      Return (or create) story state.
 POST /storylab/generate                                 Generate continuation + update state.
@@ -9,6 +9,10 @@ GET  /storylab/chapters/{chapter_number}?story_id=...  Get a specific chapter.
 POST /storylab/chapters/generate?story_id=...          Generate a new chapter.
 DELETE /storylab/chapters/{chapter_number}?story_id=... Delete a chapter.
 POST /storylab/chapters/{chapter_number}/regenerate?story_id=... Overwrite chapter with new generation.
+
+Every route requires a valid Bearer JWT (Depends(get_current_user)).
+story_id is scoped to the authenticated user — other users' story IDs
+return 404 (not 403) to avoid leaking existence information.
 
 Generation is delegated to app.services.storylab_generator which routes to
 the configured provider (stub / openrouter) with automatic stub fallback.
@@ -22,7 +26,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
 from app.models.storylab import GenerationLog, StoryChapter, StoryState
+from app.models.user import User
 from app.schemas.storylab import (
     Boundary,
     ChapterDetail,
@@ -189,18 +195,35 @@ def _fetch_recent_endings(story_id: str, db: Session, n: int = 3) -> list[str]:
     return endings
 
 
-def _get_or_create_state(story_id: str, db: Session) -> StoryState:
+def _get_owned_state(story_id: str, user_id: int, db: Session) -> StoryState:
+    """Return the StoryState row owned by user_id, or raise HTTP 404.
+
+    Returns 404 (not 403) whether the story doesn't exist OR belongs to
+    another user — this avoids leaking existence information.
+    """
     row = db.query(StoryState).filter(StoryState.story_id == story_id).first()
-    if row is None:
-        row = StoryState(
-            story_id=story_id,
-            story_summary="",
-            state_json=_DEFAULT_STATE,
-            updated_at=datetime.utcnow(),
-        )
-        db.add(row)
-        db.commit()
-        db.refresh(row)
+    if row is None or row.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return row
+
+
+def _get_or_create_owned_state(story_id: str, user_id: int, db: Session) -> StoryState:
+    """Return existing state if owned by user_id; create it if new; 404 if owned by another user."""
+    row = db.query(StoryState).filter(StoryState.story_id == story_id).first()
+    if row is not None:
+        if row.user_id != user_id:
+            raise HTTPException(status_code=404, detail="Story not found")
+        return row
+    row = StoryState(
+        story_id=story_id,
+        user_id=user_id,
+        story_summary="",
+        state_json=_DEFAULT_STATE,
+        updated_at=datetime.utcnow(),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
     return row
 
 
@@ -209,10 +232,11 @@ def _get_or_create_state(story_id: str, db: Session) -> StoryState:
 @router.get("/state", response_model=StoryLabStateResponse)
 def get_state(
     story_id: str = Query(..., description="Story workspace identifier"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StoryLabStateResponse:
     """Return the current story state, creating a default row if none exists."""
-    row = _get_or_create_state(story_id, db)
+    row = _get_or_create_owned_state(story_id, current_user.id, db)
     return StoryLabStateResponse(
         story_id=row.story_id,
         story_summary=row.story_summary or "",
@@ -224,6 +248,7 @@ def get_state(
 @router.post("/generate", response_model=StoryLabGenerateResponse)
 def generate(
     req: StoryLabGenerateRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StoryLabGenerateResponse:
     """Generate a story continuation and persist updated state."""
@@ -254,8 +279,8 @@ def generate(
             },
         )
 
-    # ── fetch/create state ────────────────────────────────────────────────────
-    state_row = _get_or_create_state(req.story_id, db)
+    # ── fetch/create state (ownership-gated) ─────────────────────────────────
+    state_row = _get_or_create_owned_state(req.story_id, current_user.id, db)
     current_state: dict[str, Any] = dict(state_row.state_json or _DEFAULT_STATE)
 
     # ── fetch recent endings for anti-repetition guidance ─────────────────────
@@ -358,10 +383,11 @@ def _chapter_to_detail(ch: StoryChapter, suggestions: list[str]) -> ChapterDetai
 def _run_chapter_generation(
     story_id: str,
     req: ChapterGenerateRequest,
+    user_id: int,
     db: Session,
 ) -> tuple[str, list[str], dict[str, Any] | None]:
     """Shared generation logic: fetch state, get previous chapter, call generator."""
-    state_row = _get_or_create_state(story_id, db)
+    state_row = _get_or_create_owned_state(story_id, user_id, db)
     current_state: dict[str, Any] = dict(state_row.state_json or _DEFAULT_STATE)
 
     # Last chapter text for continuity context
@@ -427,9 +453,17 @@ def _update_story_summary(
 @router.get("/chapters", response_model=list[ChapterListItem])
 def list_chapters(
     story_id: str = Query(..., description="Story workspace identifier"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[ChapterListItem]:
-    """Return all chapters for a story, ordered by chapter_number."""
+    """Return all chapters for a story, ordered by chapter_number.
+
+    Returns 404 if the story exists but belongs to a different user.
+    Returns [] if the story doesn't exist yet (no chapters).
+    """
+    existing = db.query(StoryState).filter(StoryState.story_id == story_id).first()
+    if existing is not None and existing.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Story not found")
     rows = (
         db.query(StoryChapter)
         .filter(StoryChapter.story_id == story_id)
@@ -443,9 +477,12 @@ def list_chapters(
 def get_chapter(
     chapter_number: int,
     story_id: str = Query(..., description="Story workspace identifier"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChapterDetail:
     """Return a specific chapter with suggestions derived from current state."""
+    # Verify ownership before exposing chapter content
+    state_row = _get_owned_state(story_id, current_user.id, db)
     ch = (
         db.query(StoryChapter)
         .filter(
@@ -457,7 +494,6 @@ def get_chapter(
     if ch is None:
         raise HTTPException(status_code=404, detail="Chapter not found")
 
-    state_row = _get_or_create_state(story_id, db)
     suggestions = _fallback_suggestions(state_row.state_json or _DEFAULT_STATE)
     return _chapter_to_detail(ch, suggestions)
 
@@ -466,10 +502,13 @@ def get_chapter(
 def generate_chapter_endpoint(
     story_id: str = Query(..., description="Story workspace identifier"),
     req: ChapterGenerateRequest = ...,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChapterGenerateResponse:
     """Generate a new chapter and store it."""
-    chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+    chapter_text, suggestions, model_deltas = _run_chapter_generation(
+        story_id, req, current_user.id, db
+    )
     word_count = len(chapter_text.split())
     chapter_number = _get_next_chapter_number(story_id, db)
 
@@ -497,7 +536,7 @@ def generate_chapter_endpoint(
     db.refresh(ch)
 
     # Update story summary (non-fatal; chapter already committed)
-    state_row = _get_or_create_state(story_id, db)
+    state_row = _get_or_create_owned_state(story_id, current_user.id, db)
     _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
 
     return ChapterGenerateResponse(
@@ -513,9 +552,12 @@ def generate_chapter_endpoint(
 def delete_chapter(
     chapter_number: int,
     story_id: str = Query(..., description="Story workspace identifier"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> None:
     """Delete a chapter. Gaps in chapter_number are preserved (no renumbering)."""
+    # Verify ownership before allowing deletion
+    _get_owned_state(story_id, current_user.id, db)
     ch = (
         db.query(StoryChapter)
         .filter(
@@ -535,9 +577,12 @@ def regenerate_chapter(
     chapter_number: int,
     story_id: str = Query(..., description="Story workspace identifier"),
     req: ChapterGenerateRequest = ...,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChapterGenerateResponse:
     """Regenerate a chapter in-place, overwriting its generated_text."""
+    # Verify ownership before any mutation
+    _get_owned_state(story_id, current_user.id, db)
     ch = (
         db.query(StoryChapter)
         .filter(
@@ -549,7 +594,9 @@ def regenerate_chapter(
     if ch is None:
         raise HTTPException(status_code=404, detail="Chapter not found")
 
-    chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+    chapter_text, suggestions, model_deltas = _run_chapter_generation(
+        story_id, req, current_user.id, db
+    )
     word_count = len(chapter_text.split())
 
     controls_snapshot = {
@@ -568,7 +615,7 @@ def regenerate_chapter(
     db.commit()
 
     # Update story summary (non-fatal; chapter already committed)
-    state_row = _get_or_create_state(story_id, db)
+    state_row = _get_or_create_owned_state(story_id, current_user.id, db)
     _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
 
     return ChapterGenerateResponse(

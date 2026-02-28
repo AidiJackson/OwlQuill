@@ -66,3 +66,70 @@ def client(db_session):
     # Re-enable rate limiting after tests
     limiter.enabled = True
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def authed_client(client):
+    """TestClient wrapper that auto-injects auth headers for a default test user.
+
+    Drop-in replacement for ``client`` in tests that require authentication.
+    Exposes .get/.post/.delete/.put/.patch with the Bearer token pre-injected.
+    """
+    token = get_auth_token(client)
+    hdrs = {"Authorization": f"Bearer {token}"}
+
+    class _AuthedClient:
+        def get(self, url, **kwargs):
+            kw_headers = dict(kwargs.pop("headers", {}) or {})
+            kw_headers.update(hdrs)
+            return client.get(url, headers=kw_headers, **kwargs)
+
+        def post(self, url, **kwargs):
+            kw_headers = dict(kwargs.pop("headers", {}) or {})
+            kw_headers.update(hdrs)
+            return client.post(url, headers=kw_headers, **kwargs)
+
+        def delete(self, url, **kwargs):
+            kw_headers = dict(kwargs.pop("headers", {}) or {})
+            kw_headers.update(hdrs)
+            return client.delete(url, headers=kw_headers, **kwargs)
+
+        def put(self, url, **kwargs):
+            kw_headers = dict(kwargs.pop("headers", {}) or {})
+            kw_headers.update(hdrs)
+            return client.put(url, headers=kw_headers, **kwargs)
+
+        def patch(self, url, **kwargs):
+            kw_headers = dict(kwargs.pop("headers", {}) or {})
+            kw_headers.update(hdrs)
+            return client.patch(url, headers=kw_headers, **kwargs)
+
+        @property
+        def _raw(self):
+            return client
+
+    return _AuthedClient()
+
+
+def get_auth_token(client, email: str = "user@test.com", username: str = "testuser") -> str:
+    """Register a user (if needed) and return their Bearer JWT token.
+
+    Idempotent — if the email already exists the registration 400 is ignored
+    and login proceeds normally.  Suitable for use inside test functions that
+    already have a ``client`` fixture.
+    """
+    client.post(
+        "/auth/register",
+        json={"email": email, "username": username, "password": "testpass!123"},
+    )
+    resp = client.post(
+        "/auth/login",
+        json={"email": email, "password": "testpass!123"},
+    )
+    assert resp.status_code == 200, f"Login failed for {email}: {resp.text}"
+    return resp.json()["access_token"]
+
+
+def auth_headers(token: str) -> dict:
+    """Return Authorization header dict for a token."""
+    return {"Authorization": f"Bearer {token}"}

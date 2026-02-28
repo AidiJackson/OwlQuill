@@ -273,9 +273,9 @@ _BASE_GENERATE = {
 
 # ── GET /state ────────────────────────────────────────────────────────────────
 
-def test_get_state_creates_default(client: TestClient):
+def test_get_state_creates_default(authed_client):
     """GET /state for unknown story_id creates a default row and returns schema."""
-    resp = client.get("/api/storylab/state", params={"story_id": "new-story-abc"})
+    resp = authed_client.get("/api/storylab/state", params={"story_id": "new-story-abc"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["story_id"] == "new-story-abc"
@@ -285,23 +285,23 @@ def test_get_state_creates_default(client: TestClient):
     assert "updated_at" in data
 
 
-def test_get_state_returns_existing(client: TestClient):
+def test_get_state_returns_existing(authed_client):
     """GET /state is idempotent — calling twice returns same story_id."""
     for _ in range(2):
-        resp = client.get("/api/storylab/state", params={"story_id": "idempotent-story"})
+        resp = authed_client.get("/api/storylab/state", params={"story_id": "idempotent-story"})
         assert resp.status_code == 200
         assert resp.json()["story_id"] == "idempotent-story"
 
 
-def test_get_state_requires_story_id(client: TestClient):
+def test_get_state_requires_story_id(authed_client):
     """GET /state without story_id returns 422 (missing query param)."""
-    resp = client.get("/api/storylab/state")
+    resp = authed_client.get("/api/storylab/state")
     assert resp.status_code == 422
 
 
-def test_get_state_default_state_json_shape(client: TestClient):
+def test_get_state_default_state_json_shape(authed_client):
     """Default state_json contains expected top-level keys."""
-    resp = client.get("/api/storylab/state", params={"story_id": "shape-check-story"})
+    resp = authed_client.get("/api/storylab/state", params={"story_id": "shape-check-story"})
     assert resp.status_code == 200
     sj = resp.json()["state_json"]
     assert "story_state" in sj
@@ -314,9 +314,9 @@ def test_get_state_default_state_json_shape(client: TestClient):
 
 # ── POST /generate ────────────────────────────────────────────────────────────
 
-def test_generate_returns_continuation(client: TestClient):
+def test_generate_returns_continuation(authed_client):
     """POST /generate returns generated text and updates state."""
-    resp = client.post("/api/storylab/generate", json=_BASE_GENERATE)
+    resp = authed_client.post("/api/storylab/generate", json=_BASE_GENERATE)
     assert resp.status_code == 200
     data = resp.json()
     assert "request_id" in data
@@ -327,52 +327,52 @@ def test_generate_returns_continuation(client: TestClient):
     assert isinstance(data["state"]["deltas"], list)
 
 
-def test_generate_creates_generation_log(client: TestClient):
+def test_generate_creates_generation_log(authed_client):
     """POST /generate twice for the same story_id both succeed."""
     for i in range(2):
         body = dict(_BASE_GENERATE)
         body["story_id"] = "log-test-story"
-        resp = client.post("/api/storylab/generate", json=body)
+        resp = authed_client.post("/api/storylab/generate", json=body)
         assert resp.status_code == 200, f"iteration {i} failed: {resp.text}"
 
 
-def test_generate_updates_state(client: TestClient):
+def test_generate_updates_state(authed_client):
     """After generate, GET /state reflects the updated state_json."""
     story_id = "update-test-story"
-    client.post("/api/storylab/generate", json={**_BASE_GENERATE, "story_id": story_id,
+    authed_client.post("/api/storylab/generate", json={**_BASE_GENERATE, "story_id": story_id,
         "controls": {**_BASE_GENERATE["controls"], "direction": "sad_moment"}})
-    resp = client.get("/api/storylab/state", params={"story_id": story_id})
+    resp = authed_client.get("/api/storylab/state", params={"story_id": story_id})
     assert resp.status_code == 200
     ss = resp.json()["state_json"]["story_state"]
     # sad_moment increments emotional_weight
     assert float(ss.get("emotional_weight", 0)) > 0.1
 
 
-def test_generate_empty_text_rejected(client: TestClient):
+def test_generate_empty_text_rejected(authed_client):
     """POST /generate with empty text returns 400."""
-    resp = client.post("/api/storylab/generate", json={**_BASE_GENERATE, "text": "   "})
+    resp = authed_client.post("/api/storylab/generate", json={**_BASE_GENERATE, "text": "   "})
     assert resp.status_code == 400
 
 
-def test_generate_text_too_long_rejected(client: TestClient):
+def test_generate_text_too_long_rejected(authed_client):
     """POST /generate with text > 50 000 chars returns 400."""
-    resp = client.post("/api/storylab/generate", json={**_BASE_GENERATE, "text": "x" * 50_001})
+    resp = authed_client.post("/api/storylab/generate", json={**_BASE_GENERATE, "text": "x" * 50_001})
     assert resp.status_code == 400
 
 
-def test_generate_request_ids_are_unique(client: TestClient):
+def test_generate_request_ids_are_unique(authed_client):
     """Each generate call returns a distinct request_id."""
     ids = set()
     for _ in range(3):
-        resp = client.post("/api/storylab/generate", json=_BASE_GENERATE)
+        resp = authed_client.post("/api/storylab/generate", json=_BASE_GENERATE)
         assert resp.status_code == 200
         ids.add(resp.json()["request_id"])
     assert len(ids) == 3
 
 
-def test_generate_safety_object(client: TestClient):
+def test_generate_safety_object(authed_client):
     """Safety block in response has expected shape."""
-    resp = client.post("/api/storylab/generate", json=_BASE_GENERATE)
+    resp = authed_client.post("/api/storylab/generate", json=_BASE_GENERATE)
     assert resp.status_code == 200
     safety = resp.json()["safety"]
     assert safety["blocked"] is False
@@ -380,7 +380,7 @@ def test_generate_safety_object(client: TestClient):
     assert safety["boundary"] == "sfw"
 
 
-def test_generate_fade_to_black_sensual_allowed(client: TestClient):
+def test_generate_fade_to_black_sensual_allowed(authed_client):
     """fade_to_black boundary + sensual_scene direction is allowed."""
     body = {**_BASE_GENERATE, "controls": {
         "direction": "sensual_scene",
@@ -389,7 +389,7 @@ def test_generate_fade_to_black_sensual_allowed(client: TestClient):
         "length": "medium",
         "boundary": "fade_to_black",
     }}
-    resp = client.post("/api/storylab/generate", json=body)
+    resp = authed_client.post("/api/storylab/generate", json=body)
     assert resp.status_code == 200
     # Stub should include fade-to-black cue
     text = resp.json()["generated"]["text"]
@@ -398,7 +398,7 @@ def test_generate_fade_to_black_sensual_allowed(client: TestClient):
 
 # ── boundary conflict ─────────────────────────────────────────────────────────
 
-def test_generate_boundary_conflict_returns_422(client: TestClient):
+def test_generate_boundary_conflict_returns_422(authed_client):
     """sfw boundary + intimate_scene direction returns 422 BOUNDARY_CONFLICT."""
     body = {**_BASE_GENERATE, "controls": {
         "direction": "intimate_scene",
@@ -407,13 +407,13 @@ def test_generate_boundary_conflict_returns_422(client: TestClient):
         "length": "medium",
         "boundary": "sfw",
     }}
-    resp = client.post("/api/storylab/generate", json=body)
+    resp = authed_client.post("/api/storylab/generate", json=body)
     assert resp.status_code == 422
     detail = resp.json()["detail"]
     assert detail["code"] == "BOUNDARY_CONFLICT"
 
 
-def test_generate_boundary_conflict_sfw_sensual_scene_allowed(client: TestClient):
+def test_generate_boundary_conflict_sfw_sensual_scene_allowed(authed_client):
     """sfw boundary + sensual_scene is NOT blocked (only intimate_scene is)."""
     body = {**_BASE_GENERATE, "controls": {
         "direction": "sensual_scene",
@@ -422,14 +422,14 @@ def test_generate_boundary_conflict_sfw_sensual_scene_allowed(client: TestClient
         "length": "short",
         "boundary": "sfw",
     }}
-    resp = client.post("/api/storylab/generate", json=body)
+    resp = authed_client.post("/api/storylab/generate", json=body)
     assert resp.status_code == 200
 
 
-def test_generate_direction_enum_invalid(client: TestClient):
+def test_generate_direction_enum_invalid(authed_client):
     """Invalid direction enum returns 422 from Pydantic validation."""
     body = {**_BASE_GENERATE, "controls": {**_BASE_GENERATE["controls"], "direction": "explode_everything"}}
-    resp = client.post("/api/storylab/generate", json=body)
+    resp = authed_client.post("/api/storylab/generate", json=body)
     assert resp.status_code == 422
 
 
@@ -572,7 +572,7 @@ def test_openrouter_missing_key_uses_stub(monkeypatch):
     assert delta is None
 
 
-def test_openrouter_via_endpoint(client):
+def test_openrouter_via_endpoint(authed_client):
     """POST /generate works end-to-end with openrouter provider (mocked)."""
     from unittest.mock import patch
     import app.services.storylab_generator as gen
@@ -587,7 +587,7 @@ def test_openrouter_via_endpoint(client):
     gen.settings.OPENROUTER_API_KEY = "test-key-endpoint"
     try:
         with patch.object(gen.httpx, "Client", return_value=mock_client):
-            resp = client.post("/api/storylab/generate", json=_BASE_GENERATE)
+            resp = authed_client.post("/api/storylab/generate", json=_BASE_GENERATE)
     finally:
         gen.settings.STORYLAB_PROVIDER = original_provider
         gen.settings.OPENROUTER_API_KEY = original_key
@@ -693,7 +693,7 @@ def test_generate_stub_returns_none_delta():
     assert delta is None
 
 
-def test_openrouter_with_delta_signals_updates_state(client):
+def test_openrouter_with_delta_signals_updates_state(authed_client):
     """When OpenRouter returns DELTA_SIGNALS, they are merged into the state."""
     from unittest.mock import patch
     import app.services.storylab_generator as gen
@@ -713,7 +713,7 @@ def test_openrouter_with_delta_signals_updates_state(client):
     gen.settings.OPENROUTER_API_KEY = "test-key-delta"
     try:
         with patch.object(gen.httpx, "Client", return_value=mock_client):
-            resp = client.post(
+            resp = authed_client.post(
                 "/api/storylab/generate",
                 json={**_BASE_GENERATE, "story_id": "delta-signal-story",
                       "controls": {**_BASE_GENERATE["controls"], "direction": "argument_begins"}},
@@ -859,7 +859,7 @@ def test_extract_ending_phrase_multiline():
     assert extract_ending_phrase(text) == "Para two ends with a question?"
 
 
-def test_generate_passes_recent_endings_after_first_call(client):
+def test_generate_passes_recent_endings_after_first_call(authed_client):
     """After a first generation, the second call includes recent endings in the prompt."""
     from unittest.mock import patch
     import app.services.storylab_generator as gen
@@ -868,7 +868,7 @@ def test_generate_passes_recent_endings_after_first_call(client):
     base = {**_BASE_GENERATE, "story_id": story_id}
 
     # First call — creates a generation log entry for this story_id
-    resp1 = client.post("/api/storylab/generate", json=base)
+    resp1 = authed_client.post("/api/storylab/generate", json=base)
     assert resp1.status_code == 200
 
     # Second call — spy on generate_storylab_continuation via the route's own import binding
@@ -880,7 +880,7 @@ def test_generate_passes_recent_endings_after_first_call(client):
         return orig(text, controls, state_json, summary, characters, story_id, recent_endings, variant)
 
     with patch("app.api.routes.storylab.generate_storylab_continuation", side_effect=spy):
-        resp2 = client.post("/api/storylab/generate", json=base)
+        resp2 = authed_client.post("/api/storylab/generate", json=base)
 
     assert resp2.status_code == 200
     assert captured.get("recent_endings") is not None, "recent_endings was not passed"
@@ -954,17 +954,17 @@ def test_build_prompt_contains_character_voice_block():
 
 # ── variant="alt" tests ───────────────────────────────────────────────────────
 
-def test_generate_accepts_variant_alt(client: TestClient):
+def test_generate_accepts_variant_alt(authed_client):
     """POST /generate with variant='alt' returns 200 and generated text."""
-    resp = client.post("/api/storylab/generate", json={**_BASE_GENERATE, "variant": "alt"})
+    resp = authed_client.post("/api/storylab/generate", json={**_BASE_GENERATE, "variant": "alt"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["generated"]["text"]
 
 
-def test_generate_default_variant_unchanged(client: TestClient):
+def test_generate_default_variant_unchanged(authed_client):
     """POST /generate without variant field (default) still returns 200."""
-    resp = client.post("/api/storylab/generate", json=_BASE_GENERATE)
+    resp = authed_client.post("/api/storylab/generate", json=_BASE_GENERATE)
     assert resp.status_code == 200
 
 
@@ -1149,16 +1149,16 @@ _CH_GENERATE_BODY = {
 }
 
 
-def test_chapter_list_empty(client):
+def test_chapter_list_empty(authed_client):
     """GET /chapters returns empty list for a story with no chapters."""
-    resp = client.get(f"/api/storylab/chapters?story_id={_STORY_ID_CH}_empty")
+    resp = authed_client.get(f"/api/storylab/chapters?story_id={_STORY_ID_CH}_empty")
     assert resp.status_code == 200
     assert resp.json() == []
 
 
-def test_chapter_generate_returns_200(client):
+def test_chapter_generate_returns_200(authed_client):
     """POST /chapters/generate returns 200 with required fields."""
-    resp = client.post(
+    resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={_STORY_ID_CH}",
         json=_CH_GENERATE_BODY,
     )
@@ -1172,17 +1172,17 @@ def test_chapter_generate_returns_200(client):
     assert "meta" in data
 
 
-def test_chapter_generate_increments_number(client):
+def test_chapter_generate_increments_number(authed_client):
     """Second generation creates chapter 2."""
     story_id = f"{_STORY_ID_CH}_increment"
-    resp1 = client.post(
+    resp1 = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
     assert resp1.status_code == 200
     assert resp1.json()["chapter_number"] == 1
 
-    resp2 = client.post(
+    resp2 = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
@@ -1190,14 +1190,14 @@ def test_chapter_generate_increments_number(client):
     assert resp2.json()["chapter_number"] == 2
 
 
-def test_chapter_list_shows_generated(client):
+def test_chapter_list_shows_generated(authed_client):
     """GET /chapters lists stored chapters after generation."""
     story_id = f"{_STORY_ID_CH}_list"
-    client.post(
+    authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
-    resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
+    resp = authed_client.get(f"/api/storylab/chapters?story_id={story_id}")
     assert resp.status_code == 200
     items = resp.json()
     assert len(items) == 1
@@ -1208,16 +1208,16 @@ def test_chapter_list_shows_generated(client):
     assert ch["boundary"] == "sfw"
 
 
-def test_chapter_get_returns_detail(client):
+def test_chapter_get_returns_detail(authed_client):
     """GET /chapters/{n} returns chapter detail with prompt_text and suggestions."""
     story_id = f"{_STORY_ID_CH}_get"
-    gen_resp = client.post(
+    gen_resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
     assert gen_resp.status_code == 200
 
-    resp = client.get(f"/api/storylab/chapters/1?story_id={story_id}")
+    resp = authed_client.get(f"/api/storylab/chapters/1?story_id={story_id}")
     assert resp.status_code == 200
     data = resp.json()
     assert data["chapter_number"] == 1
@@ -1226,43 +1226,43 @@ def test_chapter_get_returns_detail(client):
     assert isinstance(data["suggestions"], list)
 
 
-def test_chapter_get_404_on_missing(client):
+def test_chapter_get_404_on_missing(authed_client):
     """GET /chapters/{n} returns 404 when chapter does not exist."""
-    resp = client.get(f"/api/storylab/chapters/99?story_id={_STORY_ID_CH}_missing")
+    resp = authed_client.get(f"/api/storylab/chapters/99?story_id={_STORY_ID_CH}_missing")
     assert resp.status_code == 404
 
 
-def test_chapter_delete_removes_from_list(client):
+def test_chapter_delete_removes_from_list(authed_client):
     """DELETE /chapters/{n} removes the chapter and returns 204."""
     story_id = f"{_STORY_ID_CH}_delete"
-    client.post(
+    authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
-    del_resp = client.delete(f"/api/storylab/chapters/1?story_id={story_id}")
+    del_resp = authed_client.delete(f"/api/storylab/chapters/1?story_id={story_id}")
     assert del_resp.status_code == 204
 
-    list_resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
+    list_resp = authed_client.get(f"/api/storylab/chapters?story_id={story_id}")
     assert list_resp.json() == []
 
 
-def test_chapter_delete_404_on_missing(client):
+def test_chapter_delete_404_on_missing(authed_client):
     """DELETE /chapters/{n} returns 404 when chapter does not exist."""
-    resp = client.delete(f"/api/storylab/chapters/42?story_id={_STORY_ID_CH}_nomatch")
+    resp = authed_client.delete(f"/api/storylab/chapters/42?story_id={_STORY_ID_CH}_nomatch")
     assert resp.status_code == 404
 
 
-def test_chapter_regenerate_overwrites_text(client):
+def test_chapter_regenerate_overwrites_text(authed_client):
     """POST /chapters/{n}/regenerate replaces the chapter text in-place."""
     story_id = f"{_STORY_ID_CH}_regen"
-    gen_resp = client.post(
+    gen_resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
     original_text = gen_resp.json()["generated_text"]
 
     regen_body = {**_CH_GENERATE_BODY, "prompt": "A revised opening beat."}
-    regen_resp = client.post(
+    regen_resp = authed_client.post(
         f"/api/storylab/chapters/1/regenerate?story_id={story_id}",
         json=regen_body,
     )
@@ -1272,7 +1272,7 @@ def test_chapter_regenerate_overwrites_text(client):
     assert isinstance(data["generated_text"], str)
 
     # Chapter list still has exactly 1 chapter (not 2)
-    list_resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
+    list_resp = authed_client.get(f"/api/storylab/chapters?story_id={story_id}")
     assert len(list_resp.json()) == 1
 
 
@@ -1308,10 +1308,10 @@ def test_chapter_build_prompt_structure(client):
     assert "Character Fidelity" in user
 
 
-def test_chapter_generate_stub_returns_suggestions(client):
+def test_chapter_generate_stub_returns_suggestions(authed_client):
     """Stub provider generates valid text and at least 1 suggestion."""
     story_id = f"{_STORY_ID_CH}_stub_sugg"
-    resp = client.post(
+    resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
@@ -1488,12 +1488,12 @@ def test_generate_story_summary_stub_includes_chapter_number():
     assert "4" in result
 
 
-def test_chapter_generate_persists_story_summary(client, db_session):
+def test_chapter_generate_persists_story_summary(authed_client, db_session):
     """After generating a chapter, the StoryState row has a non-empty story_summary."""
     from app.models.storylab import StoryState
 
     story_id = "summary-persist-test-001"
-    resp = client.post(
+    resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json={
             "prompt": "The letter changes everything.",
@@ -1644,3 +1644,126 @@ def test_chapter_prompt_contains_outcome_vs_path_block():
     assert "## Outcome vs Path" in user
     assert "MAXIMUM" in user or "maximum" in user.lower()
     assert "not a required outcome" in user or "not a requirement" in user
+
+
+# ── auth + ownership tests ────────────────────────────────────────────────────
+
+def test_storylab_requires_auth_state(client):
+    """GET /storylab/state returns 4xx when no token is supplied."""
+    resp = client.get("/storylab/state", params={"story_id": "anon-test-state"})
+    assert resp.status_code in (401, 403)
+
+
+def test_storylab_requires_auth_generate(client):
+    """POST /storylab/generate returns 4xx when no token is supplied."""
+    resp = client.post(
+        "/storylab/generate",
+        json={
+            "story_id": "anon-test-gen",
+            "text": "She walked into the room.",
+            "controls": {},
+        },
+    )
+    assert resp.status_code in (401, 403)
+
+
+def test_storylab_requires_auth_chapters_generate(client):
+    """POST /storylab/chapters/generate returns 4xx when no token is supplied."""
+    resp = client.post(
+        "/storylab/chapters/generate",
+        params={"story_id": "anon-test-ch"},
+        json={"prompt": "A new chapter begins.", "controls": {}},
+    )
+    assert resp.status_code in (401, 403)
+
+
+def _register_and_login(client, email: str, username: str) -> dict:
+    """Register (idempotent) and return Bearer auth headers."""
+    client.post(
+        "/auth/register",
+        json={"email": email, "username": username, "password": "testpass!123"},
+    )
+    resp = client.post(
+        "/auth/login",
+        json={"email": email, "password": "testpass!123"},
+    )
+    assert resp.status_code == 200, f"Login failed for {email}: {resp.text}"
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_storylab_story_isolated_per_user(client):
+    """User B cannot access a story created by User A (returns 404, not 403)."""
+    hdrs_a = _register_and_login(client, "user_a_sl@example.com", "user_a_sl")
+    hdrs_b = _register_and_login(client, "user_b_sl@example.com", "user_b_sl")
+    story_id = "isolation-test-story-abc123"
+
+    # User A creates the story via generate
+    resp_a = client.post(
+        "/storylab/generate",
+        headers=hdrs_a,
+        json={
+            "story_id": story_id,
+            "text": "The castle doors swung open.",
+            "controls": {},
+        },
+    )
+    assert resp_a.status_code == 200, resp_a.text
+
+    # User B: GET state → 404
+    r = client.get("/storylab/state", params={"story_id": story_id}, headers=hdrs_b)
+    assert r.status_code == 404, r.text
+
+    # User B: POST generate → 404
+    r = client.post(
+        "/storylab/generate",
+        headers=hdrs_b,
+        json={"story_id": story_id, "text": "Another sentence.", "controls": {}},
+    )
+    assert r.status_code == 404, r.text
+
+    # User B: GET chapters list → 404
+    r = client.get("/storylab/chapters", params={"story_id": story_id}, headers=hdrs_b)
+    assert r.status_code == 404, r.text
+
+
+def test_storylab_chapter_isolated_per_user(client):
+    """User B cannot fetch, delete, or regenerate a chapter owned by User A."""
+    hdrs_a = _register_and_login(client, "ch_user_a_sl@example.com", "ch_user_a_sl")
+    hdrs_b = _register_and_login(client, "ch_user_b_sl@example.com", "ch_user_b_sl")
+    story_id = "chapter-isolation-story-xyz789"
+
+    # User A generates a chapter
+    resp = client.post(
+        "/storylab/chapters/generate",
+        params={"story_id": story_id},
+        headers=hdrs_a,
+        json={"prompt": "A stormy night descended.", "controls": {}},
+    )
+    assert resp.status_code == 200, resp.text
+    chapter_number = resp.json()["chapter_number"]
+
+    # User B: GET chapter → 404
+    r = client.get(
+        f"/storylab/chapters/{chapter_number}",
+        params={"story_id": story_id},
+        headers=hdrs_b,
+    )
+    assert r.status_code == 404, r.text
+
+    # User B: DELETE chapter → 404
+    r = client.delete(
+        f"/storylab/chapters/{chapter_number}",
+        params={"story_id": story_id},
+        headers=hdrs_b,
+    )
+    assert r.status_code == 404, r.text
+
+    # User B: POST regenerate → 404
+    r = client.post(
+        f"/storylab/chapters/{chapter_number}/regenerate",
+        params={"story_id": story_id},
+        headers=hdrs_b,
+        json={"prompt": "A quiet morning.", "controls": {}},
+    )
+    assert r.status_code == 404, r.text

@@ -1,19 +1,30 @@
 """StoryLab DB models: story_state + generation_log + story_chapter."""
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.types import JSON
 
 from app.core.database import Base
 
 
 class StoryState(Base):
-    """Persisted narrative state for a story workspace."""
+    """Persisted narrative state for a story workspace.
+
+    user_id — the authenticated user who owns this story.  Rows without a
+    user_id are legacy (pre-auth) entries; they are inaccessible through the
+    API and can be cleaned up manually.
+    """
 
     __tablename__ = "story_state"
 
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,   # nullable for safe migration; new rows always set it
+        index=True,
+    )
     story_summary = Column(Text, nullable=True)
     state_json = Column(JSON, nullable=False, default=dict)
     updated_at = Column(
