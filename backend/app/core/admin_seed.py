@@ -59,6 +59,38 @@ def ensure_admin_user() -> None:
         db.close()
 
 
+def ensure_admin_flags() -> None:
+    """Upgrade the admin user's is_admin flag and max_characters if not already set.
+
+    Reads ADMIN_EMAIL from environment.  Only upgrades an *existing* user — never
+    creates one.  Safe to run on every startup (idempotent).
+    """
+    admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+    if not admin_email:
+        return
+
+    db: Session = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == admin_email).first()
+        if user is None:
+            return  # user not yet created — skip
+        changed = False
+        if not user.is_admin:
+            user.is_admin = True
+            changed = True
+        if user.max_characters < 25:
+            user.max_characters = 25
+            changed = True
+        if changed:
+            db.commit()
+            logger.info("Admin flags ensured for %s (is_admin=True, max_characters=25)", admin_email)
+    except Exception as e:
+        db.rollback()
+        logger.error("Failed to ensure admin flags: %s", e)
+    finally:
+        db.close()
+
+
 def ensure_commons_realm() -> None:
     """Ensure The Commons realm exists. Called on startup.
 

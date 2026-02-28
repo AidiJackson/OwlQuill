@@ -1,6 +1,6 @@
 """User model."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Boolean, Column, Integer, String, DateTime
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -20,6 +20,8 @@ class User(Base):
     avatar_url = Column(String, nullable=True)
     cover_url = Column(String, nullable=True)
     next_character_allowed_at = Column(DateTime, nullable=True)
+    is_admin = Column(Boolean, default=False, nullable=False, server_default="false")
+    max_characters = Column(Integer, default=1, nullable=False, server_default="1")
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

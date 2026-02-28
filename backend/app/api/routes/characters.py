@@ -29,8 +29,10 @@ def create_character(
     db: Session = Depends(get_db)
 ) -> Character:
     """Create a new character."""
+    is_admin = _is_admin(current_user) or bool(current_user.is_admin)
+
     # Enforce cooldown after character deletion (admins bypass)
-    if current_user.next_character_allowed_at and not _is_admin(current_user):
+    if current_user.next_character_allowed_at and not is_admin:
         now = datetime.utcnow()
         if now < current_user.next_character_allowed_at:
             remaining = current_user.next_character_allowed_at - now
@@ -44,6 +46,24 @@ def create_character(
                     f"(after {current_user.next_character_allowed_at.isoformat()}Z)."
                 ),
             )
+
+    # Enforce per-user character cap (admins get at least 25)
+    allowed_max = max(current_user.max_characters, 25) if is_admin else current_user.max_characters
+    existing_count = db.query(CharacterModel).filter(
+        CharacterModel.owner_id == current_user.id
+    ).count()
+    if existing_count >= allowed_max:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "character_limit_reached",
+                "detail": (
+                    f"You have reached your character limit of {allowed_max}. "
+                    f"Delete an existing character to create a new one."
+                ),
+                "max": allowed_max,
+            },
+        )
 
     db_character = CharacterModel(
         **character_data.model_dump(),

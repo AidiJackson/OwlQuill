@@ -10,7 +10,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
-from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
+from app.core.admin_seed import ensure_admin_user, ensure_admin_flags, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
 from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, grammar, storylab
 
@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Email: DEV console mode")
     ensure_admin_user()
+    ensure_admin_flags()
     ensure_commons_realm()
     try:
         ensure_starter_realms_and_posts()
