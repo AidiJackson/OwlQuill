@@ -1156,9 +1156,9 @@ def test_chapter_list_empty(client):
     assert resp.json() == []
 
 
-def test_chapter_generate_returns_200(client):
+def test_chapter_generate_returns_200(authed_client):
     """POST /chapters/generate returns 200 with required fields."""
-    resp = client.post(
+    resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={_STORY_ID_CH}",
         json=_CH_GENERATE_BODY,
     )
@@ -1172,17 +1172,17 @@ def test_chapter_generate_returns_200(client):
     assert "meta" in data
 
 
-def test_chapter_generate_increments_number(client):
+def test_chapter_generate_increments_number(authed_client):
     """Second generation creates chapter 2."""
     story_id = f"{_STORY_ID_CH}_increment"
-    resp1 = client.post(
+    resp1 = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
     assert resp1.status_code == 200
     assert resp1.json()["chapter_number"] == 1
 
-    resp2 = client.post(
+    resp2 = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
@@ -1190,14 +1190,14 @@ def test_chapter_generate_increments_number(client):
     assert resp2.json()["chapter_number"] == 2
 
 
-def test_chapter_list_shows_generated(client):
+def test_chapter_list_shows_generated(authed_client):
     """GET /chapters lists stored chapters after generation."""
     story_id = f"{_STORY_ID_CH}_list"
-    client.post(
+    authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
-    resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
+    resp = authed_client.get(f"/api/storylab/chapters?story_id={story_id}")
     assert resp.status_code == 200
     items = resp.json()
     assert len(items) == 1
@@ -1208,16 +1208,16 @@ def test_chapter_list_shows_generated(client):
     assert ch["boundary"] == "sfw"
 
 
-def test_chapter_get_returns_detail(client):
+def test_chapter_get_returns_detail(authed_client):
     """GET /chapters/{n} returns chapter detail with prompt_text and suggestions."""
     story_id = f"{_STORY_ID_CH}_get"
-    gen_resp = client.post(
+    gen_resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
     assert gen_resp.status_code == 200
 
-    resp = client.get(f"/api/storylab/chapters/1?story_id={story_id}")
+    resp = authed_client.get(f"/api/storylab/chapters/1?story_id={story_id}")
     assert resp.status_code == 200
     data = resp.json()
     assert data["chapter_number"] == 1
@@ -1232,17 +1232,17 @@ def test_chapter_get_404_on_missing(client):
     assert resp.status_code == 404
 
 
-def test_chapter_delete_removes_from_list(client):
+def test_chapter_delete_removes_from_list(authed_client):
     """DELETE /chapters/{n} removes the chapter and returns 204."""
     story_id = f"{_STORY_ID_CH}_delete"
-    client.post(
+    authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
-    del_resp = client.delete(f"/api/storylab/chapters/1?story_id={story_id}")
+    del_resp = authed_client.delete(f"/api/storylab/chapters/1?story_id={story_id}")
     assert del_resp.status_code == 204
 
-    list_resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
+    list_resp = authed_client.get(f"/api/storylab/chapters?story_id={story_id}")
     assert list_resp.json() == []
 
 
@@ -1252,17 +1252,17 @@ def test_chapter_delete_404_on_missing(client):
     assert resp.status_code == 404
 
 
-def test_chapter_regenerate_overwrites_text(client):
+def test_chapter_regenerate_overwrites_text(authed_client):
     """POST /chapters/{n}/regenerate replaces the chapter text in-place."""
     story_id = f"{_STORY_ID_CH}_regen"
-    gen_resp = client.post(
+    gen_resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
     original_text = gen_resp.json()["generated_text"]
 
     regen_body = {**_CH_GENERATE_BODY, "prompt": "A revised opening beat."}
-    regen_resp = client.post(
+    regen_resp = authed_client.post(
         f"/api/storylab/chapters/1/regenerate?story_id={story_id}",
         json=regen_body,
     )
@@ -1272,7 +1272,7 @@ def test_chapter_regenerate_overwrites_text(client):
     assert isinstance(data["generated_text"], str)
 
     # Chapter list still has exactly 1 chapter (not 2)
-    list_resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
+    list_resp = authed_client.get(f"/api/storylab/chapters?story_id={story_id}")
     assert len(list_resp.json()) == 1
 
 
@@ -1308,10 +1308,10 @@ def test_chapter_build_prompt_structure(client):
     assert "Character Fidelity" in user
 
 
-def test_chapter_generate_stub_returns_suggestions(client):
+def test_chapter_generate_stub_returns_suggestions(authed_client):
     """Stub provider generates valid text and at least 1 suggestion."""
     story_id = f"{_STORY_ID_CH}_stub_sugg"
-    resp = client.post(
+    resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
     )
@@ -1488,12 +1488,12 @@ def test_generate_story_summary_stub_includes_chapter_number():
     assert "4" in result
 
 
-def test_chapter_generate_persists_story_summary(client, db_session):
+def test_chapter_generate_persists_story_summary(authed_client, db_session):
     """After generating a chapter, the StoryState row has a non-empty story_summary."""
     from app.models.storylab import StoryState
 
     story_id = "summary-persist-test-001"
-    resp = client.post(
+    resp = authed_client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json={
             "prompt": "The letter changes everything.",
@@ -1644,3 +1644,68 @@ def test_chapter_prompt_contains_outcome_vs_path_block():
     assert "## Outcome vs Path" in user
     assert "MAXIMUM" in user or "maximum" in user.lower()
     assert "not a required outcome" in user or "not a requirement" in user
+
+
+# ── daily quota tests ─────────────────────────────────────────────────────────
+
+_QUOTA_CHAPTER_BODY = {
+    "prompt": "A scene unfolds.",
+    "mode": "roleplay",
+    "controls": {
+        "direction": "advance_plot",
+        "tone_intensity": "moderate",
+        "pacing": "balanced",
+        "length": "short",
+        "boundary": "sfw",
+    },
+}
+
+
+def test_storylab_daily_limit_enforced(authed_client):
+    """Non-admin user is blocked with 429 after STORYLAB_DAILY_LIMIT chapter generations."""
+    from app.core.config import settings as app_settings
+
+    limit = app_settings.STORYLAB_DAILY_LIMIT
+    story_id = "quota-daily-limit-story"
+
+    # Generate up to the limit — all must succeed
+    for i in range(limit):
+        resp = authed_client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_QUOTA_CHAPTER_BODY,
+        )
+        assert resp.status_code == 200, f"Chapter {i + 1} blocked unexpectedly: {resp.text}"
+
+    # One more — must be blocked
+    resp = authed_client.post(
+        f"/api/storylab/chapters/generate?story_id={story_id}",
+        json=_QUOTA_CHAPTER_BODY,
+    )
+    assert resp.status_code == 429, resp.text
+    data = resp.json()
+    assert data["error"] == "quota_exceeded"
+    assert data["limit"] == limit
+    assert "reset_in_seconds" in data
+    assert isinstance(data["reset_in_seconds"], int) and data["reset_in_seconds"] > 0
+
+
+def test_storylab_admin_unlimited(authed_client, monkeypatch):
+    """Admin user (email in ADMIN_EMAILS) bypasses the daily quota entirely."""
+    import app.api.routes.storylab as sl_routes
+    from app.core.config import settings as app_settings
+
+    # Promote the default test user (user@test.com) to admin via settings patch
+    monkeypatch.setattr(sl_routes.settings, "ADMIN_EMAILS", "user@test.com")
+
+    limit = app_settings.STORYLAB_DAILY_LIMIT
+    over_limit = limit + 5  # generate clearly beyond the standard cap
+    story_id = "admin-quota-bypass-story"
+
+    for i in range(over_limit):
+        resp = authed_client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_QUOTA_CHAPTER_BODY,
+        )
+        assert resp.status_code == 200, (
+            f"Admin chapter {i + 1} was unexpectedly blocked at quota: {resp.text}"
+        )
