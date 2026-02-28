@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
-from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, grammar, storylab
+from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, grammar, storylab, reports, admin
 
 
 logger = logging.getLogger(__name__)
@@ -71,6 +71,8 @@ app.include_router(messages.router, prefix="/messages", tags=["messages"])
 app.include_router(images.router, prefix="/images", tags=["images"])
 app.include_router(grammar.router, prefix="/grammar", tags=["grammar"])
 app.include_router(storylab.router, prefix="/storylab", tags=["storylab"])
+app.include_router(reports.router, prefix="/reports", tags=["reports"])
+app.include_router(admin.router, prefix="/admin", tags=["admin"])
 
 # Mirror all routes under /api/* prefix
 api_router = APIRouter(prefix="/api")
@@ -89,6 +91,8 @@ api_router.include_router(messages.router, prefix="/messages", tags=["messages"]
 api_router.include_router(images.router, prefix="/images", tags=["images"])
 api_router.include_router(grammar.router, prefix="/grammar", tags=["grammar"])
 api_router.include_router(storylab.router, prefix="/storylab", tags=["storylab"])
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(api_router)
 
 

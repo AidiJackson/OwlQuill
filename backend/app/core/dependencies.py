@@ -41,6 +41,15 @@ def get_current_user(
             detail="User not found",
         )
 
+    if user.is_banned:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "banned",
+                "detail": user.ban_reason or "Your account has been suspended.",
+            },
+        )
+
     return user
 
 
