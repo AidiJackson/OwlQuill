@@ -112,11 +112,12 @@ def forgot_password(
     Always returns 200 to avoid leaking whether the email exists.
     In dev/admin mode, the response includes reset_url for convenience.
     """
-    msg = "If an account with that email exists, we've sent a password reset link."
+    msg = "If an account exists, a reset link has been sent."
+    hint = "Check spam/junk folders. Delivery can take a few minutes."
     user = db.query(UserModel).filter(UserModel.email == body.email).first()
 
     if not user:
-        return ForgotPasswordResponse(message=msg)
+        return ForgotPasswordResponse(message=msg, hint=hint)
 
     # Generate cryptographically random token
     raw_token = secrets.token_urlsafe(32)
@@ -149,9 +150,9 @@ def forgot_password(
     # Return reset_url only in dev mode or for admin emails
     is_admin_email = body.email.lower() in settings.get_admin_emails()
     if settings.is_dev_mode() or is_admin_email:
-        return ForgotPasswordResponse(message=msg, reset_url=reset_url)
+        return ForgotPasswordResponse(message=msg, hint=hint, reset_url=reset_url)
 
-    return ForgotPasswordResponse(message=msg)
+    return ForgotPasswordResponse(message=msg, hint=hint)
 
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK)

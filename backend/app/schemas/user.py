@@ -92,7 +92,9 @@ class ForgotPasswordRequest(BaseModel):
 
 class ForgotPasswordResponse(BaseModel):
     """Forgot password response schema."""
+    ok: bool = True
     message: str
+    hint: Optional[str] = None
     reset_url: Optional[str] = None
 
 
