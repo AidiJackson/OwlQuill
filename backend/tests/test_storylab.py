@@ -1644,3 +1644,136 @@ def test_chapter_prompt_contains_outcome_vs_path_block():
     assert "## Outcome vs Path" in user
     assert "MAXIMUM" in user or "maximum" in user.lower()
     assert "not a required outcome" in user or "not a requirement" in user
+
+
+# ── quota tests ───────────────────────────────────────────────────────────────
+
+def test_chapter_generate_quota_exceeded_returns_429(client):
+    """When daily limit is reached, generating another chapter returns 429."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    story_id = "quota-test-story-001"
+
+    # First generation succeeds (limit = 2, none yet)
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 2):
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+        )
+    assert resp.status_code == 200
+
+    # Second generation also succeeds (used = 1, limit = 2)
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 2):
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+        )
+    assert resp.status_code == 200
+
+    # Third generation is blocked (used = 2, limit = 2)
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 2):
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+        )
+    assert resp.status_code == 429
+
+
+def test_chapter_generate_quota_429_payload_shape(client):
+    """429 quota_exceeded response has required fields: error, detail, hint, reset_in_seconds, limit, used."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    story_id = "quota-shape-story-001"
+
+    # Generate one chapter to consume the limit
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+        )
+
+    # Second call should return 429 with structured payload
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+        )
+
+    assert resp.status_code == 429
+    body = resp.json()
+    d = body["detail"]
+    assert d["error"] == "quota_exceeded"
+    assert "detail" in d
+    assert "hint" in d
+    assert isinstance(d["reset_in_seconds"], int)
+    assert d["reset_in_seconds"] >= 0
+    assert d["limit"] == 1
+    assert d["used"] == 1
+
+
+def test_chapter_generate_quota_zero_means_unlimited(client):
+    """STORYLAB_DAILY_LIMIT=0 disables quota enforcement entirely."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    story_id = "quota-unlimited-story-001"
+
+    # Generate many chapters with limit=0 — all should succeed
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 0):
+        for _ in range(3):
+            resp = client.post(
+                f"/api/storylab/chapters/generate?story_id={story_id}",
+                json=_CH_GENERATE_BODY,
+            )
+            assert resp.status_code == 200
+
+
+def test_chapter_generate_quota_is_per_user(client):
+    """Quota is tracked per user_id, not globally across all stories."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    story_id = "quota-per-user-story"
+    user_a = "quota-user-A"
+    user_b = "quota-user-B"
+
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        # Exhaust quota for user A on this story
+        client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}&user_id={user_a}",
+            json=_CH_GENERATE_BODY,
+        )
+        # User B should still be allowed (different user, same story)
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}&user_id={user_b}",
+            json=_CH_GENERATE_BODY,
+        )
+    assert resp.status_code == 200
+
+
+def test_regenerate_counts_toward_quota(client):
+    """Regenerate is subject to the same quota — blocked when daily limit is reached."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    story_id = "quota-regen-story-001"
+    user_id = "quota-regen-user-001"
+
+    # Generate one chapter with limit=1 (exhausts quota for this user)
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        gen_resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}&user_id={user_id}",
+            json=_CH_GENERATE_BODY,
+        )
+    assert gen_resp.status_code == 200
+    chapter_number = gen_resp.json()["chapter_number"]
+
+    # Regenerate should be blocked — user has hit daily limit
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        resp = client.post(
+            f"/api/storylab/chapters/{chapter_number}/regenerate?story_id={story_id}&user_id={user_id}",
+            json=_CH_GENERATE_BODY,
+        )
+    assert resp.status_code == 429

@@ -83,6 +83,9 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     STORYLAB_MODEL: str = "anthropic/claude-3.5-sonnet"
 
+    # StoryLab quota
+    STORYLAB_DAILY_LIMIT: int = 20  # Per-user daily chapter generation quota (0 = unlimited)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
