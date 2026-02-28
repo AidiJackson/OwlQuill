@@ -15,14 +15,18 @@ the configured provider (stub / openrouter) with automatic stub fallback.
 """
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
 from app.models.storylab import GenerationLog, StoryChapter, StoryState
+from app.models.user import User
 from app.schemas.storylab import (
     Boundary,
     ChapterDetail,
@@ -355,6 +359,37 @@ def _chapter_to_detail(ch: StoryChapter, suggestions: list[str]) -> ChapterDetai
     )
 
 
+def _check_daily_quota(user: User, db: Session) -> JSONResponse | None:
+    """Return a 429 JSONResponse if the user has hit the daily chapter generation limit.
+
+    Uses a 24-hour rolling window.  Admin users (by email) are exempt.
+    Returns None if the user is within quota.
+    """
+    if user.email.lower() in settings.get_admin_emails():
+        return None
+    since = datetime.utcnow() - timedelta(hours=24)
+    count = (
+        db.query(StoryChapter)
+        .filter(
+            StoryChapter.user_id == user.id,
+            StoryChapter.created_at >= since,
+        )
+        .count()
+    )
+    if count >= settings.STORYLAB_DAILY_LIMIT:
+        reset_in = int(timedelta(hours=24).total_seconds())  # conservative: full window
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": "quota_exceeded",
+                "detail": "Daily StoryLab limit reached.",
+                "limit": settings.STORYLAB_DAILY_LIMIT,
+                "reset_in_seconds": reset_in,
+            },
+        )
+    return None
+
+
 def _run_chapter_generation(
     story_id: str,
     req: ChapterGenerateRequest,
@@ -466,9 +501,15 @@ def get_chapter(
 def generate_chapter_endpoint(
     story_id: str = Query(..., description="Story workspace identifier"),
     req: ChapterGenerateRequest = ...,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChapterGenerateResponse:
     """Generate a new chapter and store it."""
+    # Enforce daily quota (admin users exempt)
+    quota_error = _check_daily_quota(current_user, db)
+    if quota_error is not None:
+        return quota_error
+
     chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
     word_count = len(chapter_text.split())
     chapter_number = _get_next_chapter_number(story_id, db)
@@ -483,6 +524,7 @@ def generate_chapter_endpoint(
     now = datetime.utcnow()
     ch = StoryChapter(
         story_id=story_id,
+        user_id=current_user.id,
         chapter_number=chapter_number,
         prompt_text=req.prompt or "",
         mode=req.mode,
@@ -535,9 +577,15 @@ def regenerate_chapter(
     chapter_number: int,
     story_id: str = Query(..., description="Story workspace identifier"),
     req: ChapterGenerateRequest = ...,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChapterGenerateResponse:
     """Regenerate a chapter in-place, overwriting its generated_text."""
+    # Enforce daily quota (admin users exempt)
+    quota_error = _check_daily_quota(current_user, db)
+    if quota_error is not None:
+        return quota_error
+
     ch = (
         db.query(StoryChapter)
         .filter(

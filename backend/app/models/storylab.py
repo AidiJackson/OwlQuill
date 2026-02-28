@@ -1,7 +1,7 @@
 """StoryLab DB models: story_state + generation_log + story_chapter."""
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.types import JSON
 
 from app.core.database import Base
@@ -46,6 +46,14 @@ class StoryChapter(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(String, index=True, nullable=False)
+    # user_id tracks which user generated this chapter (used for daily quota).
+    # Nullable for legacy chapters created before quota enforcement.
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     chapter_number = Column(Integer, nullable=False)
     title = Column(Text, nullable=True)
     prompt_text = Column(Text, nullable=True)

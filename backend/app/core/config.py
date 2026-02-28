@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     STORYLAB_PROVIDER: str = "stub"
     OPENROUTER_API_KEY: str = ""
     STORYLAB_MODEL: str = "anthropic/claude-3.5-sonnet"
+    # Per-user daily chapter generation cap (24-hour rolling window).
+    # Admin users (via ADMIN_EMAILS) are exempt from this limit.
+    STORYLAB_DAILY_LIMIT: int = 10
 
     model_config = SettingsConfigDict(
         env_file=".env",
