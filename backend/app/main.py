@@ -55,24 +55,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(users.router, prefix="/users", tags=["users"])
-app.include_router(characters.router, prefix="/characters", tags=["characters"])
-app.include_router(realms.router, prefix="/realms", tags=["realms"])
-app.include_router(posts.router, prefix="/posts", tags=["posts"])
-app.include_router(comments.router, prefix="/comments", tags=["comments"])
-app.include_router(reactions.router, prefix="/reactions", tags=["reactions"])
-app.include_router(ai.router, prefix="/ai", tags=["ai"])
-app.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
-app.include_router(character_visual.router, prefix="/characters", tags=["character-visual"])
-app.include_router(scene_images.router, prefix="/characters", tags=["scene-images"])
-app.include_router(messages.router, prefix="/messages", tags=["messages"])
-app.include_router(images.router, prefix="/images", tags=["images"])
-app.include_router(grammar.router, prefix="/grammar", tags=["grammar"])
-app.include_router(storylab.router, prefix="/storylab", tags=["storylab"])
-
-# Mirror all routes under /api/* prefix
+# All routes live exclusively under /api/*
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])

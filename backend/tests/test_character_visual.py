@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 def _register_and_login(client: TestClient) -> str:
     """Register a test user and return a bearer token."""
     client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "email": "viztest@example.com",
             "username": "vizuser",
@@ -15,7 +15,7 @@ def _register_and_login(client: TestClient) -> str:
         },
     )
     resp = client.post(
-        "/auth/login",
+        "/api/auth/login",
         json={"email": "viztest@example.com", "password": "testpassword123"},
     )
     return resp.json()["access_token"]
@@ -24,7 +24,7 @@ def _register_and_login(client: TestClient) -> str:
 def _create_character(client: TestClient, token: str) -> int:
     """Create a character and return its ID."""
     resp = client.post(
-        "/characters/",
+        "/api/characters/",
         json={"name": "Ash Valkyr", "species": "human"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -38,7 +38,7 @@ def test_upsert_dna(client: TestClient):
     cid = _create_character(client, token)
 
     resp = client.post(
-        f"/characters/{cid}/dna",
+        f"/api/characters/{cid}/dna",
         json={
             "species": "human",
             "gender_presentation": "feminine",
@@ -61,7 +61,7 @@ def test_generate_identity_pack(client: TestClient):
     cid = _create_character(client, token)
 
     resp = client.post(
-        f"/characters/{cid}/identity-pack/generate",
+        f"/api/characters/{cid}/identity-pack/generate",
         json={"tweaks": {"hair": "long silver"}, "prompt_vibe": "ethereal warrior"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -86,21 +86,21 @@ def test_generate_pack_blocked_after_lock(client: TestClient):
 
     # Generate + accept to lock
     resp = client.post(
-        f"/characters/{cid}/identity-pack/generate",
+        f"/api/characters/{cid}/identity-pack/generate",
         json={},
         headers={"Authorization": f"Bearer {token}"},
     )
     pack_id = resp.json()["pack_id"]
 
     client.post(
-        f"/characters/{cid}/identity-pack/accept",
+        f"/api/characters/{cid}/identity-pack/accept",
         json={"pack_id": pack_id},
         headers={"Authorization": f"Bearer {token}"},
     )
 
     # Now try generating again — should fail
     resp = client.post(
-        f"/characters/{cid}/identity-pack/generate",
+        f"/api/characters/{cid}/identity-pack/generate",
         json={},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -115,14 +115,14 @@ def test_accept_identity_pack(client: TestClient):
 
     # First set up DNA
     client.post(
-        f"/characters/{cid}/dna",
+        f"/api/characters/{cid}/dna",
         json={"species": "elf"},
         headers={"Authorization": f"Bearer {token}"},
     )
 
     # Generate pack
     resp = client.post(
-        f"/characters/{cid}/identity-pack/generate",
+        f"/api/characters/{cid}/identity-pack/generate",
         json={},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -130,7 +130,7 @@ def test_accept_identity_pack(client: TestClient):
 
     # Accept pack
     resp = client.post(
-        f"/characters/{cid}/identity-pack/accept",
+        f"/api/characters/{cid}/identity-pack/accept",
         json={"pack_id": pack_id},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -144,7 +144,7 @@ def test_accept_identity_pack(client: TestClient):
 
     # Verify character is now locked
     resp = client.get(
-        f"/characters/{cid}",
+        f"/api/characters/{cid}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.json()["visual_locked"] is True
@@ -159,7 +159,7 @@ def test_accept_identity_pack_persists_anchor_json(client: TestClient):
 
     # Generate a pack (stub provider — no OpenAI)
     resp = client.post(
-        f"/characters/{cid}/identity-pack/generate",
+        f"/api/characters/{cid}/identity-pack/generate",
         json={},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -173,7 +173,7 @@ def test_accept_identity_pack_persists_anchor_json(client: TestClient):
 
     # Accept the pack
     resp = client.post(
-        f"/characters/{cid}/identity-pack/accept",
+        f"/api/characters/{cid}/identity-pack/accept",
         json={"pack_id": pack_id},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -181,7 +181,7 @@ def test_accept_identity_pack_persists_anchor_json(client: TestClient):
 
     # Fetch the character and verify identity_anchor_json
     resp = client.get(
-        f"/characters/{cid}",
+        f"/api/characters/{cid}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
@@ -215,7 +215,7 @@ def test_accept_invalid_pack_id(client: TestClient):
     cid = _create_character(client, token)
 
     resp = client.post(
-        f"/characters/{cid}/identity-pack/accept",
+        f"/api/characters/{cid}/identity-pack/accept",
         json={"pack_id": "nonexistent"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -230,20 +230,20 @@ def test_generate_moment_image(client: TestClient):
 
     # Lock the character first
     resp = client.post(
-        f"/characters/{cid}/identity-pack/generate",
+        f"/api/characters/{cid}/identity-pack/generate",
         json={},
         headers={"Authorization": f"Bearer {token}"},
     )
     pack_id = resp.json()["pack_id"]
     client.post(
-        f"/characters/{cid}/identity-pack/accept",
+        f"/api/characters/{cid}/identity-pack/accept",
         json={"pack_id": pack_id},
         headers={"Authorization": f"Bearer {token}"},
     )
 
     # Now generate a moment
     resp = client.post(
-        f"/characters/{cid}/images/generate",
+        f"/api/characters/{cid}/images/generate",
         json={"outfit": "battle armor", "mood": "determined", "environment": "moonlit forest"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -259,7 +259,7 @@ def test_moment_blocked_before_lock(client: TestClient):
     cid = _create_character(client, token)
 
     resp = client.post(
-        f"/characters/{cid}/images/generate",
+        f"/api/characters/{cid}/images/generate",
         json={"mood": "happy"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -300,7 +300,7 @@ def test_failsafe_tier_c_returns_pack_on_moderation_blocks(client: TestClient):
         return_value=mock_provider,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={
                 "prompt_vibe": (
                     "Naturally beautiful with tanned skin. White American. "
@@ -340,7 +340,7 @@ def test_tier_a_succeeds_no_escalation(client: TestClient):
         return_value=mock_provider,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={"prompt_vibe": "elegant brunette"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -378,7 +378,7 @@ def test_style_anime_flows_into_prompt(client: TestClient):
         return_value=mock_provider,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={"prompt_vibe": "silver hair elf", "style": "anime"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -409,7 +409,7 @@ def test_style_defaults_to_realistic(client: TestClient):
         return_value=mock_provider,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={"prompt_vibe": "warrior"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -425,7 +425,7 @@ def test_unknown_style_coerces_to_realistic(client: TestClient):
     cid = _create_character(client, token)
 
     resp = client.post(
-        f"/characters/{cid}/identity-pack/generate",
+        f"/api/characters/{cid}/identity-pack/generate",
         json={"prompt_vibe": "test", "style": "watercolor_abstract"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -466,7 +466,7 @@ def test_tier_c_uses_fallback_provider_on_openai_block(client: TestClient):
         return_value=mock_fallback,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={"prompt_vibe": "elegant brunette, hazel eyes"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -509,7 +509,7 @@ def test_tier_c_fallback_also_fails_returns_stubs(client: TestClient):
         return_value=mock_fallback,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={"prompt_vibe": "test"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -542,7 +542,7 @@ def test_tier_c_no_fallback_configured_falls_to_stub(client: TestClient):
         return_value=None,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={"prompt_vibe": "test"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -577,7 +577,7 @@ def test_identity_spec_empty_style_coerced_to_realistic(client: TestClient):
         return_value=mock_provider,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={
                 "identity_spec": {
                     "style": "",
@@ -616,7 +616,7 @@ def test_identity_spec_whitespace_style_coerced_to_realistic(client: TestClient)
         return_value=mock_provider,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={
                 "identity_spec": {
                     "style": "   ",
@@ -653,7 +653,7 @@ def test_identity_spec_unknown_style_coerced_to_realistic(client: TestClient):
         return_value=mock_provider,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={
                 "identity_spec": {
                     "style": "oilpainting",
@@ -692,7 +692,7 @@ def test_front_shot_uses_headshot_description(client: TestClient):
         return_value=mock_provider,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={"prompt_vibe": "dark hair, green eyes"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -748,7 +748,7 @@ def test_mask_survives_tier_escalations(client: TestClient):
         return_value=None,
     ):
         resp = client.post(
-            f"/characters/{cid}/identity-pack/generate",
+            f"/api/characters/{cid}/identity-pack/generate",
             json={"prompt_vibe": "athletic fighter, black face mask covering nose and mouth"},
             headers={"Authorization": f"Bearer {token}"},
         )

@@ -7,16 +7,16 @@ from fastapi.testclient import TestClient
 
 def _register_and_login(client: TestClient, email: str = "scenetest@example.com") -> str:
     client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={"email": email, "username": email.split("@")[0], "password": "testpassword123"},
     )
-    resp = client.post("/auth/login", json={"email": email, "password": "testpassword123"})
+    resp = client.post("/api/auth/login", json={"email": email, "password": "testpassword123"})
     return resp.json()["access_token"]
 
 
 def _create_character(client: TestClient, token: str) -> int:
     resp = client.post(
-        "/characters/",
+        "/api/characters/",
         json={"name": "Scene Test Char", "species": "human"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -26,13 +26,13 @@ def _create_character(client: TestClient, token: str) -> int:
 def _lock_character(client: TestClient, token: str, cid: int) -> None:
     """Generate + accept a pack so the character is locked with identity_anchor_json."""
     resp = client.post(
-        f"/characters/{cid}/identity-pack/generate",
+        f"/api/characters/{cid}/identity-pack/generate",
         json={},
         headers={"Authorization": f"Bearer {token}"},
     )
     pack_id = resp.json()["pack_id"]
     resp = client.post(
-        f"/characters/{cid}/identity-pack/accept",
+        f"/api/characters/{cid}/identity-pack/accept",
         json={"pack_id": pack_id},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -48,7 +48,7 @@ def test_scene_image_success_stub(client: TestClient):
     _lock_character(client, token, cid)
 
     resp = client.post(
-        f"/characters/{cid}/scene-images/generate",
+        f"/api/characters/{cid}/scene-images/generate",
         json={"prompt": "Standing in a moonlit forest clearing"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -78,7 +78,7 @@ def test_scene_image_not_locked(client: TestClient):
     cid = _create_character(client, token)
 
     resp = client.post(
-        f"/characters/{cid}/scene-images/generate",
+        f"/api/characters/{cid}/scene-images/generate",
         json={"prompt": "A rainy street corner"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -101,7 +101,7 @@ def test_scene_image_missing_anchor(client: TestClient, db_session):
     db_session.commit()
 
     resp = client.post(
-        f"/characters/{cid}/scene-images/generate",
+        f"/api/characters/{cid}/scene-images/generate",
         json={"prompt": "Walking through a garden"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -144,7 +144,7 @@ def test_scene_image_edit_unsupported_falls_back(client: TestClient):
 
     with patch("app.api.routes.scene_images.get_image_provider", return_value=mock_provider):
         resp = client.post(
-            f"/characters/{cid}/scene-images/generate",
+            f"/api/characters/{cid}/scene-images/generate",
             json={"prompt": "Dramatic confrontation scene"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -167,7 +167,7 @@ def test_scene_image_style_coercion(client: TestClient):
     _lock_character(client, token, cid)
 
     resp = client.post(
-        f"/characters/{cid}/scene-images/generate",
+        f"/api/characters/{cid}/scene-images/generate",
         json={"prompt": "A battle scene", "style": "UNKNOWN_STYLE"},
         headers={"Authorization": f"Bearer {token}"},
     )

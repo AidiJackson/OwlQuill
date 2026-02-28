@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 def get_auth_token(client: TestClient) -> str:
     """Helper to get auth token."""
     client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "email": "test@example.com",
             "username": "testuser",
@@ -13,7 +13,7 @@ def get_auth_token(client: TestClient) -> str:
         }
     )
     response = client.post(
-        "/auth/login",
+        "/api/auth/login",
         json={
             "email": "test@example.com",
             "password": "testpassword123"
@@ -27,7 +27,7 @@ def test_create_character(client: TestClient):
     token = get_auth_token(client)
 
     response = client.post(
-        "/characters/",
+        "/api/characters/",
         json={
             "name": "Luna Nightshade",
             "species": "vampire",
@@ -48,7 +48,7 @@ def test_list_characters(client: TestClient):
 
     # Create a character
     client.post(
-        "/characters/",
+        "/api/characters/",
         json={
             "name": "Luna Nightshade",
             "species": "vampire",
@@ -59,7 +59,7 @@ def test_list_characters(client: TestClient):
 
     # List characters
     response = client.get(
-        "/characters/",
+        "/api/characters/",
         headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 200

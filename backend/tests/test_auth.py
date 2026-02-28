@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 def test_register_user(client: TestClient):
     """Test user registration."""
     response = client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "email": "test@example.com",
             "username": "testuser",
@@ -29,10 +29,10 @@ def test_register_duplicate_email(client: TestClient):
         "username": "testuser",
         "password": "testpassword123"
     }
-    client.post("/auth/register", json=user_data)
+    client.post("/api/auth/register", json=user_data)
 
     response = client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "email": "test@example.com",
             "username": "anotheruser",
@@ -46,7 +46,7 @@ def test_login_json_body(client: TestClient):
     """Test user login with JSON body (secure method)."""
     # Register user
     client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "email": "test@example.com",
             "username": "testuser",
@@ -56,7 +56,7 @@ def test_login_json_body(client: TestClient):
 
     # Login with JSON body
     response = client.post(
-        "/auth/login",
+        "/api/auth/login",
         json={
             "email": "test@example.com",
             "password": "testpassword123"
@@ -72,7 +72,7 @@ def test_login_query_params_rejected(client: TestClient):
     """Test that login via query params is rejected (security requirement)."""
     # Register user
     client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "email": "test@example.com",
             "username": "testuser",
@@ -82,7 +82,7 @@ def test_login_query_params_rejected(client: TestClient):
 
     # Attempt login with query params (insecure, should fail)
     response = client.post(
-        "/auth/login",
+        "/api/auth/login",
         params={
             "email": "test@example.com",
             "password": "testpassword123"
@@ -96,7 +96,7 @@ def test_login_wrong_password(client: TestClient):
     """Test login with wrong password."""
     # Register user
     client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "email": "test@example.com",
             "username": "testuser",
@@ -106,7 +106,7 @@ def test_login_wrong_password(client: TestClient):
 
     # Login with wrong password
     response = client.post(
-        "/auth/login",
+        "/api/auth/login",
         json={
             "email": "test@example.com",
             "password": "wrongpassword"
@@ -119,7 +119,7 @@ def test_get_current_user(client: TestClient):
     """Test getting current user info."""
     # Register and login
     client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "email": "test@example.com",
             "username": "testuser",
@@ -128,7 +128,7 @@ def test_get_current_user(client: TestClient):
     )
 
     login_response = client.post(
-        "/auth/login",
+        "/api/auth/login",
         json={
             "email": "test@example.com",
             "password": "testpassword123"
@@ -138,7 +138,7 @@ def test_get_current_user(client: TestClient):
 
     # Get current user
     response = client.get(
-        "/auth/me",
+        "/api/auth/me",
         headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 200
@@ -157,7 +157,7 @@ def test_rate_limit_login(client: TestClient):
     """
     # Register user first
     client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={
             "email": "ratelimit@example.com",
             "username": "ratelimituser",
@@ -170,7 +170,7 @@ def test_rate_limit_login(client: TestClient):
     # but this verifies the endpoint accepts the rate limiter decorator
     for i in range(3):
         response = client.post(
-            "/auth/login",
+            "/api/auth/login",
             json={
                 "email": "ratelimit@example.com",
                 "password": "testpassword123"
@@ -186,14 +186,14 @@ def test_rate_limit_login(client: TestClient):
 def _register(client: TestClient, email: str = "reset@example.com") -> None:
     """Helper to register a user."""
     client.post(
-        "/auth/register",
+        "/api/auth/register",
         json={"email": email, "username": email.split("@")[0], "password": "testpassword123"},
     )
 
 
 def test_forgot_password_always_200(client: TestClient):
     """Endpoint returns 200 regardless of whether email exists."""
-    response = client.post("/auth/forgot-password", json={"email": "nobody@example.com"})
+    response = client.post("/api/auth/forgot-password", json={"email": "nobody@example.com"})
     assert response.status_code == 200
     data = response.json()
     assert "message" in data
@@ -201,7 +201,7 @@ def test_forgot_password_always_200(client: TestClient):
 
 def test_forgot_password_no_reset_url_for_unknown_email(client: TestClient):
     """Even in dev mode, unknown email must not return reset_url."""
-    response = client.post("/auth/forgot-password", json={"email": "nobody@example.com"})
+    response = client.post("/api/auth/forgot-password", json={"email": "nobody@example.com"})
     assert response.status_code == 200
     assert response.json().get("reset_url") is None
 
@@ -209,7 +209,7 @@ def test_forgot_password_no_reset_url_for_unknown_email(client: TestClient):
 def test_forgot_password_dev_mode_returns_reset_url(client: TestClient):
     """In dev mode (DEBUG=true in test env), reset_url is returned for existing user."""
     _register(client)
-    response = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
+    response = client.post("/api/auth/forgot-password", json={"email": "reset@example.com"})
     assert response.status_code == 200
     data = response.json()
     assert data.get("reset_url") is not None
@@ -225,7 +225,7 @@ def test_forgot_password_prod_mode_no_reset_url(client: TestClient):
     try:
         settings.DEBUG = False
         settings.DEV_MODE = False
-        response = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
+        response = client.post("/api/auth/forgot-password", json={"email": "reset@example.com"})
         assert response.status_code == 200
         assert response.json().get("reset_url") is None
     finally:
@@ -244,7 +244,7 @@ def test_forgot_password_admin_email_returns_reset_url_in_prod(client: TestClien
         settings.DEBUG = False
         settings.DEV_MODE = False
         settings.ADMIN_EMAILS = "admin@owlquill.app"
-        response = client.post("/auth/forgot-password", json={"email": "admin@owlquill.app"})
+        response = client.post("/api/auth/forgot-password", json={"email": "admin@owlquill.app"})
         assert response.status_code == 200
         data = response.json()
         assert data.get("reset_url") is not None
@@ -258,20 +258,20 @@ def test_forgot_password_admin_email_returns_reset_url_in_prod(client: TestClien
 def test_forgot_password_reset_url_works_end_to_end(client: TestClient):
     """Token from reset_url can be used to actually reset the password."""
     _register(client)
-    response = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
+    response = client.post("/api/auth/forgot-password", json={"email": "reset@example.com"})
     reset_url = response.json()["reset_url"]
     token = reset_url.split("token=")[1]
 
     # Reset password using the token
     response = client.post(
-        "/auth/reset-password",
+        "/api/auth/reset-password",
         json={"token": token, "new_password": "newpassword456"},
     )
     assert response.status_code == 200
 
     # Login with new password
     response = client.post(
-        "/auth/login",
+        "/api/auth/login",
         json={"email": "reset@example.com", "password": "newpassword456"},
     )
     assert response.status_code == 200
@@ -299,7 +299,7 @@ def test_forgot_password_sends_smtp_when_configured(client: TestClient):
             mock_smtp_instance.__exit__ = MagicMock(return_value=False)
 
             response = client.post(
-                "/auth/forgot-password",
+                "/api/auth/forgot-password",
                 json={"email": "reset@example.com"},
             )
             assert response.status_code == 200
