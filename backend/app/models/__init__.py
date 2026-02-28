@@ -1,5 +1,6 @@
 """Database models."""
 from app.models.storylab import StoryState, GenerationLog, StoryChapter
+from app.models.block import Block
 from app.models.user import User
 from app.models.character import Character, VisibilityEnum
 from app.models.character_dna import CharacterDNA
@@ -43,4 +44,5 @@ __all__ = [
     "Message",
     "UserImage",
     "PasswordResetToken",
+    "Block",
 ]

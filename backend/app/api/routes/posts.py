@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.post import Post as PostModel
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
 from app.schemas.post import Post, PostCreate
+from app.services.safety import blocked_user_ids
 
 router = APIRouter()
 
@@ -37,12 +38,18 @@ def get_feed(
         return []
 
     # Get posts from those realms, eager-load author for username
-    posts = db.query(PostModel).options(
+    posts_q = db.query(PostModel).options(
         selectinload(PostModel.author_user)
     ).filter(
         PostModel.realm_id.in_(realm_ids)
-    ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
+    )
 
+    # Exclude posts from blocked users (bidirectional)
+    blocked = blocked_user_ids(db, current_user.id)
+    if blocked:
+        posts_q = posts_q.filter(PostModel.author_user_id.notin_(blocked))
+
+    posts = posts_q.order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
     return posts
 
 

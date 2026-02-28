@@ -1,14 +1,15 @@
 """Comment routes."""
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.models.comment import Comment as CommentModel
 from app.models.post import Post as PostModel
 from app.schemas.comment import Comment, CommentCreate
+from app.services.safety import blocked_user_ids
 
 router = APIRouter()
 
@@ -43,10 +44,15 @@ def create_comment(
 @router.get("/posts/{post_id}/comments", response_model=List[Comment])
 def list_post_comments(
     post_id: int,
-    db: Session = Depends(get_db)
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
 ) -> List[Comment]:
-    """List comments on a post."""
-    comments = db.query(CommentModel).filter(
-        CommentModel.post_id == post_id
-    ).order_by(CommentModel.created_at.asc()).all()
-    return comments
+    """List comments on a post. Excludes blocked users' comments when authenticated."""
+    comments_q = db.query(CommentModel).filter(CommentModel.post_id == post_id)
+
+    if current_user is not None:
+        blocked = blocked_user_ids(db, current_user.id)
+        if blocked:
+            comments_q = comments_q.filter(CommentModel.author_user_id.notin_(blocked))
+
+    return comments_q.order_by(CommentModel.created_at.asc()).all()
