@@ -46,6 +46,7 @@ class StoryChapter(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     story_id = Column(String, index=True, nullable=False)
+    user_id = Column(String, index=True, nullable=True, default="")
     chapter_number = Column(Integer, nullable=False)
     title = Column(Text, nullable=True)
     prompt_text = Column(Text, nullable=True)

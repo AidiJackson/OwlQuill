@@ -1149,6 +1149,20 @@ _CH_GENERATE_BODY = {
 }
 
 
+def _sl_auth_headers(client, email: str = "sl-test@ficshon.com", username: str = "sltestuser") -> dict:
+    """Register a test user (if needed) and return Bearer auth headers."""
+    client.post(
+        "/auth/register",
+        json={"email": email, "username": username, "password": "testpass123"},
+    )
+    resp = client.post(
+        "/auth/login",
+        json={"email": email, "password": "testpass123"},
+    )
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_chapter_list_empty(client):
     """GET /chapters returns empty list for a story with no chapters."""
     resp = client.get(f"/api/storylab/chapters?story_id={_STORY_ID_CH}_empty")
@@ -1158,9 +1172,11 @@ def test_chapter_list_empty(client):
 
 def test_chapter_generate_returns_200(client):
     """POST /chapters/generate returns 200 with required fields."""
+    headers = _sl_auth_headers(client)
     resp = client.post(
         f"/api/storylab/chapters/generate?story_id={_STORY_ID_CH}",
         json=_CH_GENERATE_BODY,
+        headers=headers,
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -1174,10 +1190,12 @@ def test_chapter_generate_returns_200(client):
 
 def test_chapter_generate_increments_number(client):
     """Second generation creates chapter 2."""
+    headers = _sl_auth_headers(client)
     story_id = f"{_STORY_ID_CH}_increment"
     resp1 = client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
+        headers=headers,
     )
     assert resp1.status_code == 200
     assert resp1.json()["chapter_number"] == 1
@@ -1185,6 +1203,7 @@ def test_chapter_generate_increments_number(client):
     resp2 = client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
+        headers=headers,
     )
     assert resp2.status_code == 200
     assert resp2.json()["chapter_number"] == 2
@@ -1192,10 +1211,12 @@ def test_chapter_generate_increments_number(client):
 
 def test_chapter_list_shows_generated(client):
     """GET /chapters lists stored chapters after generation."""
+    headers = _sl_auth_headers(client)
     story_id = f"{_STORY_ID_CH}_list"
     client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
+        headers=headers,
     )
     resp = client.get(f"/api/storylab/chapters?story_id={story_id}")
     assert resp.status_code == 200
@@ -1210,10 +1231,12 @@ def test_chapter_list_shows_generated(client):
 
 def test_chapter_get_returns_detail(client):
     """GET /chapters/{n} returns chapter detail with prompt_text and suggestions."""
+    headers = _sl_auth_headers(client)
     story_id = f"{_STORY_ID_CH}_get"
     gen_resp = client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
+        headers=headers,
     )
     assert gen_resp.status_code == 200
 
@@ -1234,10 +1257,12 @@ def test_chapter_get_404_on_missing(client):
 
 def test_chapter_delete_removes_from_list(client):
     """DELETE /chapters/{n} removes the chapter and returns 204."""
+    headers = _sl_auth_headers(client)
     story_id = f"{_STORY_ID_CH}_delete"
     client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
+        headers=headers,
     )
     del_resp = client.delete(f"/api/storylab/chapters/1?story_id={story_id}")
     assert del_resp.status_code == 204
@@ -1254,10 +1279,12 @@ def test_chapter_delete_404_on_missing(client):
 
 def test_chapter_regenerate_overwrites_text(client):
     """POST /chapters/{n}/regenerate replaces the chapter text in-place."""
+    headers = _sl_auth_headers(client)
     story_id = f"{_STORY_ID_CH}_regen"
     gen_resp = client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
+        headers=headers,
     )
     original_text = gen_resp.json()["generated_text"]
 
@@ -1265,6 +1292,7 @@ def test_chapter_regenerate_overwrites_text(client):
     regen_resp = client.post(
         f"/api/storylab/chapters/1/regenerate?story_id={story_id}",
         json=regen_body,
+        headers=headers,
     )
     assert regen_resp.status_code == 200
     data = regen_resp.json()
@@ -1310,10 +1338,12 @@ def test_chapter_build_prompt_structure(client):
 
 def test_chapter_generate_stub_returns_suggestions(client):
     """Stub provider generates valid text and at least 1 suggestion."""
+    headers = _sl_auth_headers(client)
     story_id = f"{_STORY_ID_CH}_stub_sugg"
     resp = client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
         json=_CH_GENERATE_BODY,
+        headers=headers,
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -1492,6 +1522,7 @@ def test_chapter_generate_persists_story_summary(client, db_session):
     """After generating a chapter, the StoryState row has a non-empty story_summary."""
     from app.models.storylab import StoryState
 
+    headers = _sl_auth_headers(client)
     story_id = "summary-persist-test-001"
     resp = client.post(
         f"/api/storylab/chapters/generate?story_id={story_id}",
@@ -1506,6 +1537,7 @@ def test_chapter_generate_persists_story_summary(client, db_session):
                 "boundary": "sfw",
             },
         },
+        headers=headers,
     )
     assert resp.status_code == 200
 
@@ -1644,3 +1676,171 @@ def test_chapter_prompt_contains_outcome_vs_path_block():
     assert "## Outcome vs Path" in user
     assert "MAXIMUM" in user or "maximum" in user.lower()
     assert "not a required outcome" in user or "not a requirement" in user
+
+
+# ── quota tests (JWT-derived user_id) ────────────────────────────────────────
+
+def test_chapter_generate_quota_exceeded_returns_429(client):
+    """When daily limit is reached, generating another chapter returns 429."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    headers = _sl_auth_headers(client)
+    story_id = "quota-test-story-001"
+
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 2):
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers,
+        )
+    assert resp.status_code == 200
+
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 2):
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers,
+        )
+    assert resp.status_code == 200
+
+    # Third generation is blocked (used = 2, limit = 2)
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 2):
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers,
+        )
+    assert resp.status_code == 429
+
+
+def test_chapter_generate_quota_429_payload_shape(client):
+    """429 quota_exceeded response has required fields."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    headers = _sl_auth_headers(client)
+    story_id = "quota-shape-story-001"
+
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers,
+        )
+
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers,
+        )
+
+    assert resp.status_code == 429
+    d = resp.json()["detail"]
+    assert d["error"] == "quota_exceeded"
+    assert "detail" in d
+    assert "hint" in d
+    assert isinstance(d["reset_in_seconds"], int)
+    assert d["reset_in_seconds"] >= 0
+    assert d["limit"] == 1
+    assert d["used"] == 1
+
+
+def test_chapter_generate_quota_zero_means_unlimited(client):
+    """STORYLAB_DAILY_LIMIT=0 disables quota enforcement entirely."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    headers = _sl_auth_headers(client)
+    story_id = "quota-unlimited-story-001"
+
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 0):
+        for _ in range(3):
+            resp = client.post(
+                f"/api/storylab/chapters/generate?story_id={story_id}",
+                json=_CH_GENERATE_BODY,
+                headers=headers,
+            )
+            assert resp.status_code == 200
+
+
+def test_chapter_generate_quota_is_per_user(client):
+    """Quota is tracked per JWT user — two users have independent limits."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    story_id = "quota-per-user-story"
+    headers_a = _sl_auth_headers(client, email="quota-user-a@ficshon.com", username="quotausera")
+    headers_b = _sl_auth_headers(client, email="quota-user-b@ficshon.com", username="quotauserb")
+
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        # Exhaust quota for user A
+        client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers_a,
+        )
+        # User B should still be allowed (different JWT → different user_id)
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers_b,
+        )
+    assert resp.status_code == 200
+
+
+def test_regenerate_counts_toward_quota(client):
+    """Regenerate is subject to the same quota — blocked when daily limit is reached."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    headers = _sl_auth_headers(client)
+    story_id = "quota-regen-story-001"
+
+    # Generate one chapter (uses 1 of 1 allowed)
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        gen_resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers,
+        )
+    assert gen_resp.status_code == 200
+    chapter_number = gen_resp.json()["chapter_number"]
+
+    # Regenerate is blocked — user has hit daily limit
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        resp = client.post(
+            f"/api/storylab/chapters/{chapter_number}/regenerate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers,
+        )
+    assert resp.status_code == 429
+
+
+def test_user_id_param_ignored_or_rejected(client):
+    """?user_id query param is silently ignored; quota is derived from the JWT sub."""
+    from unittest.mock import patch
+    from app.core.config import settings as app_settings
+
+    story_id = "spoof-test-story-001"
+    headers_a = _sl_auth_headers(client, email="spoof-a@ficshon.com", username="spoofa")
+
+    # User A generates with a fake ?user_id — the param is unknown and ignored.
+    # The endpoint should succeed (no 422), and user A's own quota slot is consumed.
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        resp = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}&user_id=99999",
+            json=_CH_GENERATE_BODY,
+            headers=headers_a,
+        )
+    assert resp.status_code == 200  # param is ignored, not rejected
+
+    # User A's quota is now exhausted (tracked by their real JWT id, not 99999)
+    with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
+        resp2 = client.post(
+            f"/api/storylab/chapters/generate?story_id={story_id}",
+            json=_CH_GENERATE_BODY,
+            headers=headers_a,
+        )
+    assert resp2.status_code == 429  # user A is blocked, not the fake user 99999

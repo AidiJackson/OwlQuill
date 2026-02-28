@@ -83,6 +83,9 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     STORYLAB_MODEL: str = "anthropic/claude-3.5-sonnet"
 
+    # StoryLab quota — per-user, derived from JWT (0 = unlimited)
+    STORYLAB_DAILY_LIMIT: int = 20
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
