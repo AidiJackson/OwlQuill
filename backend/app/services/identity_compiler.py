@@ -77,9 +77,12 @@ def compile_identity_prompt(
     style_token = _STYLE_TOKENS.get(spec.style, _STYLE_TOKENS["realistic"])
     sections.append(style_token)
 
-    # 2. Identity consistency anchor
+    # 2. Identity consistency anchor — canonical singular appearance lock
     sections.append(
-        "This is the same person in all images, maintain identical facial structure, hair, and identity features."
+        "All images in this identity pack must depict the exact same person with identical hairstyle, hair length,"
+        " hair position, facial hair, facial structure, and overall appearance. Choose one definitive version of"
+        " the described hairstyle and keep it consistent across all angles. Do not vary hair position, hair length,"
+        " or facial hair between shots."
     )
 
     # 3. Adult anchor + identity core
