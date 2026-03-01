@@ -38,7 +38,7 @@ _STYLE_TOKENS: dict[str, str] = {
 # ── Role shot descriptions ───────────────────────────────────────────
 
 ROLE_SHOT_DESCRIPTION: dict[str, str] = {
-    "anchor_front": "close-up headshot portrait, straight-on, shoulders visible, face centered",
+    "anchor_front": "passport-style head-and-shoulders, face straight toward camera, centered, neutral background, no props",
     "anchor_three_quarter": "three-quarter view, head turned about 45 degrees, angled shoulders",
     "anchor_torso": "mid-torso framing, chest and shoulders visible, face smaller in frame",
     "anchor_full_body": "full-body shot, head-to-toe, standing, natural stance, full outfit visible",

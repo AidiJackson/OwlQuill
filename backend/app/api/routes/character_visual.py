@@ -1,4 +1,5 @@
 """Character visual endpoints — DNA, identity pack, and moment generation."""
+import io
 import json as _json
 import logging
 import uuid
@@ -36,11 +37,78 @@ from app.services.identity_compiler import (
     identity_prompt_hash,
 )
 from app.services.stub_image_generator import generate_placeholder_png
-from app.services.image_provider import get_image_provider, get_fallback_provider, ImageProvider
+from app.services.image_provider import get_identity_image_provider, get_fallback_provider, ImageProvider
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# ── Single-frame enforcement ──────────────────────────────────────────
+# Appended to EVERY identity-pack shot prompt to prevent Gemini from
+# returning turntable strips, contact sheets, or multi-panel composites.
+SINGLE_FRAME_ENFORCEMENT = (
+    "Return exactly ONE image. Single-frame photo only. "
+    "NO collage, NO diptych, NO split-screen, NO storyboard, NO contact sheet, "
+    "NO multiple panels, NO repeated subject, NO turntable strip. One person only."
+)
+
+# Appended on the ONE retry when a strip is detected in the response.
+_STRIP_RETRY_SUFFIX = (
+    " CRITICAL: Do not return a strip or multiple poses. One frame only."
+)
+
+
+def _is_strip_image(image_bytes: bytes) -> bool:
+    """Return True when the image aspect ratio exceeds 1.2 : 1 (wider than tall).
+
+    Such images are likely turntable strips or composite panels.
+    Returns False on any decode failure so callers never crash on this check.
+    """
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            w, h = img.size
+            return h > 0 and (w / h) > 1.2
+    except Exception:
+        return False
+
+
+def _enforce_single_frame(
+    image_bytes: bytes,
+    *,
+    retry_fn,
+    role: str,
+    pack_id: str,
+) -> bytes:
+    """Retry once if image_bytes appears to be a strip/composite.
+
+    Args:
+        image_bytes: The image returned by the provider.
+        retry_fn: Zero-argument callable that returns fresh image bytes.
+        role: Pack role name, used only for logging.
+        pack_id: Request ID, used only for logging.
+
+    Returns:
+        image_bytes unchanged if it passes the aspect-ratio check, or the
+        result of retry_fn() if the first attempt was a strip.
+
+    Raises:
+        RuntimeError: If retry_fn() also returns a strip.
+    """
+    if not _is_strip_image(image_bytes):
+        return image_bytes
+    logger.warning(
+        "strip_image_detected strip_retry=true role=%s request_id=%s",
+        role, pack_id,
+    )
+    retried = retry_fn()
+    if _is_strip_image(retried):
+        raise RuntimeError(
+            f"Composite/strip image returned for role={role!r}; retry exhausted"
+        )
+    logger.info("strip_retry_succeeded role=%s request_id=%s", role, pack_id)
+    return retried
+
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -54,14 +122,15 @@ KIND_FOR_ROLE = {
 }
 
 ROLE_SHOT_DESCRIPTION = {
-    "anchor_front": "close-up headshot portrait, straight-on, shoulders visible, face centered",
+    "anchor_front": "passport-style head-and-shoulders, face straight toward camera, centered, neutral background, no props",
     "anchor_three_quarter": "three-quarter view, head turned about 45 degrees, angled shoulders, clearly not straight-on",
     "anchor_torso": "mid-torso framing, chest and shoulders visible, face smaller in frame, slight angle not portrait crop",
     "anchor_full_body": "full-body shot, head-to-toe, standing, natural stance, full outfit visible",
 }
 
-# Short pose-only prompts used with images.edit (reference_image_url = front anchor).
-# These intentionally omit character identity — the reference image carries it.
+# Short pose-only prompts used for grounded angle generation.
+# SINGLE_FRAME_ENFORCEMENT is appended at call time (not here) so the constant
+# remains readable and tests can inspect the base prompts independently.
 ROLE_EDIT_PROMPT = {
     "anchor_three_quarter": "same person, 3/4 view, head turned 45\u00b0, angled shoulders, not straight-on",
     "anchor_torso": "same person, camera pulled back, mid-torso framing, chest clearly visible, more body than face, not a close portrait, natural stance, slight angle",
@@ -356,12 +425,23 @@ def generate_identity_pack(
     # Resolved style (already validated/coerced by the schema)
     style = body.style
 
-    # Try OpenAI provider; fall back to stub if unavailable
+    # Try identity image provider; fall back to stub only on missing credentials.
+    # If the provider lacks image guidance support, fail loudly (ValueError).
     try:
-        provider = get_image_provider()
+        provider = get_identity_image_provider()
+        identity_provider_name = (settings.IDENTITY_IMAGE_PROVIDER or settings.IMAGE_PROVIDER).lower()
+        logger.info("image_provider provider=%s context=identity_pack", identity_provider_name)
         use_openai = True
-    except (RuntimeError, ValueError):
+    except RuntimeError:
+        # API key not configured — degrade to stub
         use_openai = False
+        identity_provider_name = "stub"
+    except ValueError as exc:
+        # Provider does not support image guidance — refuse clearly
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     # Tier tracking — populated during generation
     tier_used: str = "stub"
@@ -398,18 +478,24 @@ def generate_identity_pack(
             ))
 
         def _build_prompt_for_role(spec_str: str, role: str, *, failsafe: bool = False) -> str:
-            """Build a prompt for a given role using structured spec or legacy path."""
+            """Build a prompt for a given role using structured spec or legacy path.
+
+            Always appends SINGLE_FRAME_ENFORCEMENT after the compiled base so
+            every shot explicitly requests one frame with no strips or panels.
+            """
             if use_structured_spec and identity_spec is not None:
-                return compile_identity_prompt(
+                base = compile_identity_prompt(
                     identity_spec, role,
                     char_traits=char_traits,
                     failsafe=failsafe,
                 )
-            return build_generation_prompt(
-                spec_str, char_traits,
-                ROLE_SHOT_DESCRIPTION[role],
-                style=style,
-            )
+            else:
+                base = build_generation_prompt(
+                    spec_str, char_traits,
+                    ROLE_SHOT_DESCRIPTION[role],
+                    style=style,
+                )
+            return f"{base}. {SINGLE_FRAME_ENFORCEMENT}"
 
         def _generate_pack_tier_ab(
             spec: str,
@@ -423,7 +509,7 @@ def generate_identity_pack(
             """
             tier_images: list[CharacterImage] = []
 
-            # Step 1: front via text-to-image
+            # Step 1: front via text-to-image — this is the identity seed
             front_prompt = _build_prompt_for_role(spec, "anchor_front")
             try:
                 front_bytes = provider.generate_image(prompt=front_prompt)
@@ -436,19 +522,30 @@ def generate_identity_pack(
                     blocked_roles.append(f"{tier}:anchor_front")
                     return None
                 raise
+            if identity_provider_name == "google":
+                front_bytes = _enforce_single_frame(
+                    front_bytes,
+                    retry_fn=lambda: provider.generate_image(
+                        prompt=front_prompt + _STRIP_RETRY_SUFFIX
+                    ),
+                    role="anchor_front",
+                    pack_id=pack_id,
+                )
             front_path = _save_png_bytes(front_bytes)
-            tier_images.append(_make_image_record("anchor_front", front_path, "openai"))
+            logger.info(
+                "identity_pack_seed_generated provider=%s bytes=%d request_id=%s",
+                identity_provider_name, len(front_bytes), pack_id,
+            )
+            tier_images.append(_make_image_record("anchor_front", front_path, identity_provider_name))
 
-            # Step 2: 3/4, torso, and full_body via images.edit using front as reference
-            base_url = settings.BACKEND_PUBLIC_URL.rstrip("/")
-            front_url = f"{base_url}/{front_path}"
-
+            # Step 2: remaining angles grounded by seed bytes (preserves identity)
             for role in ("anchor_three_quarter", "anchor_torso", "anchor_full_body"):
-                edit_prompt = ROLE_EDIT_PROMPT[role]
+                # Append enforcement suffix so every angle prompt requests one frame.
+                edit_prompt = ROLE_EDIT_PROMPT[role] + ". " + SINGLE_FRAME_ENFORCEMENT
                 try:
-                    png_bytes = provider.generate_image(
+                    png_bytes = provider.generate_grounded_image(
                         prompt=edit_prompt,
-                        reference_image_url=front_url,
+                        reference_image_bytes=front_bytes,
                     )
                 except (ValueError, RuntimeError) as exc:
                     if _is_moderation_block(exc):
@@ -459,8 +556,24 @@ def generate_identity_pack(
                         blocked_roles.append(f"{tier}:{role}")
                         return None
                     raise
+                if identity_provider_name == "google":
+                    _ep = edit_prompt  # capture for lambda closure
+                    _fb = front_bytes  # capture for lambda closure
+                    png_bytes = _enforce_single_frame(
+                        png_bytes,
+                        retry_fn=lambda: provider.generate_grounded_image(
+                            prompt=_ep + _STRIP_RETRY_SUFFIX,
+                            reference_image_bytes=_fb,
+                        ),
+                        role=role,
+                        pack_id=pack_id,
+                    )
                 file_path = _save_png_bytes(png_bytes)
-                tier_images.append(_make_image_record(role, file_path, "openai"))
+                logger.info(
+                    "identity_pack_angle_generated provider=%s grounded=true angle=%s request_id=%s",
+                    identity_provider_name, role, pack_id,
+                )
+                tier_images.append(_make_image_record(role, file_path, identity_provider_name))
 
             return tier_images
 
@@ -484,7 +597,7 @@ def generate_identity_pack(
                 try:
                     png_bytes = provider.generate_image(prompt=prompt)
                     file_path = _save_png_bytes(png_bytes)
-                    tier_images.append(_make_image_record(role, file_path, "openai"))
+                    tier_images.append(_make_image_record(role, file_path, identity_provider_name))
                     continue
                 except (ValueError, RuntimeError) as exc:
                     if not _is_moderation_block(exc):

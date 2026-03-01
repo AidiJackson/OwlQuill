@@ -296,7 +296,7 @@ def test_failsafe_tier_c_returns_pack_on_moderation_blocks(client: TestClient):
     mock_provider.generate_image = _mock_generate_image
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -334,9 +334,10 @@ def test_tier_a_succeeds_no_escalation(client: TestClient):
 
     mock_provider = MagicMock()
     mock_provider.generate_image = MagicMock(return_value=fake_png)
+    mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -348,12 +349,14 @@ def test_tier_a_succeeds_no_escalation(client: TestClient):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["images"]) == 4
-    # All images should be from openai provider
+    # All images should be from openai provider (default settings)
     for img in data["images"]:
         assert img["provider"] == "openai"
     # Tier A succeeded with no escalation
     assert data["tier_used"] == "A"
     assert data["blocked_roles"] == []
+    # Grounded method called 3 times (one per angle shot)
+    assert mock_provider.generate_grounded_image.call_count == 3
 
 
 # ── Style threading ──────────────────────────────────────────────────
@@ -372,9 +375,10 @@ def test_style_anime_flows_into_prompt(client: TestClient):
 
     mock_provider = MagicMock()
     mock_provider.generate_image = _capture_generate
+    mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -403,9 +407,10 @@ def test_style_defaults_to_realistic(client: TestClient):
 
     mock_provider = MagicMock()
     mock_provider.generate_image = _capture_generate
+    mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -459,7 +464,7 @@ def test_tier_c_uses_fallback_provider_on_openai_block(client: TestClient):
     mock_fallback.generate_image = _fallback_ok
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_primary,
     ), patch(
         "app.api.routes.character_visual.get_fallback_provider",
@@ -502,7 +507,7 @@ def test_tier_c_fallback_also_fails_returns_stubs(client: TestClient):
     )
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_primary,
     ), patch(
         "app.api.routes.character_visual.get_fallback_provider",
@@ -535,7 +540,7 @@ def test_tier_c_no_fallback_configured_falls_to_stub(client: TestClient):
     mock_primary.generate_image = _always_block
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_primary,
     ), patch(
         "app.api.routes.character_visual.get_fallback_provider",
@@ -571,9 +576,10 @@ def test_identity_spec_empty_style_coerced_to_realistic(client: TestClient):
 
     mock_provider = MagicMock()
     mock_provider.generate_image = _capture_generate
+    mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -610,9 +616,10 @@ def test_identity_spec_whitespace_style_coerced_to_realistic(client: TestClient)
 
     mock_provider = MagicMock()
     mock_provider.generate_image = _capture_generate
+    mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -647,9 +654,10 @@ def test_identity_spec_unknown_style_coerced_to_realistic(client: TestClient):
 
     mock_provider = MagicMock()
     mock_provider.generate_image = _capture_generate
+    mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -686,9 +694,10 @@ def test_front_shot_uses_headshot_description(client: TestClient):
 
     mock_provider = MagicMock()
     mock_provider.generate_image = _capture_generate
+    mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -701,8 +710,8 @@ def test_front_shot_uses_headshot_description(client: TestClient):
     # First prompt should be for the front shot (text-to-image)
     assert len(captured_prompts) >= 1
     front_prompt = captured_prompts[0].lower()
-    # Should contain headshot indicators
-    assert any(keyword in front_prompt for keyword in ["headshot", "close-up", "face centered", "straight-on"])
+    # Passport-style front description (updated in B2 prompt hardening)
+    assert any(keyword in front_prompt for keyword in ["passport", "head-and-shoulders", "neutral background"])
 
 
 # ── Identity accessories survive tier escalations ────────────────────
@@ -741,7 +750,7 @@ def test_mask_survives_tier_escalations(client: TestClient):
     mock_provider.generate_image = _mock_generate
 
     with patch(
-        "app.api.routes.character_visual.get_image_provider",
+        "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
     ), patch(
         "app.api.routes.character_visual.get_fallback_provider",
@@ -767,3 +776,92 @@ def test_mask_survives_tier_escalations(client: TestClient):
     # At least one tier C prompt should contain mask
     assert any("mask" in p.lower() for p in tier_c_prompts), \
         f"Mask not found in tier C prompts: {tier_c_prompts}"
+
+
+# ── Single-frame strip detection unit tests ──────────────────────────
+
+def _make_png(width: int, height: int) -> bytes:
+    """Create a minimal in-memory PNG with the given dimensions."""
+    from PIL import Image
+    import io
+    img = Image.new("RGB", (width, height), color=(100, 100, 100))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_is_strip_image_detects_wide():
+    """Images wider than 1.2× their height are flagged as strips."""
+    from app.api.routes.character_visual import _is_strip_image
+    wide = _make_png(1200, 400)   # ratio = 3.0 → strip
+    assert _is_strip_image(wide) is True
+
+
+def test_is_strip_image_passes_portrait():
+    """Portrait-orientation images (tall > wide) are not flagged."""
+    from app.api.routes.character_visual import _is_strip_image
+    portrait = _make_png(512, 768)   # ratio ≈ 0.67 → fine
+    assert _is_strip_image(portrait) is False
+
+
+def test_is_strip_image_passes_square():
+    """Square images are not flagged (ratio = 1.0)."""
+    from app.api.routes.character_visual import _is_strip_image
+    square = _make_png(512, 512)
+    assert _is_strip_image(square) is False
+
+
+def test_is_strip_image_safe_on_garbage():
+    """Garbage bytes must not raise — returns False."""
+    from app.api.routes.character_visual import _is_strip_image
+    assert _is_strip_image(b"not-an-image") is False
+    assert _is_strip_image(b"") is False
+
+
+def test_enforce_single_frame_passes_portrait_through():
+    """If the image passes the strip check, retry_fn is never called."""
+    from app.api.routes.character_visual import _enforce_single_frame
+    portrait = _make_png(512, 768)
+    retry_called = []
+
+    def _retry():
+        retry_called.append(True)
+        return portrait
+
+    result = _enforce_single_frame(portrait, retry_fn=_retry, role="anchor_front", pack_id="t1")
+    assert result is portrait
+    assert retry_called == []
+
+
+def test_enforce_single_frame_retries_on_strip_then_succeeds():
+    """(a) Retry is called exactly once when first image is a strip.
+    (b) The good second image is returned."""
+    from app.api.routes.character_visual import _enforce_single_frame
+    wide = _make_png(1200, 400)
+    good = _make_png(512, 768)
+    retry_calls = []
+
+    def _retry():
+        retry_calls.append(True)
+        return good
+
+    result = _enforce_single_frame(wide, retry_fn=_retry, role="anchor_three_quarter", pack_id="t2")
+    assert result is good
+    assert len(retry_calls) == 1
+
+
+def test_enforce_single_frame_raises_if_retry_also_strip():
+    """(c) RuntimeError raised when both attempts return a strip."""
+    import pytest
+    from app.api.routes.character_visual import _enforce_single_frame
+    wide = _make_png(1200, 400)
+
+    result = _enforce_single_frame.__wrapped__ if hasattr(_enforce_single_frame, "__wrapped__") else None
+
+    with pytest.raises(RuntimeError, match="retry exhausted"):
+        _enforce_single_frame(
+            wide,
+            retry_fn=lambda: _make_png(1200, 400),
+            role="anchor_torso",
+            pack_id="t3",
+        )
