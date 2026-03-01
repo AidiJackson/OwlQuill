@@ -37,7 +37,12 @@ from app.services.identity_compiler import (
     identity_prompt_hash,
 )
 from app.services.stub_image_generator import generate_placeholder_png
-from app.services.image_provider import get_identity_image_provider, get_fallback_provider, ImageProvider
+from app.services.image_provider import (
+    get_identity_image_provider,
+    get_fallback_provider,
+    ImageProvider,
+    _OpenAIImageProvider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -522,21 +527,37 @@ def generate_identity_pack(
                     blocked_roles.append(f"{tier}:anchor_front")
                     return None
                 raise
+            seed_provider_name = identity_provider_name
             if identity_provider_name == "google":
-                front_bytes = _enforce_single_frame(
-                    front_bytes,
-                    retry_fn=lambda: provider.generate_image(
-                        prompt=front_prompt + _STRIP_RETRY_SUFFIX
-                    ),
-                    role="anchor_front",
-                    pack_id=pack_id,
-                )
+                try:
+                    front_bytes = _enforce_single_frame(
+                        front_bytes,
+                        retry_fn=lambda: provider.generate_image(
+                            prompt=front_prompt + _STRIP_RETRY_SUFFIX
+                        ),
+                        role="anchor_front",
+                        pack_id=pack_id,
+                    )
+                except RuntimeError:
+                    logger.warning(
+                        "identity_pack_seed_fallback provider_from=google provider_to=openai "
+                        "reason=strip_retry_exhausted request_id=%s",
+                        pack_id,
+                    )
+                    try:
+                        _openai = _OpenAIImageProvider()
+                        front_bytes = _openai.generate_image(prompt=front_prompt)
+                        seed_provider_name = "openai"
+                    except (RuntimeError, ValueError) as openai_exc:
+                        raise RuntimeError(
+                            f"Front seed fallback to OpenAI also failed: {openai_exc}"
+                        ) from openai_exc
             front_path = _save_png_bytes(front_bytes)
             logger.info(
                 "identity_pack_seed_generated provider=%s bytes=%d request_id=%s",
-                identity_provider_name, len(front_bytes), pack_id,
+                seed_provider_name, len(front_bytes), pack_id,
             )
-            tier_images.append(_make_image_record("anchor_front", front_path, identity_provider_name))
+            tier_images.append(_make_image_record("anchor_front", front_path, seed_provider_name))
 
             # Step 2: remaining angles grounded by seed bytes (preserves identity)
             for role in ("anchor_three_quarter", "anchor_torso", "anchor_full_body"):

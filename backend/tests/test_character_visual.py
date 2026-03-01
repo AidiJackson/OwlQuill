@@ -865,3 +865,83 @@ def test_enforce_single_frame_raises_if_retry_also_strip():
             role="anchor_torso",
             pack_id="t3",
         )
+
+
+# ── B3: Google front seed strip fallback to OpenAI ───────────────────
+
+def test_google_front_seed_strip_fallback_to_openai(client: TestClient):
+    """When Google strip retry exhausts for the front seed, fallback to OpenAI.
+
+    Behavior:
+    - Google provider.generate_image called 2x (initial + strip retry, both strip)
+    - _OpenAIImageProvider instantiated; its generate_image called 1x (good PNG)
+    - provider.generate_grounded_image called 3x (angles still use Google)
+    - Front image record has provider='openai'; angle records have provider='google'
+    """
+    import pytest
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    strip_png = _make_png(1200, 400)  # wide → detected as strip
+    good_png = _make_png(512, 768)    # portrait → passes strip check
+
+    # Google provider: generate_image always returns a strip; grounded returns good
+    mock_google_provider = MagicMock()
+    mock_google_provider.generate_image = MagicMock(return_value=strip_png)
+    mock_google_provider.generate_grounded_image = MagicMock(return_value=good_png)
+
+    # OpenAI fallback provider: returns a good portrait for the front seed
+    mock_openai_instance = MagicMock()
+    mock_openai_instance.generate_image = MagicMock(return_value=good_png)
+    mock_openai_class = MagicMock(return_value=mock_openai_instance)
+
+    # Settings report google as the identity provider
+    mock_settings = MagicMock()
+    mock_settings.IDENTITY_IMAGE_PROVIDER = "google"
+    mock_settings.IMAGE_PROVIDER = "openai"
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_image_provider",
+        return_value=mock_google_provider,
+    ), patch(
+        "app.api.routes.character_visual._OpenAIImageProvider",
+        mock_openai_class,
+    ), patch(
+        "app.api.routes.character_visual.settings",
+        mock_settings,
+    ), patch(
+        "app.api.routes.character_visual.get_fallback_provider",
+        return_value=None,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "dark hair, green eyes"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tier_used"] == "A"
+
+    # Google generate_image called twice: initial front + strip retry
+    assert mock_google_provider.generate_image.call_count == 2
+    # OpenAI fallback instantiated and called once for the front seed
+    assert mock_openai_class.call_count == 1
+    assert mock_openai_instance.generate_image.call_count == 1
+    # Google grounded called 3x for the angle shots
+    assert mock_google_provider.generate_grounded_image.call_count == 3
+
+    # Front image recorded as openai (fallback); angles recorded as google
+    images = data["images"]
+    front_imgs = [img for img in images if img["metadata_json"]["pack_role"] == "anchor_front"]
+    angle_imgs = [img for img in images if img["metadata_json"]["pack_role"] != "anchor_front"]
+
+    assert len(front_imgs) == 1
+    assert front_imgs[0]["provider"] == "openai", (
+        f"Expected front provider='openai', got {front_imgs[0]['provider']!r}"
+    )
+    assert len(angle_imgs) == 3
+    for img in angle_imgs:
+        assert img["provider"] == "google", (
+            f"Expected angle provider='google', got {img['provider']!r}"
+        )
