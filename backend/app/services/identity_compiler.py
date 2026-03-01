@@ -117,6 +117,14 @@ def compile_identity_prompt(
     if wardrobe_str:
         sections.append(wardrobe_str)
 
+    # 4b. Canonical outfit enforcement lock
+    if wardrobe_str:
+        sections.append(
+            "The outfit described above is canonical for this identity pack. "
+            "Do not substitute, add, remove, or alter any clothing items between shots. "
+            "Keep the exact same outfit across front, 3/4, torso, and full-body images."
+        )
+
     # 5. Role shot requirement
     shot_desc = ROLE_SHOT_DESCRIPTION.get(role, "")
     if shot_desc:
