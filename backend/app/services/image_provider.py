@@ -21,6 +21,9 @@ _DOWNLOAD_TIMEOUT_S = 10
 class ImageProvider:
     """Base image provider with prompt validation and delegation."""
 
+    # Subclasses that support seed-image grounding set this to True.
+    supports_image_guidance: bool = False
+
     def generate_image(
         self,
         *,
@@ -47,6 +50,45 @@ class ImageProvider:
         reference_image_url: str | None,
     ) -> bytes:
         raise NotImplementedError
+
+    def generate_grounded_image(
+        self,
+        *,
+        prompt: str,
+        reference_image_bytes: bytes,
+        size: str = "1024x1024",
+    ) -> bytes:
+        """Generate an image grounded by a seed image supplied as raw bytes.
+
+        Used for identity pack angle shots after the seed (front) image is
+        generated.  The seed bytes are passed directly so we avoid an extra
+        HTTP round-trip through our own static server.
+
+        Raises:
+            NotImplementedError: If the provider does not support image guidance.
+            ValueError: On invalid inputs.
+            RuntimeError: On provider-side failure.
+        """
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt must not be empty.")
+        if not reference_image_bytes:
+            raise ValueError("reference_image_bytes must not be empty.")
+        return self._generate_grounded(
+            prompt=prompt,
+            reference_image_bytes=reference_image_bytes,
+            size=size,
+        )
+
+    def _generate_grounded(
+        self,
+        *,
+        prompt: str,
+        reference_image_bytes: bytes,
+        size: str,
+    ) -> bytes:
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support image guidance."
+        )
 
 
 def _download_image(url: str) -> Path:
@@ -84,6 +126,8 @@ def _download_image(url: str) -> Path:
 class _OpenAIImageProvider(ImageProvider):
     """OpenAI Images API provider."""
 
+    supports_image_guidance = True
+
     def __init__(self) -> None:
         if not settings.OPENAI_API_KEY:
             raise RuntimeError(
@@ -105,6 +149,21 @@ class _OpenAIImageProvider(ImageProvider):
             return self._text_to_image(prompt=prompt, size=size)
         except OpenAIError as exc:
             raise RuntimeError(f"OpenAI image generation failed: {exc}") from exc
+
+    def _generate_grounded(
+        self,
+        *,
+        prompt: str,
+        reference_image_bytes: bytes,
+        size: str,
+    ) -> bytes:
+        """Edit using seed bytes directly — no URL round-trip required."""
+        try:
+            return self._edit_from_bytes(
+                prompt=prompt, size=size, image_bytes=reference_image_bytes
+            )
+        except OpenAIError as exc:
+            raise RuntimeError(f"OpenAI grounded image generation failed: {exc}") from exc
 
     def _text_to_image(self, *, prompt: str, size: str) -> bytes:
         response = self._client.images.generate(
@@ -130,6 +189,59 @@ class _OpenAIImageProvider(ImageProvider):
         finally:
             tmp_path.unlink(missing_ok=True)
 
+    def _edit_from_bytes(self, *, prompt: str, size: str, image_bytes: bytes) -> bytes:
+        """Run images.edit with seed bytes written to a temp file."""
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        tmp_path = Path(tmp.name)
+        try:
+            tmp.write(image_bytes)
+            tmp.flush()
+            tmp.close()
+            with open(tmp_path, "rb") as fh:
+                response = self._client.images.edit(
+                    model=settings.IMAGE_MODEL,
+                    image=fh,
+                    prompt=prompt,
+                    n=1,
+                    size=size,
+                )
+            return base64.b64decode(response.data[0].b64_json)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+
+class _GoogleImageProviderAdapter(ImageProvider):
+    """Adapt GoogleImageProvider to the legacy ImageProvider interface."""
+
+    supports_image_guidance = True
+
+    def __init__(self) -> None:
+        from app.services.image_providers.google_provider import GoogleImageProvider
+        self._google = GoogleImageProvider()
+
+    def _generate(
+        self,
+        *,
+        prompt: str,
+        size: str,
+        reference_image_url: str | None,
+    ) -> bytes:
+        # Text-to-image only for scene/fallback calls; reference_image_url ignored
+        return self._google.generate_text_to_image(prompt=prompt, size=size)
+
+    def _generate_grounded(
+        self,
+        *,
+        prompt: str,
+        reference_image_bytes: bytes,
+        size: str,
+    ) -> bytes:
+        return self._google.generate_with_reference(
+            prompt=prompt,
+            reference_image_bytes=reference_image_bytes,
+            size=size,
+        )
+
 
 def get_image_provider() -> ImageProvider:
     """Factory: return the configured image provider instance.
@@ -140,10 +252,45 @@ def get_image_provider() -> ImageProvider:
     provider = settings.IMAGE_PROVIDER.lower()
     if provider == "openai":
         return _OpenAIImageProvider()
+    if provider == "google":
+        return _GoogleImageProviderAdapter()
+    if provider == "openrouter":
+        return _OpenRouterImageProviderAdapter()
     raise ValueError(
         f"Unsupported IMAGE_PROVIDER: {settings.IMAGE_PROVIDER!r}. "
-        f"Supported providers: 'openai'."
+        f"Supported providers: 'openai', 'google', 'openrouter'."
     )
+
+
+def get_identity_image_provider() -> ImageProvider:
+    """Return the image provider for Identity Pack generation.
+
+    Respects IDENTITY_IMAGE_PROVIDER override; falls back to IMAGE_PROVIDER.
+    Only affects identity pack generation — scene generation uses get_image_provider().
+
+    Raises:
+        RuntimeError: If the configured provider is missing required credentials.
+        ValueError: If the provider name is unsupported, or if the provider
+            does not support image guidance (required for identity consistency).
+    """
+    effective = (settings.IDENTITY_IMAGE_PROVIDER or settings.IMAGE_PROVIDER).lower()
+    if effective == "openai":
+        provider: ImageProvider = _OpenAIImageProvider()
+    elif effective == "google":
+        provider = _GoogleImageProviderAdapter()
+    elif effective == "openrouter":
+        provider = _OpenRouterImageProviderAdapter()
+    else:
+        raise ValueError(
+            f"Unsupported provider: {effective!r}. "
+            f"Supported: 'openai', 'google', 'openrouter'."
+        )
+    if not provider.supports_image_guidance:
+        raise ValueError(
+            f"Provider '{effective}' does not support image guidance, which is required "
+            f"for identity pack generation. Use 'openai' or 'google'."
+        )
+    return provider
 
 
 def get_fallback_provider() -> ImageProvider | None:
@@ -163,6 +310,41 @@ def get_fallback_provider() -> ImageProvider | None:
         except Exception:
             return None
     return None
+
+
+class _OpenRouterImageProviderAdapter(ImageProvider):
+    """Adapt OpenRouterImageProvider to the ImageProvider interface."""
+
+    supports_image_guidance = True
+
+    def __init__(self) -> None:
+        from app.services.image_providers.openrouter_provider import (
+            OpenRouterImageProvider,
+        )
+        self._openrouter = OpenRouterImageProvider()
+
+    def _generate(
+        self,
+        *,
+        prompt: str,
+        size: str,
+        reference_image_url: str | None,
+    ) -> bytes:
+        # Text-to-image only for generic calls; reference_image_url ignored
+        return self._openrouter.generate_text_to_image(prompt=prompt, size=size)
+
+    def _generate_grounded(
+        self,
+        *,
+        prompt: str,
+        reference_image_bytes: bytes,
+        size: str,
+    ) -> bytes:
+        return self._openrouter.generate_with_reference(
+            prompt=prompt,
+            reference_image_bytes=reference_image_bytes,
+            size=size,
+        )
 
 
 class _FalProviderAdapter(ImageProvider):

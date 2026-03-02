@@ -70,6 +70,18 @@ class Settings(BaseSettings):
     FAL_KEY: Optional[str] = None
     FAL_MODEL_CHARACTER_PACK: str = "fal-ai/flux/dev"
 
+    # Google AI image provider (optional — for identity pack A/B testing)
+    GOOGLE_AI_API_KEY: Optional[str] = None
+    GOOGLE_IMAGE_MODEL: str = "imagen-3.0-generate-001"
+    # If set, identity pack generation uses this provider instead of IMAGE_PROVIDER.
+    # Valid values: "openai" | "google" | "openrouter" | "" (empty = inherit IMAGE_PROVIDER)
+    IDENTITY_IMAGE_PROVIDER: str = ""
+
+    # OpenRouter image provider (optional — for identity pack A/B testing)
+    # OPENROUTER_API_KEY is shared with StoryLab; set above under StoryLab config.
+    # OPENROUTER_IMAGE_MODEL selects the image-generation model on OpenRouter.
+    OPENROUTER_IMAGE_MODEL: str = "openai/gpt-image-1"
+
     # Grammar engine — LanguageTool
     # Self-host: docker run -p 8010:8010 erikvl87/languagetool
     #            then set LANGUAGETOOL_URL=http://localhost:8010/v2
