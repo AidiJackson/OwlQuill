@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     # OPENROUTER_IMAGE_MODEL selects the image-generation model on OpenRouter.
     OPENROUTER_IMAGE_MODEL: str = "openai/gpt-image-1"
 
+    # Vision model used for identity pack front-anchor validation (B6).
+    # Must support image input (vision). Defaults to gpt-4o-mini (cheap + capable).
+    OPENAI_VISION_MODEL: str = "gpt-4o-mini"
+
     # Grammar engine — LanguageTool
     # Self-host: docker run -p 8010:8010 erikvl87/languagetool
     #            then set LANGUAGETOOL_URL=http://localhost:8010/v2

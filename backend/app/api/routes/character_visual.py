@@ -43,6 +43,7 @@ from app.services.image_provider import (
     ImageProvider,
     _OpenAIImageProvider,
 )
+from app.services.identity_front_validator import validate_front_anchor_png
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,57 @@ def _enforce_single_frame(
         )
     logger.info("strip_retry_succeeded role=%s request_id=%s", role, pack_id)
     return retried
+
+
+# ── B6 Front Anchor Gate constants and helpers ───────────────────────
+
+# Maximum number of front-image generation attempts before falling back.
+MAX_FRONT_RETRIES = 3
+
+
+def _front_precheck(png_bytes: bytes) -> tuple[bool, str]:
+    """Cheap Pillow pre-check before spending vision-API tokens.
+
+    Rejects images that are obviously not passport headshots based on
+    aspect ratio alone.
+
+    Returns (ok, reason_if_failed).  Never raises — errors return True
+    so the vision gate can make a finer call instead.
+    """
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(png_bytes)) as img:
+            w, h = img.size
+            if h > 0 and w >= h * 2.2:
+                return False, "strip_composite_ratio"
+            if w > 0 and h >= w * 3.5:
+                return False, "likely_full_body_ratio"
+        return True, ""
+    except Exception:
+        return True, ""
+
+
+def _crop_passport_headshot(png_bytes: bytes) -> bytes:
+    """Apply deterministic upper-body crop for UI card consistency.
+
+    Keeps width; crops to roughly top-10% → 70% of image height so the
+    face is centred in a standard portrait frame.  Returns original bytes
+    unchanged on any error.
+    """
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(png_bytes)) as img:
+            w, h = img.size
+            top = int(h * 0.10)
+            bottom = int(h * 0.70)
+            if bottom <= top:
+                return png_bytes
+            cropped = img.crop((0, top, w, bottom))
+            buf = io.BytesIO()
+            cropped.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception:
+        return png_bytes
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -519,44 +571,132 @@ def generate_identity_pack(
             """
             tier_images: list[CharacterImage] = []
 
-            # Step 1: front via text-to-image — this is the identity seed
+            # ── Step 1: Front Anchor Gate (B6) ──────────────────────
+            # Generate → cheap precheck → vision validate → crop.
+            # Retry up to MAX_FRONT_RETRIES times; on Google exhaustion
+            # fall back to OpenAI for the front seed.
             front_prompt = _build_prompt_for_role(spec, "anchor_front")
-            try:
-                front_bytes = provider.generate_image(prompt=front_prompt)
-            except (ValueError, RuntimeError) as exc:
-                if _is_moderation_block(exc):
-                    logger.warning(
-                        "moderation_block request_id=%s tier=%s role=anchor_front",
-                        pack_id, tier,
-                    )
-                    blocked_roles.append(f"{tier}:anchor_front")
-                    return None
-                raise
+            front_bytes: bytes | None = None
             seed_provider_name = identity_provider_name
-            if identity_provider_name == "google":
+            _last_front_reason = ""
+
+            for _attempt in range(1, MAX_FRONT_RETRIES + 1):
                 try:
-                    front_bytes = _enforce_single_frame(
-                        front_bytes,
-                        retry_fn=lambda: provider.generate_image(
-                            prompt=front_prompt + _STRIP_RETRY_SUFFIX
-                        ),
-                        role="anchor_front",
-                        pack_id=pack_id,
-                    )
-                except RuntimeError:
+                    _raw = provider.generate_image(prompt=front_prompt)
+                except (ValueError, RuntimeError) as exc:
+                    if _is_moderation_block(exc):
+                        logger.warning(
+                            "moderation_block request_id=%s tier=%s role=anchor_front",
+                            pack_id, tier,
+                        )
+                        blocked_roles.append(f"{tier}:anchor_front")
+                        return None
+                    raise
+
+                _pre_ok, _pre_reason = _front_precheck(_raw)
+                if not _pre_ok:
                     logger.warning(
-                        "identity_pack_seed_fallback provider_from=google provider_to=openai "
-                        "reason=strip_retry_exhausted request_id=%s",
-                        pack_id,
+                        "identity_pack_front_precheck_failed attempt=%d "
+                        "provider=%s reason=%s request_id=%s",
+                        _attempt, identity_provider_name, _pre_reason, pack_id,
                     )
-                    try:
-                        _openai = _OpenAIImageProvider()
-                        front_bytes = _openai.generate_image(prompt=front_prompt)
-                        seed_provider_name = "openai"
-                    except (RuntimeError, ValueError) as openai_exc:
-                        raise RuntimeError(
-                            f"Front seed fallback to OpenAI also failed: {openai_exc}"
-                        ) from openai_exc
+                    _last_front_reason = _pre_reason
+                    continue
+
+                _verdict = validate_front_anchor_png(_raw)
+                if (
+                    _verdict["ok"]
+                    and _verdict["is_passport_headshot"]
+                    and not _verdict["has_hands_or_props"]
+                    and not _verdict["is_full_body_or_seated"]
+                    and _verdict["background_is_neutral"]
+                ):
+                    logger.info(
+                        "identity_pack_front_validation_passed attempt=%d "
+                        "provider=%s confidence=%.2f request_id=%s",
+                        _attempt, identity_provider_name,
+                        _verdict["confidence"], pack_id,
+                    )
+                    _raw = _crop_passport_headshot(_raw)
+                    logger.info(
+                        "identity_pack_front_crop_applied=true request_id=%s", pack_id,
+                    )
+                    front_bytes = _raw
+                    break
+                else:
+                    _last_front_reason = _verdict.get("fail_reason", "validation_failed")
+                    logger.warning(
+                        "identity_pack_front_validation_failed attempt=%d "
+                        "provider=%s reason=%s confidence=%.2f request_id=%s",
+                        _attempt, identity_provider_name, _last_front_reason,
+                        _verdict["confidence"], pack_id,
+                    )
+
+            # ── Fallback: Google exhausted → try OpenAI for front ────
+            if front_bytes is None and identity_provider_name == "google":
+                logger.warning(
+                    "identity_pack_front_validation_fallback "
+                    "provider_from=google provider_to=openai "
+                    "reason=retry_exhausted last_reason=%s request_id=%s",
+                    _last_front_reason, pack_id,
+                )
+                try:
+                    _openai_fb = _OpenAIImageProvider()
+                    for _fb_attempt in range(1, 3):
+                        try:
+                            _fb_raw = _openai_fb.generate_image(prompt=front_prompt)
+                        except (ValueError, RuntimeError):
+                            continue
+                        _fb_pre_ok, _fb_pre_reason = _front_precheck(_fb_raw)
+                        if not _fb_pre_ok:
+                            logger.warning(
+                                "identity_pack_front_precheck_failed attempt=%d "
+                                "provider=openai reason=%s request_id=%s",
+                                _fb_attempt, _fb_pre_reason, pack_id,
+                            )
+                            continue
+                        _fb_verdict = validate_front_anchor_png(_fb_raw)
+                        if (
+                            _fb_verdict["ok"]
+                            and _fb_verdict["is_passport_headshot"]
+                            and not _fb_verdict["has_hands_or_props"]
+                            and not _fb_verdict["is_full_body_or_seated"]
+                            and _fb_verdict["background_is_neutral"]
+                        ):
+                            logger.info(
+                                "identity_pack_front_validation_passed attempt=%d "
+                                "provider=openai confidence=%.2f request_id=%s",
+                                _fb_attempt, _fb_verdict["confidence"], pack_id,
+                            )
+                            _fb_raw = _crop_passport_headshot(_fb_raw)
+                            logger.info(
+                                "identity_pack_front_crop_applied=true request_id=%s",
+                                pack_id,
+                            )
+                            front_bytes = _fb_raw
+                            seed_provider_name = "openai"
+                            break
+                        else:
+                            logger.warning(
+                                "identity_pack_front_validation_failed attempt=%d "
+                                "provider=openai reason=%s request_id=%s",
+                                _fb_attempt,
+                                _fb_verdict.get("fail_reason", "validation_failed"),
+                                pack_id,
+                            )
+                except (RuntimeError, ValueError) as _fb_exc:
+                    raise RuntimeError(
+                        f"Front seed fallback to OpenAI also failed: {_fb_exc}"
+                    ) from _fb_exc
+                if front_bytes is None:
+                    raise RuntimeError(
+                        "Front anchor validation failed after OpenAI fallback"
+                    )
+            elif front_bytes is None:
+                raise RuntimeError(
+                    "Front anchor validation failed; retry exhausted"
+                )
+
             front_path = _save_png_bytes(front_bytes)
             logger.info(
                 "identity_pack_seed_generated provider=%s bytes=%d request_id=%s",

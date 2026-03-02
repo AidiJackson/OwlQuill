@@ -980,8 +980,10 @@ def test_google_front_seed_strip_fallback_to_openai(client: TestClient):
     data = resp.json()
     assert data["tier_used"] == "A"
 
-    # Google generate_image called twice: initial front + strip retry
-    assert mock_google_provider.generate_image.call_count == 2
+    # B6: Google generate_image called MAX_FRONT_RETRIES=3 times (all return strip,
+    # failing _front_precheck each time before vision is even called).
+    from app.api.routes.character_visual import MAX_FRONT_RETRIES
+    assert mock_google_provider.generate_image.call_count == MAX_FRONT_RETRIES
     # OpenAI fallback instantiated and called once for the front seed
     assert mock_openai_class.call_count == 1
     assert mock_openai_instance.generate_image.call_count == 1
