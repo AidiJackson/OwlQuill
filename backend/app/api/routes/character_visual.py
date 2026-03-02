@@ -127,7 +127,12 @@ KIND_FOR_ROLE = {
 }
 
 ROLE_SHOT_DESCRIPTION = {
-    "anchor_front": "passport-style head-and-shoulders, face straight toward camera, centered, neutral background, no props",
+    "anchor_front": (
+        "Passport-style headshot. NO sitting, NO crouching, NO full-body, NO hands. "
+        "Head-and-shoulders only, straight-on camera, cropped mid-chest. "
+        "Neutral expression, plain neutral background, even lighting. "
+        "NO crossed arms, NO props, NO dramatic pose."
+    ),
     "anchor_three_quarter": "three-quarter view, head turned about 45 degrees, angled shoulders, clearly not straight-on",
     "anchor_torso": "mid-torso framing, chest and shoulders visible, face smaller in frame, slight angle not portrait crop",
     "anchor_full_body": "full-body shot, head-to-toe, standing, natural stance, full outfit visible",

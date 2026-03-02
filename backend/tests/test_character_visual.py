@@ -336,9 +336,17 @@ def test_tier_a_succeeds_no_escalation(client: TestClient):
     mock_provider.generate_image = MagicMock(return_value=fake_png)
     mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
+    mock_settings = MagicMock()
+    mock_settings.IDENTITY_IMAGE_PROVIDER = "openai"
+    mock_settings.IMAGE_PROVIDER = "openai"
+    mock_settings.get_admin_emails = MagicMock(return_value=[])
+
     with patch(
         "app.api.routes.character_visual.get_identity_image_provider",
         return_value=mock_provider,
+    ), patch(
+        "app.api.routes.character_visual.settings",
+        mock_settings,
     ):
         resp = client.post(
             f"/characters/{cid}/identity-pack/generate",
@@ -349,7 +357,7 @@ def test_tier_a_succeeds_no_escalation(client: TestClient):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["images"]) == 4
-    # All images should be from openai provider (default settings)
+    # All images should be from openai provider (mocked settings)
     for img in data["images"]:
         assert img["provider"] == "openai"
     # Tier A succeeded with no escalation
@@ -710,8 +718,57 @@ def test_front_shot_uses_headshot_description(client: TestClient):
     # First prompt should be for the front shot (text-to-image)
     assert len(captured_prompts) >= 1
     front_prompt = captured_prompts[0].lower()
-    # Passport-style front description (updated in B2 prompt hardening)
-    assert any(keyword in front_prompt for keyword in ["passport", "head-and-shoulders", "neutral background"])
+    # B4: strict passport-style headshot — key tokens must be present
+    assert "passport-style headshot" in front_prompt, (
+        f"'passport-style headshot' not found in front prompt: {front_prompt!r}"
+    )
+    assert "no sitting" in front_prompt, (
+        f"'no sitting' not found in front prompt: {front_prompt!r}"
+    )
+
+
+def test_front_shot_passport_headshot_via_identity_spec(client: TestClient):
+    """anchor_front via structured identity_spec must also enforce passport-style headshot."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    captured_prompts: list[str] = []
+
+    def _capture_generate(*, prompt, size="1024x1024", reference_image_url=None):
+        captured_prompts.append(prompt)
+        return fake_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _capture_generate
+    mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_image_provider",
+        return_value=mock_provider,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={
+                "identity_spec": {
+                    "style": "realistic",
+                    "identity": {"hair_color": "auburn", "eye_color": "green"},
+                    "wardrobe": {"outfit_type": "blazer", "primary_color": "navy"},
+                }
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200
+    assert len(captured_prompts) >= 1
+    front_prompt = captured_prompts[0].lower()
+    # B4: both paths must produce the strict passport headshot description
+    assert "passport-style headshot" in front_prompt, (
+        f"'passport-style headshot' not found in identity_spec front prompt: {front_prompt!r}"
+    )
+    assert "no sitting" in front_prompt, (
+        f"'no sitting' not found in identity_spec front prompt: {front_prompt!r}"
+    )
 
 
 # ── Identity accessories survive tier escalations ────────────────────

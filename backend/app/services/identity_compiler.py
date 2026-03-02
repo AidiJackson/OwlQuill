@@ -38,7 +38,12 @@ _STYLE_TOKENS: dict[str, str] = {
 # ── Role shot descriptions ───────────────────────────────────────────
 
 ROLE_SHOT_DESCRIPTION: dict[str, str] = {
-    "anchor_front": "passport-style head-and-shoulders, face straight toward camera, centered, neutral background, no props",
+    "anchor_front": (
+        "Passport-style headshot. NO sitting, NO crouching, NO full-body, NO hands. "
+        "Head-and-shoulders only, straight-on camera, cropped mid-chest. "
+        "Neutral expression, plain neutral background, even lighting. "
+        "NO crossed arms, NO props, NO dramatic pose."
+    ),
     "anchor_three_quarter": "three-quarter view, head turned about 45 degrees, angled shoulders",
     "anchor_torso": "mid-torso framing, chest and shoulders visible, face smaller in frame",
     "anchor_full_body": "full-body shot, head-to-toe, standing, natural stance, full outfit visible",
@@ -215,9 +220,9 @@ def _trim_to_cap(
     prompt = f"{_SAFETY_PREFIX}, " + ", ".join(trimmed_sections)
 
     if len(prompt) > _PROMPT_CAP:
-        # Also drop build/marks section (index 5 if present, after shot)
-        if len(trimmed_sections) > 5:
-            trimmed_sections = trimmed_sections[:5] + trimmed_sections[6:]
+        # Drop build/marks section (index 6, after shot_desc at index 5)
+        if len(trimmed_sections) > 6:
+            trimmed_sections = trimmed_sections[:6] + trimmed_sections[7:]
             prompt = f"{_SAFETY_PREFIX}, " + ", ".join(trimmed_sections)
 
     # Last resort: hard truncate (but wardrobe is in sections 0-2, safe)
