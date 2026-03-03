@@ -1282,3 +1282,117 @@ def test_google_angle_strip_fallback_to_openai(client: TestClient):
     assert oai_fb_mock.generate_grounded_image.call_count == 1, (
         f"Expected 1 openai fallback call, got {oai_fb_mock.generate_grounded_image.call_count}"
     )
+
+
+# ── B7.3: Angle timeout fallback ──────────────────────────────────────
+
+def test_google_angle_timeout_fallback_to_openai(client: TestClient):
+    """B7.3: When Google grounded angle raises a timeout RuntimeError,
+    fall back that angle to OpenAI grounded — pack must not fail.
+
+    Arrange:
+    - OpenAI seed generates valid front portrait.
+    - Google angles: anchor_torso raises RuntimeError("... timed out ...").
+    - Google angles: anchor_three_quarter and anchor_full_body return valid PNGs.
+    - OpenAI fallback: generate_grounded_image returns valid PNG for anchor_torso.
+
+    Assert:
+    - request succeeds (status 200)
+    - anchor_torso DB record has provider='openai'
+    - anchor_three_quarter and anchor_full_body have provider='google'
+    - Google grounded called 2x (3/4 + full_body succeed; torso raises before count)
+    - OpenAI fallback grounded called 1x (torso)
+    """
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    good_png = _make_png(512, 768)
+
+    # OpenAI seed mock
+    seed_mock = MagicMock()
+    seed_mock.generate_image = MagicMock(return_value=good_png)
+
+    # Google angles: torso raises timeout; others return good PNG.
+    # ROLE_EDIT_PROMPT["anchor_torso"] contains "torso" and "chest".
+    def _google_grounded(*, prompt, reference_image_bytes=None):
+        if "torso" in prompt or "chest" in prompt:
+            raise RuntimeError("Google Gemini grounded request failed: timed out")
+        return good_png
+
+    angles_mock = MagicMock()
+    angles_mock.generate_grounded_image = MagicMock(side_effect=_google_grounded)
+
+    # OpenAI fallback mock for the timed-out angle
+    oai_tf_mock = MagicMock()
+    oai_tf_mock.generate_grounded_image = MagicMock(return_value=good_png)
+
+    # Provider factory: first "openai" call → seed_mock; subsequent → oai_tf_mock.
+    openai_call_count = [0]
+
+    def _provider_factory(name: str):
+        if name == "openai":
+            openai_call_count[0] += 1
+            return seed_mock if openai_call_count[0] == 1 else oai_tf_mock
+        return angles_mock  # "google"
+
+    mock_settings = MagicMock()
+    mock_settings.IDENTITY_IMAGE_PROVIDER = ""  # B7 split-provider path
+    mock_settings.IDENTITY_SEED_PROVIDER = "openai"
+    mock_settings.IDENTITY_ANGLES_PROVIDER = "google"
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_provider_by_name",
+        side_effect=_provider_factory,
+    ), patch(
+        "app.api.routes.character_visual.settings",
+        mock_settings,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "dark hair, green eyes"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
+    data = resp.json()
+    assert data["tier_used"] == "A"
+    assert len(data["images"]) == 4
+    assert data["blocked_roles"] == []
+
+    images = data["images"]
+    front_imgs = [img for img in images if img["metadata_json"]["pack_role"] == "anchor_front"]
+    torso_imgs = [img for img in images if img["metadata_json"]["pack_role"] == "anchor_torso"]
+    other_angles = [
+        img for img in images
+        if img["metadata_json"]["pack_role"] in ("anchor_three_quarter", "anchor_full_body")
+    ]
+
+    # Front: OpenAI seed (unchanged)
+    assert len(front_imgs) == 1
+    assert front_imgs[0]["provider"] == "openai"
+
+    # Torso: fell back to OpenAI due to timeout
+    assert len(torso_imgs) == 1
+    assert torso_imgs[0]["provider"] == "openai", (
+        f"Expected torso angle provider='openai' after timeout fallback, "
+        f"got {torso_imgs[0]['provider']!r}"
+    )
+
+    # Three-quarter and full-body: still Google
+    assert len(other_angles) == 2
+    for img in other_angles:
+        assert img["provider"] == "google", (
+            f"Expected angle provider='google', got {img['provider']!r}"
+        )
+
+    # Google grounded: three_quarter + full_body = 2 successes
+    # (torso raises before generate_grounded_image returns, counts as 1 call that raised)
+    assert angles_mock.generate_grounded_image.call_count == 3, (
+        f"Expected 3 google grounded calls (3/4 + torso-raise + full_body), "
+        f"got {angles_mock.generate_grounded_image.call_count}"
+    )
+    # OpenAI fallback grounded: exactly 1 (the timed-out torso angle)
+    assert oai_tf_mock.generate_grounded_image.call_count == 1, (
+        f"Expected 1 openai timeout-fallback call, "
+        f"got {oai_tf_mock.generate_grounded_image.call_count}"
+    )

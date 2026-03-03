@@ -814,7 +814,7 @@ def generate_identity_pack(
             for role in ("anchor_three_quarter", "anchor_torso", "anchor_full_body"):
                 # Append enforcement suffix so every angle prompt requests one frame.
                 edit_prompt = ROLE_EDIT_PROMPT[role] + ". " + SINGLE_FRAME_ENFORCEMENT
-                # Per-angle provider name — may be updated to "openai" by B7.2 fallback.
+                # Per-angle provider name — may be updated to "openai" by B7.2/B7.3 fallback.
                 _angle_provider_name = angles_provider_name
 
                 try:
@@ -830,9 +830,32 @@ def generate_identity_pack(
                         )
                         blocked_roles.append(f"{tier}:{role}")
                         return None
-                    raise
+                    # B7.3: Google transient network error (timeout, URLError) —
+                    # fall back to OpenAI grounded for this angle only.
+                    _exc_str = str(exc).lower()
+                    if angles_provider_name == "google" and (
+                        "timed out" in _exc_str
+                        or "timeout" in _exc_str
+                        or "urlerror" in _exc_str
+                    ):
+                        logger.warning(
+                            "identity_pack_angle_timeout_fallback angle=%s "
+                            "provider_from=google provider_to=openai "
+                            "reason=%r request_id=%s",
+                            role, str(exc)[:120], pack_id,
+                        )
+                        _oai_tf = get_identity_provider_by_name("openai")
+                        png_bytes = _oai_tf.generate_grounded_image(
+                            prompt=edit_prompt,
+                            reference_image_bytes=front_bytes,
+                        )
+                        _angle_provider_name = "openai"
+                    else:
+                        raise
 
-                if angles_provider_name == "google":
+                # Strip enforcement only applies when this angle is still on Google.
+                # (Skipped when B7.3 timeout fallback already set _angle_provider_name="openai".)
+                if _angle_provider_name == "google":
                     _ep = edit_prompt  # capture for lambda closure
                     _fb = front_bytes  # capture for lambda closure
                     try:
