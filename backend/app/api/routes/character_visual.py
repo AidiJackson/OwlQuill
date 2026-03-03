@@ -64,6 +64,69 @@ _STRIP_RETRY_SUFFIX = (
     " CRITICAL: Do not return a strip or multiple poses. One frame only."
 )
 
+# B7.1: Hard preamble for the front anchor (seed) image.
+# Placed first in the prompt so the model sees strict framing rules before
+# any identity descriptors.  Must begin with "Passport-style headshot."
+_FRONT_ANCHOR_PREAMBLE = (
+    "Passport-style headshot. Head-and-shoulders only. Straight-on camera. "
+    "Cropped mid-chest. Plain neutral background. "
+    "NO full-body. NO sitting/crouching. NO hands visible. NO props. "
+    "NO action pose. NO dramatic lighting."
+)
+
+
+def _build_front_anchor_prompt(
+    *,
+    use_structured_spec: bool,
+    identity_spec,  # CharacterIdentitySpec | None
+    char_traits: "list[str] | None" = None,
+    failsafe: bool = False,
+) -> str:
+    """Build the anchor_front seed prompt with hard passport-headshot preamble.
+
+    The prompt always starts with _FRONT_ANCHOR_PREAMBLE, then appends only
+    minimal identity descriptors (hair, eyes, skin, wardrobe type+colors).
+    NO cinematic, vibe, scene-setting, or extra-notes content is included —
+    those are reserved for angle shots where framing is less critical.
+
+    Appends SINGLE_FRAME_ENFORCEMENT so the model returns exactly one frame.
+    """
+    parts: list[str] = [_FRONT_ANCHOR_PREAMBLE]
+
+    if use_structured_spec and identity_spec is not None:
+        # Extract minimal identity descriptors from the structured spec.
+        id_core = identity_spec.identity
+        if id_core:
+            tokens: list[str] = []
+            if id_core.hair_color and id_core.hair_length:
+                tokens.append(f"{id_core.hair_length} {id_core.hair_color} hair")
+            elif id_core.hair_color:
+                tokens.append(f"{id_core.hair_color} hair")
+            if id_core.eye_color:
+                tokens.append(f"{id_core.eye_color} eyes")
+            if id_core.skin_tone:
+                tokens.append(f"{id_core.skin_tone} skin")
+            if tokens:
+                parts.append(", ".join(tokens))
+
+        # Wardrobe type + colors (no cinematic notes)
+        wardrobe = identity_spec.wardrobe
+        if wardrobe and wardrobe.outfit_type:
+            wardrobe_parts: list[str] = []
+            if not failsafe:
+                if wardrobe.primary_color:
+                    wardrobe_parts.append(wardrobe.primary_color)
+                if wardrobe.secondary_color:
+                    wardrobe_parts.append(wardrobe.secondary_color)
+            wardrobe_parts.append(wardrobe.outfit_type)
+            parts.append(" ".join(wardrobe_parts))
+    elif char_traits:
+        # Legacy path: use char_traits as minimal descriptors.
+        parts.append(", ".join(char_traits))
+
+    parts.append(SINGLE_FRAME_ENFORCEMENT)
+    return ". ".join(parts)
+
 
 def _is_strip_image(image_bytes: bytes) -> bool:
     """Return True when the image aspect ratio exceeds 1.2 : 1 (wider than tall).
@@ -594,7 +657,21 @@ def generate_identity_pack(
             # Retry up to MAX_FRONT_RETRIES times using the seed provider.
             # If seed is Google and exhausted, fall back to OpenAI (B3 legacy path).
             # If seed is OpenAI and exhausted, raise RuntimeError immediately.
-            front_prompt = _build_prompt_for_role(spec, "anchor_front")
+            # B7.1: Front seed uses a hard passport-headshot preamble so the
+            # OpenAI model never produces a full-body or dramatic shot.
+            front_prompt = _build_front_anchor_prompt(
+                use_structured_spec=use_structured_spec,
+                identity_spec=identity_spec,
+                char_traits=char_traits,
+                failsafe=(tier == "C"),
+            )
+            # Safe preview log — only emitted at DEBUG level; first 200 chars,
+            # newlines collapsed, so it never pollutes INFO streams.
+            logger.debug(
+                "identity_pack_front_prompt_preview request_id=%s preview=%r",
+                pack_id,
+                front_prompt[:200].replace("\n", " "),
+            )
             front_bytes: bytes | None = None
             # Local copy of seed name — updated to "openai" if B3 Google fallback fires.
             _seed_name = seed_provider_name

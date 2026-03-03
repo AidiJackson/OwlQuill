@@ -396,9 +396,10 @@ def test_style_anime_flows_into_prompt(client: TestClient):
         )
 
     assert resp.status_code == 200
-    # The front prompt (first text-to-image call) must contain the anime token
+    # B7.1: The front prompt starts with the hard passport-headshot preamble.
+    # Style tokens are NOT injected into the front seed prompt.
     assert len(captured_prompts) >= 1
-    assert "anime" in captured_prompts[0].lower()
+    assert captured_prompts[0].lower().startswith("passport-style headshot")
 
 
 def test_style_defaults_to_realistic(client: TestClient):
@@ -428,8 +429,8 @@ def test_style_defaults_to_realistic(client: TestClient):
         )
 
     assert resp.status_code == 200
-    # Default style token should be realistic
-    assert "realistic" in captured_prompts[0].lower()
+    # B7.1: Front prompt starts with hard preamble regardless of style.
+    assert captured_prompts[0].lower().startswith("passport-style headshot")
 
 
 def test_unknown_style_coerces_to_realistic(client: TestClient):
@@ -605,9 +606,9 @@ def test_identity_spec_empty_style_coerced_to_realistic(client: TestClient):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["images"]) == 4
-    # The front prompt must use the 'realistic' style token
+    # B7.1: Front prompt starts with the hard preamble (no style token).
     assert len(captured_prompts) >= 1
-    assert "realistic" in captured_prompts[0].lower()
+    assert captured_prompts[0].lower().startswith("passport-style headshot")
 
 
 def test_identity_spec_whitespace_style_coerced_to_realistic(client: TestClient):
@@ -644,8 +645,9 @@ def test_identity_spec_whitespace_style_coerced_to_realistic(client: TestClient)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["images"]) == 4
+    # B7.1: Front prompt starts with the hard preamble (no style token).
     assert len(captured_prompts) >= 1
-    assert "realistic" in captured_prompts[0].lower()
+    assert captured_prompts[0].lower().startswith("passport-style headshot")
 
 
 def test_identity_spec_unknown_style_coerced_to_realistic(client: TestClient):
@@ -682,8 +684,9 @@ def test_identity_spec_unknown_style_coerced_to_realistic(client: TestClient):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["images"]) == 4
+    # B7.1: Front prompt starts with the hard preamble (no style token).
     assert len(captured_prompts) >= 1
-    assert "realistic" in captured_prompts[0].lower()
+    assert captured_prompts[0].lower().startswith("passport-style headshot")
 
 
 # ── Front shot is a true headshot ────────────────────────────────────
@@ -769,6 +772,77 @@ def test_front_shot_passport_headshot_via_identity_spec(client: TestClient):
     assert "no sitting" in front_prompt, (
         f"'no sitting' not found in identity_spec front prompt: {front_prompt!r}"
     )
+
+
+# ── Unit tests for _build_front_anchor_prompt (B7.1) ─────────────────
+
+def test_b7_front_anchor_prompt_starts_with_passport_headshot_legacy():
+    """Legacy path (char_traits only) must start with passport preamble."""
+    from app.api.routes.character_visual import _build_front_anchor_prompt
+
+    prompt = _build_front_anchor_prompt(
+        use_structured_spec=False,
+        identity_spec=None,
+        char_traits=["Grace", "human"],
+    )
+    assert prompt[:80].lower().startswith("passport-style headshot"), (
+        f"Front prompt does not start with preamble: {prompt[:80]!r}"
+    )
+    # char_traits are included
+    assert "grace" in prompt.lower()
+
+
+def test_b7_front_anchor_prompt_starts_with_passport_headshot_structured():
+    """Structured spec path must also start with passport preamble."""
+    from app.api.routes.character_visual import _build_front_anchor_prompt
+    from app.schemas.character_visual import (
+        CharacterIdentitySpec, IdentityCore, WardrobeSpec,
+    )
+
+    spec = CharacterIdentitySpec(
+        style="realistic",
+        identity=IdentityCore(hair_color="brunette", hair_length="long", eye_color="hazel", skin_tone="tan"),
+        wardrobe=WardrobeSpec(outfit_type="dress", primary_color="black"),
+    )
+    prompt = _build_front_anchor_prompt(
+        use_structured_spec=True,
+        identity_spec=spec,
+        char_traits=["Grace"],
+    )
+    assert prompt[:80].lower().startswith("passport-style headshot"), (
+        f"Front prompt does not start with preamble: {prompt[:80]!r}"
+    )
+    # Identity tokens present
+    assert "brunette" in prompt.lower()
+    assert "hazel" in prompt.lower()
+    # Wardrobe present
+    assert "black" in prompt.lower()
+    assert "dress" in prompt.lower()
+    # No cinematic or style tokens
+    assert "realistic" not in prompt.lower()
+    assert "cinematic" not in prompt.lower()
+
+
+def test_b7_front_anchor_prompt_failsafe_drops_wardrobe_colors():
+    """Failsafe mode must drop colors but keep outfit type."""
+    from app.api.routes.character_visual import _build_front_anchor_prompt
+    from app.schemas.character_visual import (
+        CharacterIdentitySpec, IdentityCore, WardrobeSpec,
+    )
+
+    spec = CharacterIdentitySpec(
+        identity=IdentityCore(hair_color="blonde"),
+        wardrobe=WardrobeSpec(outfit_type="blazer", primary_color="navy"),
+    )
+    prompt = _build_front_anchor_prompt(
+        use_structured_spec=True,
+        identity_spec=spec,
+        char_traits=[],
+        failsafe=True,
+    )
+    assert prompt[:80].lower().startswith("passport-style headshot")
+    assert "blazer" in prompt.lower()
+    assert "navy" not in prompt.lower()
 
 
 # ── Identity accessories survive tier escalations ────────────────────
