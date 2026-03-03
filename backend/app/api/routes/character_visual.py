@@ -814,6 +814,9 @@ def generate_identity_pack(
             for role in ("anchor_three_quarter", "anchor_torso", "anchor_full_body"):
                 # Append enforcement suffix so every angle prompt requests one frame.
                 edit_prompt = ROLE_EDIT_PROMPT[role] + ". " + SINGLE_FRAME_ENFORCEMENT
+                # Per-angle provider name — may be updated to "openai" by B7.2 fallback.
+                _angle_provider_name = angles_provider_name
+
                 try:
                     png_bytes = angles_provider.generate_grounded_image(
                         prompt=edit_prompt,
@@ -828,24 +831,41 @@ def generate_identity_pack(
                         blocked_roles.append(f"{tier}:{role}")
                         return None
                     raise
+
                 if angles_provider_name == "google":
                     _ep = edit_prompt  # capture for lambda closure
                     _fb = front_bytes  # capture for lambda closure
-                    png_bytes = _enforce_single_frame(
-                        png_bytes,
-                        retry_fn=lambda: angles_provider.generate_grounded_image(
-                            prompt=_ep + _STRIP_RETRY_SUFFIX,
-                            reference_image_bytes=_fb,
-                        ),
-                        role=role,
-                        pack_id=pack_id,
-                    )
+                    try:
+                        png_bytes = _enforce_single_frame(
+                            png_bytes,
+                            retry_fn=lambda: angles_provider.generate_grounded_image(
+                                prompt=_ep + _STRIP_RETRY_SUFFIX,
+                                reference_image_bytes=_fb,
+                            ),
+                            role=role,
+                            pack_id=pack_id,
+                        )
+                    except RuntimeError:
+                        # B7.2: Google strip retry exhausted for this angle —
+                        # fall back to OpenAI grounded for this angle only.
+                        logger.warning(
+                            "identity_pack_angle_strip_fallback angle=%s "
+                            "provider_from=google provider_to=openai request_id=%s",
+                            role, pack_id,
+                        )
+                        _oai_fb = get_identity_provider_by_name("openai")
+                        png_bytes = _oai_fb.generate_grounded_image(
+                            prompt=edit_prompt,
+                            reference_image_bytes=front_bytes,
+                        )
+                        _angle_provider_name = "openai"
+
                 file_path = _save_png_bytes(png_bytes)
                 logger.info(
                     "identity_pack_angle_generated provider=%s grounded=true angle=%s request_id=%s",
-                    angles_provider_name, role, pack_id,
+                    _angle_provider_name, role, pack_id,
                 )
-                tier_images.append(_make_image_record(role, file_path, angles_provider_name))
+                tier_images.append(_make_image_record(role, file_path, _angle_provider_name))
 
             return tier_images
 

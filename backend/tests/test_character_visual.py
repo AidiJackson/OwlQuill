@@ -1169,3 +1169,116 @@ def test_forced_hybrid_openai_seed_google_angles(client: TestClient):
     for call in angles_mock.generate_grounded_image.call_args_list:
         ref_bytes = call.kwargs.get("reference_image_bytes", b"")
         assert len(ref_bytes) > 0, "generate_grounded_image called with empty reference_image_bytes"
+
+
+# ── B7.2: Angle strip fallback ────────────────────────────────────────
+
+def test_google_angle_strip_fallback_to_openai(client: TestClient):
+    """B7.2: When Google angle generation produces strip/composite after retry,
+    fall back that specific angle to OpenAI grounded — do NOT fail the pack.
+
+    Arrange:
+    - OpenAI seed generates front (valid portrait)
+    - Google angles: anchor_three_quarter always returns a strip image
+      (both initial and retry attempts) → _enforce_single_frame raises
+    - OpenAI fallback: generate_grounded_image returns a valid single-frame
+    - Google angles: anchor_torso and anchor_full_body return valid PNGs
+
+    Assert:
+    - request succeeds (status 200)
+    - anchor_three_quarter DB record has provider='openai' (fallback)
+    - anchor_torso and anchor_full_body DB records have provider='google'
+    - Google generate_grounded_image called 4x (3/4 initial + 3/4 retry + torso + full_body)
+    - OpenAI fallback generate_grounded_image called 1x (for 3/4 angle only)
+    """
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    good_png = _make_png(512, 768)    # portrait — passes strip check
+    strip_png = _make_png(1200, 400)  # wide — detected as strip (ratio = 3.0)
+
+    # OpenAI seed mock: generates valid front
+    seed_mock = MagicMock()
+    seed_mock.generate_image = MagicMock(return_value=good_png)
+
+    # Google angles: always return strip for three_quarter; valid for others.
+    # The ROLE_EDIT_PROMPT for anchor_three_quarter contains "3/4" and "45".
+    def _google_grounded(*, prompt, reference_image_bytes=None):
+        if "3/4" in prompt or "45" in prompt:
+            return strip_png  # always a strip → _enforce_single_frame will raise
+        return good_png
+
+    angles_mock = MagicMock()
+    angles_mock.generate_grounded_image = MagicMock(side_effect=_google_grounded)
+
+    # OpenAI fallback: called by B7.2 code for the strip angle only.
+    oai_fb_mock = MagicMock()
+    oai_fb_mock.generate_grounded_image = MagicMock(return_value=good_png)
+
+    # Provider factory: first "openai" call → seed_mock; subsequent → oai_fb_mock.
+    openai_call_count = [0]
+
+    def _provider_factory(name: str):
+        if name == "openai":
+            openai_call_count[0] += 1
+            return seed_mock if openai_call_count[0] == 1 else oai_fb_mock
+        return angles_mock  # "google"
+
+    mock_settings = MagicMock()
+    mock_settings.IDENTITY_IMAGE_PROVIDER = ""  # B7 split-provider path
+    mock_settings.IDENTITY_SEED_PROVIDER = "openai"
+    mock_settings.IDENTITY_ANGLES_PROVIDER = "google"
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_provider_by_name",
+        side_effect=_provider_factory,
+    ), patch(
+        "app.api.routes.character_visual.settings",
+        mock_settings,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "dark hair, green eyes"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
+    data = resp.json()
+    assert data["tier_used"] == "A"
+    assert len(data["images"]) == 4
+    assert data["blocked_roles"] == []
+
+    images = data["images"]
+    front_imgs = [img for img in images if img["metadata_json"]["pack_role"] == "anchor_front"]
+    three_q_imgs = [img for img in images if img["metadata_json"]["pack_role"] == "anchor_three_quarter"]
+    other_angles = [
+        img for img in images
+        if img["metadata_json"]["pack_role"] in ("anchor_torso", "anchor_full_body")
+    ]
+
+    # Front: OpenAI seed (unchanged)
+    assert len(front_imgs) == 1
+    assert front_imgs[0]["provider"] == "openai"
+
+    # Three-quarter: fell back to OpenAI due to persistent strip
+    assert len(three_q_imgs) == 1
+    assert three_q_imgs[0]["provider"] == "openai", (
+        f"Expected 3/4 angle provider='openai' after strip fallback, "
+        f"got {three_q_imgs[0]['provider']!r}"
+    )
+
+    # Torso and full-body: still Google
+    assert len(other_angles) == 2
+    for img in other_angles:
+        assert img["provider"] == "google", (
+            f"Expected angle provider='google', got {img['provider']!r}"
+        )
+
+    # Google grounded: 3/4 initial + 3/4 retry (from _enforce_single_frame) + torso + full_body = 4
+    assert angles_mock.generate_grounded_image.call_count == 4, (
+        f"Expected 4 google grounded calls, got {angles_mock.generate_grounded_image.call_count}"
+    )
+    # OpenAI fallback grounded: exactly 1 (the strip-replaced 3/4 angle)
+    assert oai_fb_mock.generate_grounded_image.call_count == 1, (
+        f"Expected 1 openai fallback call, got {oai_fb_mock.generate_grounded_image.call_count}"
+    )
