@@ -474,7 +474,7 @@ def test_identity_pack_uses_openrouter_when_configured(client: TestClient):
     mock_settings.IMAGE_PROVIDER = "openai"
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ), patch(
         "app.api.routes.character_visual.settings",

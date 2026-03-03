@@ -293,6 +293,36 @@ def get_identity_image_provider() -> ImageProvider:
     return provider
 
 
+def get_identity_provider_by_name(name: str) -> ImageProvider:
+    """Instantiate an identity-compatible image provider by explicit name.
+
+    Unlike get_identity_image_provider(), accepts a provider name directly
+    rather than reading from settings.  Used by the B7 split-provider path
+    to independently instantiate the seed (front) and angles providers.
+
+    Raises:
+        RuntimeError: If the provider's required credentials are missing.
+        ValueError: If the name is unsupported or the provider lacks image-guidance support.
+    """
+    n = name.lower()
+    if n == "openai":
+        provider: ImageProvider = _OpenAIImageProvider()
+    elif n == "google":
+        provider = _GoogleImageProviderAdapter()
+    elif n == "openrouter":
+        provider = _OpenRouterImageProviderAdapter()
+    else:
+        raise ValueError(
+            f"Unsupported provider: {n!r}. Supported: 'openai', 'google', 'openrouter'."
+        )
+    if not provider.supports_image_guidance:
+        raise ValueError(
+            f"Provider '{n}' does not support image guidance, which is required "
+            f"for identity pack generation. Use 'openai' or 'google'."
+        )
+    return provider
+
+
 def get_fallback_provider() -> ImageProvider | None:
     """Factory: return a fallback provider for tier-C generation.
 

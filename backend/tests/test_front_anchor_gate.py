@@ -103,7 +103,7 @@ def test_front_retried_until_vision_passes(client: TestClient):
     mock_settings.IMAGE_PROVIDER = "openai"
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ), patch(
         "app.api.routes.character_visual.validate_front_anchor_png",
@@ -149,7 +149,7 @@ def test_non_google_exhausted_raises(client: TestClient):
     from app.api.routes.character_visual import MAX_FRONT_RETRIES
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ), patch(
         "app.api.routes.character_visual.validate_front_anchor_png",
@@ -209,7 +209,7 @@ def test_google_validation_exhausted_falls_back_to_openai(client: TestClient):
     mock_settings.IMAGE_PROVIDER = "openai"
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_google_provider,
     ), patch(
         "app.api.routes.character_visual._OpenAIImageProvider",
@@ -273,7 +273,7 @@ def test_crop_applied_after_validation_pass(client: TestClient):
     mock_settings.IMAGE_PROVIDER = "openai"
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ), patch(
         "app.api.routes.character_visual.validate_front_anchor_png",
@@ -319,7 +319,7 @@ def test_angles_use_validated_front_bytes(client: TestClient):
     mock_settings.IMAGE_PROVIDER = "openai"
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ), patch(
         "app.api.routes.character_visual.validate_front_anchor_png",

@@ -75,7 +75,15 @@ class Settings(BaseSettings):
     GOOGLE_IMAGE_MODEL: str = "imagen-3.0-generate-001"
     # If set, identity pack generation uses this provider instead of IMAGE_PROVIDER.
     # Valid values: "openai" | "google" | "openrouter" | "" (empty = inherit IMAGE_PROVIDER)
+    # When set, it overrides both IDENTITY_SEED_PROVIDER and IDENTITY_ANGLES_PROVIDER.
     IDENTITY_IMAGE_PROVIDER: str = ""
+
+    # B7: Forced hybrid identity pack — per-phase provider selection.
+    # IDENTITY_SEED_PROVIDER: provider used to generate the front anchor (seed) image.
+    # IDENTITY_ANGLES_PROVIDER: provider used to generate the 3 grounded angle shots.
+    # Both are ignored when IDENTITY_IMAGE_PROVIDER is set (legacy override takes precedence).
+    IDENTITY_SEED_PROVIDER: str = "openai"
+    IDENTITY_ANGLES_PROVIDER: str = "google"
 
     # OpenRouter image provider (optional — for identity pack A/B testing)
     # OPENROUTER_API_KEY is shared with StoryLab; set above under StoryLab config.

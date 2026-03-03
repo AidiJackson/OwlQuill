@@ -296,7 +296,7 @@ def test_failsafe_tier_c_returns_pack_on_moderation_blocks(client: TestClient):
     mock_provider.generate_image = _mock_generate_image
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -342,7 +342,7 @@ def test_tier_a_succeeds_no_escalation(client: TestClient):
     mock_settings.get_admin_emails = MagicMock(return_value=[])
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ), patch(
         "app.api.routes.character_visual.settings",
@@ -386,7 +386,7 @@ def test_style_anime_flows_into_prompt(client: TestClient):
     mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -418,7 +418,7 @@ def test_style_defaults_to_realistic(client: TestClient):
     mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -472,7 +472,7 @@ def test_tier_c_uses_fallback_provider_on_openai_block(client: TestClient):
     mock_fallback.generate_image = _fallback_ok
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_primary,
     ), patch(
         "app.api.routes.character_visual.get_fallback_provider",
@@ -515,7 +515,7 @@ def test_tier_c_fallback_also_fails_returns_stubs(client: TestClient):
     )
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_primary,
     ), patch(
         "app.api.routes.character_visual.get_fallback_provider",
@@ -548,7 +548,7 @@ def test_tier_c_no_fallback_configured_falls_to_stub(client: TestClient):
     mock_primary.generate_image = _always_block
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_primary,
     ), patch(
         "app.api.routes.character_visual.get_fallback_provider",
@@ -587,7 +587,7 @@ def test_identity_spec_empty_style_coerced_to_realistic(client: TestClient):
     mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -627,7 +627,7 @@ def test_identity_spec_whitespace_style_coerced_to_realistic(client: TestClient)
     mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -665,7 +665,7 @@ def test_identity_spec_unknown_style_coerced_to_realistic(client: TestClient):
     mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -705,7 +705,7 @@ def test_front_shot_uses_headshot_description(client: TestClient):
     mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -744,7 +744,7 @@ def test_front_shot_passport_headshot_via_identity_spec(client: TestClient):
     mock_provider.generate_grounded_image = MagicMock(return_value=fake_png)
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ):
         resp = client.post(
@@ -807,7 +807,7 @@ def test_mask_survives_tier_escalations(client: TestClient):
     mock_provider.generate_image = _mock_generate
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_provider,
     ), patch(
         "app.api.routes.character_visual.get_fallback_provider",
@@ -958,7 +958,7 @@ def test_google_front_seed_strip_fallback_to_openai(client: TestClient):
     mock_settings.IMAGE_PROVIDER = "openai"
 
     with patch(
-        "app.api.routes.character_visual.get_identity_image_provider",
+        "app.api.routes.character_visual.get_identity_provider_by_name",
         return_value=mock_google_provider,
     ), patch(
         "app.api.routes.character_visual._OpenAIImageProvider",
@@ -1004,3 +1004,94 @@ def test_google_front_seed_strip_fallback_to_openai(client: TestClient):
         assert img["provider"] == "google", (
             f"Expected angle provider='google', got {img['provider']!r}"
         )
+
+
+# ── B7: Forced hybrid identity pack ──────────────────────────────────
+
+def test_forced_hybrid_openai_seed_google_angles(client: TestClient):
+    """B7: front anchor always uses OpenAI seed; 3 angles always use Google grounded.
+
+    Default config (no IDENTITY_IMAGE_PROVIDER override):
+      IDENTITY_SEED_PROVIDER=openai → seed_mock handles generate_image
+      IDENTITY_ANGLES_PROVIDER=google → angles_mock handles generate_grounded_image
+
+    Asserts:
+    - front image DB record has provider='openai'
+    - all 3 angle image DB records have provider='google'
+    - seed_mock.generate_image called exactly once (front seed)
+    - angles_mock.generate_grounded_image called exactly 3 times (one per angle)
+    - grounded calls use the cropped front bytes (not empty)
+    """
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # A real portrait PNG so _front_precheck and _crop_passport_headshot work.
+    good_png = _make_png(512, 768)
+
+    seed_mock = MagicMock()
+    seed_mock.generate_image = MagicMock(return_value=good_png)
+
+    angles_mock = MagicMock()
+    angles_mock.generate_grounded_image = MagicMock(return_value=good_png)
+
+    def _provider_factory(name: str):
+        """Return seed_mock for 'openai', angles_mock for 'google'."""
+        if name == "openai":
+            return seed_mock
+        return angles_mock
+
+    # Explicitly set B7 path to avoid env-var overrides from Replit config.
+    mock_settings = MagicMock()
+    mock_settings.IDENTITY_IMAGE_PROVIDER = ""   # empty → use split providers
+    mock_settings.IDENTITY_SEED_PROVIDER = "openai"
+    mock_settings.IDENTITY_ANGLES_PROVIDER = "google"
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_provider_by_name",
+        side_effect=_provider_factory,
+    ), patch(
+        "app.api.routes.character_visual.settings",
+        mock_settings,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "auburn hair, green eyes"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
+    data = resp.json()
+    assert data["tier_used"] == "A"
+    assert len(data["images"]) == 4
+    assert data["blocked_roles"] == []
+
+    images = data["images"]
+    front_imgs = [img for img in images if img["metadata_json"]["pack_role"] == "anchor_front"]
+    angle_imgs = [img for img in images if img["metadata_json"]["pack_role"] != "anchor_front"]
+
+    # Front uses OpenAI seed
+    assert len(front_imgs) == 1
+    assert front_imgs[0]["provider"] == "openai", (
+        f"Expected front provider='openai', got {front_imgs[0]['provider']!r}"
+    )
+
+    # 3 angles use Google grounded
+    assert len(angle_imgs) == 3
+    for img in angle_imgs:
+        assert img["provider"] == "google", (
+            f"Expected angle provider='google', got {img['provider']!r}"
+        )
+
+    # Call counts
+    assert seed_mock.generate_image.call_count == 1, (
+        f"Expected seed generate_image called once, got {seed_mock.generate_image.call_count}"
+    )
+    assert angles_mock.generate_grounded_image.call_count == 3, (
+        f"Expected angles generate_grounded_image called 3x, "
+        f"got {angles_mock.generate_grounded_image.call_count}"
+    )
+
+    # Grounded calls must include non-empty bytes (the cropped seed)
+    for call in angles_mock.generate_grounded_image.call_args_list:
+        ref_bytes = call.kwargs.get("reference_image_bytes", b"")
+        assert len(ref_bytes) > 0, "generate_grounded_image called with empty reference_image_bytes"
