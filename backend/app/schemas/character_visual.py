@@ -8,8 +8,30 @@ from app.schemas.character_image import CharacterImageRead
 # Accepted style values — unknown values silently coerce to "realistic".
 _VALID_STYLES = {"realistic", "anime", "cartoon", "illustration", "comic", "pixel", "cinematic", "3d_animated"}
 
-# Accepted gender values.
-_VALID_GENDERS = {"Woman", "Man", "Non-binary"}
+# Canonical gender values (lowercase).
+_VALID_GENDERS = {"male", "female", "other"}
+
+# Aliases → canonical.  Accepts old display labels, locale variants, and
+# the previous "Woman"/"Man"/"Non-binary" enum for backward-compatibility.
+_GENDER_NORMALISE: dict[str, str] = {
+    # canonical
+    "male": "male",
+    "female": "female",
+    "other": "other",
+    # common aliases
+    "man": "male",
+    "m": "male",
+    "boy": "male",
+    "woman": "female",
+    "f": "female",
+    "girl": "female",
+    # old display labels (backward-compat)
+    "non-binary": "other",
+    "nonbinary": "other",
+    "non_binary": "other",
+    "nb": "other",
+    "enby": "other",
+}
 
 # Accepted age band values.
 _VALID_AGE_BANDS = {"18-25", "26-35", "36-50", "50+"}
@@ -51,11 +73,13 @@ class CharacterIdentitySpec(BaseModel):
     features are never dropped or reordered.
 
     gender and age_band are required — generation is rejected without them.
+    gender normalises to lowercase canonical: male | female | other.
+    Aliases accepted: man→male, woman→female, non-binary→other, etc.
     wardrobe is accepted for backward-compatibility but ignored; the backend
     always enforces a neutral studio outfit during identity generation.
     """
     style: str = "realistic"
-    gender: str = Field(..., description="Character gender: Woman, Man, or Non-binary")
+    gender: str = Field(..., description="Character gender: male, female, or other (aliases: man/woman/non-binary)")
     age_band: str = Field(..., description="Age range: 18-25, 26-35, 36-50, or 50+")
     identity: Optional[IdentityCore] = None
     build: Optional[IdentityBuild] = None
@@ -75,11 +99,14 @@ class CharacterIdentitySpec(BaseModel):
     @classmethod
     def _validate_gender(cls, v) -> str:
         if not isinstance(v, str) or not v.strip():
-            raise ValueError("gender is required (Woman, Man, or Non-binary)")
-        stripped = v.strip()
-        if stripped not in _VALID_GENDERS:
-            raise ValueError(f"gender must be one of: {', '.join(sorted(_VALID_GENDERS))}")
-        return stripped
+            raise ValueError("gender is required: male, female, or other")
+        normed = _GENDER_NORMALISE.get(v.strip().lower())
+        if normed is None:
+            raise ValueError(
+                f"gender must be one of: {', '.join(sorted(_VALID_GENDERS))} "
+                f"(also accepts: man, woman, non-binary)"
+            )
+        return normed
 
     @field_validator("age_band", mode="before")
     @classmethod

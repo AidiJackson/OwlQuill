@@ -54,3 +54,19 @@ Confirm:
 - Re-check /api/admin/diagnostics first.
 - Verify alembic head matches expected.
 - Confirm STORYLAB_PROVIDER and IMAGE_PROVIDER are set in runtime env.
+
+## 7) Identity Pack A/B Testing — Google vs OpenAI
+
+To switch identity pack generation to Google Imagen (Google AI Studio):
+    export IDENTITY_IMAGE_PROVIDER=google
+    export GOOGLE_AI_API_KEY=<your-key>
+
+To revert to OpenAI (default):
+    unset IDENTITY_IMAGE_PROVIDER   # or set to "openai"
+
+Notes:
+- IDENTITY_IMAGE_PROVIDER only affects identity pack generation.
+- Scene/library images always use IMAGE_PROVIDER (default: openai).
+- Google Imagen is text-to-image only; reference-image edits are not supported.
+  The identity pack tier A will generate all 4 shots as independent text-to-image calls.
+- Diagnostics endpoint confirms effective providers per context (identity_pack / scene).

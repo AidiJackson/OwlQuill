@@ -82,6 +82,24 @@ _FRONT_ANCHOR_PREAMBLE = (
 )
 
 
+def _build_identity_prompt(
+    spec,  # CharacterIdentitySpec
+    role: str,
+    *,
+    char_traits: "list[str] | None" = None,
+    failsafe: bool = False,
+) -> str:
+    """Build a full identity prompt for any pack role via the single shared compiler.
+
+    Routes ALL structured-spec prompt building through compile_identity_prompt
+    so gender/style/age_band + NEUTRAL_STUDIO_OUTFIT are always present and
+    wardrobe fields are never read.  Appends SINGLE_FRAME_ENFORCEMENT and
+    _PG13_SAFETY_SUFFIX after the compiled base.
+    """
+    base = compile_identity_prompt(spec, role, char_traits=char_traits, failsafe=failsafe)
+    return f"{base}. {SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
+
+
 def _build_front_anchor_prompt(
     *,
     use_structured_spec: bool,
@@ -89,43 +107,26 @@ def _build_front_anchor_prompt(
     char_traits: "list[str] | None" = None,
     failsafe: bool = False,
 ) -> str:
-    """Build the anchor_front seed prompt with hard passport-headshot preamble.
+    """Build the anchor_front seed prompt.
 
-    The prompt always starts with _FRONT_ANCHOR_PREAMBLE, then appends only
-    minimal identity descriptors (hair, eyes, skin) and the neutral studio
-    outfit. Wardrobe fields from the spec are ignored — outfits unlock after
-    identity lock in Library Images.
-    NO cinematic, vibe, scene-setting, or extra-notes content is included —
-    those are reserved for angle shots where framing is less critical.
+    For structured spec: delegates entirely to _build_identity_prompt (which
+    calls compile_identity_prompt) so gender/style/age_band + NEUTRAL_STUDIO_OUTFIT
+    are guaranteed.  compile_identity_prompt includes the passport-headshot role
+    shot description for anchor_front.
 
-    Appends SINGLE_FRAME_ENFORCEMENT so the model returns exactly one frame.
+    For legacy (no spec): builds a minimal prompt from char_traits + preamble.
     """
-    parts: list[str] = [_FRONT_ANCHOR_PREAMBLE]
-
     if use_structured_spec and identity_spec is not None:
-        # Extract minimal identity descriptors from the structured spec.
-        id_core = identity_spec.identity
-        if id_core:
-            tokens: list[str] = []
-            if id_core.hair_color and id_core.hair_length:
-                tokens.append(f"{id_core.hair_length} {id_core.hair_color} hair")
-            elif id_core.hair_color:
-                tokens.append(f"{id_core.hair_color} hair")
-            if id_core.eye_color:
-                tokens.append(f"{id_core.eye_color} eyes")
-            if id_core.skin_tone:
-                tokens.append(f"{id_core.skin_tone} skin")
-            if tokens:
-                parts.append(", ".join(tokens))
+        return _build_identity_prompt(
+            identity_spec, "anchor_front",
+            char_traits=char_traits,
+            failsafe=failsafe,
+        )
 
-        # Neutral studio outfit — wardrobe field is accepted but ignored.
-        # Outfits are chosen in Library Images after identity lock.
-        from app.services.identity_compiler import NEUTRAL_STUDIO_OUTFIT
-        parts.append(NEUTRAL_STUDIO_OUTFIT)
-    elif char_traits:
-        # Legacy path: use char_traits as minimal descriptors.
+    # Legacy path: use char_traits as minimal descriptors.
+    parts: list[str] = [_FRONT_ANCHOR_PREAMBLE]
+    if char_traits:
         parts.append(", ".join(char_traits))
-
     parts.append(SINGLE_FRAME_ENFORCEMENT)
     parts.append(_PG13_SAFETY_SUFFIX)
     return f"{_SAFETY_PREFIX}. " + ". ".join(parts)
@@ -546,6 +547,17 @@ def generate_identity_pack(
     use_structured_spec = body.identity_spec is not None
     identity_spec = body.identity_spec
 
+    # Hard validation: structured spec must have gender + age_band.
+    # Pydantic already enforces this via Field(...) but we add an explicit
+    # check here so the 422 message is unambiguous if somehow bypassed.
+    if use_structured_spec and identity_spec is not None:
+        missing = [f for f in ("gender", "age_band") if not getattr(identity_spec, f, None)]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"identity_spec is missing required fields: {', '.join(missing)}",
+            )
+
     # Normalize empty/missing style before compilation or storage
     if identity_spec and (
         not identity_spec.style
@@ -627,20 +639,35 @@ def generate_identity_pack(
             char_traits=char_traits,
             failsafe=False,
         )
-        _angle_previews = {
-            "three_quarter": (
-                f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT['anchor_three_quarter']}. "
-                f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
-            ),
-            "torso": (
-                f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT['anchor_torso']}. "
-                f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
-            ),
-            "full_body": (
-                f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT['anchor_full_body']}. "
-                f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
-            ),
-        }
+        if use_structured_spec and identity_spec is not None:
+            # Use the same compile_identity_prompt path as real generation —
+            # angle prompts include gender/style/age_band + NEUTRAL_STUDIO_OUTFIT.
+            _angle_previews = {
+                "three_quarter": _build_identity_prompt(
+                    identity_spec, "anchor_three_quarter", char_traits=char_traits,
+                ),
+                "torso": _build_identity_prompt(
+                    identity_spec, "anchor_torso", char_traits=char_traits,
+                ),
+                "full_body": _build_identity_prompt(
+                    identity_spec, "anchor_full_body", char_traits=char_traits,
+                ),
+            }
+        else:
+            _angle_previews = {
+                "three_quarter": (
+                    f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT['anchor_three_quarter']}. "
+                    f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
+                ),
+                "torso": (
+                    f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT['anchor_torso']}. "
+                    f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
+                ),
+                "full_body": (
+                    f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT['anchor_full_body']}. "
+                    f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
+                ),
+            }
         return JSONResponse(content={
             "dry_run": True,
             "pack_id": pack_id,
@@ -876,11 +903,18 @@ def generate_identity_pack(
                 angles_provider_name, pack_id,
             )
             for role in ("anchor_three_quarter", "anchor_torso", "anchor_full_body"):
-                # Safety prefix + pose + single-frame enforcement + PG-13 clamp.
-                edit_prompt = (
-                    f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT[role]}. "
-                    f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
-                )
+                # For structured spec: full identity prompt via compile_identity_prompt
+                # (includes gender/style/age_band + NEUTRAL_STUDIO_OUTFIT + role pose).
+                # For legacy: short pose-only edit prompt grounded from seed image.
+                if use_structured_spec and identity_spec is not None:
+                    edit_prompt = _build_identity_prompt(
+                        identity_spec, role, char_traits=char_traits, failsafe=False,
+                    )
+                else:
+                    edit_prompt = (
+                        f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT[role]}. "
+                        f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
+                    )
                 # Per-angle provider name — may be updated to "openai" by B7.2/B7.3 fallback.
                 _angle_provider_name = angles_provider_name
 

@@ -28,6 +28,12 @@ NEUTRAL_STUDIO_OUTFIT = "plain fitted neutral studio outfit designed to show bod
 
 # ── Style tokens ─────────────────────────────────────────────────────
 
+_GENDER_NOUN: dict[str, str] = {
+    "male": "man",
+    "female": "woman",
+    "other": "person",
+}
+
 _STYLE_TOKENS: dict[str, str] = {
     "realistic": "cinematic portrait, realistic",
     "anime": "anime character illustration",
@@ -85,15 +91,14 @@ def compile_identity_prompt(
 
     # 2. Identity consistency anchor — canonical singular appearance lock
     sections.append(
-        "All images in this identity pack must depict the exact same person with identical hairstyle, hair length,"
-        " hair position, facial hair, facial structure, and overall appearance. Choose one definitive version of"
-        " the described hairstyle and keep it consistent across all angles. Do not vary hair position, hair length,"
-        " or facial hair between shots."
+        "Same person across all shots. Identical face, hair, skin, and overall appearance. "
+        "No variation in hair length, facial hair, or facial structure between angles."
     )
 
     # 3. Identity anchor: gender + style + age band + identity core
+    gender_noun = _GENDER_NOUN.get(spec.gender, spec.gender)
     identity_parts: list[str] = [
-        f"adult {spec.gender}",
+        f"adult {gender_noun}",
         f"{spec.style} style",
         f"age range {spec.age_band}",
     ]
@@ -124,11 +129,7 @@ def compile_identity_prompt(
 
     # 4. Neutral studio outfit (fixed; wardrobe field is accepted but ignored)
     sections.append(NEUTRAL_STUDIO_OUTFIT)
-    sections.append(
-        "The outfit described above is canonical for this identity pack. "
-        "Do not substitute, add, remove, or alter any clothing items between shots. "
-        "Keep the exact same outfit across front, 3/4, torso, and full-body images."
-    )
+    sections.append("Keep this exact outfit unchanged across all 4 shots.")
 
     # 5. Role shot requirement
     shot_desc = ROLE_SHOT_DESCRIPTION.get(role, "")
@@ -161,48 +162,6 @@ def compile_identity_prompt(
     return prompt
 
 
-def _build_wardrobe_string(
-    spec: CharacterIdentitySpec,
-    *,
-    failsafe: bool = False,
-) -> str:
-    """Build the wardrobe portion of the prompt.
-
-    In failsafe mode, drops colors and keeps only the outfit type
-    to reduce moderation risk.
-    """
-    if not spec.wardrobe:
-        return ""
-
-    w = spec.wardrobe
-    parts: list[str] = []
-
-    if failsafe:
-        # Tier C: soften — only outfit type, no colors
-        if w.outfit_type:
-            parts.append(f"simple {w.outfit_type}")
-    else:
-        # Full wardrobe spec
-        if w.outfit_type and w.primary_color:
-            color_str = w.primary_color
-            if w.secondary_color:
-                color_str = f"{w.primary_color} and {w.secondary_color}"
-            parts.append(f"{color_str} {w.outfit_type}")
-        elif w.outfit_type:
-            parts.append(w.outfit_type)
-        elif w.primary_color:
-            parts.append(f"{w.primary_color} outfit")
-
-    if not failsafe:
-        if w.footwear:
-            parts.append(w.footwear)
-        if w.accessory:
-            parts.append(w.accessory)
-        if w.notes:
-            parts.append(w.notes)
-
-    return ", ".join(parts) if parts else ""
-
 
 def _trim_to_cap(
     prompt: str,
@@ -211,9 +170,9 @@ def _trim_to_cap(
 ) -> str:
     """Trim prompt to _PROMPT_CAP, removing lower-priority sections first.
 
-    Priority (highest first): style, identity, wardrobe, shot, build, extra_notes
+    Priority (highest first): style, identity anchor, outfit, shot, build, extra_notes
     Removes from the back (extra_notes first, then build) to stay under cap.
-    Wardrobe is never removed.
+    Outfit (neutral studio) is never removed.
     """
     # Rebuild without extra_notes
     trimmed_sections = sections[:-1] if len(sections) > 6 else sections

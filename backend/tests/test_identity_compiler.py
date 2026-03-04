@@ -22,7 +22,7 @@ def _make_grace_spec(**overrides) -> CharacterIdentitySpec:
     """Build the 'Grace' acceptance-criteria spec."""
     defaults = dict(
         style="realistic",
-        gender="Woman",
+        gender="female",
         age_band="26-35",
         identity=IdentityCore(
             hair_color="brunette",
@@ -93,7 +93,7 @@ class TestNeutralOutfitEnforced:
         """The canonical outfit enforcement lock must be present."""
         spec = _make_grace_spec()
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert "canonical for this identity pack" in prompt.lower()
+        assert "keep this exact outfit unchanged" in prompt.lower()
 
     def test_different_wardrobe_specs_same_prompt(self):
         """Different wardrobe specs must produce identical prompts (wardrobe is ignored)."""
@@ -197,10 +197,11 @@ class TestRoleChanges:
         assert "neutral studio outfit" in full.lower()
 
         # The canonical identity consistency anchor must be present in both.
-        assert "identical hairstyle" in front.lower()
-        assert "identical hairstyle" in full.lower()
-        assert "canonical for this identity pack" in front.lower()
-        assert "canonical for this identity pack" in full.lower()
+        # Both shots should have the consistency anchor and outfit lock
+        assert "same person across all shots" in front.lower()
+        assert "same person across all shots" in full.lower()
+        assert "keep this exact outfit unchanged" in front.lower()
+        assert "keep this exact outfit unchanged" in full.lower()
 
     def test_role_shot_description_present(self):
         spec = _make_grace_spec()
@@ -316,7 +317,7 @@ class TestIdentityLockString:
         assert "scar" in lock.lower()
 
     def test_empty_spec(self):
-        spec = CharacterIdentitySpec(gender="Woman", age_band="18-25")
+        spec = CharacterIdentitySpec(gender="female", age_band="18-25")
         lock = compile_identity_lock_string(spec)
         assert lock == ""
 
@@ -331,7 +332,7 @@ class TestSchemaValidation:
 
     def test_missing_age_band_raises(self):
         with pytest.raises(Exception):
-            CharacterIdentitySpec(gender="Woman")
+            CharacterIdentitySpec(gender="female")
 
     def test_invalid_gender_raises(self):
         with pytest.raises(Exception):
@@ -339,21 +340,41 @@ class TestSchemaValidation:
 
     def test_invalid_age_band_raises(self):
         with pytest.raises(Exception):
-            CharacterIdentitySpec(gender="Woman", age_band="15-20")
+            CharacterIdentitySpec(gender="female", age_band="15-20")
 
-    def test_valid_genders_accepted(self):
-        for gender in ["Woman", "Man", "Non-binary"]:
+    def test_canonical_gender_values_accepted(self):
+        """Canonical lowercase values are accepted and stored as-is."""
+        for gender, expected in [("female", "female"), ("male", "male"), ("other", "other")]:
             spec = CharacterIdentitySpec(gender=gender, age_band="18-25")
-            assert spec.gender == gender
+            assert spec.gender == expected
+
+    def test_alias_gender_values_normalise(self):
+        """Alias values (display labels, old enum) normalise to canonical."""
+        for alias, expected in [
+            ("Woman", "female"), ("Man", "male"), ("Non-binary", "other"),
+            ("woman", "female"), ("man", "male"), ("MALE", "male"),
+            ("FEMALE", "female"), ("nonbinary", "other"),
+        ]:
+            spec = CharacterIdentitySpec(gender=alias, age_band="18-25")
+            assert spec.gender == expected, f"{alias!r} → expected {expected!r}, got {spec.gender!r}"
 
     def test_valid_age_bands_accepted(self):
         for age_band in ["18-25", "26-35", "36-50", "50+"]:
-            spec = CharacterIdentitySpec(gender="Woman", age_band=age_band)
+            spec = CharacterIdentitySpec(gender="female", age_band=age_band)
             assert spec.age_band == age_band
 
     def test_gender_in_prompt(self):
-        """Gender anchor must appear in compiled prompt."""
-        for gender in ["Woman", "Man", "Non-binary"]:
+        """Gender maps to gendered noun: male→man, female→woman, other→person."""
+        for gender, expected_token in [
+            ("female", "adult woman"),
+            ("male", "adult man"),
+            ("other", "adult person"),
+            # aliases should also produce the canonical noun form
+            ("Woman", "adult woman"),
+            ("Man", "adult man"),
+        ]:
             spec = CharacterIdentitySpec(gender=gender, age_band="26-35")
             prompt = compile_identity_prompt(spec, "anchor_front")
-            assert f"adult {gender.lower()}" in prompt.lower()
+            assert expected_token in prompt.lower(), (
+                f"gender={gender!r}: expected {expected_token!r} in prompt"
+            )

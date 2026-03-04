@@ -92,7 +92,12 @@ export const STYLE_OPTIONS = [
   { label: '3D / Animated', value: '3d_animated' },
 ] as const;
 
-export const GENDER_OPTIONS = ['Woman', 'Man', 'Non-binary'] as const;
+// label = display text; value = canonical backend enum (lowercase)
+export const GENDER_OPTIONS = [
+  { label: 'Woman',      value: 'female' },
+  { label: 'Man',        value: 'male'   },
+  { label: 'Non-binary', value: 'other'  },
+] as const;
 export const AGE_BAND_OPTIONS = ['18-25', '26-35', '36-50', '50+'] as const;
 
 export const HAIR_COLORS = ['Blonde', 'Brunette', 'Black', 'Red', 'Auburn', 'Silver', 'Platinum', 'Copper', 'Strawberry', 'Gray'];

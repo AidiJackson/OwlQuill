@@ -133,6 +133,41 @@ function ChipRow({
   );
 }
 
+/** Chip row where display label differs from stored value.
+ *  Used for gender: shows "Woman"/"Man"/"Non-binary" but stores "female"/"male"/"other".
+ */
+function LabeledChipRow({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly { label: string; value: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((opt) => {
+        const selected = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(selected ? '' : opt.value)}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
+              selected
+                ? 'bg-emerald-600 border-emerald-500 text-white'
+                : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+            }`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Styled select dropdown matching the dark theme. */
 function SelectField({
   options,
@@ -278,10 +313,10 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
         </SectionGroup>
 
         <SectionGroup label="Gender" required>
-          <ChipRow
+          <LabeledChipRow
             options={GENDER_OPTIONS}
             value={spec.gender}
-            onChange={(v) => propagate({ ...spec, gender: v as string })}
+            onChange={(v) => propagate({ ...spec, gender: v })}
           />
         </SectionGroup>
 
