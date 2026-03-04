@@ -6,7 +6,13 @@ from app.schemas.character_dna import CharacterDNARead
 from app.schemas.character_image import CharacterImageRead
 
 # Accepted style values — unknown values silently coerce to "realistic".
-_VALID_STYLES = {"realistic", "anime", "cartoon", "illustration", "comic", "pixel"}
+_VALID_STYLES = {"realistic", "anime", "cartoon", "illustration", "comic", "pixel", "cinematic", "3d_animated"}
+
+# Accepted gender values.
+_VALID_GENDERS = {"Woman", "Man", "Non-binary"}
+
+# Accepted age band values.
+_VALID_AGE_BANDS = {"18-25", "26-35", "36-50", "50+"}
 
 
 # ── Structured Character Identity Spec ───────────────────────────────
@@ -41,14 +47,20 @@ class CharacterIdentitySpec(BaseModel):
     """Structured identity specification for stable character generation.
 
     Replaces the free-text 'visual vibe' with typed fields that the prompt
-    compiler can assemble in a deterministic order, ensuring wardrobe and
-    identity features are never dropped or reordered.
+    compiler can assemble in a deterministic order, ensuring identity
+    features are never dropped or reordered.
+
+    gender and age_band are required — generation is rejected without them.
+    wardrobe is accepted for backward-compatibility but ignored; the backend
+    always enforces a neutral studio outfit during identity generation.
     """
     style: str = "realistic"
+    gender: str = Field(..., description="Character gender: Woman, Man, or Non-binary")
+    age_band: str = Field(..., description="Age range: 18-25, 26-35, 36-50, or 50+")
     identity: Optional[IdentityCore] = None
     build: Optional[IdentityBuild] = None
     marks_accessories: Optional[IdentityMarksAccessories] = None
-    wardrobe: Optional[WardrobeSpec] = None
+    wardrobe: Optional[WardrobeSpec] = None  # accepted but ignored — neutral outfit enforced
     extra_notes: Optional[str] = Field(default=None, max_length=120)
 
     @field_validator("style", mode="before")
@@ -58,6 +70,26 @@ class CharacterIdentitySpec(BaseModel):
             return "realistic"
         normed = v.strip().lower()
         return normed if normed in _VALID_STYLES else "realistic"
+
+    @field_validator("gender", mode="before")
+    @classmethod
+    def _validate_gender(cls, v) -> str:
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("gender is required (Woman, Man, or Non-binary)")
+        stripped = v.strip()
+        if stripped not in _VALID_GENDERS:
+            raise ValueError(f"gender must be one of: {', '.join(sorted(_VALID_GENDERS))}")
+        return stripped
+
+    @field_validator("age_band", mode="before")
+    @classmethod
+    def _validate_age_band(cls, v) -> str:
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("age_band is required (18-25, 26-35, 36-50, or 50+)")
+        stripped = v.strip()
+        if stripped not in _VALID_AGE_BANDS:
+            raise ValueError(f"age_band must be one of: {', '.join(sorted(_VALID_AGE_BANDS))}")
+        return stripped
 
 
 # ── Identity Pack Generate ───────────────────────────────────────────

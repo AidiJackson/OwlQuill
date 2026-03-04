@@ -597,6 +597,8 @@ def test_identity_spec_empty_style_coerced_to_realistic(client: TestClient):
             json={
                 "identity_spec": {
                     "style": "",
+                    "gender": "Woman",
+                    "age_band": "26-35",
                     "identity": {"hair_color": "auburn", "eye_color": "green"},
                 }
             },
@@ -637,6 +639,8 @@ def test_identity_spec_whitespace_style_coerced_to_realistic(client: TestClient)
             json={
                 "identity_spec": {
                     "style": "   ",
+                    "gender": "Man",
+                    "age_band": "26-35",
                     "identity": {"hair_color": "black", "eye_color": "brown"},
                 }
             },
@@ -676,6 +680,8 @@ def test_identity_spec_unknown_style_coerced_to_realistic(client: TestClient):
             json={
                 "identity_spec": {
                     "style": "oilpainting",
+                    "gender": "Non-binary",
+                    "age_band": "18-25",
                     "identity": {"hair_color": "blonde", "eye_color": "grey"},
                 }
             },
@@ -757,8 +763,9 @@ def test_front_shot_passport_headshot_via_identity_spec(client: TestClient):
             json={
                 "identity_spec": {
                     "style": "realistic",
+                    "gender": "Woman",
+                    "age_band": "26-35",
                     "identity": {"hair_color": "auburn", "eye_color": "green"},
-                    "wardrobe": {"outfit_type": "blazer", "primary_color": "navy"},
                 }
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -804,8 +811,9 @@ def test_b7_front_anchor_prompt_starts_with_passport_headshot_structured():
 
     spec = CharacterIdentitySpec(
         style="realistic",
+        gender="Woman",
+        age_band="26-35",
         identity=IdentityCore(hair_color="brunette", hair_length="long", eye_color="hazel", skin_tone="tan"),
-        wardrobe=WardrobeSpec(outfit_type="dress", primary_color="black"),
     )
     prompt = _build_front_anchor_prompt(
         use_structured_spec=True,
@@ -819,12 +827,8 @@ def test_b7_front_anchor_prompt_starts_with_passport_headshot_structured():
     # Identity tokens present
     assert "brunette" in prompt.lower()
     assert "hazel" in prompt.lower()
-    # Wardrobe present
-    assert "black" in prompt.lower()
-    assert "dress" in prompt.lower()
-    # No cinematic or style tokens
-    assert "realistic" not in prompt.lower()
-    assert "cinematic" not in prompt.lower()
+    # Neutral studio outfit enforced — wardrobe fields ignored
+    assert "neutral studio outfit" in prompt.lower()
 
 
 def test_b7_front_anchor_prompt_failsafe_drops_wardrobe_colors():
@@ -835,6 +839,8 @@ def test_b7_front_anchor_prompt_failsafe_drops_wardrobe_colors():
     )
 
     spec = CharacterIdentitySpec(
+        gender="Woman",
+        age_band="18-25",
         identity=IdentityCore(hair_color="blonde"),
         wardrobe=WardrobeSpec(outfit_type="blazer", primary_color="navy"),
     )
@@ -846,7 +852,9 @@ def test_b7_front_anchor_prompt_failsafe_drops_wardrobe_colors():
     )
     # B8: prompt is now prefixed with _SAFETY_PREFIX; check preamble is present.
     assert "passport-style headshot" in prompt.lower()
-    assert "blazer" in prompt.lower()
+    # Neutral studio outfit is always used — wardrobe fields are ignored
+    assert "neutral studio outfit" in prompt.lower()
+    assert "blazer" not in prompt.lower()
     assert "navy" not in prompt.lower()
 
 
@@ -1563,8 +1571,9 @@ def test_dry_run_returns_plan_no_db_writes(client: TestClient):
         json={
             "identity_spec": {
                 "style": "realistic",
+                "gender": "Woman",
+                "age_band": "26-35",
                 "identity": {"hair_color": "auburn", "eye_color": "green"},
-                "wardrobe": {"outfit_type": "blazer", "primary_color": "navy"},
             }
         },
         headers={"Authorization": f"Bearer {token}"},

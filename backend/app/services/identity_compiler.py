@@ -1,8 +1,7 @@
 """Prompt compiler for structured CharacterIdentitySpec.
 
 Compiles a CharacterIdentitySpec into a deterministic image prompt with
-strict ordering that ensures wardrobe and identity features are never
-dropped or reordered.
+strict ordering that ensures identity features are never dropped or reordered.
 
 Public API:
 - ``compile_identity_prompt(spec, role)``  → full generation prompt (≤ 800 chars)
@@ -20,9 +19,12 @@ logger = logging.getLogger(__name__)
 # ── Safety constants ─────────────────────────────────────────────────
 
 _SAFETY_PREFIX = "adult, fully clothed, non-explicit, fashion portrait, tasteful"
-_ADULT_ANCHOR = "adult, mid-20s"
 
 _PROMPT_CAP = 800
+
+# Neutral studio outfit enforced for ALL identity pack generation.
+# Keeps the focus on facial/physical identity; outfits come after identity lock.
+NEUTRAL_STUDIO_OUTFIT = "plain fitted neutral studio outfit designed to show body proportions clearly"
 
 # ── Style tokens ─────────────────────────────────────────────────────
 
@@ -33,6 +35,8 @@ _STYLE_TOKENS: dict[str, str] = {
     "illustration": "digital illustration",
     "comic": "comic book style",
     "pixel": "pixel art",
+    "cinematic": "cinematic portrait, film photography",
+    "3d_animated": "3D animated character, stylized render",
 }
 
 # ── Role shot descriptions ───────────────────────────────────────────
@@ -64,17 +68,14 @@ def compile_identity_prompt(
     Strict ordering (each section appended in this order):
       1. Style token
       2. Identity consistency anchor
-      3. Adult anchor + identity core (hair, eyes, skin, face)
-      4. Wardrobe lock (outfit type + colors) — must be early
+      3. Identity anchor (gender + style + age_band) + identity core (hair, eyes, skin, face)
+      4. Neutral studio outfit (fixed — wardrobe field is ignored)
       5. Role shot requirement
       6. Build + marks/accessories
       7. Vibe traits (extra_notes) + lighting
 
-    In failsafe mode, wardrobe color/type may be softened (only type kept,
-    colors dropped) to avoid moderation blocks.
-
     Hard cap: 800 characters. Trimming works backwards from section 6,
-    preserving wardrobe and identity core.
+    preserving identity anchor and outfit.
     """
     sections: list[str] = []
 
@@ -90,8 +91,12 @@ def compile_identity_prompt(
         " or facial hair between shots."
     )
 
-    # 3. Adult anchor + identity core
-    identity_parts: list[str] = [_ADULT_ANCHOR]
+    # 3. Identity anchor: gender + style + age band + identity core
+    identity_parts: list[str] = [
+        f"adult {spec.gender}",
+        f"{spec.style} style",
+        f"age range {spec.age_band}",
+    ]
 
     # Character name/species/gender from char_traits
     if char_traits:
@@ -117,18 +122,13 @@ def compile_identity_prompt(
 
     sections.append(", ".join(identity_parts))
 
-    # 4. Wardrobe lock — must appear early for stable generation
-    wardrobe_str = _build_wardrobe_string(spec, failsafe=failsafe)
-    if wardrobe_str:
-        sections.append(wardrobe_str)
-
-    # 4b. Canonical outfit enforcement lock
-    if wardrobe_str:
-        sections.append(
-            "The outfit described above is canonical for this identity pack. "
-            "Do not substitute, add, remove, or alter any clothing items between shots. "
-            "Keep the exact same outfit across front, 3/4, torso, and full-body images."
-        )
+    # 4. Neutral studio outfit (fixed; wardrobe field is accepted but ignored)
+    sections.append(NEUTRAL_STUDIO_OUTFIT)
+    sections.append(
+        "The outfit described above is canonical for this identity pack. "
+        "Do not substitute, add, remove, or alter any clothing items between shots. "
+        "Keep the exact same outfit across front, 3/4, torso, and full-body images."
+    )
 
     # 5. Role shot requirement
     shot_desc = ROLE_SHOT_DESCRIPTION.get(role, "")

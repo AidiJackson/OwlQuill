@@ -1,8 +1,11 @@
 import { useState, useCallback } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Shirt } from 'lucide-react';
 import type { CreationSeeds, IdentitySpec } from '../shared/types';
 import {
   PERSONALITY_TRAITS,
+  STYLE_OPTIONS,
+  GENDER_OPTIONS,
+  AGE_BAND_OPTIONS,
   HAIR_COLORS,
   HAIR_LENGTHS,
   EYE_COLORS,
@@ -10,10 +13,6 @@ import {
   FACE_FEATURES,
   BODY_TYPES,
   HEIGHT_BANDS,
-  OUTFIT_TYPES,
-  PRIMARY_COLORS,
-  FOOTWEAR_OPTIONS,
-  ACCESSORY_OPTIONS,
   MARKS_ACCESSORIES,
 } from '../shared/types';
 
@@ -21,10 +20,11 @@ import {
 
 const MAX_FACE_FEATURES = 2;
 const MAX_EXTRA_NOTES = 120;
-const MAX_OUTFIT_NOTES = 80;
 
 const EMPTY_SPEC: IdentitySpec = {
   style: '',
+  gender: '',
+  age_band: '',
   identity: {
     hair_color: '',
     hair_length: '',
@@ -55,16 +55,21 @@ function SectionGroup({
   label,
   helper,
   children,
+  required,
   className = '',
 }: {
   label: string;
   helper?: string;
   children: React.ReactNode;
+  required?: boolean;
   className?: string;
 }) {
   return (
     <div className={className}>
-      <label className="block text-sm font-medium text-gray-300 mb-2">{label}</label>
+      <label className="block text-sm font-medium text-gray-300 mb-2">
+        {label}
+        {required && <span className="text-emerald-400 ml-1">*</span>}
+      </label>
       {children}
       {helper && <p className="text-xs text-gray-500 mt-1.5">{helper}</p>}
     </div>
@@ -135,7 +140,7 @@ function SelectField({
   onChange,
   placeholder,
 }: {
-  options: readonly string[];
+  options: { label: string; value: string }[];
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
@@ -150,8 +155,8 @@ function SelectField({
     >
       <option value="">{placeholder}</option>
       {options.map((opt) => (
-        <option key={opt} value={opt}>
-          {opt}
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
         </option>
       ))}
     </select>
@@ -172,7 +177,6 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
   // Local spec state, initialized from data or empty
   const [spec, setSpec] = useState<IdentitySpec>(data.identitySpec ?? EMPTY_SPEC);
   const [extraNotes, setExtraNotes] = useState(spec.extra_notes);
-  const [outfitNotes, setOutfitNotes] = useState(spec.wardrobe.notes);
 
   /** Propagate spec changes upward into CreationSeeds. */
   const propagate = useCallback(
@@ -183,41 +187,18 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
     [data, onChange],
   );
 
-  /* ── Identity field updaters ─────────────────────────────────────── */
+  /* ── Field updaters ──────────────────────────────────────────────── */
 
   const updateIdentity = (field: string, value: string | string[]) => {
-    const next = {
-      ...spec,
-      identity: { ...spec.identity, [field]: value },
-    };
-    propagate(next);
+    propagate({ ...spec, identity: { ...spec.identity, [field]: value } });
   };
 
   const updateBuild = (field: string, value: string) => {
-    const next = {
-      ...spec,
-      build: { ...spec.build, [field]: value },
-    };
-    propagate(next);
+    propagate({ ...spec, build: { ...spec.build, [field]: value } });
   };
 
   const updateMarks = (items: string[]) => {
     propagate({ ...spec, marks_accessories: { items } });
-  };
-
-  const updateWardrobe = (field: string, value: string) => {
-    const next = {
-      ...spec,
-      wardrobe: { ...spec.wardrobe, [field]: value },
-    };
-    propagate(next);
-  };
-
-  const handleOutfitNotes = (value: string) => {
-    if (value.length <= MAX_OUTFIT_NOTES) {
-      setOutfitNotes(value);
-      updateWardrobe('notes', value);
-    }
   };
 
   const handleExtraNotes = (value: string) => {
@@ -233,6 +214,9 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
       : [...data.traits, trait];
     onChange({ ...data, traits: next });
   };
+
+  /** All three identity selectors must be filled before proceeding. */
+  const canProceed = !saving && !!spec.style && !!spec.gender && !!spec.age_band;
 
   /* ── Render ──────────────────────────────────────────────────────── */
 
@@ -275,7 +259,45 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
       {/* ── Divider ────────────────────────────────────────────────── */}
       <div className="border-t border-gray-800" />
 
-      {/* ── Identity ───────────────────────────────────────────────── */}
+      {/* ── Required Identity Selectors ────────────────────────────── */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
+            Identity
+          </h3>
+          <span className="text-xs text-gray-500">— required to continue</span>
+        </div>
+
+        <SectionGroup label="Style" required>
+          <SelectField
+            options={[...STYLE_OPTIONS]}
+            value={spec.style}
+            onChange={(v) => propagate({ ...spec, style: v })}
+            placeholder="Select a visual style"
+          />
+        </SectionGroup>
+
+        <SectionGroup label="Gender" required>
+          <ChipRow
+            options={GENDER_OPTIONS}
+            value={spec.gender}
+            onChange={(v) => propagate({ ...spec, gender: v as string })}
+          />
+        </SectionGroup>
+
+        <SectionGroup label="Age Range" required>
+          <ChipRow
+            options={AGE_BAND_OPTIONS}
+            value={spec.age_band}
+            onChange={(v) => propagate({ ...spec, age_band: v as string })}
+          />
+        </SectionGroup>
+      </div>
+
+      {/* ── Divider ────────────────────────────────────────────────── */}
+      <div className="border-t border-gray-800" />
+
+      {/* ── Appearance ─────────────────────────────────────────────── */}
       <div className="space-y-4">
         <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
           Appearance
@@ -360,80 +382,23 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
         />
       </SectionGroup>
 
-      {/* ── Wardrobe ───────────────────────────────────────────────── */}
-      <div className="rounded-xl bg-gray-850 border border-gray-700/50 p-4 space-y-4"
+      {/* ── Identity Outfit Info Card ───────────────────────────────── */}
+      <div className="rounded-xl border border-gray-700/50 p-4 space-y-2"
            style={{ backgroundColor: 'rgba(31, 31, 40, 0.6)' }}>
-        <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
-          Wardrobe
-        </h3>
-
-        <div className="grid grid-cols-2 gap-3">
-          <SectionGroup label="Outfit Type">
-            <SelectField
-              options={OUTFIT_TYPES}
-              value={spec.wardrobe.outfit_type}
-              onChange={(v) => updateWardrobe('outfit_type', v)}
-              placeholder="Select outfit"
-            />
-          </SectionGroup>
-
-          <SectionGroup label="Primary Color">
-            <SelectField
-              options={PRIMARY_COLORS}
-              value={spec.wardrobe.primary_color}
-              onChange={(v) => updateWardrobe('primary_color', v)}
-              placeholder="Select color"
-            />
-          </SectionGroup>
-
-          <SectionGroup label="Secondary Color" helper="Optional">
-            <SelectField
-              options={PRIMARY_COLORS}
-              value={spec.wardrobe.secondary_color}
-              onChange={(v) => updateWardrobe('secondary_color', v)}
-              placeholder="None"
-            />
-          </SectionGroup>
-
-          <SectionGroup label="Footwear">
-            <SelectField
-              options={FOOTWEAR_OPTIONS}
-              value={spec.wardrobe.footwear}
-              onChange={(v) => updateWardrobe('footwear', v)}
-              placeholder="Select footwear"
-            />
-          </SectionGroup>
-
-          <SectionGroup label="Accessory">
-            <SelectField
-              options={ACCESSORY_OPTIONS}
-              value={spec.wardrobe.accessory}
-              onChange={(v) => updateWardrobe('accessory', v)}
-              placeholder="None"
-            />
-          </SectionGroup>
+        <div className="flex items-center gap-2">
+          <Shirt className="w-4 h-4 text-gray-400 shrink-0" />
+          <h3 className="text-sm font-semibold text-gray-200">Identity Outfit (standard)</h3>
         </div>
-
-        <SectionGroup label="Outfit Details">
-          <input
-            type="text"
-            maxLength={MAX_OUTFIT_NOTES}
-            value={outfitNotes}
-            onChange={(e) => handleOutfitNotes(e.target.value)}
-            placeholder="e.g. torn sleeves, leather belt, gold trim"
-            className="w-full rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm
-                       px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:ring-2
-                       focus:ring-emerald-600/40 focus:border-emerald-500 transition-colors"
-          />
-          <div className="flex justify-end mt-1">
-            <span className={`text-xs ${outfitNotes.length >= MAX_OUTFIT_NOTES ? 'text-red-400' : 'text-gray-500'}`}>
-              {outfitNotes.length} / {MAX_OUTFIT_NOTES}
-            </span>
-          </div>
-        </SectionGroup>
+        <p className="text-sm text-gray-400">
+          Neutral fitted studio clothing is automatically used during identity generation to show
+          body proportions clearly.
+        </p>
+        <p className="text-xs text-gray-500">
+          Outfits and alternate looks unlock after identity lock in Library Images.
+        </p>
       </div>
 
-      {/* ── Optional Details (replaces old vibe textarea) ──────────── */}
+      {/* ── Optional Details ───────────────────────────────────────── */}
       <SectionGroup label="Optional Details" helper="Anything else that defines their look.">
         <textarea
           className="w-full rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm
@@ -452,6 +417,13 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
         </div>
       </SectionGroup>
 
+      {/* Required fields reminder */}
+      {!canProceed && (spec.style || spec.gender || spec.age_band) && (
+        <p className="text-xs text-amber-400 text-center">
+          Style, Gender, and Age Range are required to continue.
+        </p>
+      )}
+
       {/* ── Navigation ─────────────────────────────────────────────── */}
       <div className="flex justify-between pt-2">
         <button className="btn btn-secondary" onClick={onBack}>
@@ -460,7 +432,7 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
         <button
           className="btn btn-primary"
           onClick={onNext}
-          disabled={saving}
+          disabled={!canProceed}
         >
           {saving ? 'Saving…' : 'Next'}
         </button>

@@ -9,6 +9,7 @@ from app.schemas.character_visual import (
     WardrobeSpec,
 )
 from app.services.identity_compiler import (
+    NEUTRAL_STUDIO_OUTFIT,
     compile_identity_prompt,
     compile_identity_lock_string,
     identity_prompt_hash,
@@ -21,6 +22,8 @@ def _make_grace_spec(**overrides) -> CharacterIdentitySpec:
     """Build the 'Grace' acceptance-criteria spec."""
     defaults = dict(
         style="realistic",
+        gender="Woman",
+        age_band="26-35",
         identity=IdentityCore(
             hair_color="brunette",
             hair_length="long",
@@ -44,100 +47,141 @@ def _make_grace_spec(**overrides) -> CharacterIdentitySpec:
     return CharacterIdentitySpec(**defaults)
 
 
-# ── Compiled prompt includes wardrobe color + outfit type ────────────
+# ── Neutral studio outfit is always enforced in prompts ──────────────
 
-class TestWardrobeInPrompt:
+class TestNeutralOutfitEnforced:
 
-    def test_wardrobe_color_and_type_present(self):
+    def test_neutral_outfit_in_prompt(self):
+        """Neutral studio outfit must appear in every identity prompt."""
         spec = _make_grace_spec()
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert "black" in prompt.lower()
-        assert "dress" in prompt.lower()
+        assert "neutral studio outfit" in prompt.lower()
 
-    def test_wardrobe_with_secondary_color(self):
+    def test_wardrobe_colors_not_in_prompt(self):
+        """Wardrobe colors from spec are ignored — must not appear in prompt."""
+        spec = _make_grace_spec()
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        # "black dress" from wardrobe spec must not leak into the generation prompt
+        assert "black dress" not in prompt.lower()
+
+    def test_wardrobe_footwear_not_in_prompt(self):
+        """Footwear from spec is ignored — must not appear in identity prompt."""
+        spec = _make_grace_spec()
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "heels" not in prompt.lower()
+
+    def test_wardrobe_notes_not_in_prompt(self):
+        """Wardrobe notes from spec are ignored."""
         spec = _make_grace_spec(
+            wardrobe=WardrobeSpec(
+                outfit_type="suit",
+                primary_color="crimson",
+                secondary_color="",
+                footwear="oxford",
+                accessory="monocle",
+                notes="double-breasted with gold buttons",
+            )
+        )
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        # wardrobe-specific notes must not leak into prompt
+        assert "crimson" not in prompt.lower()
+        assert "oxford" not in prompt.lower()
+        assert "monocle" not in prompt.lower()
+        assert "gold buttons" not in prompt.lower()
+
+    def test_outfit_canonical_lock_present(self):
+        """The canonical outfit enforcement lock must be present."""
+        spec = _make_grace_spec()
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "canonical for this identity pack" in prompt.lower()
+
+    def test_different_wardrobe_specs_same_prompt(self):
+        """Different wardrobe specs must produce identical prompts (wardrobe is ignored)."""
+        spec_a = _make_grace_spec(
+            wardrobe=WardrobeSpec(
+                outfit_type="dress",
+                primary_color="black",
+                secondary_color="",
+                footwear="heels",
+                accessory="",
+                notes="fitted",
+            )
+        )
+        spec_b = _make_grace_spec(
             wardrobe=WardrobeSpec(
                 outfit_type="suit",
                 primary_color="navy",
                 secondary_color="gold",
-                footwear="",
-                accessory="",
-                notes="",
-            ),
+                footwear="boots",
+                accessory="watch",
+                notes="tailored",
+            )
         )
-        prompt = compile_identity_prompt(spec, "anchor_front")
-        assert "navy" in prompt.lower()
-        assert "gold" in prompt.lower()
-        assert "suit" in prompt.lower()
+        prompt_a = compile_identity_prompt(spec_a, "anchor_front")
+        prompt_b = compile_identity_prompt(spec_b, "anchor_front")
+        assert prompt_a == prompt_b, "Wardrobe differences must not affect identity prompt"
 
-    def test_wardrobe_footwear_included(self):
+
+# ── Identity anchors appear in correct order ─────────────────────────
+
+class TestIdentityAnchors:
+
+    def test_gender_anchor_present(self):
         spec = _make_grace_spec()
-        prompt = compile_identity_prompt(spec, "anchor_full_body")
-        assert "heels" in prompt.lower()
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "adult woman" in prompt.lower()
 
-    def test_wardrobe_notes_included(self):
+    def test_age_band_anchor_present(self):
         spec = _make_grace_spec()
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert "fitted" in prompt.lower()
+        assert "age range 26-35" in prompt.lower()
 
-
-# ── Wardrobe appears before vibe traits in prompt ────────────────────
-
-class TestWardrobeOrdering:
-
-    def test_wardrobe_before_extra_notes(self):
-        spec = _make_grace_spec(extra_notes="mysterious lighting, moody atmosphere")
+    def test_style_anchor_present(self):
+        spec = _make_grace_spec()
         prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "realistic style" in prompt.lower()
 
-        wardrobe_pos = prompt.lower().find("black dress")
-        notes_pos = prompt.lower().find("mysterious lighting")
-
-        # Wardrobe is never trimmed — it must always be present.
-        assert wardrobe_pos != -1, "wardrobe not found in prompt"
-        # The identity consistency anchor and outfit enforcement anchor added in
-        # the canonical-appearance commits push the Grace spec over the 800-char
-        # cap.  extra_notes is the lowest-priority section and is correctly trimmed
-        # first to protect wardrobe.  When extra_notes IS present, ordering is
-        # enforced; when absent, the trim invariant (wardrobe > extra_notes) holds.
-        if notes_pos != -1:
-            assert wardrobe_pos < notes_pos, (
-                f"Wardrobe (pos {wardrobe_pos}) must appear before extra_notes (pos {notes_pos})"
-            )
-
-    def test_wardrobe_before_build_section(self):
-        spec = _make_grace_spec(extra_notes="warm lighting")
-        prompt = compile_identity_prompt(spec, "anchor_front")
-
-        wardrobe_pos = prompt.lower().find("black dress")
-        build_pos = prompt.lower().find("slim build")
-
-        assert wardrobe_pos != -1, "wardrobe not found in prompt"
-        # Build section may be trimmed when the prompt hits the 800-char cap
-        # (identity consistency anchors push the Grace spec over the cap;
-        # build is a lower-priority section than wardrobe).
-        # When present, build must appear after wardrobe.
-        if build_pos != -1:
-            assert wardrobe_pos < build_pos, (
-                f"Wardrobe (pos {wardrobe_pos}) must appear before build (pos {build_pos})"
-            )
-
-    def test_identity_before_wardrobe(self):
+    def test_identity_core_before_outfit(self):
         spec = _make_grace_spec()
         prompt = compile_identity_prompt(spec, "anchor_front")
 
         identity_pos = prompt.lower().find("brunette")
-        wardrobe_pos = prompt.lower().find("black dress")
+        outfit_pos = prompt.lower().find("neutral studio outfit")
 
-        assert identity_pos != -1
-        assert wardrobe_pos != -1
-        assert identity_pos < wardrobe_pos
+        assert identity_pos != -1, "identity core not found in prompt"
+        assert outfit_pos != -1, "neutral studio outfit not found in prompt"
+        assert identity_pos < outfit_pos, "Identity core must appear before outfit"
+
+    def test_outfit_before_extra_notes(self):
+        spec = _make_grace_spec(extra_notes="mysterious lighting, moody atmosphere")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+
+        outfit_pos = prompt.lower().find("neutral studio outfit")
+        notes_pos = prompt.lower().find("mysterious lighting")
+
+        assert outfit_pos != -1, "neutral studio outfit not found in prompt"
+        if notes_pos != -1:
+            assert outfit_pos < notes_pos, (
+                f"Outfit (pos {outfit_pos}) must appear before extra_notes (pos {notes_pos})"
+            )
+
+    def test_identity_before_build(self):
+        spec = _make_grace_spec(extra_notes="warm lighting")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+
+        identity_pos = prompt.lower().find("brunette")
+        build_pos = prompt.lower().find("slim build")
+
+        assert identity_pos != -1, "identity core not found in prompt"
+        if build_pos != -1:
+            assert identity_pos < build_pos
 
 
 # ── Role changes only the shot line ──────────────────────────────────
 
 class TestRoleChanges:
 
-    def test_different_roles_same_identity_and_wardrobe(self):
+    def test_different_roles_same_identity(self):
         spec = _make_grace_spec()
         front = compile_identity_prompt(spec, "anchor_front")
         full = compile_identity_prompt(spec, "anchor_full_body")
@@ -148,14 +192,11 @@ class TestRoleChanges:
         assert "hazel eyes" in front.lower()
         assert "hazel eyes" in full.lower()
 
-        # Both should have same wardrobe
-        assert "black dress" in front.lower()
-        assert "black dress" in full.lower()
+        # Both should have neutral studio outfit
+        assert "neutral studio outfit" in front.lower()
+        assert "neutral studio outfit" in full.lower()
 
         # The canonical identity consistency anchor must be present in both.
-        # (The Grace spec hits the 800-char cap after these anchors are added,
-        # so the role-specific shot description line is trimmed; identity and
-        # wardrobe are the protected high-priority sections.)
         assert "identical hairstyle" in front.lower()
         assert "identical hairstyle" in full.lower()
         assert "canonical for this identity pack" in front.lower()
@@ -165,11 +206,10 @@ class TestRoleChanges:
         spec = _make_grace_spec()
         for role in ["anchor_front", "anchor_three_quarter", "anchor_torso", "anchor_full_body"]:
             prompt = compile_identity_prompt(spec, role)
-            # Each role should have its specific shot framing
             assert len(prompt) > 0
 
 
-# ── Cap is 800 and trimming keeps wardrobe intact ────────────────────
+# ── Cap is 800 and trimming keeps neutral outfit intact ───────────────
 
 class TestPromptCap:
 
@@ -178,7 +218,7 @@ class TestPromptCap:
         prompt = compile_identity_prompt(spec, "anchor_front")
         assert len(prompt) <= 800
 
-    def test_long_marks_trimmed_wardrobe_kept(self):
+    def test_long_marks_trimmed_neutral_outfit_kept(self):
         spec = _make_grace_spec(
             marks_accessories=IdentityMarksAccessories(
                 items=["intricate tribal tattoo on left arm"] * 30,
@@ -187,11 +227,10 @@ class TestPromptCap:
         )
         prompt = compile_identity_prompt(spec, "anchor_front")
         assert len(prompt) <= 800
-        # Wardrobe must survive trimming
-        assert "black" in prompt.lower()
-        assert "dress" in prompt.lower()
+        # Neutral outfit must survive trimming
+        assert "neutral studio outfit" in prompt.lower()
 
-    def test_many_sections_trimmed_wardrobe_survives(self):
+    def test_many_sections_trimmed_neutral_outfit_survives(self):
         spec = _make_grace_spec(
             marks_accessories=IdentityMarksAccessories(
                 items=["ornate dragon tattoo covering entire back and shoulders"] * 20,
@@ -199,36 +238,32 @@ class TestPromptCap:
         )
         prompt = compile_identity_prompt(spec, "anchor_front")
         assert len(prompt) <= 800
-        assert "black" in prompt.lower()
-        assert "dress" in prompt.lower()
+        assert "neutral studio outfit" in prompt.lower()
 
 
-# ── Regression: black dress stays black across regenerate calls ──────
+# ── Regression: prompts are stable across regenerate calls ───────────
 
 class TestPromptStability:
 
-    def test_black_dress_hash_stable(self):
+    def test_hash_stable(self):
         """The same identity spec must produce the same prompt hash."""
         spec = _make_grace_spec()
         hash1 = identity_prompt_hash(spec)
         hash2 = identity_prompt_hash(spec)
         assert hash1 == hash2
 
-    def test_black_dress_prompt_deterministic(self):
+    def test_prompt_deterministic(self):
         """Regenerating with the same spec must produce the identical prompt."""
         spec = _make_grace_spec()
         prompt1 = compile_identity_prompt(spec, "anchor_front")
         prompt2 = compile_identity_prompt(spec, "anchor_front")
         assert prompt1 == prompt2
 
-    def test_black_dress_stays_black_not_white(self):
-        """Black dress spec must compile to a prompt containing 'black dress',
-        not 'white blazer' or any other wardrobe drift."""
+    def test_neutral_outfit_consistent(self):
+        """Neutral outfit must be the same regardless of wardrobe spec."""
         spec = _make_grace_spec()
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert "black" in prompt.lower()
-        assert "dress" in prompt.lower()
-        assert "white blazer" not in prompt.lower()
+        assert NEUTRAL_STUDIO_OUTFIT in prompt
 
     def test_lock_string_stable(self):
         spec = _make_grace_spec()
@@ -236,23 +271,23 @@ class TestPromptStability:
         lock2 = compile_identity_lock_string(spec)
         assert lock1 == lock2
         assert "brunette" in lock1.lower()
-        assert "black dress" in lock1.lower()
 
 
-# ── Failsafe mode softens wardrobe ───────────────────────────────────
+# ── Failsafe mode still generates a valid prompt ─────────────────────
 
 class TestFailsafeMode:
 
-    def test_failsafe_keeps_outfit_type(self):
+    def test_failsafe_neutral_outfit_present(self):
+        """Failsafe mode still uses the neutral studio outfit."""
         spec = _make_grace_spec()
         prompt = compile_identity_prompt(spec, "anchor_front", failsafe=True)
-        assert "dress" in prompt.lower()
+        assert "neutral studio outfit" in prompt.lower()
 
-    def test_failsafe_drops_colors(self):
+    def test_failsafe_no_wardrobe_colors(self):
+        """Failsafe mode must not include wardrobe colors."""
         spec = _make_grace_spec()
         prompt = compile_identity_prompt(spec, "anchor_front", failsafe=True)
-        # In failsafe, colors are dropped, "simple dress" used instead
-        assert "simple dress" in prompt.lower()
+        assert "black dress" not in prompt.lower()
 
     def test_failsafe_keeps_identity_core(self):
         spec = _make_grace_spec()
@@ -271,7 +306,6 @@ class TestIdentityLockString:
         assert "brunette" in lock.lower()
         assert "hazel eyes" in lock.lower()
         assert "tan skin" in lock.lower()
-        assert "black dress" in lock.lower()
 
     def test_includes_marks(self):
         spec = _make_grace_spec(
@@ -282,6 +316,44 @@ class TestIdentityLockString:
         assert "scar" in lock.lower()
 
     def test_empty_spec(self):
-        spec = CharacterIdentitySpec()
+        spec = CharacterIdentitySpec(gender="Woman", age_band="18-25")
         lock = compile_identity_lock_string(spec)
         assert lock == ""
+
+
+# ── Schema validation: gender and age_band are required ──────────────
+
+class TestSchemaValidation:
+
+    def test_missing_gender_raises(self):
+        with pytest.raises(Exception):
+            CharacterIdentitySpec(age_band="18-25")
+
+    def test_missing_age_band_raises(self):
+        with pytest.raises(Exception):
+            CharacterIdentitySpec(gender="Woman")
+
+    def test_invalid_gender_raises(self):
+        with pytest.raises(Exception):
+            CharacterIdentitySpec(gender="Unknown", age_band="18-25")
+
+    def test_invalid_age_band_raises(self):
+        with pytest.raises(Exception):
+            CharacterIdentitySpec(gender="Woman", age_band="15-20")
+
+    def test_valid_genders_accepted(self):
+        for gender in ["Woman", "Man", "Non-binary"]:
+            spec = CharacterIdentitySpec(gender=gender, age_band="18-25")
+            assert spec.gender == gender
+
+    def test_valid_age_bands_accepted(self):
+        for age_band in ["18-25", "26-35", "36-50", "50+"]:
+            spec = CharacterIdentitySpec(gender="Woman", age_band=age_band)
+            assert spec.age_band == age_band
+
+    def test_gender_in_prompt(self):
+        """Gender anchor must appear in compiled prompt."""
+        for gender in ["Woman", "Man", "Non-binary"]:
+            spec = CharacterIdentitySpec(gender=gender, age_band="26-35")
+            prompt = compile_identity_prompt(spec, "anchor_front")
+            assert f"adult {gender.lower()}" in prompt.lower()

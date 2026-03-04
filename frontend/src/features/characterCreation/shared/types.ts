@@ -72,14 +72,28 @@ export interface WardrobeSpec {
 
 export interface IdentitySpec {
   style: string;
+  gender: string;
+  age_band: string;
   identity: IdentityCore;
   build: IdentityBuild;
   marks_accessories: { items: string[] };
-  wardrobe: WardrobeSpec;
+  wardrobe: WardrobeSpec;  // accepted by backend but ignored — neutral outfit enforced
   extra_notes: string;
 }
 
 // ── Identity Spec option constants ──────────────────────────────────
+
+export const STYLE_OPTIONS = [
+  { label: 'Realistic', value: 'realistic' },
+  { label: 'Cinematic Realistic', value: 'cinematic' },
+  { label: 'Illustration', value: 'illustration' },
+  { label: 'Anime', value: 'anime' },
+  { label: 'Comic', value: 'comic' },
+  { label: '3D / Animated', value: '3d_animated' },
+] as const;
+
+export const GENDER_OPTIONS = ['Woman', 'Man', 'Non-binary'] as const;
+export const AGE_BAND_OPTIONS = ['18-25', '26-35', '36-50', '50+'] as const;
 
 export const HAIR_COLORS = ['Blonde', 'Brunette', 'Black', 'Red', 'Auburn', 'Silver', 'Platinum', 'Copper', 'Strawberry', 'Gray'];
 export const HAIR_LENGTHS = ['Short', 'Medium', 'Long', 'Shaved'];

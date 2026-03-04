@@ -92,7 +92,9 @@ def _build_front_anchor_prompt(
     """Build the anchor_front seed prompt with hard passport-headshot preamble.
 
     The prompt always starts with _FRONT_ANCHOR_PREAMBLE, then appends only
-    minimal identity descriptors (hair, eyes, skin, wardrobe type+colors).
+    minimal identity descriptors (hair, eyes, skin) and the neutral studio
+    outfit. Wardrobe fields from the spec are ignored — outfits unlock after
+    identity lock in Library Images.
     NO cinematic, vibe, scene-setting, or extra-notes content is included —
     those are reserved for angle shots where framing is less critical.
 
@@ -116,17 +118,10 @@ def _build_front_anchor_prompt(
             if tokens:
                 parts.append(", ".join(tokens))
 
-        # Wardrobe type + colors (no cinematic notes)
-        wardrobe = identity_spec.wardrobe
-        if wardrobe and wardrobe.outfit_type:
-            wardrobe_parts: list[str] = []
-            if not failsafe:
-                if wardrobe.primary_color:
-                    wardrobe_parts.append(wardrobe.primary_color)
-                if wardrobe.secondary_color:
-                    wardrobe_parts.append(wardrobe.secondary_color)
-            wardrobe_parts.append(wardrobe.outfit_type)
-            parts.append(" ".join(wardrobe_parts))
+        # Neutral studio outfit — wardrobe field is accepted but ignored.
+        # Outfits are chosen in Library Images after identity lock.
+        from app.services.identity_compiler import NEUTRAL_STUDIO_OUTFIT
+        parts.append(NEUTRAL_STUDIO_OUTFIT)
     elif char_traits:
         # Legacy path: use char_traits as minimal descriptors.
         parts.append(", ".join(char_traits))

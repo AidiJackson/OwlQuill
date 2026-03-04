@@ -194,6 +194,17 @@ export default function StepGeneratePack({
         )}
       </div>
 
+      {/* Facial identity lock messaging */}
+      <div className="text-center space-y-1">
+        <p className="text-sm font-medium text-gray-300">
+          Locking facial identity first — outfits come next.
+        </p>
+        <p className="text-xs text-gray-500">
+          This pack creates your character's visual canon. You'll create outfits and alternate
+          looks after identity lock.
+        </p>
+      </div>
+
       {/* Generate / Regenerate */}
       <div className="flex justify-center">
         <button
