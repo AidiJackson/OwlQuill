@@ -876,20 +876,33 @@ def generate_identity_pack(
                         )
                         blocked_roles.append(f"{tier}:{role}")
                         return None
-                    # B7.3: Google transient network error (timeout, URLError) —
-                    # fall back to OpenAI grounded for this angle only.
+                    # B7.3: Google transient/refusal error — fall back to OpenAI grounded.
+                    # Covers: network timeout, URLError, and explicit content refusal.
                     _exc_str = str(exc).lower()
-                    if angles_provider_name == "google" and (
+                    _is_google_timeout = angles_provider_name == "google" and (
                         "timed out" in _exc_str
                         or "timeout" in _exc_str
                         or "urlerror" in _exc_str
-                    ):
+                    )
+                    _is_google_refusal = (
+                        angles_provider_name == "google"
+                        and "google_refused_image" in _exc_str
+                    )
+                    if _is_google_refusal:
+                        logger.warning(
+                            "identity_pack_angle_refusal_fallback angle=%s "
+                            "provider_from=google provider_to=openai "
+                            "reason=%r request_id=%s",
+                            role, str(exc)[:120], pack_id,
+                        )
+                    elif _is_google_timeout:
                         logger.warning(
                             "identity_pack_angle_timeout_fallback angle=%s "
                             "provider_from=google provider_to=openai "
                             "reason=%r request_id=%s",
                             role, str(exc)[:120], pack_id,
                         )
+                    if _is_google_timeout or _is_google_refusal:
                         _oai_tf = get_identity_provider_by_name("openai")
                         try:
                             png_bytes = _oai_tf.generate_grounded_image(

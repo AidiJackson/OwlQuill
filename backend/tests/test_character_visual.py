@@ -1639,3 +1639,75 @@ def test_dry_run_works_without_identity_spec(client: TestClient):
     pp = data["prompts_preview"]
     assert "front" in pp
     assert "passport-style headshot" in pp["front"].lower()
+
+
+# ── Google refusal fallback (google_refused_image) ───────────────────
+
+def test_google_angle_refusal_falls_back_to_openai(client: TestClient):
+    """When Google raises google_refused_image for an angle, it falls back to
+    OpenAI grounded and logs identity_pack_angle_refusal_fallback.  The pack
+    must complete successfully with that angle served by OpenAI.
+    """
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    good_png = _make_png(512, 768)
+
+    # OpenAI seed: returns a good front portrait.
+    seed_mock = MagicMock()
+    seed_mock.generate_image = MagicMock(return_value=good_png)
+
+    # Google angles: three_quarter raises refusal; others succeed.
+    def _google_grounded(*, prompt, reference_image_bytes=None):
+        if "3/4" in prompt or "three" in prompt or "45" in prompt:
+            raise RuntimeError("google_refused_image: IMAGE_RECITATION")
+        return good_png
+
+    angles_mock = MagicMock()
+    angles_mock.generate_grounded_image = MagicMock(side_effect=_google_grounded)
+
+    # OpenAI fallback: succeeds for the refused angle.
+    oai_fallback = MagicMock()
+    oai_fallback.generate_grounded_image = MagicMock(return_value=good_png)
+
+    openai_call_count = [0]
+
+    def _provider_factory(name: str):
+        if name == "openai":
+            openai_call_count[0] += 1
+            return seed_mock if openai_call_count[0] == 1 else oai_fallback
+        return angles_mock  # "google"
+
+    mock_settings = MagicMock()
+    mock_settings.IDENTITY_IMAGE_PROVIDER = ""
+    mock_settings.IDENTITY_SEED_PROVIDER = "openai"
+    mock_settings.IDENTITY_ANGLES_PROVIDER = "google"
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_provider_by_name",
+        side_effect=_provider_factory,
+    ), patch(
+        "app.api.routes.character_visual.settings",
+        mock_settings,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "test character"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200, (
+        f"Expected 200 after refusal fallback, got {resp.status_code}: {resp.json()}"
+    )
+    data = resp.json()
+    images = data["images"]
+    assert len(images) == 4, f"Expected 4 images, got {len(images)}"
+
+    # The three_quarter slot must be served by openai (the fallback).
+    prov_by_role = {
+        (img.get("metadata_json") or {}).get("pack_role"): img.get("provider")
+        for img in images
+    }
+    assert prov_by_role.get("anchor_three_quarter") == "openai", (
+        f"Expected anchor_three_quarter from openai fallback, got {prov_by_role}"
+    )

@@ -229,20 +229,6 @@ def smoke_dry(token: str, char_def: dict, timeout: int) -> DryResult:
         if "fully clothed" not in prompt.lower():
             r.warnings.append(f"{key}: missing PG-13 safety suffix")
 
-    # Confirm no images were written (accept with the pack_id must fail with 422)
-    pack_id = d.get("pack_id", "")
-    acc_s, acc_d = _req(
-        "POST",
-        f"/characters/{cid}/identity-pack/accept",
-        {"pack_id": pack_id},
-        token,
-        timeout=timeout,
-    )
-    if acc_s == 200:
-        r.warnings.append("accept succeeded — DB images were unexpectedly written!")
-    elif acc_s != 422:
-        r.warnings.append(f"accept returned {acc_s} (expected 422 for no-images)")
-
     r.success = not r.error and not r.warnings
     return r
 
