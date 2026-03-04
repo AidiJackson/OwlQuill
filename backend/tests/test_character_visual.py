@@ -1539,3 +1539,103 @@ def test_b8_openai_angle_timeout_fallback_moderation_returns_400(client: TestCli
     assert "anchor_torso" in resp.json()["detail"], (
         f"Expected 'anchor_torso' in detail, got: {resp.json()['detail']!r}"
     )
+
+
+# ── B8-dry-run: ?dry_run=true endpoint ───────────────────────────────
+
+def test_dry_run_returns_plan_no_db_writes(client: TestClient):
+    """?dry_run=true must return a prompt plan and write zero DB records.
+
+    Verifies:
+    - HTTP 200 with dry_run=True flag
+    - Response contains seed_provider, angles_provider, roles, prompts_preview
+    - All four prompt keys present (front, three_quarter, torso, full_body)
+    - Front prompt contains passport-style headshot preamble
+    - All prompts contain the PG-13 safety suffix
+    - No CharacterImage rows are written (accept with the pack_id returns 422)
+    - Character remains unlocked
+    """
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate?dry_run=true",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "identity": {"hair_color": "auburn", "eye_color": "green"},
+                "wardrobe": {"outfit_type": "blazer", "primary_color": "navy"},
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
+    data = resp.json()
+
+    # Must be flagged as dry_run
+    assert data["dry_run"] is True
+
+    # Structural fields
+    assert "pack_id" in data
+    assert "seed_provider" in data
+    assert "angles_provider" in data
+    assert data["roles"] == [
+        "anchor_front", "anchor_three_quarter", "anchor_torso", "anchor_full_body",
+    ]
+
+    # Prompts preview has all four keys
+    pp = data["prompts_preview"]
+    assert set(pp.keys()) == {"front", "three_quarter", "torso", "full_body"}, (
+        f"Unexpected prompts_preview keys: {set(pp.keys())}"
+    )
+
+    # Front must contain passport-style preamble
+    assert "passport-style headshot" in pp["front"].lower(), (
+        f"front prompt missing preamble: {pp['front'][:120]!r}"
+    )
+
+    # All prompts must contain the PG-13 safety suffix
+    for key, prompt in pp.items():
+        assert "fully clothed" in prompt.lower(), (
+            f"{key} prompt missing PG-13 suffix: {prompt[:120]!r}"
+        )
+
+    # Prove no DB images were written: accepting the dry-run pack_id must 422
+    acc_resp = client.post(
+        f"/characters/{cid}/identity-pack/accept",
+        json={"pack_id": data["pack_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert acc_resp.status_code == 422, (
+        f"Accept should 422 (no images) after dry_run, got {acc_resp.status_code}"
+    )
+
+    # Character must still be unlocked
+    char_resp = client.get(
+        f"/characters/{cid}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert char_resp.status_code == 200
+    assert char_resp.json()["visual_locked"] is False, (
+        "dry_run must not lock the character"
+    )
+
+
+def test_dry_run_works_without_identity_spec(client: TestClient):
+    """dry_run on the legacy vibe path must also return a valid plan."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate?dry_run=true",
+        json={"prompt_vibe": "silver hair elf with green eyes"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["dry_run"] is True
+    assert "seed_provider" in data
+    assert "prompts_preview" in data
+    pp = data["prompts_preview"]
+    assert "front" in pp
+    assert "passport-style headshot" in pp["front"].lower()

@@ -6,7 +6,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -469,9 +470,16 @@ def upsert_dna(
 def generate_identity_pack(
     character_id: int,
     body: IdentityPackGenerateRequest,
+    dry_run: bool = Query(
+        False,
+        description=(
+            "If true, compile prompts and resolve providers without calling any "
+            "image generation API or writing DB records. Returns a plan JSON."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> IdentityPackGenerateResponse:
+):
     """Generate 4 temporary preview images for the identity pack.
 
     Requires that the character is NOT yet visually locked.
@@ -589,6 +597,37 @@ def generate_identity_pack(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+    # ── Dry-run: compile prompts + resolve providers; no API calls, no DB writes ──
+    if dry_run:
+        _front_preview = _build_front_anchor_prompt(
+            use_structured_spec=use_structured_spec,
+            identity_spec=identity_spec,
+            char_traits=char_traits,
+            failsafe=False,
+        )
+        _angle_previews = {
+            "three_quarter": (
+                f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT['anchor_three_quarter']}. "
+                f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
+            ),
+            "torso": (
+                f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT['anchor_torso']}. "
+                f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
+            ),
+            "full_body": (
+                f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT['anchor_full_body']}. "
+                f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
+            ),
+        }
+        return JSONResponse(content={
+            "dry_run": True,
+            "pack_id": pack_id,
+            "seed_provider": seed_provider_name,
+            "angles_provider": angles_provider_name,
+            "roles": PACK_ROLES,
+            "prompts_preview": {"front": _front_preview, **_angle_previews},
+        })
 
     # Tier tracking — populated during generation
     tier_used: str = "stub"
