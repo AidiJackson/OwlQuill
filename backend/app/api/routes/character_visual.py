@@ -35,10 +35,10 @@ from app.services.identity_compiler import (
     compile_identity_prompt,
     compile_identity_lock_string,
     identity_prompt_hash,
+    _SAFETY_PREFIX,
 )
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.image_provider import (
-    get_identity_image_provider,
     get_identity_provider_by_name,
     get_fallback_provider,
     ImageProvider,
@@ -62,6 +62,12 @@ SINGLE_FRAME_ENFORCEMENT = (
 # Appended on the ONE retry when a strip is detected in the response.
 _STRIP_RETRY_SUFFIX = (
     " CRITICAL: Do not return a strip or multiple poses. One frame only."
+)
+
+# B8: PG-13 safety clamp — appended to EVERY identity-pack prompt so OpenAI's
+# content moderation never triggers a 500 on wardrobe/character descriptions.
+_PG13_SAFETY_SUFFIX = (
+    "Fully clothed. Non-sexual. Non-suggestive. No lingerie. No nudity. PG-13."
 )
 
 # B7.1: Hard preamble for the front anchor (seed) image.
@@ -125,7 +131,8 @@ def _build_front_anchor_prompt(
         parts.append(", ".join(char_traits))
 
     parts.append(SINGLE_FRAME_ENFORCEMENT)
-    return ". ".join(parts)
+    parts.append(_PG13_SAFETY_SUFFIX)
+    return f"{_SAFETY_PREFIX}. " + ". ".join(parts)
 
 
 def _is_strip_image(image_bytes: bytes) -> bool:
@@ -590,7 +597,7 @@ def generate_identity_pack(
     images: list[CharacterImage] = []
 
     def _make_image_record(role: str, file_path: str, provider_name: str) -> CharacterImage:
-        img = CharacterImage(
+        return CharacterImage(
             character_id=character_id,
             kind=ImageKindEnum.GENERATED,
             status=ImageStatusEnum.ACTIVE,
@@ -605,9 +612,6 @@ def generate_identity_pack(
             },
             file_path=file_path,
         )
-        db.add(img)
-        images.append(img)
-        return img
 
     if use_openai:
 
@@ -635,7 +639,7 @@ def generate_identity_pack(
                     ROLE_SHOT_DESCRIPTION[role],
                     style=style,
                 )
-            return f"{base}. {SINGLE_FRAME_ENFORCEMENT}"
+            return f"{base}. {SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
 
         def _generate_pack_tier_ab(
             spec: str,
@@ -812,8 +816,11 @@ def generate_identity_pack(
                 angles_provider_name, pack_id,
             )
             for role in ("anchor_three_quarter", "anchor_torso", "anchor_full_body"):
-                # Append enforcement suffix so every angle prompt requests one frame.
-                edit_prompt = ROLE_EDIT_PROMPT[role] + ". " + SINGLE_FRAME_ENFORCEMENT
+                # Safety prefix + pose + single-frame enforcement + PG-13 clamp.
+                edit_prompt = (
+                    f"{_SAFETY_PREFIX}, {ROLE_EDIT_PROMPT[role]}. "
+                    f"{SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
+                )
                 # Per-angle provider name — may be updated to "openai" by B7.2/B7.3 fallback.
                 _angle_provider_name = angles_provider_name
 
@@ -845,10 +852,21 @@ def generate_identity_pack(
                             role, str(exc)[:120], pack_id,
                         )
                         _oai_tf = get_identity_provider_by_name("openai")
-                        png_bytes = _oai_tf.generate_grounded_image(
-                            prompt=edit_prompt,
-                            reference_image_bytes=front_bytes,
-                        )
+                        try:
+                            png_bytes = _oai_tf.generate_grounded_image(
+                                prompt=edit_prompt,
+                                reference_image_bytes=front_bytes,
+                            )
+                        except (ValueError, RuntimeError) as _oai_exc:
+                            if _is_moderation_block(_oai_exc):
+                                raise HTTPException(
+                                    status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=(
+                                        "Identity packs must be fully clothed and non-sexual. "
+                                        f"Please adjust wardrobe/notes. (role={role})"
+                                    ),
+                                )
+                            raise
                         _angle_provider_name = "openai"
                     else:
                         raise
@@ -877,10 +895,21 @@ def generate_identity_pack(
                             role, pack_id,
                         )
                         _oai_fb = get_identity_provider_by_name("openai")
-                        png_bytes = _oai_fb.generate_grounded_image(
-                            prompt=edit_prompt,
-                            reference_image_bytes=front_bytes,
-                        )
+                        try:
+                            png_bytes = _oai_fb.generate_grounded_image(
+                                prompt=edit_prompt,
+                                reference_image_bytes=front_bytes,
+                            )
+                        except (ValueError, RuntimeError) as _oai_exc:
+                            if _is_moderation_block(_oai_exc):
+                                raise HTTPException(
+                                    status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=(
+                                        "Identity packs must be fully clothed and non-sexual. "
+                                        f"Please adjust wardrobe/notes. (role={role})"
+                                    ),
+                                )
+                            raise
                         _angle_provider_name = "openai"
 
                 file_path = _save_png_bytes(png_bytes)
@@ -906,7 +935,16 @@ def generate_identity_pack(
             fallback = get_fallback_provider()
             tier_images: list[CharacterImage] = []
             for role in PACK_ROLES:
-                prompt = _build_prompt_for_role(spec, role, failsafe=True)
+                # B8: front must use the strict passport preamble prompt builder.
+                if role == "anchor_front":
+                    prompt = _build_front_anchor_prompt(
+                        use_structured_spec=use_structured_spec,
+                        identity_spec=identity_spec,
+                        char_traits=char_traits,
+                        failsafe=True,
+                    )
+                else:
+                    prompt = _build_prompt_for_role(spec, role, failsafe=True)
 
                 # Try primary provider (text-to-image, no reference)
                 try:
@@ -948,13 +986,13 @@ def generate_identity_pack(
             return tier_images
 
         # ── 3-tier generation: A (normal) -> B (conservative) -> C (failsafe)
+        # B8: _make_image_record no longer calls db.add(), so escalation never
+        # creates orphan records — only the winning tier's images reach the session.
         result_images = _generate_pack_tier_ab(appearance_spec, "A")
         if result_images is not None:
             tier_used = "A"
 
         if result_images is None:
-            # Tier A blocked — clear partial images from this attempt
-            images.clear()
             logger.info(
                 "tier_escalation request_id=%s from=A to=B", pack_id,
             )
@@ -963,8 +1001,6 @@ def generate_identity_pack(
                 tier_used = "B"
 
         if result_images is None:
-            # Tier B blocked — clear partial images, use failsafe
-            images.clear()
             logger.info(
                 "tier_escalation request_id=%s from=B to=C", pack_id,
             )
@@ -972,15 +1008,18 @@ def generate_identity_pack(
             tier_used = "C"
 
         # result_images is guaranteed non-None from tier C
+        images = result_images
+        db.add_all(images)
     else:
-        # Stub fallback — 4 independent placeholders (unchanged)
+        # Stub fallback — 4 independent placeholders
         for role in PACK_ROLES:
             file_path = generate_placeholder_png(
                 label=f"{character.name} — {role.replace('_', ' ')}",
                 sublabel=sublabel,
                 role=role,
             )
-            _make_image_record(role, file_path, "stub")
+            images.append(_make_image_record(role, file_path, "stub"))
+        db.add_all(images)
 
     db.commit()
     for img in images:

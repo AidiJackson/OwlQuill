@@ -396,10 +396,11 @@ def test_style_anime_flows_into_prompt(client: TestClient):
         )
 
     assert resp.status_code == 200
-    # B7.1: The front prompt starts with the hard passport-headshot preamble.
+    # B7.1: The front prompt contains the hard passport-headshot preamble.
     # Style tokens are NOT injected into the front seed prompt.
+    # B8: prompt is now prefixed with _SAFETY_PREFIX before the preamble.
     assert len(captured_prompts) >= 1
-    assert captured_prompts[0].lower().startswith("passport-style headshot")
+    assert "passport-style headshot" in captured_prompts[0].lower()
 
 
 def test_style_defaults_to_realistic(client: TestClient):
@@ -429,8 +430,8 @@ def test_style_defaults_to_realistic(client: TestClient):
         )
 
     assert resp.status_code == 200
-    # B7.1: Front prompt starts with hard preamble regardless of style.
-    assert captured_prompts[0].lower().startswith("passport-style headshot")
+    # B7.1/B8: Front prompt contains passport-headshot preamble (prefixed with safety tokens).
+    assert "passport-style headshot" in captured_prompts[0].lower()
 
 
 def test_unknown_style_coerces_to_realistic(client: TestClient):
@@ -606,9 +607,9 @@ def test_identity_spec_empty_style_coerced_to_realistic(client: TestClient):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["images"]) == 4
-    # B7.1: Front prompt starts with the hard preamble (no style token).
+    # B7.1/B8: Front prompt contains passport-headshot preamble.
     assert len(captured_prompts) >= 1
-    assert captured_prompts[0].lower().startswith("passport-style headshot")
+    assert "passport-style headshot" in captured_prompts[0].lower()
 
 
 def test_identity_spec_whitespace_style_coerced_to_realistic(client: TestClient):
@@ -645,9 +646,9 @@ def test_identity_spec_whitespace_style_coerced_to_realistic(client: TestClient)
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["images"]) == 4
-    # B7.1: Front prompt starts with the hard preamble (no style token).
+    # B7.1/B8: Front prompt contains passport-headshot preamble.
     assert len(captured_prompts) >= 1
-    assert captured_prompts[0].lower().startswith("passport-style headshot")
+    assert "passport-style headshot" in captured_prompts[0].lower()
 
 
 def test_identity_spec_unknown_style_coerced_to_realistic(client: TestClient):
@@ -684,9 +685,9 @@ def test_identity_spec_unknown_style_coerced_to_realistic(client: TestClient):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["images"]) == 4
-    # B7.1: Front prompt starts with the hard preamble (no style token).
+    # B7.1/B8: Front prompt contains passport-headshot preamble.
     assert len(captured_prompts) >= 1
-    assert captured_prompts[0].lower().startswith("passport-style headshot")
+    assert "passport-style headshot" in captured_prompts[0].lower()
 
 
 # ── Front shot is a true headshot ────────────────────────────────────
@@ -721,7 +722,8 @@ def test_front_shot_uses_headshot_description(client: TestClient):
     # First prompt should be for the front shot (text-to-image)
     assert len(captured_prompts) >= 1
     front_prompt = captured_prompts[0].lower()
-    # B4: strict passport-style headshot — key tokens must be present
+    # B4/B8: strict passport-style headshot — key tokens must be present
+    # (B8: prompt is prefixed with _SAFETY_PREFIX so we use 'in' not 'startswith')
     assert "passport-style headshot" in front_prompt, (
         f"'passport-style headshot' not found in front prompt: {front_prompt!r}"
     )
@@ -765,7 +767,7 @@ def test_front_shot_passport_headshot_via_identity_spec(client: TestClient):
     assert resp.status_code == 200
     assert len(captured_prompts) >= 1
     front_prompt = captured_prompts[0].lower()
-    # B4: both paths must produce the strict passport headshot description
+    # B4/B8: both paths must produce the strict passport headshot description
     assert "passport-style headshot" in front_prompt, (
         f"'passport-style headshot' not found in identity_spec front prompt: {front_prompt!r}"
     )
@@ -777,7 +779,7 @@ def test_front_shot_passport_headshot_via_identity_spec(client: TestClient):
 # ── Unit tests for _build_front_anchor_prompt (B7.1) ─────────────────
 
 def test_b7_front_anchor_prompt_starts_with_passport_headshot_legacy():
-    """Legacy path (char_traits only) must start with passport preamble."""
+    """Legacy path (char_traits only) must contain the passport preamble."""
     from app.api.routes.character_visual import _build_front_anchor_prompt
 
     prompt = _build_front_anchor_prompt(
@@ -785,15 +787,16 @@ def test_b7_front_anchor_prompt_starts_with_passport_headshot_legacy():
         identity_spec=None,
         char_traits=["Grace", "human"],
     )
-    assert prompt[:80].lower().startswith("passport-style headshot"), (
-        f"Front prompt does not start with preamble: {prompt[:80]!r}"
+    # B8: prompt now starts with _SAFETY_PREFIX before the preamble text.
+    assert "passport-style headshot" in prompt.lower(), (
+        f"Front prompt does not contain preamble: {prompt!r}"
     )
     # char_traits are included
     assert "grace" in prompt.lower()
 
 
 def test_b7_front_anchor_prompt_starts_with_passport_headshot_structured():
-    """Structured spec path must also start with passport preamble."""
+    """Structured spec path must contain the passport preamble."""
     from app.api.routes.character_visual import _build_front_anchor_prompt
     from app.schemas.character_visual import (
         CharacterIdentitySpec, IdentityCore, WardrobeSpec,
@@ -809,8 +812,9 @@ def test_b7_front_anchor_prompt_starts_with_passport_headshot_structured():
         identity_spec=spec,
         char_traits=["Grace"],
     )
-    assert prompt[:80].lower().startswith("passport-style headshot"), (
-        f"Front prompt does not start with preamble: {prompt[:80]!r}"
+    # B8: prompt starts with _SAFETY_PREFIX then the preamble text.
+    assert "passport-style headshot" in prompt.lower(), (
+        f"Front prompt does not contain preamble: {prompt!r}"
     )
     # Identity tokens present
     assert "brunette" in prompt.lower()
@@ -840,7 +844,8 @@ def test_b7_front_anchor_prompt_failsafe_drops_wardrobe_colors():
         char_traits=[],
         failsafe=True,
     )
-    assert prompt[:80].lower().startswith("passport-style headshot")
+    # B8: prompt is now prefixed with _SAFETY_PREFIX; check preamble is present.
+    assert "passport-style headshot" in prompt.lower()
     assert "blazer" in prompt.lower()
     assert "navy" not in prompt.lower()
 
@@ -1395,4 +1400,142 @@ def test_google_angle_timeout_fallback_to_openai(client: TestClient):
     assert oai_tf_mock.generate_grounded_image.call_count == 1, (
         f"Expected 1 openai timeout-fallback call, "
         f"got {oai_tf_mock.generate_grounded_image.call_count}"
+    )
+
+
+# ── B8: Orphan record prevention ─────────────────────────────────────
+
+def test_b8_no_orphan_db_records_on_tier_escalation(client: TestClient):
+    """B8: When tier A generates front OK but an angle triggers moderation,
+    NO orphan records are committed — only the successful tier's 4 images land in DB.
+
+    Without the fix, tier A's front image would be added to the SQLAlchemy session
+    before the angle fails, leaving an orphan after images.clear().  With the fix,
+    _make_image_record never calls db.add() so nothing is in the session until
+    db.add_all(winning_tier_images) is called at the end.
+    """
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    good_png = _make_png(512, 768)
+    grounded_call_count = [0]
+
+    def _mock_generate_image(*, prompt, size="1024x1024"):
+        return good_png
+
+    def _mock_grounded(*, prompt, reference_image_bytes=None):
+        grounded_call_count[0] += 1
+        if grounded_call_count[0] == 1:
+            # Tier A's first angle — moderation block triggers escalation.
+            raise RuntimeError("moderation_blocked: content policy violation")
+        return good_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _mock_generate_image
+    mock_provider.generate_grounded_image = _mock_grounded
+
+    mock_settings = MagicMock()
+    mock_settings.IDENTITY_IMAGE_PROVIDER = "openai"
+    mock_settings.get_admin_emails = MagicMock(return_value=[])
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_provider_by_name",
+        return_value=mock_provider,
+    ), patch(
+        "app.api.routes.character_visual.settings",
+        mock_settings,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "test character"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
+    data = resp.json()
+    # Tier A was blocked at first angle; tier B should have succeeded.
+    assert data["tier_used"] == "B"
+    assert len(data["images"]) == 4
+
+    # Accept the pack — this validates exactly 4 images with this pack_id exist in DB.
+    # If an orphan front image from tier A were present the accept would return 422
+    # because len(matching) would be 5 (2 anchor_fronts).
+    pack_id = data["pack_id"]
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/accept",
+        json={"pack_id": pack_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, (
+        f"Accept returned {resp.status_code} — likely orphan records in DB: {resp.json()}"
+    )
+    assert len(resp.json()["anchors"]) == 4
+
+
+# ── B8: Angle OpenAI-fallback moderation → HTTP 400 ──────────────────
+
+def test_b8_openai_angle_timeout_fallback_moderation_returns_400(client: TestClient):
+    """B8: When OpenAI grounded fallback (B7.3 timeout path) raises moderation_blocked,
+    the endpoint returns HTTP 400 with a clothed/non-sexual message — never a 500.
+    """
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    good_png = _make_png(512, 768)
+
+    # OpenAI seed: returns good front portrait.
+    seed_mock = MagicMock()
+    seed_mock.generate_image = MagicMock(return_value=good_png)
+
+    # Google angles: torso raises timeout → triggers B7.3 fallback to OpenAI.
+    def _google_grounded(*, prompt, reference_image_bytes=None):
+        if "torso" in prompt or "chest" in prompt:
+            raise RuntimeError("Google Gemini grounded request failed: timed out")
+        return good_png
+
+    angles_mock = MagicMock()
+    angles_mock.generate_grounded_image = MagicMock(side_effect=_google_grounded)
+
+    # OpenAI fallback: raises moderation_blocked for that angle.
+    oai_tf_mock = MagicMock()
+    oai_tf_mock.generate_grounded_image = MagicMock(
+        side_effect=RuntimeError("moderation_blocked: content policy violation")
+    )
+
+    openai_call_count = [0]
+
+    def _provider_factory(name: str):
+        if name == "openai":
+            openai_call_count[0] += 1
+            return seed_mock if openai_call_count[0] == 1 else oai_tf_mock
+        return angles_mock  # "google"
+
+    mock_settings = MagicMock()
+    mock_settings.IDENTITY_IMAGE_PROVIDER = ""
+    mock_settings.IDENTITY_SEED_PROVIDER = "openai"
+    mock_settings.IDENTITY_ANGLES_PROVIDER = "google"
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_provider_by_name",
+        side_effect=_provider_factory,
+    ), patch(
+        "app.api.routes.character_visual.settings",
+        mock_settings,
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"prompt_vibe": "test character"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 400, (
+        f"Expected HTTP 400 for moderation block, got {resp.status_code}: {resp.json()}"
+    )
+    detail = resp.json()["detail"].lower()
+    assert "fully clothed" in detail or "non-sexual" in detail, (
+        f"Expected clothed/non-sexual message, got: {resp.json()['detail']!r}"
+    )
+    # Role must be included in the detail so the user knows which angle caused it.
+    assert "anchor_torso" in resp.json()["detail"], (
+        f"Expected 'anchor_torso' in detail, got: {resp.json()['detail']!r}"
     )
