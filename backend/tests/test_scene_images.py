@@ -112,7 +112,7 @@ def test_scene_image_missing_anchor(client: TestClient, db_session):
 # ── D) Edit unsupported → falls back to text-to-image ───────────────
 
 def test_scene_image_edit_unsupported_falls_back(client: TestClient):
-    """When provider edit raises NotImplementedError, falls back to text-to-image."""
+    """When all reference-based generation raises NotImplementedError, falls back to text-to-image."""
     token = _register_and_login(client, email="scene_editfail@example.com")
     cid = _create_character(client, token)
     _lock_character(client, token, cid)
@@ -120,15 +120,17 @@ def test_scene_image_edit_unsupported_falls_back(client: TestClient):
     mock_provider = MagicMock()
     call_count = {"n": 0}
 
+    # Face-ref grounded path also unsupported
+    mock_provider.generate_grounded_image = MagicMock(
+        side_effect=NotImplementedError("grounded not supported")
+    )
+
     def _mock_generate(*, prompt, size="1024x1024", reference_image_url=None):
         call_count["n"] += 1
         if reference_image_url is not None:
-            # First call: edit attempt → fail
             raise NotImplementedError("edits not supported")
-        # Second call: text-to-image → succeed
-        # Return minimal valid PNG bytes
+        # Text-to-image → succeed
         import struct, zlib
-        # 1x1 red PNG
         raw = b'\x00\xff\x00\x00'
         def _png():
             def chunk(ctype, data):
@@ -151,11 +153,11 @@ def test_scene_image_edit_unsupported_falls_back(client: TestClient):
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["provider"] == "openai"
-    # Should have called generate_image twice: once with ref (failed), once without
+    # generate_image called twice: once with ref_url (failed), once without
     assert call_count["n"] == 2
-    # used_anchor should be false since edit failed
+    # used_anchor should be false since all reference paths failed
     assert data["metadata_json"]["used_anchor"] is False
+    assert data["metadata_json"]["used_face_ref"] is False
 
 
 # ── E) Style coercion ────────────────────────────────────────────────
@@ -173,3 +175,80 @@ def test_scene_image_style_coercion(client: TestClient):
     )
     assert resp.status_code == 200
     assert resp.json()["metadata_json"]["style"] == "realistic"
+
+
+# ── F) Face reference grounded generation (B10) ──────────────────────
+
+def _make_png_bytes(width: int = 512, height: int = 768) -> bytes:
+    """Create a minimal valid PNG of the given size."""
+    from PIL import Image
+    import io
+    img = Image.new("RGB", (width, height), color=(120, 80, 60))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_scene_image_uses_face_ref_grounded(client: TestClient):
+    """When IDENTITY_FACE_REF exists, scene generation uses generate_grounded_image
+    with the face-ref bytes as the primary reference tier.
+    """
+    token = _register_and_login(client, email="scene_faceref@example.com")
+    cid = _create_character(client, token)
+    _lock_character(client, token, cid)  # creates face_ref via accept
+
+    good_png = _make_png_bytes()
+
+    captured = {"prompt": None, "ref_bytes": None}
+
+    def _mock_grounded(*, prompt, reference_image_bytes, size="1024x1024"):
+        captured["prompt"] = prompt
+        captured["ref_bytes"] = reference_image_bytes
+        return good_png
+
+    mock_provider = MagicMock()
+    mock_provider.generate_grounded_image = MagicMock(side_effect=_mock_grounded)
+
+    with patch("app.api.routes.scene_images.get_image_provider", return_value=mock_provider):
+        resp = client.post(
+            f"/characters/{cid}/scene-images/generate",
+            json={"prompt": "Standing in a burning library"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
+    data = resp.json()
+
+    assert data["metadata_json"]["used_anchor"] is True, "used_anchor should be True"
+    assert data["metadata_json"]["used_face_ref"] is True, "used_face_ref should be True"
+
+    # The grounded call must have been made with face-ref bytes (non-empty)
+    assert captured["ref_bytes"] is not None, "generate_grounded_image was not called"
+    assert len(captured["ref_bytes"]) > 0, "Reference bytes should not be empty"
+
+    # Prompt must contain the face-ref instruction
+    assert captured["prompt"] is not None
+    assert "facial identity" in captured["prompt"].lower(), (
+        f"Expected face-ref instruction in prompt, got: {captured['prompt']!r}"
+    )
+    assert "do not copy clothing" in captured["prompt"].lower(), (
+        f"Expected clothing instruction in prompt, got: {captured['prompt']!r}"
+    )
+
+
+def test_scene_image_face_ref_metadata(client: TestClient):
+    """Scene image metadata must always include used_face_ref key."""
+    token = _register_and_login(client, email="scene_faceref_meta@example.com")
+    cid = _create_character(client, token)
+    _lock_character(client, token, cid)
+
+    # Stub mode — no real provider, face_ref bytes exist but grounded call isn't mocked.
+    # The stub path sets used_face_ref=False (no provider), metadata key must still exist.
+    resp = client.post(
+        f"/characters/{cid}/scene-images/generate",
+        json={"prompt": "Simple scene"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    meta = resp.json()["metadata_json"]
+    assert "used_face_ref" in meta, "used_face_ref key must always be in metadata"

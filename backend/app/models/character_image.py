@@ -14,6 +14,7 @@ class ImageKindEnum(str, enum.Enum):
     ANCHOR_TORSO = "anchor_torso"
     ANCHOR_FULL_BODY = "anchor_full_body"
     GENERATED = "generated"
+    IDENTITY_FACE_REF = "identity_face_ref"  # tight face crop used as reference seed
 
 
 class ImageStatusEnum(str, enum.Enum):

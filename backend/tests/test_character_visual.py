@@ -1711,3 +1711,95 @@ def test_google_angle_refusal_falls_back_to_openai(client: TestClient):
     assert prov_by_role.get("anchor_three_quarter") == "openai", (
         f"Expected anchor_three_quarter from openai fallback, got {prov_by_role}"
     )
+
+
+# ── Face reference crop (B10) ─────────────────────────────────────────
+
+def test_crop_face_reference_outputs_png_512x512():
+    """_crop_face_reference must return a 512×512 PNG from a valid input image."""
+    from PIL import Image
+    import io
+    from app.api.routes.character_visual import _crop_face_reference
+
+    # Build a realistic passport-sized image (512×768 portrait)
+    src = _make_png(512, 768)
+    result = _crop_face_reference(src)
+
+    # Must be valid PNG
+    img = Image.open(io.BytesIO(result))
+    assert img.format == "PNG", "Result must be PNG"
+    assert img.size == (512, 512), f"Expected 512×512, got {img.size}"
+
+
+def test_crop_face_reference_survives_bad_input():
+    """_crop_face_reference must return original bytes unchanged on garbage input."""
+    from app.api.routes.character_visual import _crop_face_reference
+
+    garbage = b"\x00\x01\x02not a real image"
+    result = _crop_face_reference(garbage)
+    assert result == garbage, "Should return original bytes unchanged on error"
+
+
+def test_accept_creates_identity_face_ref(client: TestClient, db_session):
+    """accept_identity_pack must create exactly 1 IDENTITY_FACE_REF image."""
+    from app.models.character_image import CharacterImage, ImageKindEnum
+
+    # Use a unique email to avoid collision with shared helper
+    client.post(
+        "/auth/register",
+        json={"email": "faceref_accept@example.com", "username": "faceref_accept",
+              "password": "testpassword123"},
+    )
+    resp = client.post(
+        "/auth/login",
+        json={"email": "faceref_accept@example.com", "password": "testpassword123"},
+    )
+    token = resp.json()["access_token"]
+
+    # Create character + generate + accept (stub path — no API key needed)
+    resp = client.post(
+        "/characters/",
+        json={"name": "Face Ref Test", "species": "human"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    cid = resp.json()["id"]
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    pack_id = resp.json()["pack_id"]
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/accept",
+        json={"pack_id": pack_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, f"accept failed: {resp.json()}"
+
+    # Verify exactly 1 IDENTITY_FACE_REF image was created
+    face_refs = (
+        db_session.query(CharacterImage)
+        .filter(
+            CharacterImage.character_id == cid,
+            CharacterImage.kind == ImageKindEnum.IDENTITY_FACE_REF,
+        )
+        .all()
+    )
+    assert len(face_refs) == 1, (
+        f"Expected exactly 1 IDENTITY_FACE_REF, got {len(face_refs)}"
+    )
+    fr = face_refs[0]
+    assert fr.metadata_json.get("source") == "accept_crop"
+    assert fr.metadata_json.get("is_temp") is False
+    assert fr.metadata_json.get("pack_id") == pack_id
+    assert fr.file_path.startswith("static/generated/")
+    # The file must actually exist on disk
+    from pathlib import Path
+    abs_path = (
+        Path(__file__).resolve().parent.parent
+        / fr.file_path
+    )
+    assert abs_path.exists(), f"Face ref file not found on disk: {abs_path}"

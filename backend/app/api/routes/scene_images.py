@@ -28,6 +28,13 @@ _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static"
 
 _PROVIDER_PROMPT_CAP = 250
 
+# Prepended to the prompt when a face-reference image is used as grounding seed.
+# Tells the model to preserve only facial identity, not outfit/pose from the reference.
+_FACE_REF_INSTRUCTION = (
+    "Use the reference image ONLY for facial identity. "
+    "Do NOT copy clothing; outfit must follow the scene prompt. "
+)
+
 
 # ── Request / helpers ────────────────────────────────────────────────
 
@@ -125,34 +132,77 @@ def generate_scene_image(
         elif front_url.startswith("http"):
             front_ref_url = front_url
 
+    # ── Resolve face reference bytes from DB ──────────────────────
+    # Prefer identity_face_ref (tight head crop) over front anchor for grounding.
+    # Face ref gives the provider a face-only cue so it preserves identity without
+    # copying outfit or pose from the anchor image.
+    face_ref_bytes: bytes | None = None
+    face_ref_img = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.character_id == character_id,
+            CharacterImage.kind == ImageKindEnum.IDENTITY_FACE_REF,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .order_by(CharacterImage.created_at.desc())
+        .first()
+    )
+    if face_ref_img is not None:
+        try:
+            _face_abs = _GENERATED_DIR / Path(face_ref_img.file_path).name
+            face_ref_bytes = _face_abs.read_bytes()
+        except Exception:
+            logger.warning(
+                "scene_image face_ref_load_failed character_id=%s", character_id
+            )
+
     # ── Generate image (tiered fallback) ──────────────────────────
     provider_name = "stub"
     used_anchor = False
+    used_face_ref = False
 
     try:
         provider = get_image_provider()
+        logger.info("image_provider provider=%s context=scene", settings.IMAGE_PROVIDER.lower())
     except (RuntimeError, ValueError):
         provider = None
 
     png_bytes: bytes | None = None
 
-    # Tier A: edit with reference image (preserves identity)
-    if provider is not None and front_ref_url:
+    # Tier A: grounded generation from face reference (facial identity only)
+    if provider is not None and face_ref_bytes is not None:
+        grounded_prompt = f"{_FACE_REF_INSTRUCTION}{provider_prompt}"
+        try:
+            png_bytes = provider.generate_grounded_image(
+                prompt=grounded_prompt,
+                reference_image_bytes=face_ref_bytes,
+            )
+            provider_name = settings.IMAGE_PROVIDER.lower()
+            used_anchor = True
+            used_face_ref = True
+        except (ValueError, RuntimeError, NotImplementedError):
+            logger.info(
+                "scene_image face_ref_grounded_failed character_id=%s, falling back",
+                character_id,
+            )
+
+    # Tier B: edit with front anchor URL (preserves full identity but may copy outfit)
+    if png_bytes is None and provider is not None and front_ref_url:
         try:
             png_bytes = provider.generate_image(
                 prompt=provider_prompt,
                 reference_image_url=front_ref_url,
             )
-            provider_name = "openai"
+            provider_name = settings.IMAGE_PROVIDER.lower()
             used_anchor = True
         except (ValueError, RuntimeError, NotImplementedError):
             logger.info("scene_image edit_failed character_id=%s, falling back to text-to-image", character_id)
 
-    # Tier B: text-to-image via primary provider
+    # Tier C: text-to-image via primary provider
     if png_bytes is None and provider is not None:
         try:
             png_bytes = provider.generate_image(prompt=provider_prompt)
-            provider_name = "openai"
+            provider_name = settings.IMAGE_PROVIDER.lower()
         except (ValueError, RuntimeError):
             logger.info("scene_image text_to_image_failed character_id=%s, trying fallback", character_id)
 
@@ -191,6 +241,7 @@ def generate_scene_image(
             "prompt": body.prompt,
             "style": style,
             "used_anchor": used_anchor,
+            "used_face_ref": used_face_ref,
             "identity_hash": identity_hash,
         },
         file_path=file_path,

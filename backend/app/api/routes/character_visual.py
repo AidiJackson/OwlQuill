@@ -216,6 +216,32 @@ def _front_precheck(png_bytes: bytes) -> tuple[bool, str]:
         return True, ""
 
 
+def _crop_face_reference(png_bytes: bytes) -> bytes:
+    """Crop a tight head/face region from a passport headshot for use as a grounding reference.
+
+    Crops x=20%..80%, y=5%..60% of the image (captures the face, excludes shoulders/body).
+    Resizes to 512×512 for stable, consistent byte size.
+    Returns original bytes unchanged on any error so callers never crash.
+    """
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(png_bytes)) as img:
+            w, h = img.size
+            left = int(w * 0.20)
+            right = int(w * 0.80)
+            top = int(h * 0.05)
+            bottom = int(h * 0.60)
+            if right <= left or bottom <= top:
+                return png_bytes
+            cropped = img.crop((left, top, right, bottom))
+            resized = cropped.resize((512, 512), Image.LANCZOS)
+            buf = io.BytesIO()
+            resized.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception:
+        return png_bytes
+
+
 def _crop_passport_headshot(png_bytes: bytes) -> bytes:
     """Apply deterministic upper-body crop for UI card consistency.
 
@@ -1222,6 +1248,44 @@ def accept_identity_pack(
         "identity_lock_string": _lock_string,
         "anchors": anchors_dict,
     })
+
+    # Create a tight face-reference crop from the accepted front anchor.
+    # Stored as IDENTITY_FACE_REF so future scene generation can use it as a
+    # grounding seed for facial consistency without copying outfit/pose.
+    _front_for_ref = next(
+        (img for img in matching if img.metadata_json.get("pack_role") == "anchor_front"),
+        None,
+    )
+    if _front_for_ref is not None:
+        try:
+            _front_abs = _GENERATED_DIR / Path(_front_for_ref.file_path).name
+            _front_raw = _front_abs.read_bytes()
+            _face_ref_bytes = _crop_face_reference(_front_raw)
+            _face_ref_path = _save_png_bytes(_face_ref_bytes)
+            _face_ref_img = CharacterImage(
+                character_id=character_id,
+                kind=ImageKindEnum.IDENTITY_FACE_REF,
+                status=ImageStatusEnum.ACTIVE,
+                visibility=ImageVisibilityEnum.PRIVATE,
+                provider=_front_for_ref.provider,
+                prompt_summary="face reference crop",
+                metadata_json={
+                    "pack_id": body.pack_id,
+                    "is_temp": False,
+                    "source": "accept_crop",
+                },
+                file_path=_face_ref_path,
+            )
+            db.add(_face_ref_img)
+            logger.info(
+                "identity_face_ref_created character_id=%s pack_id=%s",
+                character_id, body.pack_id,
+            )
+        except Exception as _face_ref_exc:
+            logger.warning(
+                "identity_face_ref_crop_failed character_id=%s error=%s",
+                character_id, _face_ref_exc,
+            )
 
     db.commit()
 
