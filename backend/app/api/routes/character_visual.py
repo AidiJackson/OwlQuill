@@ -1312,6 +1312,38 @@ def accept_identity_pack(
                 "identity_face_ref_created character_id=%s pack_id=%s",
                 character_id, body.pack_id,
             )
+
+            # B12: Derive face signature from the tight face crop.
+            # This is best-effort — never fails the accept if the API is unavailable.
+            try:
+                from app.services.face_signature import build_face_signature_from_png
+                _sig_result = build_face_signature_from_png(_face_ref_bytes)
+                if _sig_result.get("ok"):
+                    _existing_anchor = _json.loads(character.identity_anchor_json or "{}")
+                    _existing_anchor["face_signature"] = {
+                        "text": _sig_result["signature"],
+                        "confidence": _sig_result["confidence"],
+                        "model": settings.OPENAI_VISION_MODEL,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    character.identity_anchor_json = _json.dumps(_existing_anchor)
+                    logger.info(
+                        "face_signature_stored character_id=%s sig_chars=%d confidence=%.2f",
+                        character_id,
+                        len(_sig_result["signature"]),
+                        _sig_result["confidence"],
+                    )
+                else:
+                    logger.info(
+                        "face_signature_skipped character_id=%s reason=%s",
+                        character_id, _sig_result.get("skip_reason", "unknown"),
+                    )
+            except Exception as _sig_exc:
+                logger.warning(
+                    "face_signature_failed character_id=%s error=%s",
+                    character_id, type(_sig_exc).__name__,
+                )
+
         except Exception as _face_ref_exc:
             logger.warning(
                 "identity_face_ref_crop_failed character_id=%s error=%s",

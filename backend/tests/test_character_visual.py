@@ -2029,3 +2029,100 @@ def test_identity_spec_species_vampire_in_sketch_prompt_preview(client: TestClie
     assert "vampire" in data["prompt_preview"].lower(), (
         f"Expected 'vampire' in prompt_preview, got: {data['prompt_preview']!r}"
     )
+
+
+# ── B12: Face signature in accept_identity_pack ───────────────────────
+
+def _generate_and_accept(client, token, cid):
+    """Helper: generate + accept identity pack, returning pack response."""
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    pack_id = resp.json()["pack_id"]
+    resp2 = client.post(
+        f"/characters/{cid}/identity-pack/accept",
+        json={"pack_id": pack_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp2.status_code == 200, resp2.text
+    return resp2.json()
+
+
+def test_accept_still_200_when_face_signature_builder_fails(client):
+    """Face-signature step failure must never break accept (graceful degradation)."""
+    from unittest.mock import patch
+
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    with patch(
+        "app.services.face_signature.build_face_signature_from_png",
+        side_effect=RuntimeError("simulated failure"),
+    ):
+        data = _generate_and_accept(client, token, cid)
+
+    # Accept must still succeed
+    assert "anchors" in data
+    assert len(data["anchors"]) == 4
+
+
+def test_accept_writes_face_signature_when_builder_succeeds(client):
+    """When builder returns ok=True, face_signature is written to identity_anchor_json."""
+    import json
+    from unittest.mock import patch
+
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    fake_sig = "FACE_SIG: square jaw, almond eyes, high cheekbones"
+
+    with patch(
+        "app.services.face_signature.build_face_signature_from_png",
+        return_value={"ok": True, "signature": fake_sig, "confidence": 0.88, "skip_reason": ""},
+    ):
+        _generate_and_accept(client, token, cid)
+
+    # Verify anchor json
+    from app.models.character import Character as CharacterModel
+    from tests.conftest import TestingSessionLocal
+    db = TestingSessionLocal()
+    try:
+        char = db.query(CharacterModel).filter(CharacterModel.id == cid).first()
+        assert char is not None
+        anchor = json.loads(char.identity_anchor_json)
+        assert "face_signature" in anchor, f"face_signature missing from anchor: {anchor}"
+        fs = anchor["face_signature"]
+        assert fs["text"] == fake_sig
+        assert fs["confidence"] == 0.88
+        assert "model" in fs
+        assert "created_at" in fs
+    finally:
+        db.close()
+
+
+def test_accept_no_face_signature_when_builder_returns_ok_false(client):
+    """When builder returns ok=False, face_signature key is absent from anchor json."""
+    import json
+    from unittest.mock import patch
+
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    with patch(
+        "app.services.face_signature.build_face_signature_from_png",
+        return_value={"ok": False, "signature": "", "confidence": 0.0, "skip_reason": "no_api_key"},
+    ):
+        _generate_and_accept(client, token, cid)
+
+    from app.models.character import Character as CharacterModel
+    from tests.conftest import TestingSessionLocal
+    db = TestingSessionLocal()
+    try:
+        char = db.query(CharacterModel).filter(CharacterModel.id == cid).first()
+        anchor = json.loads(char.identity_anchor_json)
+        assert "face_signature" not in anchor
+    finally:
+        db.close()

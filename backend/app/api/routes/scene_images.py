@@ -169,9 +169,16 @@ def generate_scene_image(
 
     png_bytes: bytes | None = None
 
+    # Inject face signature into Tier A prompt when available.
+    # Placed before the user prompt so the model sees identity constraints first.
+    _face_sig_text = (anchor_data.get("face_signature") or {}).get("text", "")
+    _face_sig_prefix = (
+        f"FACE SIGNATURE (canonical): {_face_sig_text}. " if _face_sig_text else ""
+    )
+
     # Tier A: grounded generation from face reference (facial identity only)
     if provider is not None and face_ref_bytes is not None:
-        grounded_prompt = f"{_FACE_REF_INSTRUCTION}{provider_prompt}"
+        grounded_prompt = f"{_face_sig_prefix}{_FACE_REF_INSTRUCTION}{provider_prompt}"
         try:
             png_bytes = provider.generate_grounded_image(
                 prompt=grounded_prompt,

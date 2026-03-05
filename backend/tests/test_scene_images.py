@@ -252,3 +252,66 @@ def test_scene_image_face_ref_metadata(client: TestClient):
     assert resp.status_code == 200
     meta = resp.json()["metadata_json"]
     assert "used_face_ref" in meta, "used_face_ref key must always be in metadata"
+
+
+# ── B12: Face signature injected into Tier A prompt ──────────────────
+
+def test_scene_prompt_includes_face_signature_when_present(client: TestClient):
+    """Tier A grounded generation prompt must include face_signature text when stored."""
+    import json
+    from unittest.mock import patch, MagicMock
+
+    token = _register_and_login(client, email="facesg@example.com")
+    cid = _create_character(client, token)
+    _lock_character(client, token, cid)
+
+    # Manually inject a face_signature into the character's anchor json
+    from app.models.character import Character as CharacterModel
+    from tests.conftest import TestingSessionLocal
+    db = TestingSessionLocal()
+    try:
+        char = db.query(CharacterModel).filter(CharacterModel.id == cid).first()
+        anchor = json.loads(char.identity_anchor_json)
+        anchor["face_signature"] = {
+            "text": "FACE_SIG: square jaw, almond eyes",
+            "confidence": 0.9,
+            "model": "gpt-4o-mini",
+            "created_at": "2026-03-05T00:00:00Z",
+        }
+        char.identity_anchor_json = json.dumps(anchor)
+        db.commit()
+    finally:
+        db.close()
+
+    # Capture the prompt passed to the grounded image provider
+    captured_prompts: list[str] = []
+
+    class _CapturingProvider:
+        def generate_grounded_image(self, *, prompt, reference_image_bytes):
+            captured_prompts.append(prompt)
+            # Return a minimal valid PNG placeholder
+            from app.services.stub_image_generator import generate_placeholder_png
+            from pathlib import Path
+            fp = generate_placeholder_png(label="scene", sublabel="test")
+            abs_path = Path(__file__).resolve().parent.parent / fp
+            return abs_path.read_bytes()
+
+        def generate_image(self, *, prompt, **kwargs):
+            raise NotImplementedError("force Tier A")
+
+    with patch("app.api.routes.scene_images.get_image_provider", return_value=_CapturingProvider()):
+        resp = client.post(
+            f"/characters/{cid}/scene-images/generate",
+            json={"prompt": "Standing in a moonlit clearing"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 200, resp.text
+
+    # Face signature must appear at the start of the Tier A prompt
+    assert len(captured_prompts) > 0, "No grounded generation call was made"
+    tier_a_prompt = captured_prompts[0]
+    assert "FACE_SIG" in tier_a_prompt, (
+        f"Face signature not found in Tier A prompt: {tier_a_prompt!r}"
+    )
+    assert "square jaw" in tier_a_prompt
