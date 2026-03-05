@@ -25,6 +25,8 @@ from app.schemas.character_visual import (
     IdentityPackAcceptRequest,
     IdentityPackAcceptResponse,
     MomentGenerateRequest,
+    IdentitySketchGenerateRequest,
+    IdentitySketchGenerateResponse,
 )
 from app.services.character_visual import upsert_character_dna, get_character_dna
 from app.services.appearance_spec import (
@@ -1327,6 +1329,166 @@ def accept_identity_pack(
     return IdentityPackAcceptResponse(
         anchors=[CharacterImageRead.model_validate(img) for img in matching],
         dna=CharacterDNARead.model_validate(dna) if dna else None,
+    )
+
+
+# ── 3b) POST /characters/{id}/identity-sketch/generate ──────────────
+
+_SKETCH_STYLE_PROMPTS = {
+    "pencil": (
+        "fine pencil sketch portrait, graphite on white paper, delicate hatching, "
+        "detailed facial structure, soft shading"
+    ),
+    "charcoal": (
+        "charcoal portrait sketch, bold strokes, high contrast, dramatic shading, "
+        "smudged charcoal texture, detailed face"
+    ),
+    "dossier": (
+        "police dossier portrait illustration, clean line art, flat shading, "
+        "official style, minimal colour, identity document aesthetic"
+    ),
+}
+
+
+@router.post(
+    "/{character_id}/identity-sketch/generate",
+    response_model=IdentitySketchGenerateResponse,
+    summary="Generate and store an identity sketch anchor image",
+)
+def generate_identity_sketch(
+    character_id: int,
+    body: IdentitySketchGenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> IdentitySketchGenerateResponse:
+    """Generate a single sketch image and store it as a permanent identity anchor.
+
+    Does not consume identity-pack quotas.  The sketch is saved immediately
+    (is_temp=False) and the character's identity_anchor_json is updated with
+    sketch metadata.  Regeneration is allowed unlimited times — each call
+    simply overwrites the anchor entry.
+    """
+    character = _get_owned_character(character_id, current_user, db)
+
+    style = body.style  # already coerced by schema validator
+
+    # Build sketch prompt from stored identity spec (if any) or character basics.
+    identity_spec = None
+    if character.identity_spec_json:
+        try:
+            from app.schemas.character_visual import CharacterIdentitySpec
+            identity_spec = CharacterIdentitySpec(**_json.loads(character.identity_spec_json))
+        except Exception:
+            pass
+
+    prompt_parts: list[str] = [_SKETCH_STYLE_PROMPTS[style]]
+    prompt_parts.append("head-and-shoulders composition, neutral expression, plain background")
+
+    if identity_spec:
+        if identity_spec.gender:
+            prompt_parts.append(f"{identity_spec.gender} character")
+        if identity_spec.age_band:
+            prompt_parts.append(f"age {identity_spec.age_band}")
+        core = identity_spec.identity
+        if core:
+            if core.hair_color:
+                prompt_parts.append(f"{core.hair_color} hair")
+            if core.hair_length:
+                prompt_parts.append(f"{core.hair_length} hair length")
+            if core.eye_color:
+                prompt_parts.append(f"{core.eye_color} eyes")
+            if core.skin_tone:
+                prompt_parts.append(f"{core.skin_tone} skin")
+            if core.face_features:
+                prompt_parts.append(", ".join(core.face_features))
+    elif character.name:
+        prompt_parts.append(f"character named {character.name}")
+
+    prompt_parts.append(
+        f"{_SAFETY_PREFIX}. Fully clothed or bust portrait only. Non-sexual. PG-13."
+    )
+
+    sketch_prompt = ". ".join(prompt_parts)[:400]
+
+    # Generate image — use real provider if available, otherwise stub.
+    try:
+        provider = get_identity_provider_by_name(
+            (settings.IDENTITY_SEED_PROVIDER or "openai").lower()
+        )
+        png_bytes = provider.generate_image(prompt=sketch_prompt)
+        provider_name = (settings.IDENTITY_SEED_PROVIDER or "openai").lower()
+    except (RuntimeError, ValueError):
+        # No API key or provider error — fall back to stub placeholder
+        file_path = generate_placeholder_png(
+            label=f"{character.name or 'Character'} — sketch",
+            sublabel=style,
+            role="generated",
+        )
+        provider_name = "stub"
+        png_bytes = None
+
+    if png_bytes is not None:
+        file_path = _save_png_bytes(png_bytes)
+
+    # Archive any previous identity sketch for this character
+    previous_sketches = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.character_id == character_id,
+            CharacterImage.kind == ImageKindEnum.IDENTITY_SKETCH,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .all()
+    )
+    for prev in previous_sketches:
+        prev.status = ImageStatusEnum.ARCHIVED
+
+    # Persist new sketch image
+    sketch_img = CharacterImage(
+        character_id=character_id,
+        user_id=current_user.id,
+        kind=ImageKindEnum.IDENTITY_SKETCH,
+        status=ImageStatusEnum.ACTIVE,
+        visibility=ImageVisibilityEnum.PRIVATE,
+        provider=provider_name,
+        prompt_summary=sketch_prompt[:200],
+        metadata_json={"style": style, "is_temp": False},
+        file_path=file_path,
+    )
+    db.add(sketch_img)
+    db.flush()  # assign id before updating anchor json
+
+    # Update identity_anchor_json with sketch metadata
+    try:
+        existing_anchor = _json.loads(character.identity_anchor_json) if character.identity_anchor_json else {}
+    except Exception:
+        existing_anchor = {}
+
+    existing_anchor["sketch"] = {
+        "image_id": sketch_img.id,
+        "style": style,
+        "spec_text": sketch_prompt[:200],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    character.identity_anchor_json = _json.dumps(existing_anchor)
+
+    db.commit()
+    db.refresh(sketch_img)
+
+    # Derive servable URL
+    path = sketch_img.file_path.lstrip("/")
+    image_url = f"/{path}" if path.startswith("static/") else f"/static/{path}"
+
+    logger.info(
+        "identity_sketch_generated character_id=%s style=%s provider=%s image_id=%s",
+        character_id, style, provider_name, sketch_img.id,
+    )
+
+    return IdentitySketchGenerateResponse(
+        image_url=image_url,
+        image_id=sketch_img.id,
+        style=style,
+        prompt_preview=sketch_prompt[:200],
     )
 
 

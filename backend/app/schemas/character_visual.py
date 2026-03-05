@@ -179,3 +179,29 @@ class MomentGenerateRequest(BaseModel):
     hair: Optional[str] = None
     facial_hair: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=500)
+
+
+# ── Identity Sketch Anchor ────────────────────────────────────────────
+
+_VALID_SKETCH_STYLES = {"pencil", "charcoal", "dossier"}
+
+
+class IdentitySketchGenerateRequest(BaseModel):
+    """Request body for POST /characters/{id}/identity-sketch/generate."""
+    style: str = "pencil"
+
+    @field_validator("style", mode="before")
+    @classmethod
+    def _coerce_style(cls, v) -> str:
+        if not isinstance(v, str) or not v.strip():
+            return "pencil"
+        normed = v.strip().lower()
+        return normed if normed in _VALID_SKETCH_STYLES else "pencil"
+
+
+class IdentitySketchGenerateResponse(BaseModel):
+    """Response from POST /characters/{id}/identity-sketch/generate."""
+    image_url: str
+    image_id: int
+    style: str
+    prompt_preview: str

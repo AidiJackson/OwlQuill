@@ -1812,3 +1812,131 @@ def test_accept_creates_identity_face_ref(client: TestClient, db_session):
         / fr.file_path
     )
     assert abs_path.exists(), f"Face ref file not found on disk: {abs_path}"
+
+
+# ── Identity sketch anchor ────────────────────────────────────────────
+
+def test_generate_identity_sketch_default_style(client: TestClient):
+    """POST /characters/{id}/identity-sketch/generate returns 200, creates DB record, updates anchor json."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-sketch/generate",
+        json={"style": "pencil"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    # Response shape
+    assert "image_url" in data
+    assert "image_id" in data
+    assert data["style"] == "pencil"
+    assert "prompt_preview" in data
+    assert data["image_url"].startswith("/static/")
+
+    # CharacterImage record created with the right kind
+    from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
+    from tests.conftest import TestingSessionLocal
+    db = TestingSessionLocal()
+    try:
+        img = db.query(CharacterImage).filter(CharacterImage.id == data["image_id"]).first()
+        assert img is not None, "CharacterImage not found in DB"
+        assert img.kind == ImageKindEnum.IDENTITY_SKETCH
+        assert img.status == ImageStatusEnum.ACTIVE
+        assert img.metadata_json.get("is_temp") is False
+        assert img.metadata_json.get("style") == "pencil"
+
+        # identity_anchor_json updated with sketch info
+        from app.models.character import Character as CharacterModel
+        import json
+        char = db.query(CharacterModel).filter(CharacterModel.id == cid).first()
+        assert char is not None
+        anchor = json.loads(char.identity_anchor_json)
+        assert "sketch" in anchor
+        assert anchor["sketch"]["image_id"] == data["image_id"]
+        assert anchor["sketch"]["style"] == "pencil"
+    finally:
+        db.close()
+
+
+def test_generate_identity_sketch_charcoal_style(client: TestClient):
+    """Style coercion and charcoal variant work correctly."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-sketch/generate",
+        json={"style": "charcoal"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["style"] == "charcoal"
+
+
+def test_generate_identity_sketch_invalid_style_coerces_to_pencil(client: TestClient):
+    """Unknown style falls back to 'pencil' silently."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-sketch/generate",
+        json={"style": "watercolour"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["style"] == "pencil"
+
+
+def test_generate_identity_sketch_requires_auth(client: TestClient):
+    """Unauthenticated request is rejected (401 or 403)."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-sketch/generate",
+        json={"style": "pencil"},
+    )
+    assert resp.status_code in (401, 403)
+
+
+def test_generate_identity_sketch_archiving(client: TestClient):
+    """Re-generating archives the previous sketch and creates a new one."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # First generation
+    resp1 = client.post(
+        f"/characters/{cid}/identity-sketch/generate",
+        json={"style": "pencil"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp1.status_code == 200
+    first_id = resp1.json()["image_id"]
+
+    # Second generation (regenerate)
+    resp2 = client.post(
+        f"/characters/{cid}/identity-sketch/generate",
+        json={"style": "dossier"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp2.status_code == 200
+    second_id = resp2.json()["image_id"]
+    assert second_id != first_id
+
+    # First sketch must now be archived
+    from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
+    from tests.conftest import TestingSessionLocal
+    db = TestingSessionLocal()
+    try:
+        old = db.query(CharacterImage).filter(CharacterImage.id == first_id).first()
+        assert old is not None
+        assert old.status == ImageStatusEnum.ARCHIVED
+
+        new = db.query(CharacterImage).filter(CharacterImage.id == second_id).first()
+        assert new is not None
+        assert new.status == ImageStatusEnum.ACTIVE
+        assert new.kind == ImageKindEnum.IDENTITY_SKETCH
+    finally:
+        db.close()

@@ -15,6 +15,7 @@ class ImageKindEnum(str, enum.Enum):
     ANCHOR_FULL_BODY = "anchor_full_body"
     GENERATED = "generated"
     IDENTITY_FACE_REF = "identity_face_ref"  # tight face crop used as reference seed
+    IDENTITY_SKETCH = "identity_sketch"       # pre-pack pencil/charcoal/dossier sketch anchor
 
 
 class ImageStatusEnum(str, enum.Enum):

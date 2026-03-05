@@ -211,9 +211,27 @@ export const PERSONALITY_TRAITS = [
   'Haunted',
 ];
 
+// ── Identity Sketch ──────────────────────────────────────────────────
+
+export interface SketchResponse {
+  image_url: string;
+  image_id: number;
+  style: string;
+  prompt_preview: string;
+}
+
+export const SKETCH_STYLES = [
+  { value: 'pencil',   label: 'Pencil',   description: 'Fine graphite lines, delicate hatching' },
+  { value: 'charcoal', label: 'Charcoal', description: 'Bold strokes, dramatic shading' },
+  { value: 'dossier',  label: 'Dossier',  description: 'Clean line art, official identity aesthetic' },
+] as const;
+
+export type SketchStyle = 'pencil' | 'charcoal' | 'dossier';
+
 export const STEP_LABELS = [
   'Basics',
   'Personality',
+  'Sketch',
   'Generate',
   'Select',
   'Lock',

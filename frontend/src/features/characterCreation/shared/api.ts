@@ -5,6 +5,7 @@ import type {
   IdentityPackResponse,
   IdentityPackAcceptResponse,
   IdentitySpec,
+  SketchResponse,
 } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -137,5 +138,15 @@ export async function generateSceneImage(
   return request(`/characters/${characterId}/scene-images/generate`, {
     method: 'POST',
     body: JSON.stringify({ prompt, style }),
+  });
+}
+
+export async function generateIdentitySketch(
+  characterId: number,
+  style: string = 'pencil',
+): Promise<SketchResponse> {
+  return request(`/characters/${characterId}/identity-sketch/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ style }),
   });
 }

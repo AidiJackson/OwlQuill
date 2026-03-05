@@ -5,6 +5,7 @@ import { apiClient } from '@/lib/apiClient';
 
 import StepBasics from './steps/StepBasics';
 import StepPersonality from './steps/StepPersonality';
+import StepSketch from './steps/StepSketch';
 import StepGeneratePack from './steps/StepGeneratePack';
 import StepSelect from './steps/StepSelect';
 import StepLockConfirm from './steps/StepLockConfirm';
@@ -43,6 +44,7 @@ export default function CharacterCreationFlow() {
     identitySpec: null,
   });
 
+  const [_sketchImageId, setSketchImageId] = useState<number | null>(null);
   const [generatedPack, setGeneratedPack] = useState<IdentityPackResponse | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
@@ -138,7 +140,7 @@ export default function CharacterCreationFlow() {
 
   // ── Transition: Lock → Profile Details
   const handleLocked = () => {
-    setStep(5);
+    setStep(6);
   };
 
   // ── Transition: Profile Details → Done
@@ -260,6 +262,17 @@ export default function CharacterCreationFlow() {
         )}
 
         {step === 2 && characterId && (
+          <StepSketch
+            characterId={characterId}
+            onConfirmed={(id) => {
+              setSketchImageId(id || null);
+              setStep(3);
+            }}
+            onBack={() => setStep(1)}
+          />
+        )}
+
+        {step === 3 && characterId && (
           <StepGeneratePack
             characterId={characterId}
             vibeText={seeds.vibeText}
@@ -269,37 +282,37 @@ export default function CharacterCreationFlow() {
               setGeneratedPack(pack);
               setSelectedImageIndex(0);
             }}
-            onNext={() => setStep(3)}
-            onBack={() => setStep(1)}
-          />
-        )}
-
-        {step === 3 && generatedPack && (
-          <StepSelect
-            pack={generatedPack}
-            selectedIndex={selectedImageIndex}
-            onSelect={setSelectedImageIndex}
             onNext={() => setStep(4)}
             onBack={() => setStep(2)}
           />
         )}
 
-        {step === 4 && characterId && generatedPack && (
+        {step === 4 && generatedPack && (
+          <StepSelect
+            pack={generatedPack}
+            selectedIndex={selectedImageIndex}
+            onSelect={setSelectedImageIndex}
+            onNext={() => setStep(5)}
+            onBack={() => setStep(3)}
+          />
+        )}
+
+        {step === 5 && characterId && generatedPack && (
           <StepLockConfirm
             characterId={characterId}
             pack={generatedPack}
             selectedIndex={selectedImageIndex}
             onLocked={handleLocked}
-            onBack={() => setStep(3)}
+            onBack={() => setStep(4)}
           />
         )}
 
-        {step === 5 && (
+        {step === 6 && (
           <StepProfileDetails
             data={profile}
             onChange={setProfile}
             onFinish={handleFinish}
-            onBack={() => setStep(4)}
+            onBack={() => setStep(5)}
             saving={saving}
           />
         )}
