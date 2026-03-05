@@ -1,16 +1,35 @@
 import { useState } from 'react';
 import { PenLine, RefreshCw, CheckCircle } from 'lucide-react';
-import type { SketchResponse, SketchStyle } from '../shared/types';
+import type { SketchResponse, SketchStyle, IdentitySpec, CreationBasics } from '../shared/types';
 import { SKETCH_STYLES } from '../shared/types';
 import { generateIdentitySketch, resolveImageUrl } from '../shared/api';
 
 interface Props {
   characterId: number;
+  identitySpec?: IdentitySpec | null;
+  basics?: CreationBasics | null;
   onConfirmed: (sketchImageId: number) => void;
   onBack: () => void;
 }
 
-export default function StepSketch({ characterId, onConfirmed, onBack }: Props) {
+/** Compact row shown in the artist notes summary card. */
+function NoteRow({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <div className="flex gap-2 text-xs">
+      <span className="text-gray-500 w-20 flex-shrink-0">{label}</span>
+      <span className="text-gray-300">{value}</span>
+    </div>
+  );
+}
+
+export default function StepSketch({
+  characterId,
+  identitySpec,
+  basics: _basics,
+  onConfirmed,
+  onBack,
+}: Props) {
   const [selectedStyle, setSelectedStyle] = useState<SketchStyle>('pencil');
   const [sketch, setSketch] = useState<SketchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,19 +54,49 @@ export default function StepSketch({ characterId, onConfirmed, onBack }: Props) 
     }
   };
 
+  // Derive artist notes from identitySpec
+  const spec = identitySpec;
+  const hairParts = [spec?.identity.hair_color, spec?.identity.hair_length].filter(Boolean);
+  const hair = hairParts.join(', ');
+  const eyes = spec?.identity.eye_color ?? '';
+  const features = spec?.identity.face_features?.join(', ') ?? '';
+  const genderLabel = spec?.gender === 'female' ? 'Woman' : spec?.gender === 'male' ? 'Man' : spec?.gender ?? '';
+  const ageBand = spec?.age_band ?? '';
+  const speciesLabel =
+    spec?.species && spec.species !== 'human'
+      ? [spec.species, ...(spec.species_tells ?? []).map((t) => t.replace(/_/g, ' '))]
+          .join(', ')
+      : '';
+
+  const hasNotes = !!(genderLabel || ageBand || hair || eyes || features || speciesLabel);
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div className="text-center">
         <div className="flex items-center justify-center gap-2 mb-1">
           <PenLine className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-lg font-semibold text-gray-100">Identity Sketch</h2>
+          <h2 className="text-lg font-semibold text-gray-100">Sketch</h2>
         </div>
         <p className="text-sm text-gray-400">
-          Generate a quick sketch to anchor your character's face before the full identity pack.
-          Regenerate as many times as you like.
+          We've briefed the artist. Now let's see if you recognise them.
         </p>
       </div>
+
+      {/* Artist notes summary card */}
+      {hasNotes && (
+        <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 space-y-1.5">
+          <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-2">
+            Sketch Artist Notes
+          </p>
+          <NoteRow label="Gender" value={genderLabel} />
+          <NoteRow label="Age range" value={ageBand} />
+          <NoteRow label="Hair" value={hair} />
+          <NoteRow label="Eyes" value={eyes} />
+          {features && <NoteRow label="Features" value={features} />}
+          {speciesLabel && <NoteRow label="Species" value={speciesLabel} />}
+        </div>
+      )}
 
       {/* Style selector */}
       <div>
@@ -70,7 +119,7 @@ export default function StepSketch({ characterId, onConfirmed, onBack }: Props) 
         </div>
       </div>
 
-      {/* Generate button */}
+      {/* Generate / Refine button */}
       <button
         onClick={handleGenerate}
         disabled={loading}
@@ -84,7 +133,7 @@ export default function StepSketch({ characterId, onConfirmed, onBack }: Props) 
         ) : (
           <>
             <PenLine className="w-4 h-4" />
-            {sketch ? 'Regenerate Sketch' : 'Generate Sketch'}
+            {sketch ? 'Refine sketch' : 'Generate Sketch'}
           </>
         )}
       </button>
@@ -106,9 +155,8 @@ export default function StepSketch({ characterId, onConfirmed, onBack }: Props) 
               className="w-full object-cover"
             />
           </div>
-          <p className="text-xs text-gray-500 text-center italic max-w-xs">
-            {sketch.style.charAt(0).toUpperCase() + sketch.style.slice(1)} sketch
-          </p>
+
+          <p className="text-sm text-gray-300 font-medium">Do you recognise them?</p>
 
           {/* Confirm button */}
           <button
@@ -116,7 +164,7 @@ export default function StepSketch({ characterId, onConfirmed, onBack }: Props) 
             className="flex items-center justify-center gap-2 w-full max-w-xs py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
           >
             <CheckCircle className="w-4 h-4" />
-            Yes, I recognise them — continue
+            Yes — that's them
           </button>
         </div>
       )}
@@ -133,7 +181,7 @@ export default function StepSketch({ characterId, onConfirmed, onBack }: Props) 
           onClick={() => onConfirmed(sketch?.image_id ?? 0)}
           className="flex-1 py-2 rounded-lg border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-600 text-sm transition-colors"
         >
-          Skip sketch
+          Skip for now
         </button>
       </div>
     </div>

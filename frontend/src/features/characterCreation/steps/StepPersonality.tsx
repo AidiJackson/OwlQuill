@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Sparkles, Shirt } from 'lucide-react';
+import { Check } from 'lucide-react';
 import type { CreationSeeds, IdentitySpec, Species } from '../shared/types';
 import {
   PERSONALITY_TRAITS,
@@ -54,33 +54,38 @@ const EMPTY_SPEC: IdentitySpec = {
 
 /* ── Reusable sub-components ───────────────────────────────────────── */
 
-/** Section wrapper with a label and optional helper text. */
+/** Section heading with optional "done" checkmark and helper text. */
 function SectionGroup({
   label,
   helper,
   children,
   required,
+  done,
   className = '',
 }: {
   label: string;
   helper?: string;
   children: React.ReactNode;
   required?: boolean;
+  done?: boolean;
   className?: string;
 }) {
   return (
     <div className={className}>
-      <label className="block text-sm font-medium text-gray-300 mb-2">
-        {label}
-        {required && <span className="text-emerald-400 ml-1">*</span>}
-      </label>
+      <div className="flex items-center gap-1.5 mb-2">
+        <label className="block text-sm font-medium text-gray-300">
+          {label}
+          {required && <span className="text-emerald-400 ml-1">*</span>}
+        </label>
+        {done && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+      </div>
       {children}
       {helper && <p className="text-xs text-gray-500 mt-1.5">{helper}</p>}
     </div>
   );
 }
 
-/** A row of small chip buttons. Single-select toggles the value; multi-select toggles membership in an array. */
+/** A row of small chip buttons. Single-select toggles the value; multi-select toggles membership. */
 function ChipRow({
   options,
   value,
@@ -105,7 +110,6 @@ function ChipRow({
         onChange([...arr, option]);
       }
     } else {
-      // Single select: toggle off if already selected
       onChange(value === option ? '' : option);
     }
   };
@@ -137,9 +141,7 @@ function ChipRow({
   );
 }
 
-/** Chip row where display label differs from stored value.
- *  Used for gender: shows "Woman"/"Man"/"Non-binary" but stores "female"/"male"/"other".
- */
+/** Chip row where display label differs from stored value. */
 function LabeledChipRow({
   options,
   value,
@@ -172,7 +174,7 @@ function LabeledChipRow({
   );
 }
 
-/** Styled select dropdown matching the dark theme. */
+/** Styled select dropdown. */
 function SelectField({
   options,
   value,
@@ -213,11 +215,10 @@ interface Props {
 }
 
 export default function StepPersonality({ data, onChange, onNext, onBack, saving }: Props) {
-  // Local spec state, initialized from data or empty
   const [spec, setSpec] = useState<IdentitySpec>(data.identitySpec ?? EMPTY_SPEC);
   const [extraNotes, setExtraNotes] = useState(spec.extra_notes);
+  const [triedSubmit, setTriedSubmit] = useState(false);
 
-  /** Propagate spec changes upward into CreationSeeds. */
   const propagate = useCallback(
     (next: IdentitySpec) => {
       setSpec(next);
@@ -254,8 +255,15 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
     onChange({ ...data, traits: next });
   };
 
-  /** All three identity selectors must be filled before proceeding. */
   const canProceed = !saving && !!spec.style && !!spec.gender && !!spec.age_band;
+
+  const handleNext = () => {
+    if (!canProceed) {
+      setTriedSubmit(true);
+      return;
+    }
+    onNext();
+  };
 
   /* ── Render ──────────────────────────────────────────────────────── */
 
@@ -263,12 +271,9 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
     <div className="space-y-6">
       {/* Header */}
       <div className="text-center space-y-2">
-        <div className="mx-auto w-12 h-12 rounded-full bg-emerald-600/20 flex items-center justify-center">
-          <Sparkles className="w-6 h-6 text-emerald-400" />
-        </div>
-        <h2 className="text-xl font-semibold text-gray-100">Define Their Essence</h2>
+        <h2 className="text-xl font-semibold text-gray-100">Sketch Interview</h2>
         <p className="text-sm text-gray-400">
-          Pick traits and describe how your character looks. These shape visual generation.
+          Answer a few quick questions so our sketch artist can capture the face accurately.
         </p>
       </div>
 
@@ -295,19 +300,17 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
         </div>
       </SectionGroup>
 
-      {/* ── Divider ────────────────────────────────────────────────── */}
       <div className="border-t border-gray-800" />
 
-      {/* ── Required Identity Selectors ────────────────────────────── */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
-            Identity
-          </h3>
-          <span className="text-xs text-gray-500">— required to continue</span>
-        </div>
+      {/* ── Section A: Identity ─────────────────────────────────────── */}
+      <div className="space-y-1">
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">
+          A — Identity <span className="text-gray-600 normal-case">(required)</span>
+        </p>
+      </div>
 
-        <SectionGroup label="Style" required>
+      <div className="space-y-4">
+        <SectionGroup label="Style" required done={!!spec.style}>
           <SelectField
             options={[...STYLE_OPTIONS]}
             value={spec.style}
@@ -316,7 +319,7 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
           />
         </SectionGroup>
 
-        <SectionGroup label="Gender" required>
+        <SectionGroup label="Gender" required done={!!spec.gender}>
           <LabeledChipRow
             options={GENDER_OPTIONS}
             value={spec.gender}
@@ -324,7 +327,7 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
           />
         </SectionGroup>
 
-        <SectionGroup label="Age Range" required>
+        <SectionGroup label="Age Range" required done={!!spec.age_band}>
           <ChipRow
             options={AGE_BAND_OPTIONS}
             value={spec.age_band}
@@ -332,92 +335,80 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
           />
         </SectionGroup>
 
-        <SectionGroup label="Species" helper="Adds subtle visual tells to generation prompts">
+        <SectionGroup label="Species" done={spec.species !== 'human' || !!spec.species}>
           <LabeledChipRow
             options={SPECIES_OPTIONS}
             value={spec.species}
-            onChange={(v) => propagate({ ...spec, species: (v || 'human') as Species, species_tells: [] })}
+            onChange={(v) =>
+              propagate({ ...spec, species: (v || 'human') as Species, species_tells: [] })
+            }
           />
         </SectionGroup>
-
-        {/* Tells — only shown for non-human species */}
-        {spec.species && spec.species !== 'human' && (
-          <SectionGroup
-            label="Supernatural Tells"
-            helper={`Select up to 3 subtle visual hints (${spec.species_tells.length}/3)`}
-          >
-            <ChipRow
-              options={SPECIES_TELLS_MAP[spec.species as Species] ?? []}
-              value={spec.species_tells}
-              onChange={(v) => propagate({ ...spec, species_tells: v as string[] })}
-              multi
-              maxMulti={3}
-            />
-          </SectionGroup>
-        )}
       </div>
 
-      {/* ── Divider ────────────────────────────────────────────────── */}
       <div className="border-t border-gray-800" />
 
-      {/* ── Appearance ─────────────────────────────────────────────── */}
-      <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
-          Appearance
-        </h3>
+      {/* ── Section B: Facial Appearance ────────────────────────────── */}
+      <div>
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-4">
+          B — Facial Appearance <span className="text-gray-600 normal-case">(optional)</span>
+        </p>
+        <div className="space-y-4">
+          <SectionGroup label="Hair Color">
+            <ChipRow
+              options={HAIR_COLORS}
+              value={spec.identity.hair_color}
+              onChange={(v) => updateIdentity('hair_color', v as string)}
+            />
+          </SectionGroup>
 
-        <SectionGroup label="Hair Color">
-          <ChipRow
-            options={HAIR_COLORS}
-            value={spec.identity.hair_color}
-            onChange={(v) => updateIdentity('hair_color', v as string)}
-          />
-        </SectionGroup>
+          <SectionGroup label="Hair Length">
+            <ChipRow
+              options={HAIR_LENGTHS}
+              value={spec.identity.hair_length}
+              onChange={(v) => updateIdentity('hair_length', v as string)}
+            />
+          </SectionGroup>
 
-        <SectionGroup label="Hair Length">
-          <ChipRow
-            options={HAIR_LENGTHS}
-            value={spec.identity.hair_length}
-            onChange={(v) => updateIdentity('hair_length', v as string)}
-          />
-        </SectionGroup>
+          <SectionGroup label="Eye Color">
+            <ChipRow
+              options={EYE_COLORS}
+              value={spec.identity.eye_color}
+              onChange={(v) => updateIdentity('eye_color', v as string)}
+            />
+          </SectionGroup>
 
-        <SectionGroup label="Eye Color">
-          <ChipRow
-            options={EYE_COLORS}
-            value={spec.identity.eye_color}
-            onChange={(v) => updateIdentity('eye_color', v as string)}
-          />
-        </SectionGroup>
+          <SectionGroup label="Skin Tone">
+            <ChipRow
+              options={SKIN_TONES}
+              value={spec.identity.skin_tone}
+              onChange={(v) => updateIdentity('skin_tone', v as string)}
+            />
+          </SectionGroup>
 
-        <SectionGroup label="Skin Tone">
-          <ChipRow
-            options={SKIN_TONES}
-            value={spec.identity.skin_tone}
-            onChange={(v) => updateIdentity('skin_tone', v as string)}
-          />
-        </SectionGroup>
+          <SectionGroup label="Face Features" helper={`Select up to ${MAX_FACE_FEATURES}`}>
+            <ChipRow
+              options={FACE_FEATURES}
+              value={spec.identity.face_features}
+              onChange={(v) => updateIdentity('face_features', v)}
+              multi
+              maxMulti={MAX_FACE_FEATURES}
+            />
+          </SectionGroup>
 
-        <SectionGroup
-          label="Face Features"
-          helper={`Select up to ${MAX_FACE_FEATURES}`}
-        >
-          <ChipRow
-            options={FACE_FEATURES}
-            value={spec.identity.face_features}
-            onChange={(v) => updateIdentity('face_features', v)}
-            multi
-            maxMulti={MAX_FACE_FEATURES}
-          />
-        </SectionGroup>
+          <SectionGroup label="Marks and Accessories" helper="Select any that apply">
+            <ChipRow
+              options={MARKS_ACCESSORIES}
+              value={spec.marks_accessories.items}
+              onChange={(v) => updateMarks(v as string[])}
+              multi
+            />
+          </SectionGroup>
+        </div>
       </div>
 
-      {/* ── Build ──────────────────────────────────────────────────── */}
+      {/* ── Section B.2: Build ──────────────────────────────────────── */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
-          Build
-        </h3>
-
         <SectionGroup label="Body Type">
           <ChipRow
             options={BODY_TYPES}
@@ -435,54 +426,62 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
         </SectionGroup>
       </div>
 
-      {/* ── Marks & Accessories ────────────────────────────────────── */}
-      <SectionGroup label="Marks and Accessories" helper="Select any that apply">
-        <ChipRow
-          options={MARKS_ACCESSORIES}
-          value={spec.marks_accessories.items}
-          onChange={(v) => updateMarks(v as string[])}
-          multi
-        />
-      </SectionGroup>
+      {/* ── Section C: Supernatural Tells ───────────────────────────── */}
+      {spec.species && spec.species !== 'human' && (
+        <>
+          <div className="border-t border-gray-800" />
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-4">
+              C — Supernatural Tells <span className="text-gray-600 normal-case">(optional, max 3)</span>
+            </p>
+            <SectionGroup
+              label="Visual Tells"
+              helper={`Subtle hints visible in the sketch (${spec.species_tells.length}/3)`}
+            >
+              <ChipRow
+                options={SPECIES_TELLS_MAP[spec.species as Species] ?? []}
+                value={spec.species_tells}
+                onChange={(v) => propagate({ ...spec, species_tells: v as string[] })}
+                multi
+                maxMulti={3}
+              />
+            </SectionGroup>
+          </div>
+        </>
+      )}
 
-      {/* ── Identity Outfit Info Card ───────────────────────────────── */}
-      <div className="rounded-xl border border-gray-700/50 p-4 space-y-2"
-           style={{ backgroundColor: 'rgba(31, 31, 40, 0.6)' }}>
-        <div className="flex items-center gap-2">
-          <Shirt className="w-4 h-4 text-gray-400 shrink-0" />
-          <h3 className="text-sm font-semibold text-gray-200">Identity Outfit (standard)</h3>
-        </div>
-        <p className="text-sm text-gray-400">
-          Neutral fitted studio clothing is automatically used during identity generation to show
-          body proportions clearly.
+      <div className="border-t border-gray-800" />
+
+      {/* ── Section D: Artist Notes ──────────────────────────────────── */}
+      <div>
+        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-4">
+          D — Artist Notes <span className="text-gray-600 normal-case">(optional)</span>
         </p>
-        <p className="text-xs text-gray-500">
-          Outfits and alternate looks unlock after identity lock in Library Images.
-        </p>
+        <SectionGroup
+          label="Anything distinctive the artist should know?"
+          helper="Use this for small face or vibe details, not clothing."
+        >
+          <textarea
+            className="w-full rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm
+                       px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:ring-2
+                       focus:ring-emerald-600/40 focus:border-emerald-500 transition-colors resize-none"
+            rows={2}
+            maxLength={MAX_EXTRA_NOTES}
+            placeholder="e.g. intense gaze, quiet dignity, faint scar above left brow"
+            value={extraNotes}
+            onChange={(e) => handleExtraNotes(e.target.value)}
+          />
+          <div className="flex justify-end mt-1">
+            <span className={`text-xs ${extraNotes.length >= MAX_EXTRA_NOTES ? 'text-red-400' : 'text-gray-500'}`}>
+              {extraNotes.length} / {MAX_EXTRA_NOTES}
+            </span>
+          </div>
+        </SectionGroup>
       </div>
 
-      {/* ── Optional Details ───────────────────────────────────────── */}
-      <SectionGroup label="Optional Details" helper="Anything else that defines their look.">
-        <textarea
-          className="w-full rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm
-                     px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:ring-2
-                     focus:ring-emerald-600/40 focus:border-emerald-500 transition-colors resize-none"
-          rows={2}
-          maxLength={MAX_EXTRA_NOTES}
-          placeholder="e.g. battle-worn look, silver-streaked hair, quiet intensity"
-          value={extraNotes}
-          onChange={(e) => handleExtraNotes(e.target.value)}
-        />
-        <div className="flex justify-end mt-1">
-          <span className={`text-xs ${extraNotes.length >= MAX_EXTRA_NOTES ? 'text-red-400' : 'text-gray-500'}`}>
-            {extraNotes.length} / {MAX_EXTRA_NOTES}
-          </span>
-        </div>
-      </SectionGroup>
-
-      {/* Required fields reminder */}
-      {!canProceed && (spec.style || spec.gender || spec.age_band) && (
-        <p className="text-xs text-amber-400 text-center">
+      {/* Required fields reminder — only after a submit attempt */}
+      {triedSubmit && !canProceed && (
+        <p className="text-xs text-amber-400/90 text-center">
           Style, Gender, and Age Range are required to continue.
         </p>
       )}
@@ -494,8 +493,8 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
         </button>
         <button
           className="btn btn-primary"
-          onClick={onNext}
-          disabled={!canProceed}
+          onClick={handleNext}
+          disabled={saving}
         >
           {saving ? 'Saving…' : 'Next'}
         </button>

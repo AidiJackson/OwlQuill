@@ -123,7 +123,7 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
           Back
         </button>
         <button className="btn btn-primary" onClick={onNext}>
-          Continue to Lock
+          Choose this version
         </button>
       </div>
     </div>

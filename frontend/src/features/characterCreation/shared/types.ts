@@ -259,10 +259,9 @@ export type SketchStyle = 'pencil' | 'charcoal' | 'dossier';
 
 export const STEP_LABELS = [
   'Basics',
-  'Personality',
+  'Interview',
   'Sketch',
-  'Generate',
-  'Select',
-  'Lock',
-  'Details',
+  'Identity Pack',
+  'Choose Canon',
+  'Dossier',
 ];

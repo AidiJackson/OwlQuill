@@ -8,15 +8,13 @@ import StepPersonality from './steps/StepPersonality';
 import StepSketch from './steps/StepSketch';
 import StepGeneratePack from './steps/StepGeneratePack';
 import StepSelect from './steps/StepSelect';
-import StepLockConfirm from './steps/StepLockConfirm';
-import StepProfileDetails from './steps/StepProfileDetails';
+import StepDossierLock from './steps/StepDossierLock';
 
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { upsertDNA, resolveImageUrl } from './shared/api';
+import { upsertDNA } from './shared/api';
 import type {
   CreationBasics,
   CreationSeeds,
-  CreationProfile,
   IdentityPackResponse,
 } from './shared/types';
 import { STEP_LABELS } from './shared/types';
@@ -48,14 +46,6 @@ export default function CharacterCreationFlow() {
   const [generatedPack, setGeneratedPack] = useState<IdentityPackResponse | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
-  const [profile, setProfile] = useState<CreationProfile>({
-    short_bio: '',
-    long_bio: '',
-    tags: '',
-    era: '',
-    visibility: 'public',
-  });
-
   // ── Load existing draft when characterId query param is present
   useEffect(() => {
     const resumeId = searchParams.get('characterId');
@@ -75,13 +65,6 @@ export default function CharacterCreationFlow() {
           species: char.species || '',
           gender_presentation: '',
         });
-        setProfile({
-          short_bio: char.short_bio || '',
-          long_bio: char.long_bio || '',
-          tags: char.tags || '',
-          era: char.era || '',
-          visibility: char.visibility || 'public',
-        });
       })
       .catch(() => {
         setError('Failed to load draft character.');
@@ -91,7 +74,7 @@ export default function CharacterCreationFlow() {
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Transition: Personality → Generate (create character + upsert DNA)
+  // ── Transition: Personality → Sketch (create character + upsert DNA)
   const handleAfterPersonality = async () => {
     setSaving(true);
     setError('');
@@ -133,40 +116,6 @@ export default function CharacterCreationFlow() {
       setStep(2);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save character data.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ── Transition: Lock → Profile Details
-  const handleLocked = () => {
-    setStep(6);
-  };
-
-  // ── Transition: Profile Details → Done
-  const handleFinish = async () => {
-    if (!characterId) return;
-    setSaving(true);
-    setError('');
-    try {
-      // Set avatar to selected pack image
-      const avatarUrl =
-        generatedPack && generatedPack.images[selectedImageIndex]
-          ? resolveImageUrl(generatedPack.images[selectedImageIndex].url)
-          : undefined;
-
-      await apiClient.updateCharacter(characterId, {
-        short_bio: profile.short_bio || undefined,
-        long_bio: profile.long_bio || undefined,
-        tags: profile.tags || undefined,
-        era: profile.era || undefined,
-        visibility: profile.visibility,
-        avatar_url: avatarUrl,
-      });
-
-      navigate(`/characters/${characterId}?created=1`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save profile details.');
     } finally {
       setSaving(false);
     }
@@ -264,6 +213,8 @@ export default function CharacterCreationFlow() {
         {step === 2 && characterId && (
           <StepSketch
             characterId={characterId}
+            identitySpec={seeds.identitySpec}
+            basics={basics}
             onConfirmed={(id) => {
               setSketchImageId(id || null);
               setStep(3);
@@ -298,22 +249,11 @@ export default function CharacterCreationFlow() {
         )}
 
         {step === 5 && characterId && generatedPack && (
-          <StepLockConfirm
+          <StepDossierLock
             characterId={characterId}
             pack={generatedPack}
             selectedIndex={selectedImageIndex}
-            onLocked={handleLocked}
-            onBack={() => setStep(4)}
-          />
-        )}
-
-        {step === 6 && (
-          <StepProfileDetails
-            data={profile}
-            onChange={setProfile}
-            onFinish={handleFinish}
-            onBack={() => setStep(5)}
-            saving={saving}
+            basics={basics}
           />
         )}
         </ErrorBoundary>
