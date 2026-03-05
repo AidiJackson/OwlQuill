@@ -1940,3 +1940,92 @@ def test_generate_identity_sketch_archiving(client: TestClient):
         assert new.kind == ImageKindEnum.IDENTITY_SKETCH
     finally:
         db.close()
+
+
+# ── B11: Species selector + tells ────────────────────────────────────
+
+class TestSpeciesSchema:
+    """Pydantic validation for species / species_tells fields."""
+
+    def _base_spec(self, **overrides):
+        from app.schemas.character_visual import CharacterIdentitySpec, SpeciesEnum
+        defaults = dict(
+            style="realistic",
+            gender="female",
+            age_band="26-35",
+        )
+        defaults.update(overrides)
+        return CharacterIdentitySpec(**defaults)
+
+    def test_default_species_is_human(self):
+        spec = self._base_spec()
+        from app.schemas.character_visual import SpeciesEnum
+        assert spec.species == SpeciesEnum.HUMAN
+
+    def test_species_vampire_accepted(self):
+        spec = self._base_spec(species="vampire")
+        from app.schemas.character_visual import SpeciesEnum
+        assert spec.species == SpeciesEnum.VAMPIRE
+
+    def test_species_tells_accepted(self):
+        spec = self._base_spec(species="vampire", species_tells=["subtle_fangs", "predatory_gaze"])
+        assert spec.species_tells == ["subtle_fangs", "predatory_gaze"]
+
+    def test_species_tells_max_three_enforced(self):
+        import pytest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="at most 3"):
+            self._base_spec(species_tells=["a", "b", "c", "d"])
+
+    def test_species_tells_invalid_chars_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="invalid"):
+            self._base_spec(species_tells=["blood<>drip"])  # < > not allowed
+
+    def test_species_tells_none_coerces_to_empty(self):
+        spec = self._base_spec(species_tells=None)
+        assert spec.species_tells == []
+
+    def test_species_default_empty_tells(self):
+        spec = self._base_spec()
+        assert spec.species_tells == []
+
+
+def test_identity_spec_species_vampire_in_sketch_prompt_preview(client: TestClient):
+    """Sketch endpoint prompt_preview must contain 'vampire' when spec has species=vampire."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # First, store a vampire identity spec on the character via the identity-pack
+    # generate endpoint (it persists the spec to the character record).
+    client.post(
+        f"/characters/{cid}/dna",
+        json={"species": "human"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "female",
+                "age_band": "26-35",
+                "species": "vampire",
+                "species_tells": ["subtle_fangs", "predatory_gaze"],
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    # Now generate a sketch — it should pick up the stored spec
+    resp = client.post(
+        f"/characters/{cid}/identity-sketch/generate",
+        json={"style": "pencil"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "vampire" in data["prompt_preview"].lower(), (
+        f"Expected 'vampire' in prompt_preview, got: {data['prompt_preview']!r}"
+    )

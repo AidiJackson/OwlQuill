@@ -60,6 +60,32 @@ ROLE_SHOT_DESCRIPTION: dict[str, str] = {
 }
 
 
+# ── Species helper ───────────────────────────────────────────────────
+
+def _species_prompt(spec: CharacterIdentitySpec) -> str:
+    """Return a species descriptor for non-human characters.
+
+    Human (default) returns an empty string so existing prompts are unaffected.
+    For other species, returns a short phrase like
+    "vampire character, subtle supernatural tells: subtle fangs, predatory gaze".
+
+    Tells are taken verbatim from spec.species_tells (already validated to be
+    PG-13 safe alphanumeric tokens). Underscores are replaced with spaces for
+    readability in the generated prompt.
+    """
+    species_val = getattr(spec, "species", "human")
+    # Handle both enum instances and plain strings (e.g. loaded from old JSON)
+    species_str = species_val.value if hasattr(species_val, "value") else str(species_val)
+    if not species_str or species_str == "human":
+        return ""
+    tells = getattr(spec, "species_tells", None) or []
+    parts = [f"{species_str} character"]
+    if tells:
+        readable = [t.replace("_", " ") for t in tells]
+        parts.append("subtle supernatural tells: " + ", ".join(readable))
+    return ". ".join(parts)
+
+
 # ── Core compiler ────────────────────────────────────────────────────
 
 def compile_identity_prompt(
@@ -126,6 +152,11 @@ def compile_identity_prompt(
             identity_parts.extend(id_.face_features[:2])
 
     sections.append(", ".join(identity_parts))
+
+    # 3b. Species descriptor (only injected for non-human species)
+    species_desc = _species_prompt(spec)
+    if species_desc:
+        sections.append(species_desc)
 
     # 4. Neutral studio outfit (fixed; wardrobe field is accepted but ignored)
     sections.append(NEUTRAL_STUDIO_OUTFIT)

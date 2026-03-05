@@ -378,3 +378,47 @@ class TestSchemaValidation:
             assert expected_token in prompt.lower(), (
                 f"gender={gender!r}: expected {expected_token!r} in prompt"
             )
+
+
+# ── B11: Species tells in identity prompts ───────────────────────────
+
+class TestSpeciesInPrompt:
+
+    def test_human_species_not_in_prompt(self):
+        """Human (default) must not add any species text to the prompt."""
+        spec = _make_grace_spec(species="human")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "human" not in prompt.lower() or "non-human" not in prompt.lower()
+        # Specifically: should not mention 'human character' verbatim
+        assert "human character" not in prompt.lower()
+
+    def test_vampire_species_in_prompt(self):
+        """vampire species must appear in the prompt."""
+        spec = _make_grace_spec(species="vampire", species_tells=[])
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "vampire" in prompt.lower()
+
+    def test_vampire_with_tells_in_prompt(self):
+        """Tells must appear (with underscores replaced by spaces) when specified."""
+        spec = _make_grace_spec(
+            species="vampire",
+            species_tells=["subtle_fangs", "predatory_gaze"],
+        )
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "vampire" in prompt.lower()
+        assert "subtle fangs" in prompt.lower()
+        assert "predatory gaze" in prompt.lower()
+
+    def test_werewolf_species_in_prompt(self):
+        spec = _make_grace_spec(species="werewolf", species_tells=["golden_eyes"])
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "werewolf" in prompt.lower()
+        assert "golden eyes" in prompt.lower()
+
+    def test_species_prompt_in_all_roles(self):
+        """Species must appear in every pack role, not just anchor_front."""
+        spec = _make_grace_spec(species="fae", species_tells=["pointed_ears"])
+        for role in ("anchor_front", "anchor_three_quarter", "anchor_torso", "anchor_full_body"):
+            prompt = compile_identity_prompt(spec, role)
+            assert "fae" in prompt.lower(), f"fae missing from role={role}"
+            assert "pointed ears" in prompt.lower(), f"tell missing from role={role}"

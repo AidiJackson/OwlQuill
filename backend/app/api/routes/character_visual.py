@@ -1401,6 +1401,11 @@ def generate_identity_sketch(
                 prompt_parts.append(f"{core.skin_tone} skin")
             if core.face_features:
                 prompt_parts.append(", ".join(core.face_features))
+        # Species cues (skipped for human to avoid redundancy)
+        from app.services.identity_compiler import _species_prompt as _sp
+        species_desc = _sp(identity_spec)
+        if species_desc:
+            prompt_parts.append(species_desc)
     elif character.name:
         prompt_parts.append(f"character named {character.name}")
 
@@ -1488,7 +1493,7 @@ def generate_identity_sketch(
         image_url=image_url,
         image_id=sketch_img.id,
         style=style,
-        prompt_preview=sketch_prompt[:200],
+        prompt_preview=sketch_prompt,  # full prompt (already ≤ 400 chars)
     )
 
 

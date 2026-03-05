@@ -74,12 +74,41 @@ export interface IdentitySpec {
   style: string;
   gender: string;
   age_band: string;
+  species: Species;
+  species_tells: string[];
   identity: IdentityCore;
   build: IdentityBuild;
   marks_accessories: { items: string[] };
   wardrobe: WardrobeSpec;  // accepted by backend but ignored — neutral outfit enforced
   extra_notes: string;
 }
+
+// ── Species ──────────────────────────────────────────────────────────
+
+export type Species = 'human' | 'vampire' | 'werewolf' | 'witch' | 'demon' | 'angel' | 'fae' | 'other';
+
+export const SPECIES_OPTIONS: { label: string; value: Species }[] = [
+  { label: 'Human',     value: 'human'    },
+  { label: 'Vampire',   value: 'vampire'  },
+  { label: 'Werewolf',  value: 'werewolf' },
+  { label: 'Witch',     value: 'witch'    },
+  { label: 'Demon',     value: 'demon'    },
+  { label: 'Angel',     value: 'angel'    },
+  { label: 'Fae',       value: 'fae'      },
+  { label: 'Other',     value: 'other'    },
+];
+
+/** Suggested chip-only tells per species. Underscores render as spaces in prompts. */
+export const SPECIES_TELLS_MAP: Record<Species, string[]> = {
+  human:    [],
+  vampire:  ['subtle_fangs', 'predatory_gaze', 'faint_eye_glow', 'pallid_complexion'],
+  werewolf: ['golden_eyes', 'claw_scars', 'rugged_features', 'wild_brows'],
+  witch:    ['faint_sigils', 'luminous_irises', 'ink_stained_fingers', 'silver_streak'],
+  demon:    ['subtle_horns', 'slit_pupils', 'ashen_skin', 'claw_tips'],
+  angel:    ['luminous_irises', 'ethereal_glow', 'silver_streak', 'serene_expression'],
+  fae:      ['pointed_ears', 'iridescent_skin', 'luminous_irises', 'floral_markings'],
+  other:    ['glowing_eyes', 'unusual_markings', 'ethereal_glow', 'pointed_ears'],
+};
 
 // ── Identity Spec option constants ──────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Sparkles, Shirt } from 'lucide-react';
-import type { CreationSeeds, IdentitySpec } from '../shared/types';
+import type { CreationSeeds, IdentitySpec, Species } from '../shared/types';
 import {
   PERSONALITY_TRAITS,
   STYLE_OPTIONS,
@@ -14,6 +14,8 @@ import {
   BODY_TYPES,
   HEIGHT_BANDS,
   MARKS_ACCESSORIES,
+  SPECIES_OPTIONS,
+  SPECIES_TELLS_MAP,
 } from '../shared/types';
 
 /* ── Constants ─────────────────────────────────────────────────────── */
@@ -25,6 +27,8 @@ const EMPTY_SPEC: IdentitySpec = {
   style: '',
   gender: '',
   age_band: '',
+  species: 'human',
+  species_tells: [],
   identity: {
     hair_color: '',
     hair_length: '',
@@ -327,6 +331,30 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
             onChange={(v) => propagate({ ...spec, age_band: v as string })}
           />
         </SectionGroup>
+
+        <SectionGroup label="Species" helper="Adds subtle visual tells to generation prompts">
+          <LabeledChipRow
+            options={SPECIES_OPTIONS}
+            value={spec.species}
+            onChange={(v) => propagate({ ...spec, species: (v || 'human') as Species, species_tells: [] })}
+          />
+        </SectionGroup>
+
+        {/* Tells — only shown for non-human species */}
+        {spec.species && spec.species !== 'human' && (
+          <SectionGroup
+            label="Supernatural Tells"
+            helper={`Select up to 3 subtle visual hints (${spec.species_tells.length}/3)`}
+          >
+            <ChipRow
+              options={SPECIES_TELLS_MAP[spec.species as Species] ?? []}
+              value={spec.species_tells}
+              onChange={(v) => propagate({ ...spec, species_tells: v as string[] })}
+              multi
+              maxMulti={3}
+            />
+          </SectionGroup>
+        )}
       </div>
 
       {/* ── Divider ────────────────────────────────────────────────── */}

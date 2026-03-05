@@ -1,4 +1,6 @@
 """Schemas for character visual endpoints (identity pack + moment generation)."""
+import enum
+import re as _re
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
@@ -35,6 +37,21 @@ _GENDER_NORMALISE: dict[str, str] = {
 
 # Accepted age band values.
 _VALID_AGE_BANDS = {"18-25", "26-35", "36-50", "50+"}
+
+# Valid characters in species tells (letters, digits, spaces, underscore, hyphen).
+_TELL_RE = _re.compile(r'^[a-zA-Z0-9 _\-]{1,32}$')
+
+
+class SpeciesEnum(str, enum.Enum):
+    """Canonical species values for CharacterIdentitySpec."""
+    HUMAN = "human"
+    VAMPIRE = "vampire"
+    WEREWOLF = "werewolf"
+    WITCH = "witch"
+    DEMON = "demon"
+    ANGEL = "angel"
+    FAE = "fae"
+    OTHER = "other"
 
 
 # ── Structured Character Identity Spec ───────────────────────────────
@@ -81,6 +98,8 @@ class CharacterIdentitySpec(BaseModel):
     style: str = "realistic"
     gender: str = Field(..., description="Character gender: male, female, or other (aliases: man/woman/non-binary)")
     age_band: str = Field(..., description="Age range: 18-25, 26-35, 36-50, or 50+")
+    species: SpeciesEnum = SpeciesEnum.HUMAN
+    species_tells: list[str] = Field(default_factory=list, description="Up to 3 subtle visual tells for non-human species (e.g. subtle_fangs, golden_eyes)")
     identity: Optional[IdentityCore] = None
     build: Optional[IdentityBuild] = None
     marks_accessories: Optional[IdentityMarksAccessories] = None
@@ -117,6 +136,25 @@ class CharacterIdentitySpec(BaseModel):
         if stripped not in _VALID_AGE_BANDS:
             raise ValueError(f"age_band must be one of: {', '.join(sorted(_VALID_AGE_BANDS))}")
         return stripped
+
+    @field_validator("species_tells", mode="before")
+    @classmethod
+    def _validate_species_tells(cls, v) -> list[str]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            raise ValueError("species_tells must be a list")
+        if len(v) > 3:
+            raise ValueError("species_tells may contain at most 3 items")
+        for tell in v:
+            if not isinstance(tell, str):
+                raise ValueError("each species tell must be a string")
+            if not _TELL_RE.match(tell):
+                raise ValueError(
+                    f"species tell {tell!r} is invalid — use letters, digits, spaces, "
+                    "underscores, or hyphens only (max 32 chars)"
+                )
+        return v
 
 
 # ── Identity Pack Generate ───────────────────────────────────────────
