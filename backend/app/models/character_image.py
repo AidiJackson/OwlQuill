@@ -51,9 +51,23 @@ class CharacterImage(Base):
         index=True,
     )
 
-    kind = Column(SQLEnum(ImageKindEnum), nullable=False)
-    status = Column(SQLEnum(ImageStatusEnum), default=ImageStatusEnum.ACTIVE, nullable=False)
-    visibility = Column(SQLEnum(ImageVisibilityEnum), default=ImageVisibilityEnum.PRIVATE, nullable=False)
+    # values_callable ensures SQLAlchemy stores the enum VALUE (e.g. "identity_sketch")
+    # not the member NAME (e.g. "IDENTITY_SKETCH").  The PostgreSQL enum type is
+    # recreated by migration b14_2 to use the same lowercase value strings.
+    kind = Column(
+        SQLEnum(ImageKindEnum, values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+    )
+    status = Column(
+        SQLEnum(ImageStatusEnum, values_callable=lambda obj: [e.value for e in obj]),
+        default=ImageStatusEnum.ACTIVE,
+        nullable=False,
+    )
+    visibility = Column(
+        SQLEnum(ImageVisibilityEnum, values_callable=lambda obj: [e.value for e in obj]),
+        default=ImageVisibilityEnum.PRIVATE,
+        nullable=False,
+    )
 
     provider = Column(String, nullable=True)       # e.g. "stub", "dall-e-3"
     prompt_summary = Column(String, nullable=True)  # short human-readable description

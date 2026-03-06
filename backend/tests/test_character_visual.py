@@ -1814,6 +1814,59 @@ def test_accept_creates_identity_face_ref(client: TestClient, db_session):
     assert abs_path.exists(), f"Face ref file not found on disk: {abs_path}"
 
 
+# ── B14.2: Enum value regression ──────────────────────────────────────
+
+def test_image_kind_enum_values_are_lowercase():
+    """ImageKindEnum member values must be lowercase strings (not names).
+
+    This ensures that with values_callable the DB stores 'identity_sketch',
+    not 'IDENTITY_SKETCH'.
+    """
+    from app.models.character_image import ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
+
+    assert ImageKindEnum.IDENTITY_SKETCH.value == "identity_sketch"
+    assert ImageKindEnum.ANCHOR_FULL_BODY.value == "anchor_full_body"
+    assert ImageKindEnum.IDENTITY_FACE_REF.value == "identity_face_ref"
+    assert ImageKindEnum.ANCHOR_FRONT.value == "anchor_front"
+    assert ImageKindEnum.GENERATED.value == "generated"
+
+    assert ImageStatusEnum.ACTIVE.value == "active"
+    assert ImageStatusEnum.ARCHIVED.value == "archived"
+
+    assert ImageVisibilityEnum.PRIVATE.value == "private"
+    assert ImageVisibilityEnum.PUBLIC.value == "public"
+
+
+def test_identity_sketch_kind_stored_as_lowercase_value(client: TestClient):
+    """Sketch endpoint must store CharacterImage.kind == 'identity_sketch' (lowercase value)."""
+    from app.models.character_image import CharacterImage, ImageKindEnum
+    from app.core.database import Base
+    from sqlalchemy import inspect as sa_inspect
+
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-sketch/generate",
+        json={"style": "pencil"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    image_id = resp.json()["image_id"]
+
+    # Read raw value directly from DB session to confirm it's lowercase
+    from tests.conftest import TestingSessionLocal
+    db = TestingSessionLocal()
+    try:
+        img = db.query(CharacterImage).filter(CharacterImage.id == image_id).first()
+        assert img is not None
+        # With values_callable the stored enum member should equal the lowercase value
+        assert img.kind == ImageKindEnum.IDENTITY_SKETCH
+        assert img.kind.value == "identity_sketch"
+    finally:
+        db.close()
+
+
 # ── Identity sketch anchor ────────────────────────────────────────────
 
 def test_generate_identity_sketch_default_style(client: TestClient):
