@@ -2031,6 +2031,136 @@ def test_identity_spec_species_vampire_in_sketch_prompt_preview(client: TestClie
     )
 
 
+# ── B14: Facial geometry fields in CharacterIdentitySpec ──────────────
+
+def test_facial_geometry_fields_accepted_in_identity_spec(client: TestClient):
+    """All new B14 facial geometry fields are accepted in identity_spec."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "female",
+                "age_band": "26-35",
+                "face_shape": "oval",
+                "jaw_type": "soft",
+                "cheekbone_type": "high",
+                "eye_shape": "almond",
+                "eye_spacing": "average",
+                "brow_type": "arched",
+                "nose_type": "straight",
+                "lip_type": "balanced",
+                "hairline_type": "straight",
+                "facial_hair_type": "none",
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_facial_geometry_invalid_face_shape_rejected(client: TestClient):
+    """face_shape with unknown value is rejected with 422."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "male",
+                "age_band": "18-25",
+                "face_shape": "triangle",  # invalid
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+
+
+def test_facial_geometry_invalid_jaw_type_rejected(client: TestClient):
+    """jaw_type with unknown value is rejected with 422."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "male",
+                "age_band": "18-25",
+                "jaw_type": "massive",  # invalid
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+
+
+def test_facial_geometry_fields_appear_in_sketch_prompt(client: TestClient):
+    """Facial geometry fields must be included in the sketch prompt_preview."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # Store a spec with several geometry fields
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "male",
+                "age_band": "36-50",
+                "face_shape": "square",
+                "jaw_type": "sharp",
+                "eye_shape": "deep_set",
+                "nose_type": "roman",
+                "lip_type": "thin",
+                "facial_hair_type": "short_beard",
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    resp = client.post(
+        f"/characters/{cid}/identity-sketch/generate",
+        json={"style": "pencil"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    preview = resp.json()["prompt_preview"].lower()
+
+    assert "square" in preview, f"Expected 'square' in prompt: {preview!r}"
+    assert "roman" in preview, f"Expected 'roman' in prompt: {preview!r}"
+    assert "short beard" in preview, f"Expected 'short beard' in prompt: {preview!r}"
+
+
+def test_facial_geometry_null_fields_accepted(client: TestClient):
+    """Explicitly null facial geometry fields are accepted (backward-compatible)."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "female",
+                "age_band": "26-35",
+                "face_shape": None,
+                "jaw_type": None,
+                "facial_hair_type": None,
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 # ── B12: Face signature in accept_identity_pack ───────────────────────
 
 def _generate_and_accept(client, token, cid):

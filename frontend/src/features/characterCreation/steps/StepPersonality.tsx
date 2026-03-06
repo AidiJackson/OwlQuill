@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Check } from 'lucide-react';
+import { Check, ChevronRight, Edit2 } from 'lucide-react';
 import type { CreationSeeds, IdentitySpec, Species } from '../shared/types';
 import {
   PERSONALITY_TRAITS,
@@ -10,17 +10,24 @@ import {
   HAIR_LENGTHS,
   EYE_COLORS,
   SKIN_TONES,
-  FACE_FEATURES,
-  BODY_TYPES,
-  HEIGHT_BANDS,
   MARKS_ACCESSORIES,
   SPECIES_OPTIONS,
   SPECIES_TELLS_MAP,
+  FACE_SHAPES,
+  JAW_TYPES,
+  CHEEKBONE_TYPES,
+  EYE_SHAPES,
+  EYE_SPACINGS,
+  BROW_TYPES,
+  NOSE_TYPES,
+  LIP_TYPES,
+  HAIRLINE_TYPES,
+  FACIAL_HAIR_TYPES,
 } from '../shared/types';
+import SketchFacePreview from '../components/SketchFacePreview';
 
 /* ── Constants ─────────────────────────────────────────────────────── */
 
-const MAX_FACE_FEATURES = 2;
 const MAX_EXTRA_NOTES = 120;
 
 const EMPTY_SPEC: IdentitySpec = {
@@ -29,63 +36,28 @@ const EMPTY_SPEC: IdentitySpec = {
   age_band: '',
   species: 'human',
   species_tells: [],
-  identity: {
-    hair_color: '',
-    hair_length: '',
-    eye_color: '',
-    skin_tone: '',
-    face_features: [],
-  },
-  build: {
-    body_type: '',
-    height_band: '',
-  },
+  identity: { hair_color: '', hair_length: '', eye_color: '', skin_tone: '', face_features: [] },
+  build: { body_type: '', height_band: '' },
   marks_accessories: { items: [] },
-  wardrobe: {
-    outfit_type: '',
-    primary_color: '',
-    secondary_color: '',
-    footwear: '',
-    accessory: '',
-    notes: '',
-  },
+  wardrobe: { outfit_type: '', primary_color: '', secondary_color: '', footwear: '', accessory: '', notes: '' },
   extra_notes: '',
+};
+
+// ── Question groups ──────────────────────────────────────────────────
+
+type GroupId = 0 | 1 | 2 | 3 | 4 | 5;
+
+const GROUP_COPY: Record<GroupId, { heading: string; sub: string }> = {
+  0: { heading: "Let's start with the basics.", sub: "Style, gender, age, species." },
+  1: { heading: "Now, the shape of the face.", sub: "How does the structure read?" },
+  2: { heading: "And the eyes?", sub: "The eyes give everything away." },
+  3: { heading: "What about the nose and mouth?", sub: "The defining middle third." },
+  4: { heading: "Hair and complexion.", sub: "Last of the solid details." },
+  5: { heading: "Anything distinctive I should capture?", sub: "Marks, species tells, final notes." },
 };
 
 /* ── Reusable sub-components ───────────────────────────────────────── */
 
-/** Section heading with optional "done" checkmark and helper text. */
-function SectionGroup({
-  label,
-  helper,
-  children,
-  required,
-  done,
-  className = '',
-}: {
-  label: string;
-  helper?: string;
-  children: React.ReactNode;
-  required?: boolean;
-  done?: boolean;
-  className?: string;
-}) {
-  return (
-    <div className={className}>
-      <div className="flex items-center gap-1.5 mb-2">
-        <label className="block text-sm font-medium text-gray-300">
-          {label}
-          {required && <span className="text-emerald-400 ml-1">*</span>}
-        </label>
-        {done && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
-      </div>
-      {children}
-      {helper && <p className="text-xs text-gray-500 mt-1.5">{helper}</p>}
-    </div>
-  );
-}
-
-/** A row of small chip buttons. Single-select toggles the value; multi-select toggles membership. */
 function ChipRow({
   options,
   value,
@@ -129,8 +101,8 @@ function ChipRow({
               selected
                 ? 'bg-emerald-600 border-emerald-500 text-white'
                 : disabled
-                  ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
-                  : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+                ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
+                : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
             }`}
           >
             {option}
@@ -141,7 +113,6 @@ function ChipRow({
   );
 }
 
-/** Chip row where display label differs from stored value. */
 function LabeledChipRow({
   options,
   value,
@@ -174,7 +145,6 @@ function LabeledChipRow({
   );
 }
 
-/** Styled select dropdown. */
 function SelectField({
   options,
   value,
@@ -204,6 +174,97 @@ function SelectField({
   );
 }
 
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-xs font-medium text-gray-400">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+/* ── Group summary row (collapsed state) ───────────────────────────── */
+
+function GroupSummary({
+  groupId,
+  spec,
+  traits,
+  onEdit,
+}: {
+  groupId: GroupId;
+  spec: IdentitySpec;
+  traits: string[];
+  onEdit: () => void;
+}) {
+  const copy = GROUP_COPY[groupId];
+  const summary = buildGroupSummary(groupId, spec, traits);
+
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      className="w-full flex items-center justify-between gap-3 px-3 py-2.5
+                 rounded-lg bg-gray-900/60 border border-gray-800 text-left
+                 hover:border-gray-700 transition-colors group"
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+        <span className="text-xs font-medium text-gray-400 shrink-0">{copy.heading.replace('.', '')}</span>
+        {summary && (
+          <span className="text-xs text-gray-500 truncate">&mdash; {summary}</span>
+        )}
+      </div>
+      <Edit2 className="w-3 h-3 text-gray-600 group-hover:text-gray-400 shrink-0 transition-colors" />
+    </button>
+  );
+}
+
+function buildGroupSummary(groupId: GroupId, spec: IdentitySpec, _traits: string[]): string {
+  switch (groupId) {
+    case 0: {
+      const parts: string[] = [];
+      if (spec.gender) parts.push(GENDER_OPTIONS.find((g) => g.value === spec.gender)?.label ?? spec.gender);
+      if (spec.age_band) parts.push(spec.age_band);
+      if (spec.species && spec.species !== 'human') parts.push(spec.species);
+      if (spec.style) parts.push(spec.style);
+      return parts.join(', ');
+    }
+    case 1: {
+      const parts: string[] = [];
+      if (spec.face_shape) parts.push(spec.face_shape + ' face');
+      if (spec.jaw_type) parts.push(spec.jaw_type + ' jaw');
+      if (spec.cheekbone_type) parts.push(spec.cheekbone_type + ' cheekbones');
+      return parts.join(', ');
+    }
+    case 2: {
+      const parts: string[] = [];
+      if (spec.eye_shape) parts.push(spec.eye_shape + ' eyes');
+      if (spec.identity.eye_color) parts.push(spec.identity.eye_color);
+      if (spec.brow_type) parts.push(spec.brow_type + ' brows');
+      return parts.join(', ');
+    }
+    case 3: {
+      const parts: string[] = [];
+      if (spec.nose_type) parts.push(spec.nose_type + ' nose');
+      if (spec.lip_type) parts.push(spec.lip_type + ' lips');
+      return parts.join(', ');
+    }
+    case 4: {
+      const parts: string[] = [];
+      if (spec.identity.hair_color) parts.push(spec.identity.hair_color);
+      if (spec.identity.hair_length) parts.push(spec.identity.hair_length);
+      if (spec.identity.skin_tone) parts.push(spec.identity.skin_tone + ' skin');
+      return parts.join(', ');
+    }
+    case 5: {
+      const parts: string[] = [];
+      if (spec.marks_accessories.items.length) parts.push(spec.marks_accessories.items.join(', '));
+      if (spec.extra_notes) parts.push('"' + spec.extra_notes.slice(0, 32) + (spec.extra_notes.length > 32 ? '…' : '') + '"');
+      return parts.join(' · ');
+    }
+  }
+}
+
 /* ── Main component ────────────────────────────────────────────────── */
 
 interface Props {
@@ -216,7 +277,8 @@ interface Props {
 
 export default function StepPersonality({ data, onChange, onNext, onBack, saving }: Props) {
   const [spec, setSpec] = useState<IdentitySpec>(data.identitySpec ?? EMPTY_SPEC);
-  const [extraNotes, setExtraNotes] = useState(spec.extra_notes);
+  const [activeGroup, setActiveGroup] = useState<GroupId>(0);
+  const [farthestGroup, setFarthestGroup] = useState<GroupId>(0);
   const [triedSubmit, setTriedSubmit] = useState(false);
 
   const propagate = useCallback(
@@ -229,23 +291,27 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
 
   /* ── Field updaters ──────────────────────────────────────────────── */
 
-  const updateIdentity = (field: string, value: string | string[]) => {
+  const set = (field: keyof IdentitySpec, value: unknown) =>
+    propagate({ ...spec, [field]: value });
+
+  const setIdentity = (field: string, value: string | string[]) =>
     propagate({ ...spec, identity: { ...spec.identity, [field]: value } });
+
+  const advanceGroup = () => {
+    const next = Math.min(activeGroup + 1, 5) as GroupId;
+    setActiveGroup(next);
+    if (next > farthestGroup) setFarthestGroup(next);
   };
 
-  const updateBuild = (field: string, value: string) => {
-    propagate({ ...spec, build: { ...spec.build, [field]: value } });
-  };
+  const canProceed = !saving && !!spec.style && !!spec.gender && !!spec.age_band;
 
-  const updateMarks = (items: string[]) => {
-    propagate({ ...spec, marks_accessories: { items } });
-  };
-
-  const handleExtraNotes = (value: string) => {
-    if (value.length <= MAX_EXTRA_NOTES) {
-      setExtraNotes(value);
-      propagate({ ...spec, extra_notes: value });
+  const handleNext = () => {
+    if (!canProceed) {
+      setTriedSubmit(true);
+      setActiveGroup(0);
+      return;
     }
+    onNext();
   };
 
   const toggleTrait = (trait: string) => {
@@ -255,238 +321,337 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
     onChange({ ...data, traits: next });
   };
 
-  const canProceed = !saving && !!spec.style && !!spec.gender && !!spec.age_band;
+  /* ── Render group content ────────────────────────────────────────── */
 
-  const handleNext = () => {
-    if (!canProceed) {
-      setTriedSubmit(true);
-      return;
+  function renderGroup(g: GroupId) {
+    switch (g) {
+      case 0:
+        return (
+          <div className="space-y-4">
+            <FieldRow label="Style">
+              <SelectField
+                options={[...STYLE_OPTIONS]}
+                value={spec.style}
+                onChange={(v) => set('style', v)}
+                placeholder="Select a visual style"
+              />
+            </FieldRow>
+            <FieldRow label="Gender">
+              <LabeledChipRow
+                options={GENDER_OPTIONS}
+                value={spec.gender}
+                onChange={(v) => set('gender', v)}
+              />
+            </FieldRow>
+            <FieldRow label="Age range">
+              <ChipRow
+                options={AGE_BAND_OPTIONS}
+                value={spec.age_band}
+                onChange={(v) => set('age_band', v as string)}
+              />
+            </FieldRow>
+            <FieldRow label="Species">
+              <LabeledChipRow
+                options={SPECIES_OPTIONS}
+                value={spec.species}
+                onChange={(v) =>
+                  propagate({ ...spec, species: (v || 'human') as Species, species_tells: [] })
+                }
+              />
+            </FieldRow>
+          </div>
+        );
+
+      case 1:
+        return (
+          <div className="space-y-4">
+            <FieldRow label="Face shape">
+              <LabeledChipRow
+                options={FACE_SHAPES}
+                value={spec.face_shape ?? ''}
+                onChange={(v) => set('face_shape', v || undefined)}
+              />
+            </FieldRow>
+            <FieldRow label="Jaw">
+              <LabeledChipRow
+                options={JAW_TYPES}
+                value={spec.jaw_type ?? ''}
+                onChange={(v) => set('jaw_type', v || undefined)}
+              />
+            </FieldRow>
+            <FieldRow label="Cheekbones">
+              <LabeledChipRow
+                options={CHEEKBONE_TYPES}
+                value={spec.cheekbone_type ?? ''}
+                onChange={(v) => set('cheekbone_type', v || undefined)}
+              />
+            </FieldRow>
+          </div>
+        );
+
+      case 2:
+        return (
+          <div className="space-y-4">
+            <FieldRow label="Eye shape">
+              <LabeledChipRow
+                options={EYE_SHAPES}
+                value={spec.eye_shape ?? ''}
+                onChange={(v) => set('eye_shape', v || undefined)}
+              />
+            </FieldRow>
+            <FieldRow label="Eye spacing">
+              <LabeledChipRow
+                options={EYE_SPACINGS}
+                value={spec.eye_spacing ?? ''}
+                onChange={(v) => set('eye_spacing', v || undefined)}
+              />
+            </FieldRow>
+            <FieldRow label="Eye colour">
+              <ChipRow
+                options={EYE_COLORS}
+                value={spec.identity.eye_color}
+                onChange={(v) => setIdentity('eye_color', v as string)}
+              />
+            </FieldRow>
+            <FieldRow label="Brows">
+              <LabeledChipRow
+                options={BROW_TYPES}
+                value={spec.brow_type ?? ''}
+                onChange={(v) => set('brow_type', v || undefined)}
+              />
+            </FieldRow>
+          </div>
+        );
+
+      case 3:
+        return (
+          <div className="space-y-4">
+            <FieldRow label="Nose">
+              <LabeledChipRow
+                options={NOSE_TYPES}
+                value={spec.nose_type ?? ''}
+                onChange={(v) => set('nose_type', v || undefined)}
+              />
+            </FieldRow>
+            <FieldRow label="Lips">
+              <LabeledChipRow
+                options={LIP_TYPES}
+                value={spec.lip_type ?? ''}
+                onChange={(v) => set('lip_type', v || undefined)}
+              />
+            </FieldRow>
+          </div>
+        );
+
+      case 4:
+        return (
+          <div className="space-y-4">
+            <FieldRow label="Hair colour">
+              <ChipRow
+                options={HAIR_COLORS}
+                value={spec.identity.hair_color}
+                onChange={(v) => setIdentity('hair_color', v as string)}
+              />
+            </FieldRow>
+            <FieldRow label="Hair length">
+              <ChipRow
+                options={HAIR_LENGTHS}
+                value={spec.identity.hair_length}
+                onChange={(v) => setIdentity('hair_length', v as string)}
+              />
+            </FieldRow>
+            <FieldRow label="Hairline">
+              <LabeledChipRow
+                options={HAIRLINE_TYPES}
+                value={spec.hairline_type ?? ''}
+                onChange={(v) => set('hairline_type', v || undefined)}
+              />
+            </FieldRow>
+            <FieldRow label="Skin tone">
+              <ChipRow
+                options={SKIN_TONES}
+                value={spec.identity.skin_tone}
+                onChange={(v) => setIdentity('skin_tone', v as string)}
+              />
+            </FieldRow>
+            <FieldRow label="Facial hair">
+              <LabeledChipRow
+                options={FACIAL_HAIR_TYPES}
+                value={spec.facial_hair_type ?? ''}
+                onChange={(v) => set('facial_hair_type', v || undefined)}
+              />
+            </FieldRow>
+          </div>
+        );
+
+      case 5:
+        return (
+          <div className="space-y-4">
+            <FieldRow label="Marks and accessories">
+              <ChipRow
+                options={MARKS_ACCESSORIES}
+                value={spec.marks_accessories.items}
+                onChange={(v) =>
+                  propagate({ ...spec, marks_accessories: { items: v as string[] } })
+                }
+                multi
+              />
+            </FieldRow>
+
+            {spec.species && spec.species !== 'human' && (
+              <FieldRow label={`${spec.species.charAt(0).toUpperCase() + spec.species.slice(1)} tells (max 3)`}>
+                <ChipRow
+                  options={SPECIES_TELLS_MAP[spec.species as Species] ?? []}
+                  value={spec.species_tells}
+                  onChange={(v) => set('species_tells', v as string[])}
+                  multi
+                  maxMulti={3}
+                />
+              </FieldRow>
+            )}
+
+            <FieldRow label="Artist notes">
+              <textarea
+                className="w-full rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm
+                           px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:ring-2
+                           focus:ring-emerald-600/40 focus:border-emerald-500 transition-colors resize-none"
+                rows={2}
+                maxLength={MAX_EXTRA_NOTES}
+                placeholder="e.g. intense gaze, quiet dignity, faint scar above left brow"
+                value={spec.extra_notes}
+                onChange={(e) => {
+                  if (e.target.value.length <= MAX_EXTRA_NOTES) {
+                    set('extra_notes', e.target.value);
+                  }
+                }}
+              />
+              <div className="flex justify-end mt-0.5">
+                <span
+                  className={`text-xs ${
+                    (spec.extra_notes?.length ?? 0) >= MAX_EXTRA_NOTES
+                      ? 'text-red-400'
+                      : 'text-gray-600'
+                  }`}
+                >
+                  {spec.extra_notes?.length ?? 0} / {MAX_EXTRA_NOTES}
+                </span>
+              </div>
+            </FieldRow>
+
+            {/* Personality traits — surfaced here as optional colour */}
+            <FieldRow label="Personality traits (optional)">
+              <div className="flex flex-wrap gap-1.5">
+                {PERSONALITY_TRAITS.map((trait) => {
+                  const selected = data.traits.includes(trait);
+                  return (
+                    <button
+                      key={trait}
+                      type="button"
+                      onClick={() => toggleTrait(trait)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
+                        selected
+                          ? 'bg-emerald-600 border-emerald-500 text-white'
+                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+                      }`}
+                    >
+                      {trait}
+                    </button>
+                  );
+                })}
+              </div>
+            </FieldRow>
+          </div>
+        );
     }
-    onNext();
-  };
+  }
 
   /* ── Render ──────────────────────────────────────────────────────── */
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="text-center space-y-2">
+      <div className="text-center space-y-1">
         <h2 className="text-xl font-semibold text-gray-100">Sketch Interview</h2>
-        <p className="text-sm text-gray-400">
-          Answer a few quick questions so our sketch artist can capture the face accurately.
+        <p className="text-sm text-gray-500">
+          Describe the face. The artist is listening.
         </p>
       </div>
 
-      {/* ── Personality Traits ─────────────────────────────────────── */}
-      <SectionGroup label="Personality Traits">
-        <div className="flex flex-wrap gap-2">
-          {PERSONALITY_TRAITS.map((trait) => {
-            const selected = data.traits.includes(trait);
-            return (
-              <button
-                key={trait}
-                type="button"
-                onClick={() => toggleTrait(trait)}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
-                  selected
-                    ? 'bg-emerald-600 border-emerald-500 text-white'
-                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
-                }`}
-              >
-                {trait}
-              </button>
-            );
-          })}
+      {/* Two-column layout: face preview (left) + interview (right) */}
+      <div className="flex gap-4 items-start">
+        {/* Progressive face preview */}
+        <div className="shrink-0 pt-1">
+          <SketchFacePreview spec={spec} />
         </div>
-      </SectionGroup>
 
-      <div className="border-t border-gray-800" />
-
-      {/* ── Section A: Identity ─────────────────────────────────────── */}
-      <div className="space-y-1">
-        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">
-          A — Identity <span className="text-gray-600 normal-case">(required)</span>
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        <SectionGroup label="Style" required done={!!spec.style}>
-          <SelectField
-            options={[...STYLE_OPTIONS]}
-            value={spec.style}
-            onChange={(v) => propagate({ ...spec, style: v })}
-            placeholder="Select a visual style"
-          />
-        </SectionGroup>
-
-        <SectionGroup label="Gender" required done={!!spec.gender}>
-          <LabeledChipRow
-            options={GENDER_OPTIONS}
-            value={spec.gender}
-            onChange={(v) => propagate({ ...spec, gender: v })}
-          />
-        </SectionGroup>
-
-        <SectionGroup label="Age Range" required done={!!spec.age_band}>
-          <ChipRow
-            options={AGE_BAND_OPTIONS}
-            value={spec.age_band}
-            onChange={(v) => propagate({ ...spec, age_band: v as string })}
-          />
-        </SectionGroup>
-
-        <SectionGroup label="Species" done={spec.species !== 'human' || !!spec.species}>
-          <LabeledChipRow
-            options={SPECIES_OPTIONS}
-            value={spec.species}
-            onChange={(v) =>
-              propagate({ ...spec, species: (v || 'human') as Species, species_tells: [] })
-            }
-          />
-        </SectionGroup>
-      </div>
-
-      <div className="border-t border-gray-800" />
-
-      {/* ── Section B: Facial Appearance ────────────────────────────── */}
-      <div>
-        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-4">
-          B — Facial Appearance <span className="text-gray-600 normal-case">(optional)</span>
-        </p>
-        <div className="space-y-4">
-          <SectionGroup label="Hair Color">
-            <ChipRow
-              options={HAIR_COLORS}
-              value={spec.identity.hair_color}
-              onChange={(v) => updateIdentity('hair_color', v as string)}
-            />
-          </SectionGroup>
-
-          <SectionGroup label="Hair Length">
-            <ChipRow
-              options={HAIR_LENGTHS}
-              value={spec.identity.hair_length}
-              onChange={(v) => updateIdentity('hair_length', v as string)}
-            />
-          </SectionGroup>
-
-          <SectionGroup label="Eye Color">
-            <ChipRow
-              options={EYE_COLORS}
-              value={spec.identity.eye_color}
-              onChange={(v) => updateIdentity('eye_color', v as string)}
-            />
-          </SectionGroup>
-
-          <SectionGroup label="Skin Tone">
-            <ChipRow
-              options={SKIN_TONES}
-              value={spec.identity.skin_tone}
-              onChange={(v) => updateIdentity('skin_tone', v as string)}
-            />
-          </SectionGroup>
-
-          <SectionGroup label="Face Features" helper={`Select up to ${MAX_FACE_FEATURES}`}>
-            <ChipRow
-              options={FACE_FEATURES}
-              value={spec.identity.face_features}
-              onChange={(v) => updateIdentity('face_features', v)}
-              multi
-              maxMulti={MAX_FACE_FEATURES}
-            />
-          </SectionGroup>
-
-          <SectionGroup label="Marks and Accessories" helper="Select any that apply">
-            <ChipRow
-              options={MARKS_ACCESSORIES}
-              value={spec.marks_accessories.items}
-              onChange={(v) => updateMarks(v as string[])}
-              multi
-            />
-          </SectionGroup>
-        </div>
-      </div>
-
-      {/* ── Section B.2: Build ──────────────────────────────────────── */}
-      <div className="space-y-4">
-        <SectionGroup label="Body Type">
-          <ChipRow
-            options={BODY_TYPES}
-            value={spec.build.body_type}
-            onChange={(v) => updateBuild('body_type', v as string)}
-          />
-        </SectionGroup>
-
-        <SectionGroup label="Height">
-          <ChipRow
-            options={HEIGHT_BANDS}
-            value={spec.build.height_band}
-            onChange={(v) => updateBuild('height_band', v as string)}
-          />
-        </SectionGroup>
-      </div>
-
-      {/* ── Section C: Supernatural Tells ───────────────────────────── */}
-      {spec.species && spec.species !== 'human' && (
-        <>
-          <div className="border-t border-gray-800" />
-          <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-4">
-              C — Supernatural Tells <span className="text-gray-600 normal-case">(optional, max 3)</span>
-            </p>
-            <SectionGroup
-              label="Visual Tells"
-              helper={`Subtle hints visible in the sketch (${spec.species_tells.length}/3)`}
-            >
-              <ChipRow
-                options={SPECIES_TELLS_MAP[spec.species as Species] ?? []}
-                value={spec.species_tells}
-                onChange={(v) => propagate({ ...spec, species_tells: v as string[] })}
-                multi
-                maxMulti={3}
+        {/* Interview column */}
+        <div className="flex-1 min-w-0 space-y-2">
+          {/* Completed groups — summary rows */}
+          {([0, 1, 2, 3, 4, 5] as GroupId[])
+            .filter((g) => g < activeGroup && g <= farthestGroup)
+            .map((g) => (
+              <GroupSummary
+                key={g}
+                groupId={g}
+                spec={spec}
+                traits={data.traits}
+                onEdit={() => setActiveGroup(g)}
               />
-            </SectionGroup>
-          </div>
-        </>
-      )}
+            ))}
 
-      <div className="border-t border-gray-800" />
+          {/* Active group */}
+          <div className="rounded-xl border border-gray-700 bg-gray-900/40 overflow-hidden">
+            {/* Group heading */}
+            <div className="px-4 pt-4 pb-2">
+              <p className="text-sm font-semibold text-gray-100">
+                {GROUP_COPY[activeGroup].heading}
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">{GROUP_COPY[activeGroup].sub}</p>
+            </div>
 
-      {/* ── Section D: Artist Notes ──────────────────────────────────── */}
-      <div>
-        <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-4">
-          D — Artist Notes <span className="text-gray-600 normal-case">(optional)</span>
-        </p>
-        <SectionGroup
-          label="Anything distinctive the artist should know?"
-          helper="Use this for small face or vibe details, not clothing."
-        >
-          <textarea
-            className="w-full rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm
-                       px-3 py-2 placeholder:text-gray-600 focus:outline-none focus:ring-2
-                       focus:ring-emerald-600/40 focus:border-emerald-500 transition-colors resize-none"
-            rows={2}
-            maxLength={MAX_EXTRA_NOTES}
-            placeholder="e.g. intense gaze, quiet dignity, faint scar above left brow"
-            value={extraNotes}
-            onChange={(e) => handleExtraNotes(e.target.value)}
-          />
-          <div className="flex justify-end mt-1">
-            <span className={`text-xs ${extraNotes.length >= MAX_EXTRA_NOTES ? 'text-red-400' : 'text-gray-500'}`}>
-              {extraNotes.length} / {MAX_EXTRA_NOTES}
-            </span>
+            {/* Group fields */}
+            <div className="px-4 pb-4">{renderGroup(activeGroup)}</div>
+
+            {/* Group navigation */}
+            <div className="px-4 pb-4 flex justify-end">
+              {activeGroup < 5 ? (
+                <button
+                  type="button"
+                  onClick={advanceGroup}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg
+                             bg-gray-800 border border-gray-700 text-gray-300 text-sm
+                             hover:border-gray-600 hover:text-gray-100 transition-colors"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                /* Final group — show validation hint but no second "Next" here */
+                triedSubmit && !canProceed ? (
+                  <p className="text-xs text-amber-400/90 text-right">
+                    Style, Gender and Age are required — check Q1.
+                  </p>
+                ) : null
+              )}
+            </div>
           </div>
-        </SectionGroup>
+
+          {/* Groups not yet reached — upcoming indicator */}
+          {activeGroup < 5 && (
+            <p className="text-xs text-gray-600 text-right">
+              {5 - activeGroup} question{5 - activeGroup !== 1 ? 's' : ''} remaining
+            </p>
+          )}
+        </div>
       </div>
 
-      {/* Required fields reminder — only after a submit attempt */}
+      {/* Required fields reminder after submit attempt */}
       {triedSubmit && !canProceed && (
         <p className="text-xs text-amber-400/90 text-center">
           Style, Gender, and Age Range are required to continue.
         </p>
       )}
 
-      {/* ── Navigation ─────────────────────────────────────────────── */}
+      {/* Navigation */}
       <div className="flex justify-between pt-2">
         <button className="btn btn-secondary" onClick={onBack}>
           Back
@@ -496,7 +661,7 @@ export default function StepPersonality({ data, onChange, onNext, onBack, saving
           onClick={handleNext}
           disabled={saving}
         >
-          {saving ? 'Saving…' : 'Next'}
+          {saving ? 'Saving…' : 'Continue to Sketch'}
         </button>
       </div>
     </div>

@@ -119,6 +119,13 @@ export default function StepSketch({
         </div>
       </div>
 
+      {/* Lead-in copy before first generation */}
+      {!sketch && !loading && (
+        <p className="text-sm text-gray-500 text-center italic">
+          "Alright… let's see if I've captured them."
+        </p>
+      )}
+
       {/* Generate / Refine button */}
       <button
         onClick={handleGenerate}

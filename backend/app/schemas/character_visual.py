@@ -2,7 +2,7 @@
 import enum
 import re as _re
 from typing import Literal, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from app.schemas.character_dna import CharacterDNARead
 from app.schemas.character_image import CharacterImageRead
@@ -40,6 +40,35 @@ _VALID_AGE_BANDS = {"18-25", "26-35", "36-50", "50+"}
 
 # Valid characters in species tells (letters, digits, spaces, underscore, hyphen).
 _TELL_RE = _re.compile(r'^[a-zA-Z0-9 _\-]{1,32}$')
+
+# ── Facial geometry enum sets (B14) ──────────────────────────────────
+
+_VALID_FACE_SHAPES = {"oval", "square", "angular", "round", "long"}
+_VALID_JAW_TYPES = {"sharp", "square", "soft", "narrow"}
+_VALID_CHEEKBONE_TYPES = {"high", "subtle", "wide"}
+_VALID_EYE_SHAPES = {"almond", "round", "narrow", "deep_set"}
+_VALID_EYE_SPACINGS = {"close_set", "average", "wide_set"}
+_VALID_BROW_TYPES = {"straight", "arched", "thick", "sharp"}
+_VALID_NOSE_TYPES = {"straight", "narrow", "broad", "hooked", "roman", "upturned"}
+_VALID_LIP_TYPES = {"thin", "balanced", "full", "cupid_bow"}
+_VALID_HAIRLINE_TYPES = {"straight", "receding", "widows_peak", "messy"}
+_VALID_FACIAL_HAIR_TYPES = {
+    "none", "stubble", "short_beard", "full_beard",
+    "long_beard", "mustache", "goatee",
+}
+
+_FACIAL_GEOMETRY_FIELD_MAP: dict[str, set[str]] = {
+    "face_shape": _VALID_FACE_SHAPES,
+    "jaw_type": _VALID_JAW_TYPES,
+    "cheekbone_type": _VALID_CHEEKBONE_TYPES,
+    "eye_shape": _VALID_EYE_SHAPES,
+    "eye_spacing": _VALID_EYE_SPACINGS,
+    "brow_type": _VALID_BROW_TYPES,
+    "nose_type": _VALID_NOSE_TYPES,
+    "lip_type": _VALID_LIP_TYPES,
+    "hairline_type": _VALID_HAIRLINE_TYPES,
+    "facial_hair_type": _VALID_FACIAL_HAIR_TYPES,
+}
 
 
 class SpeciesEnum(str, enum.Enum):
@@ -106,6 +135,18 @@ class CharacterIdentitySpec(BaseModel):
     wardrobe: Optional[WardrobeSpec] = None  # accepted but ignored — neutral outfit enforced
     extra_notes: Optional[str] = Field(default=None, max_length=120)
 
+    # ── Facial geometry (B14) — all optional, backward-compatible ────
+    face_shape: Optional[str] = None        # oval | square | angular | round | long
+    jaw_type: Optional[str] = None          # sharp | square | soft | narrow
+    cheekbone_type: Optional[str] = None    # high | subtle | wide
+    eye_shape: Optional[str] = None         # almond | round | narrow | deep_set
+    eye_spacing: Optional[str] = None       # close_set | average | wide_set
+    brow_type: Optional[str] = None         # straight | arched | thick | sharp
+    nose_type: Optional[str] = None         # straight | narrow | broad | hooked | roman | upturned
+    lip_type: Optional[str] = None          # thin | balanced | full | cupid_bow
+    hairline_type: Optional[str] = None     # straight | receding | widows_peak | messy
+    facial_hair_type: Optional[str] = None  # none | stubble | short_beard | full_beard | long_beard | mustache | goatee
+
     @field_validator("style", mode="before")
     @classmethod
     def _coerce_style(cls, v) -> str:
@@ -155,6 +196,27 @@ class CharacterIdentitySpec(BaseModel):
                     "underscores, or hyphens only (max 32 chars)"
                 )
         return v
+
+    @field_validator(
+        "face_shape", "jaw_type", "cheekbone_type",
+        "eye_shape", "eye_spacing", "brow_type",
+        "nose_type", "lip_type", "hairline_type", "facial_hair_type",
+        mode="before",
+    )
+    @classmethod
+    def _validate_facial_geometry(cls, v: object, info: ValidationInfo) -> Optional[str]:
+        """Accept None/empty string (optional); otherwise enforce strict enum."""
+        if v is None or v == "":
+            return None
+        if not isinstance(v, str):
+            raise ValueError(f"{info.field_name} must be a string or null")
+        normed = v.strip().lower()
+        valid_set = _FACIAL_GEOMETRY_FIELD_MAP.get(info.field_name, set())
+        if valid_set and normed not in valid_set:
+            raise ValueError(
+                f"{info.field_name} must be one of: {', '.join(sorted(valid_set))}"
+            )
+        return normed
 
 
 # ── Identity Pack Generate ───────────────────────────────────────────

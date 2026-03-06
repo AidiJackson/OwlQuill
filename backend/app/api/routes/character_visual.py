@@ -1421,18 +1421,57 @@ def generate_identity_sketch(
             prompt_parts.append(f"{identity_spec.gender} character")
         if identity_spec.age_band:
             prompt_parts.append(f"age {identity_spec.age_band}")
+
+        # Facial geometry (B14) — enrich with structured face traits
+        _face_geo: list[str] = []
+        if identity_spec.face_shape:
+            _face_geo.append(f"{identity_spec.face_shape} face shape")
+        if identity_spec.jaw_type:
+            _face_geo.append(f"{identity_spec.jaw_type} jaw")
+        if identity_spec.cheekbone_type:
+            _face_geo.append(f"{identity_spec.cheekbone_type} cheekbones")
+        if _face_geo:
+            prompt_parts.append(", ".join(_face_geo))
+
+        _eye_geo: list[str] = []
+        if identity_spec.eye_shape:
+            _eye_geo.append(f"{identity_spec.eye_shape} eyes")
+        if identity_spec.eye_spacing:
+            _eye_geo.append(f"{identity_spec.eye_spacing.replace('_', ' ')} eyes")
+        if identity_spec.brow_type:
+            _eye_geo.append(f"{identity_spec.brow_type} brows")
+        if _eye_geo:
+            prompt_parts.append(", ".join(_eye_geo))
+
+        if identity_spec.nose_type:
+            prompt_parts.append(f"{identity_spec.nose_type} nose")
+        if identity_spec.lip_type:
+            lip = identity_spec.lip_type.replace("_", " ")
+            prompt_parts.append(f"{lip} lips")
+
         core = identity_spec.identity
         if core:
+            _hair: list[str] = []
+            if identity_spec.hairline_type:
+                _hair.append(f"{identity_spec.hairline_type.replace('_', ' ')} hairline")
             if core.hair_color:
-                prompt_parts.append(f"{core.hair_color} hair")
+                _hair.append(f"{core.hair_color} hair")
             if core.hair_length:
-                prompt_parts.append(f"{core.hair_length} hair length")
+                _hair.append(f"{core.hair_length} length")
+            if _hair:
+                prompt_parts.append(", ".join(_hair))
             if core.eye_color:
                 prompt_parts.append(f"{core.eye_color} eyes")
             if core.skin_tone:
                 prompt_parts.append(f"{core.skin_tone} skin")
             if core.face_features:
                 prompt_parts.append(", ".join(core.face_features))
+        elif identity_spec.hairline_type:
+            prompt_parts.append(f"{identity_spec.hairline_type.replace('_', ' ')} hairline")
+
+        if identity_spec.facial_hair_type and identity_spec.facial_hair_type != "none":
+            prompt_parts.append(identity_spec.facial_hair_type.replace("_", " "))
+
         # Species cues (skipped for human to avoid redundancy)
         from app.services.identity_compiler import _species_prompt as _sp
         species_desc = _sp(identity_spec)

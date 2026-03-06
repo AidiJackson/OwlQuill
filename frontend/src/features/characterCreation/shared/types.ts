@@ -81,6 +81,18 @@ export interface IdentitySpec {
   marks_accessories: { items: string[] };
   wardrobe: WardrobeSpec;  // accepted by backend but ignored — neutral outfit enforced
   extra_notes: string;
+
+  // Facial geometry (B14) — all optional
+  face_shape?: string;
+  jaw_type?: string;
+  cheekbone_type?: string;
+  eye_shape?: string;
+  eye_spacing?: string;
+  brow_type?: string;
+  nose_type?: string;
+  lip_type?: string;
+  hairline_type?: string;
+  facial_hair_type?: string;
 }
 
 // ── Species ──────────────────────────────────────────────────────────
@@ -141,6 +153,82 @@ export const PRIMARY_COLORS = ['Black', 'White', 'Red', 'Blue', 'Navy', 'Green',
 export const FOOTWEAR_OPTIONS = ['Heels', 'Boots', 'Sneakers', 'Sandals', 'Loafers', 'Barefoot', 'Combat boots', 'Flats'];
 export const ACCESSORY_OPTIONS = ['Necklace', 'Watch', 'Belt', 'Scarf', 'Hat', 'Gloves', 'Bracelet', 'Earrings'];
 export const MARKS_ACCESSORIES = ['Glasses', 'Sunglasses', 'Tattoos', 'Scars', 'Piercings', 'Facial hair', 'Mask', 'Birthmark'];
+
+// ── Facial geometry option constants (B14) ───────────────────────────
+
+export const FACE_SHAPES = [
+  { label: 'Oval',     value: 'oval'     },
+  { label: 'Round',    value: 'round'    },
+  { label: 'Square',   value: 'square'   },
+  { label: 'Angular',  value: 'angular'  },
+  { label: 'Long',     value: 'long'     },
+] as const;
+
+export const JAW_TYPES = [
+  { label: 'Soft',    value: 'soft'   },
+  { label: 'Narrow',  value: 'narrow' },
+  { label: 'Square',  value: 'square' },
+  { label: 'Sharp',   value: 'sharp'  },
+] as const;
+
+export const CHEEKBONE_TYPES = [
+  { label: 'Subtle', value: 'subtle' },
+  { label: 'High',   value: 'high'   },
+  { label: 'Wide',   value: 'wide'   },
+] as const;
+
+export const EYE_SHAPES = [
+  { label: 'Almond',    value: 'almond'   },
+  { label: 'Round',     value: 'round'    },
+  { label: 'Narrow',    value: 'narrow'   },
+  { label: 'Deep-set',  value: 'deep_set' },
+] as const;
+
+export const EYE_SPACINGS = [
+  { label: 'Close-set',  value: 'close_set'  },
+  { label: 'Average',    value: 'average'    },
+  { label: 'Wide-set',   value: 'wide_set'   },
+] as const;
+
+export const BROW_TYPES = [
+  { label: 'Straight', value: 'straight' },
+  { label: 'Arched',   value: 'arched'   },
+  { label: 'Thick',    value: 'thick'    },
+  { label: 'Sharp',    value: 'sharp'    },
+] as const;
+
+export const NOSE_TYPES = [
+  { label: 'Straight',  value: 'straight'  },
+  { label: 'Narrow',    value: 'narrow'    },
+  { label: 'Broad',     value: 'broad'     },
+  { label: 'Hooked',    value: 'hooked'    },
+  { label: 'Roman',     value: 'roman'     },
+  { label: 'Upturned',  value: 'upturned'  },
+] as const;
+
+export const LIP_TYPES = [
+  { label: 'Thin',        value: 'thin'       },
+  { label: 'Balanced',    value: 'balanced'   },
+  { label: 'Full',        value: 'full'       },
+  { label: 'Cupid bow',   value: 'cupid_bow'  },
+] as const;
+
+export const HAIRLINE_TYPES = [
+  { label: 'Straight',     value: 'straight'    },
+  { label: 'Messy',        value: 'messy'       },
+  { label: "Widow's peak", value: 'widows_peak' },
+  { label: 'Receding',     value: 'receding'    },
+] as const;
+
+export const FACIAL_HAIR_TYPES = [
+  { label: 'None',       value: 'none'        },
+  { label: 'Stubble',    value: 'stubble'     },
+  { label: 'Mustache',   value: 'mustache'    },
+  { label: 'Goatee',     value: 'goatee'      },
+  { label: 'Short beard',  value: 'short_beard'  },
+  { label: 'Full beard',   value: 'full_beard'   },
+  { label: 'Long beard',   value: 'long_beard'   },
+] as const;
 
 // ── Flow state slices ───────────────────────────────────────────────
 
