@@ -40,6 +40,18 @@ export default function StepSketch({
     setError('');
     try {
       const result = await generateIdentitySketch(characterId, selectedStyle);
+      if (!result.image_url) {
+        setError('Sketch generated, but no image was returned. Please try again.');
+        return;
+      }
+      const resolvedUrl = resolveImageUrl(result.image_url);
+      await new Promise<void>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve();
+        img.onerror = () =>
+          reject(new Error('Sketch generated, but the image could not be loaded. Please try again.'));
+        img.src = resolvedUrl;
+      });
       setSketch(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate sketch.');
