@@ -26,6 +26,19 @@ async def lifespan(app: FastAPI):
         logger.info("Email: SMTP enabled (host=%s)", settings.SMTP_HOST)
     else:
         logger.info("Email: DEV console mode")
+    if settings.is_dev_mode():
+        logger.info(
+            "image_provider_config "
+            "IMAGE_PROVIDER=%s IMAGE_MODEL=%s "
+            "IDENTITY_IMAGE_PROVIDER=%r IDENTITY_SEED_PROVIDER=%s "
+            "IDENTITY_ANGLES_PROVIDER=%s openai_key_present=%s",
+            settings.IMAGE_PROVIDER,
+            settings.IMAGE_MODEL,
+            settings.IDENTITY_IMAGE_PROVIDER or "(not set)",
+            settings.IDENTITY_SEED_PROVIDER,
+            settings.IDENTITY_ANGLES_PROVIDER,
+            bool(settings.OPENAI_API_KEY),
+        )
     ensure_admin_user()
     ensure_commons_realm()
     try:

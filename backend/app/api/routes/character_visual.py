@@ -1487,20 +1487,36 @@ def generate_identity_sketch(
     sketch_prompt = ". ".join(prompt_parts)[:400]
 
     # Generate image — requires a real provider; fail loudly if unavailable.
-    provider_name = (settings.IDENTITY_SEED_PROVIDER or "openai").lower()
+    # Mirror identity pack provider resolution: IDENTITY_IMAGE_PROVIDER overrides
+    # IDENTITY_SEED_PROVIDER (same precedence rule as the identity pack path).
+    if settings.IDENTITY_IMAGE_PROVIDER:
+        provider_name = settings.IDENTITY_IMAGE_PROVIDER.lower()
+    else:
+        provider_name = (settings.IDENTITY_SEED_PROVIDER or "openai").lower()
     logger.debug("identity_sketch_provider_selected provider=%s", provider_name)
     try:
         provider = get_identity_provider_by_name(provider_name)
         png_bytes = provider.generate_image(prompt=sketch_prompt)
     except (RuntimeError, ValueError) as exc:
+        exc_type = type(exc).__name__
+        exc_msg = str(exc)
         logger.warning(
-            "identity_sketch_provider_unavailable provider=%s reason=%s",
-            provider_name, exc,
+            "identity_sketch_generation_failed "
+            "provider=%s exc_type=%s reason=%r "
+            "IMAGE_PROVIDER=%s IDENTITY_IMAGE_PROVIDER=%r IDENTITY_SEED_PROVIDER=%s",
+            provider_name, exc_type, exc_msg,
+            settings.IMAGE_PROVIDER,
+            settings.IDENTITY_IMAGE_PROVIDER or "(not set)",
+            settings.IDENTITY_SEED_PROVIDER,
         )
-        raise HTTPException(
-            status_code=503,
-            detail="Sketch generation is temporarily unavailable.",
-        )
+        if settings.is_dev_mode():
+            detail = (
+                f"Sketch generation unavailable: provider={provider_name}, "
+                f"exc={exc_type}, reason={exc_msg}"
+            )
+        else:
+            detail = "Sketch generation is temporarily unavailable."
+        raise HTTPException(status_code=503, detail=detail)
 
     file_path = _save_png_bytes(png_bytes)
 
