@@ -1486,25 +1486,23 @@ def generate_identity_sketch(
 
     sketch_prompt = ". ".join(prompt_parts)[:400]
 
-    # Generate image — use real provider if available, otherwise stub.
+    # Generate image — requires a real provider; fail loudly if unavailable.
+    provider_name = (settings.IDENTITY_SEED_PROVIDER or "openai").lower()
+    logger.debug("identity_sketch_provider_selected provider=%s", provider_name)
     try:
-        provider = get_identity_provider_by_name(
-            (settings.IDENTITY_SEED_PROVIDER or "openai").lower()
-        )
+        provider = get_identity_provider_by_name(provider_name)
         png_bytes = provider.generate_image(prompt=sketch_prompt)
-        provider_name = (settings.IDENTITY_SEED_PROVIDER or "openai").lower()
-    except (RuntimeError, ValueError):
-        # No API key or provider error — fall back to stub placeholder
-        file_path = generate_placeholder_png(
-            label=f"{character.name or 'Character'} — sketch",
-            sublabel=style,
-            role="generated",
+    except (RuntimeError, ValueError) as exc:
+        logger.warning(
+            "identity_sketch_provider_unavailable provider=%s reason=%s",
+            provider_name, exc,
         )
-        provider_name = "stub"
-        png_bytes = None
+        raise HTTPException(
+            status_code=503,
+            detail="Sketch generation is temporarily unavailable.",
+        )
 
-    if png_bytes is not None:
-        file_path = _save_png_bytes(png_bytes)
+    file_path = _save_png_bytes(png_bytes)
 
     # Archive any previous identity sketch for this character
     previous_sketches = (
@@ -1565,6 +1563,7 @@ def generate_identity_sketch(
         image_id=sketch_img.id,
         style=style,
         prompt_preview=sketch_prompt,  # full prompt (already ≤ 400 chars)
+        provider_used=provider_name,
     )
 
 

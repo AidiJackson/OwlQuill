@@ -335,6 +335,7 @@ export interface SketchResponse {
   image_id: number;
   style: string;
   prompt_preview: string;
+  provider_used?: string;
 }
 
 export const SKETCH_STYLES = [

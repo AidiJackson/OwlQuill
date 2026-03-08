@@ -1837,6 +1837,21 @@ def test_image_kind_enum_values_are_lowercase():
     assert ImageVisibilityEnum.PUBLIC.value == "public"
 
 
+# ── Sketch provider mock helper ───────────────────────────────────────
+
+_SKETCH_FAKE_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+
+
+def _mock_sketch_provider():
+    """Return a context manager that patches the sketch image provider with a fake PNG."""
+    mock_provider = MagicMock()
+    mock_provider.generate_image = MagicMock(return_value=_SKETCH_FAKE_PNG)
+    return patch(
+        "app.api.routes.character_visual.get_identity_provider_by_name",
+        return_value=mock_provider,
+    )
+
+
 def test_identity_sketch_kind_stored_as_lowercase_value(client: TestClient):
     """Sketch endpoint must store CharacterImage.kind == 'identity_sketch' (lowercase value)."""
     from app.models.character_image import CharacterImage, ImageKindEnum
@@ -1846,11 +1861,12 @@ def test_identity_sketch_kind_stored_as_lowercase_value(client: TestClient):
     token = _register_and_login(client)
     cid = _create_character(client, token)
 
-    resp = client.post(
-        f"/characters/{cid}/identity-sketch/generate",
-        json={"style": "pencil"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert resp.status_code == 200, resp.text
     image_id = resp.json()["image_id"]
 
@@ -1874,11 +1890,12 @@ def test_generate_identity_sketch_default_style(client: TestClient):
     token = _register_and_login(client)
     cid = _create_character(client, token)
 
-    resp = client.post(
-        f"/characters/{cid}/identity-sketch/generate",
-        json={"style": "pencil"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
@@ -1887,6 +1904,7 @@ def test_generate_identity_sketch_default_style(client: TestClient):
     assert "image_id" in data
     assert data["style"] == "pencil"
     assert "prompt_preview" in data
+    assert "provider_used" in data
     assert data["image_url"].startswith("/static/")
 
     # CharacterImage record created with the right kind
@@ -1919,11 +1937,12 @@ def test_generate_identity_sketch_charcoal_style(client: TestClient):
     token = _register_and_login(client)
     cid = _create_character(client, token)
 
-    resp = client.post(
-        f"/characters/{cid}/identity-sketch/generate",
-        json={"style": "charcoal"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "charcoal"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert resp.status_code == 200, resp.text
     assert resp.json()["style"] == "charcoal"
 
@@ -1933,11 +1952,12 @@ def test_generate_identity_sketch_invalid_style_coerces_to_pencil(client: TestCl
     token = _register_and_login(client)
     cid = _create_character(client, token)
 
-    resp = client.post(
-        f"/characters/{cid}/identity-sketch/generate",
-        json={"style": "watercolour"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "watercolour"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert resp.status_code == 200, resp.text
     assert resp.json()["style"] == "pencil"
 
@@ -1960,20 +1980,22 @@ def test_generate_identity_sketch_archiving(client: TestClient):
     cid = _create_character(client, token)
 
     # First generation
-    resp1 = client.post(
-        f"/characters/{cid}/identity-sketch/generate",
-        json={"style": "pencil"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _mock_sketch_provider():
+        resp1 = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert resp1.status_code == 200
     first_id = resp1.json()["image_id"]
 
     # Second generation (regenerate)
-    resp2 = client.post(
-        f"/characters/{cid}/identity-sketch/generate",
-        json={"style": "dossier"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _mock_sketch_provider():
+        resp2 = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "dossier"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert resp2.status_code == 200
     second_id = resp2.json()["image_id"]
     assert second_id != first_id
@@ -2072,11 +2094,12 @@ def test_identity_spec_species_vampire_in_sketch_prompt_preview(client: TestClie
     )
 
     # Now generate a sketch — it should pick up the stored spec
-    resp = client.post(
-        f"/characters/{cid}/identity-sketch/generate",
-        json={"style": "pencil"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert "vampire" in data["prompt_preview"].lower(), (
@@ -2179,11 +2202,12 @@ def test_facial_geometry_fields_appear_in_sketch_prompt(client: TestClient):
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    resp = client.post(
-        f"/characters/{cid}/identity-sketch/generate",
-        json={"style": "pencil"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert resp.status_code == 200, resp.text
     preview = resp.json()["prompt_preview"].lower()
 
@@ -2309,3 +2333,43 @@ def test_accept_no_face_signature_when_builder_returns_ok_false(client):
         assert "face_signature" not in anchor
     finally:
         db.close()
+
+
+# ── B14.4: Sketch stub-disabled ───────────────────────────────────────
+
+def test_generate_identity_sketch_returns_503_when_provider_unavailable(client: TestClient):
+    """Sketch endpoint must return 503 (not a stub placeholder) when no real provider is available."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_provider_by_name",
+        side_effect=RuntimeError("No API key configured"),
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 503, resp.text
+    assert "temporarily unavailable" in resp.json()["detail"].lower()
+
+
+def test_generate_identity_sketch_returns_503_on_value_error(client: TestClient):
+    """Sketch endpoint must return 503 on ValueError from provider (e.g. bad config)."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    with patch(
+        "app.api.routes.character_visual.get_identity_provider_by_name",
+        side_effect=ValueError("Unknown provider"),
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert resp.status_code == 503, resp.text
+    assert "temporarily unavailable" in resp.json()["detail"].lower()

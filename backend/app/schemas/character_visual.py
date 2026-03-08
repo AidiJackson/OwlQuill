@@ -305,3 +305,4 @@ class IdentitySketchGenerateResponse(BaseModel):
     image_id: int
     style: str
     prompt_preview: str
+    provider_used: str
