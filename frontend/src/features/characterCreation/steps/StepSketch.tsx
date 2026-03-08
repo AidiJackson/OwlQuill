@@ -116,8 +116,11 @@ export default function StepSketch({
 
   // Derive artist notes from identitySpec
   const spec = identitySpec;
-  const hairParts = [spec?.identity.hair_color, spec?.identity.hair_length].filter(Boolean);
-  const hair = hairParts.join(', ');
+
+  // Core identity
+  const hairParts = [spec?.identity.hair_length, spec?.hair_texture, spec?.hair_style?.replace(/_/g, ' '), spec?.identity.hair_color]
+    .filter(Boolean);
+  const hair = hairParts.join(' ') + (hairParts.length ? ' hair' : '');
   const eyes = spec?.identity.eye_color ?? '';
   const features = spec?.identity.face_features?.join(', ') ?? '';
   const genderLabel = spec?.gender === 'female' ? 'Woman' : spec?.gender === 'male' ? 'Man' : spec?.gender ?? '';
@@ -126,6 +129,13 @@ export default function StepSketch({
     spec?.species && spec.species !== 'human'
       ? [spec.species, ...(spec.species_tells ?? []).map((t) => t.replace(/_/g, ' '))]
           .join(', ')
+      : '';
+
+  // B15.2 — additional fields for verification
+  const eyebrowLabel = spec?.eyebrow_shape ?? spec?.brow_type ?? '';
+  const facialHairLabel =
+    spec?.facial_hair_type && spec.facial_hair_type !== 'none'
+      ? spec.facial_hair_type.replace(/_/g, ' ')
       : '';
 
   const hasNotes = !!(genderLabel || ageBand || hair || eyes || features || speciesLabel);
@@ -153,6 +163,8 @@ export default function StepSketch({
           <NoteRow label="Age range" value={ageBand} />
           <NoteRow label="Hair" value={hair} />
           <NoteRow label="Eyes" value={eyes} />
+          {eyebrowLabel && <NoteRow label="Eyebrows" value={eyebrowLabel} />}
+          {facialHairLabel && <NoteRow label="Facial hair" value={facialHairLabel} />}
           {features && <NoteRow label="Features" value={features} />}
           {speciesLabel && <NoteRow label="Species" value={speciesLabel} />}
         </div>

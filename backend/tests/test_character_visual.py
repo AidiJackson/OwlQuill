@@ -2507,7 +2507,7 @@ def test_b15_1_gender_change_changes_sketch_prompt(client: TestClient):
 
 
 def test_b15_1_gender_explicit_female_in_sketch_prompt(client: TestClient):
-    """Female gender must appear as 'adult woman' in the sketch prompt."""
+    """Female gender must appear with explicit female lock in the sketch prompt (B15.2 wording)."""
     token = _register_and_login(client)
     cid = _create_character(client, token)
     client.post(
@@ -2522,11 +2522,12 @@ def test_b15_1_gender_explicit_female_in_sketch_prompt(client: TestClient):
             headers={"Authorization": f"Bearer {token}"},
         )
     assert resp.status_code == 200, resp.text
-    assert "adult woman" in resp.json()["prompt_preview"].lower()
+    preview = resp.json()["prompt_preview"].lower()
+    assert "adult female face" in preview, f"female lock missing: {preview!r}"
 
 
 def test_b15_1_gender_explicit_male_in_sketch_prompt(client: TestClient):
-    """Male gender must appear as 'adult man' in the sketch prompt."""
+    """Male gender must appear with explicit male lock in the sketch prompt (B15.2 wording)."""
     token = _register_and_login(client)
     cid = _create_character(client, token)
     client.post(
@@ -2541,11 +2542,12 @@ def test_b15_1_gender_explicit_male_in_sketch_prompt(client: TestClient):
             headers={"Authorization": f"Bearer {token}"},
         )
     assert resp.status_code == 200, resp.text
-    assert "adult man" in resp.json()["prompt_preview"].lower()
+    preview = resp.json()["prompt_preview"].lower()
+    assert "adult male face" in preview, f"male lock missing: {preview!r}"
 
 
 def test_b15_1_gender_explicit_other_in_sketch_prompt(client: TestClient):
-    """Non-binary gender must appear as 'adult person' in the sketch prompt."""
+    """Non-binary gender must use androgynous wording in the sketch prompt (B15.2 wording)."""
     token = _register_and_login(client)
     cid = _create_character(client, token)
     client.post(
@@ -2560,7 +2562,8 @@ def test_b15_1_gender_explicit_other_in_sketch_prompt(client: TestClient):
             headers={"Authorization": f"Bearer {token}"},
         )
     assert resp.status_code == 200, resp.text
-    assert "adult person" in resp.json()["prompt_preview"].lower()
+    preview = resp.json()["prompt_preview"].lower()
+    assert "androgynous adult face" in preview, f"androgynous lock missing: {preview!r}"
 
 
 def test_b15_1_previous_sketch_archived_on_regenerate(client: TestClient):
@@ -2643,7 +2646,7 @@ def test_b15_1_sketch_uses_dna_spec_when_no_identity_pack(client: TestClient):
     assert resp.status_code == 200, resp.text
     preview = resp.json()["prompt_preview"].lower()
 
-    assert "adult woman" in preview, f"Expected 'adult woman' in prompt: {preview!r}"
+    assert "adult female face" in preview, f"Expected 'adult female face' in prompt: {preview!r}"
     assert "platinum" in preview, f"Expected 'platinum' in prompt: {preview!r}"
     assert "violet" in preview, f"Expected 'violet' in prompt: {preview!r}"
 
@@ -2676,6 +2679,240 @@ def test_b15_1_facial_hair_explicit_in_sketch_prompt(client: TestClient):
     assert "visible full beard" in preview, (
         f"Expected 'visible full beard' in prompt: {preview!r}"
     )
+
+
+# ── B15.2: Hardened gender lock + geometry ordering ───────────────────
+
+def _sketch_preview(client, token, cid, spec: dict, style: str = "pencil") -> str:
+    """Helper: store identity spec via identity-pack, generate sketch, return prompt_preview."""
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": spec},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": style},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["prompt_preview"].lower()
+
+
+def test_b15_2_male_gender_lock_phrases(client: TestClient):
+    """Male sketch prompt must contain the three gender-lock phrases."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "male", "age_band": "26-35"},
+    )
+    assert "adult male face" in preview, preview
+    assert "clearly masculine facial structure" in preview, preview
+    assert "not feminine" in preview, preview
+    assert "do not depict a woman" in preview, preview
+
+
+def test_b15_2_female_gender_lock_phrases(client: TestClient):
+    """Female sketch prompt must contain the three gender-lock phrases."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "female", "age_band": "26-35"},
+    )
+    assert "adult female face" in preview, preview
+    assert "clearly feminine facial structure" in preview, preview
+    assert "not masculine" in preview, preview
+    assert "do not depict a man" in preview, preview
+
+
+def test_b15_2_other_gender_lock_phrase(client: TestClient):
+    """Non-binary sketch prompt must use androgynous language, no anti-drift clause."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "other", "age_band": "18-25"},
+    )
+    assert "androgynous adult face" in preview, preview
+    # No binary anti-drift clauses for 'other'
+    assert "do not depict a woman" not in preview, preview
+    assert "do not depict a man" not in preview, preview
+
+
+def test_b15_2_facial_hair_stubble_label(client: TestClient):
+    """stubble → 'visible male stubble' in sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "male", "age_band": "26-35",
+         "facial_hair_type": "stubble"},
+    )
+    assert "visible male stubble" in preview, preview
+
+
+def test_b15_2_facial_hair_short_beard_label(client: TestClient):
+    """short_beard → 'visible short beard' in sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "male", "age_band": "36-50",
+         "facial_hair_type": "short_beard"},
+    )
+    assert "visible short beard" in preview, preview
+
+
+def test_b15_2_facial_hair_mustache_label(client: TestClient):
+    """mustache → 'visible mustache' in sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "male", "age_band": "36-50",
+         "facial_hair_type": "mustache"},
+    )
+    assert "visible mustache" in preview, preview
+
+
+def test_b15_2_geometry_in_prompt(client: TestClient):
+    """Face geometry traits must appear in the sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {
+            "style": "realistic",
+            "gender": "female",
+            "age_band": "26-35",
+            "face_shape": "oval",
+            "jaw_type": "soft",
+            "eye_shape": "almond",
+            "nose_type": "straight",
+            "lip_type": "full",
+        },
+    )
+    assert "oval face" in preview, preview
+    assert "soft jaw" in preview, preview
+    assert "almond eyes" in preview, preview
+    assert "straight nose" in preview, preview
+    assert "full lips" in preview, preview
+
+
+def test_b15_2_hair_natural_phrase(client: TestClient):
+    """Hair description must form a natural phrase: length + style + texture + colour + 'hair'."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {
+            "style": "realistic",
+            "gender": "male",
+            "age_band": "26-35",
+            "hair_texture": "straight",
+            "hair_style": "side_parted",
+            "identity": {
+                "hair_color": "brunette",
+                "hair_length": "Medium",
+                "eye_color": "green",
+                "skin_tone": "fair",
+                "face_features": [],
+            },
+        },
+    )
+    # All four components must appear
+    assert "medium" in preview, preview
+    assert "side parted" in preview, preview
+    assert "straight" in preview, preview
+    assert "brunette" in preview, preview
+    assert "hair" in preview, preview
+
+
+def test_b15_2_regression_male_medium_brunette_green(client: TestClient):
+    """Regression: man + medium brunette hair + green eyes must have strong male lock
+    and no feminine drift wording anywhere."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {
+            "style": "realistic",
+            "gender": "male",
+            "age_band": "26-35",
+            "identity": {
+                "hair_color": "brunette",
+                "hair_length": "Medium",
+                "eye_color": "green",
+                "skin_tone": "fair",
+                "face_features": [],
+            },
+        },
+    )
+    assert "adult male face" in preview, f"gender lock missing: {preview!r}"
+    assert "clearly masculine facial structure" in preview, f"structure lock missing: {preview!r}"
+    assert "not feminine" in preview, f"anti-drift missing: {preview!r}"
+    assert "brunette" in preview, f"hair missing: {preview!r}"
+    assert "green eyes" in preview, f"eye color missing: {preview!r}"
+    # Confirm no accidental feminine wording
+    assert "adult female face" not in preview, f"wrong gender in prompt: {preview!r}"
+
+
+def test_b15_2_gender_lock_precedes_geometry(client: TestClient):
+    """Gender lock must appear before face geometry in the sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {
+            "style": "realistic",
+            "gender": "male",
+            "age_band": "26-35",
+            "face_shape": "square",
+            "jaw_type": "sharp",
+        },
+    )
+    gender_pos = preview.find("adult male face")
+    geo_pos = preview.find("square face")
+    assert gender_pos != -1, "gender lock not found"
+    assert geo_pos != -1, "geometry not found"
+    assert gender_pos < geo_pos, (
+        f"Gender lock (pos {gender_pos}) must appear before geometry (pos {geo_pos})"
+    )
+
+
+def test_b15_2_prompt_within_400_chars(client: TestClient):
+    """Sketch prompt must stay within the 400-char cap even with many geometry fields."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {
+            "style": "realistic",
+            "gender": "female",
+            "age_band": "26-35",
+            "face_shape": "oval",
+            "jaw_type": "soft",
+            "cheekbone_type": "high",
+            "eye_shape": "almond",
+            "eye_spacing": "wide_set",
+            "eyebrow_shape": "arched",
+            "nose_type": "straight",
+            "lip_type": "full",
+            "hair_texture": "wavy",
+            "hair_style": "loose",
+            "identity": {
+                "hair_color": "auburn",
+                "hair_length": "Long",
+                "eye_color": "green",
+                "skin_tone": "fair",
+                "face_features": [],
+            },
+        },
+    )
+    assert len(preview) <= 400, f"Prompt too long: {len(preview)} chars"
 
 
 # ── B12: Face signature in accept_identity_pack ───────────────────────

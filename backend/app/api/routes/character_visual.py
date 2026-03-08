@@ -1454,99 +1454,138 @@ def generate_identity_sketch(
             identity_spec.facial_hair_type or "—",
         )
 
-    # B15.1: gender anchor — inserted immediately after style token so the image
-    # model reads it before anything else.  Explicit noun prevents drift.
-    _GENDER_NOUN_SKETCH = {"male": "man", "female": "woman", "other": "person"}
-    gender_anchor: str = ""
-    if identity_spec and identity_spec.gender:
-        _gnoun = _GENDER_NOUN_SKETCH.get(identity_spec.gender, identity_spec.gender)
-        _age   = f", age range {identity_spec.age_band}" if identity_spec.age_band else ""
-        gender_anchor = f"adult {_gnoun}{_age}"
+    # ── B15.2: hardened sketch prompt ────────────────────────────────
+    # Strict ordering: style → gender lock → age → species → geometry → hair
+    # → extras → composition → safety.  Anti-drift clause placed after gender lock.
+
+    # A. Gender lock: explicit noun + structural call-out + anti-drift negative
+    _GENDER_LOCK = {
+        "male":   (
+            "adult male face, clearly masculine facial structure, not feminine"
+        ),
+        "female": (
+            "adult female face, clearly feminine facial structure, not masculine"
+        ),
+        "other":  (
+            "androgynous adult face, balanced masculine and feminine cues"
+        ),
+    }
+    _GENDER_ANTI_DRIFT = {
+        "male":   "do not depict a woman or feminine face",
+        "female": "do not depict a man or masculine face",
+        "other":  "",
+    }
 
     prompt_parts: list[str] = [_SKETCH_STYLE_PROMPTS[style]]
-    if gender_anchor:
-        prompt_parts.append(gender_anchor)
-    prompt_parts.append("head-and-shoulders composition, neutral expression, plain background")
 
     if identity_spec:
+        gender_val = identity_spec.gender or ""
 
-        # Facial geometry (B14) — enrich with structured face traits
-        _face_geo: list[str] = []
+        # 1. Gender lock (always first when we have a spec)
+        if gender_val:
+            prompt_parts.append(_GENDER_LOCK.get(gender_val, f"adult {gender_val}"))
+
+        # 2. Age range
+        if identity_spec.age_band:
+            prompt_parts.append(f"age range {identity_spec.age_band}")
+
+        # 3. Species (non-human only)
+        from app.services.identity_compiler import _species_prompt as _sp
+        species_desc = _sp(identity_spec)
+        if species_desc:
+            prompt_parts.append(species_desc)
+
+        # 4. Face geometry block — combined into one phrase for density
+        _geo: list[str] = []
         if identity_spec.face_shape:
-            _face_geo.append(f"{identity_spec.face_shape} face shape")
+            _geo.append(f"{identity_spec.face_shape} face")
         if identity_spec.jaw_type:
-            _face_geo.append(f"{identity_spec.jaw_type} jaw")
+            _geo.append(f"{identity_spec.jaw_type} jaw")
         if identity_spec.cheekbone_type:
-            _face_geo.append(f"{identity_spec.cheekbone_type} cheekbones")
-        if _face_geo:
-            prompt_parts.append(", ".join(_face_geo))
-
-        _eye_geo: list[str] = []
+            _geo.append(f"{identity_spec.cheekbone_type} cheekbones")
         if identity_spec.eye_shape:
-            _eye_geo.append(f"{identity_spec.eye_shape} eyes")
+            _geo.append(f"{identity_spec.eye_shape} eyes")
         if identity_spec.eye_spacing:
-            _eye_geo.append(f"{identity_spec.eye_spacing.replace('_', ' ')} eyes")
+            _geo.append(f"{identity_spec.eye_spacing.replace('_', ' ')} eyes")
         # eyebrow_shape (B15) takes precedence over brow_type (B14)
         if identity_spec.eyebrow_shape:
-            _eye_geo.append(f"{identity_spec.eyebrow_shape} eyebrows")
+            _geo.append(f"{identity_spec.eyebrow_shape} eyebrows")
         elif identity_spec.brow_type:
-            _eye_geo.append(f"{identity_spec.brow_type} brows")
-        if _eye_geo:
-            prompt_parts.append(", ".join(_eye_geo))
-
+            _geo.append(f"{identity_spec.brow_type} eyebrows")
         if identity_spec.nose_type:
-            prompt_parts.append(f"{identity_spec.nose_type} nose")
+            _geo.append(f"{identity_spec.nose_type} nose")
         if identity_spec.lip_type:
-            lip = identity_spec.lip_type.replace("_", " ")
-            prompt_parts.append(f"{lip} lips")
+            _geo.append(f"{identity_spec.lip_type.replace('_', ' ')} lips")
+        if _geo:
+            prompt_parts.append(", ".join(_geo))
 
+        # 5. Hair block: length + style + texture + colour + "hair"
+        _hair_parts: list[str] = []
         core = identity_spec.identity
+        if core and core.hair_length:
+            _hair_parts.append(core.hair_length.lower())
+        if identity_spec.hair_style:
+            _hair_parts.append(identity_spec.hair_style.replace("_", " "))
+        if identity_spec.hair_texture:
+            _hair_parts.append(identity_spec.hair_texture)
+        if core and core.hair_color:
+            _hair_parts.append(core.hair_color)
+        if _hair_parts:
+            _hair_parts.append("hair")
+            prompt_parts.append(" ".join(_hair_parts))
+        if identity_spec.hairline_type:
+            prompt_parts.append(f"{identity_spec.hairline_type.replace('_', ' ')} hairline")
+
+        # 6. Additional identity (eye colour, skin, face features)
         if core:
-            _hair: list[str] = []
-            if identity_spec.hairline_type:
-                _hair.append(f"{identity_spec.hairline_type.replace('_', ' ')} hairline")
-            # B15: build natural hair description — length + style + texture + colour + "hair"
-            _hair_desc: list[str] = []
-            if core.hair_length:
-                _hair_desc.append(core.hair_length.lower())
-            if identity_spec.hair_style:
-                _hair_desc.append(identity_spec.hair_style.replace("_", " "))
-            if identity_spec.hair_texture:
-                _hair_desc.append(identity_spec.hair_texture)
-            if core.hair_color:
-                _hair_desc.append(core.hair_color)
-            if _hair_desc:
-                _hair_desc.append("hair")
-                _hair.append(" ".join(_hair_desc))
-            if _hair:
-                prompt_parts.append(", ".join(_hair))
             if core.eye_color:
                 prompt_parts.append(f"{core.eye_color} eyes")
             if core.skin_tone:
                 prompt_parts.append(f"{core.skin_tone} skin")
             if core.face_features:
                 prompt_parts.append(", ".join(core.face_features))
-        elif identity_spec.hairline_type:
-            prompt_parts.append(f"{identity_spec.hairline_type.replace('_', ' ')} hairline")
 
-        # B15.1: facial hair — explicit phrasing so model treats it as a concrete feature
+        # 7. Facial hair — strong explicit phrasing per variant
+        _FH_LABELS = {
+            "stubble":     "visible male stubble",
+            "short_beard": "visible short beard",
+            "full_beard":  "visible full beard",
+            "long_beard":  "visible long beard",
+            "mustache":    "visible mustache",
+            "goatee":      "visible goatee",
+        }
         if identity_spec.facial_hair_type and identity_spec.facial_hair_type != "none":
-            _fh = identity_spec.facial_hair_type.replace("_", " ")
-            prompt_parts.append(f"visible {_fh}")
+            fh_label = _FH_LABELS.get(
+                identity_spec.facial_hair_type,
+                f"visible {identity_spec.facial_hair_type.replace('_', ' ')}",
+            )
+            prompt_parts.append(fh_label)
 
-        # Species cues (skipped for human to avoid redundancy)
-        from app.services.identity_compiler import _species_prompt as _sp
-        species_desc = _sp(identity_spec)
-        if species_desc:
-            prompt_parts.append(species_desc)
+        # 8. Anti-drift negative clause (gender-specific, kept short)
+        anti_drift = _GENDER_ANTI_DRIFT.get(gender_val, "")
+        if anti_drift:
+            prompt_parts.append(anti_drift)
+
     elif character.name:
         prompt_parts.append(f"character named {character.name}")
 
+    # 9. Composition + safety (always last)
+    prompt_parts.append(
+        "head and shoulders sketch, plain paper background, no glamour styling"
+    )
     prompt_parts.append(
         f"{_SAFETY_PREFIX}. Fully clothed or bust portrait only. Non-sexual. PG-13."
     )
 
     sketch_prompt = ". ".join(prompt_parts)[:400]
+
+    # B15.2: dev-mode log of the final prompt (helps verify gender lock + geometry)
+    if settings.is_dev_mode():
+        logger.debug(
+            "identity_sketch_final_prompt character_id=%s preview=%r",
+            character_id,
+            sketch_prompt[:350],
+        )
 
     # Generate image — requires a real provider; fail loudly if unavailable.
     # Mirror identity pack provider resolution: IDENTITY_IMAGE_PROVIDER overrides
