@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { PenLine, RefreshCw, CheckCircle } from 'lucide-react';
 import type { SketchResponse, SketchStyle, IdentitySpec, CreationBasics } from '../shared/types';
 import { SKETCH_STYLES } from '../shared/types';
@@ -10,6 +10,38 @@ interface Props {
   basics?: CreationBasics | null;
   onConfirmed: (sketchImageId: number) => void;
   onBack: () => void;
+}
+
+/**
+ * Compute a lightweight fingerprint of the identity fields that affect the
+ * sketch prompt.  If this changes, any displayed sketch is stale.
+ */
+function specFingerprint(spec?: IdentitySpec | null): string {
+  if (!spec) return '';
+  return [
+    spec.gender,
+    spec.age_band,
+    spec.species,
+    spec.face_shape,
+    spec.jaw_type,
+    spec.cheekbone_type,
+    spec.eye_shape,
+    spec.eye_spacing,
+    spec.brow_type,
+    spec.eyebrow_shape,
+    spec.nose_type,
+    spec.lip_type,
+    spec.hairline_type,
+    spec.facial_hair_type,
+    spec.identity?.hair_color,
+    spec.identity?.hair_length,
+    spec.hair_texture,
+    spec.hair_style,
+    spec.identity?.eye_color,
+    spec.identity?.skin_tone,
+    (spec.identity?.face_features ?? []).join(','),
+    spec.extra_notes,
+  ].join('|');
 }
 
 /** Compact row shown in the artist notes summary card. */
@@ -32,10 +64,25 @@ export default function StepSketch({
 }: Props) {
   const [selectedStyle, setSelectedStyle] = useState<SketchStyle>('pencil');
   const [sketch, setSketch] = useState<SketchResponse | null>(null);
+  const [sketchSpecKey, setSketchSpecKey] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Clear stale sketch whenever the identity spec changes after a sketch was made.
+  // In the current creation flow the component unmounts on Back/Next, so this
+  // mainly guards against edge cases where the prop updates while mounted.
+  const currentSpecKey = specFingerprint(identitySpec);
+  useEffect(() => {
+    if (sketch && sketchSpecKey && currentSpecKey !== sketchSpecKey) {
+      setSketch(null);
+      setSketchSpecKey('');
+    }
+  }, [currentSpecKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleGenerate = async () => {
+    // Clear any previously displayed sketch immediately so the user never sees
+    // a stale image while the new one is loading.
+    setSketch(null);
     setLoading(true);
     setError('');
     try {
@@ -53,6 +100,7 @@ export default function StepSketch({
         img.src = resolvedUrl;
       });
       setSketch(result);
+      setSketchSpecKey(currentSpecKey);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate sketch.');
     } finally {

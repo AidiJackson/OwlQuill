@@ -1413,14 +1413,62 @@ def generate_identity_sketch(
         except Exception:
             pass
 
+    # B15.1: fallback — read identity_spec from DNA visual_traits_json when
+    # identity_spec_json hasn't been set yet (e.g. creation flow: interview → sketch
+    # without an identity-pack/generate call in between).
+    if identity_spec is None:
+        dna_record = (
+            db.query(CharacterDNA)
+            .filter(CharacterDNA.character_id == character_id)
+            .first()
+        )
+        if dna_record and dna_record.visual_traits_json:
+            spec_dict = dna_record.visual_traits_json.get("identity_spec")
+            if spec_dict and isinstance(spec_dict, dict):
+                try:
+                    from app.schemas.character_visual import CharacterIdentitySpec
+                    identity_spec = CharacterIdentitySpec(**spec_dict)
+                    logger.debug(
+                        "identity_sketch_spec_from_dna character_id=%s",
+                        character_id,
+                    )
+                except Exception as _e:
+                    logger.debug(
+                        "identity_sketch_dna_spec_parse_failed character_id=%s err=%r",
+                        character_id, _e,
+                    )
+
+    # B15.1: dev-mode diagnostic log — key fields used for this sketch
+    if settings.is_dev_mode() and identity_spec:
+        _hc = (identity_spec.identity.hair_color if identity_spec.identity else None) or "—"
+        _hl = (identity_spec.identity.hair_length if identity_spec.identity else None) or "—"
+        logger.debug(
+            "identity_sketch_prompt_fields character_id=%s gender=%r age_band=%r "
+            "hair_color=%r hair_length=%r hair_texture=%r facial_hair=%r",
+            character_id,
+            identity_spec.gender,
+            identity_spec.age_band,
+            _hc,
+            _hl,
+            identity_spec.hair_texture or "—",
+            identity_spec.facial_hair_type or "—",
+        )
+
+    # B15.1: gender anchor — inserted immediately after style token so the image
+    # model reads it before anything else.  Explicit noun prevents drift.
+    _GENDER_NOUN_SKETCH = {"male": "man", "female": "woman", "other": "person"}
+    gender_anchor: str = ""
+    if identity_spec and identity_spec.gender:
+        _gnoun = _GENDER_NOUN_SKETCH.get(identity_spec.gender, identity_spec.gender)
+        _age   = f", age range {identity_spec.age_band}" if identity_spec.age_band else ""
+        gender_anchor = f"adult {_gnoun}{_age}"
+
     prompt_parts: list[str] = [_SKETCH_STYLE_PROMPTS[style]]
+    if gender_anchor:
+        prompt_parts.append(gender_anchor)
     prompt_parts.append("head-and-shoulders composition, neutral expression, plain background")
 
     if identity_spec:
-        if identity_spec.gender:
-            prompt_parts.append(f"{identity_spec.gender} character")
-        if identity_spec.age_band:
-            prompt_parts.append(f"age {identity_spec.age_band}")
 
         # Facial geometry (B14) — enrich with structured face traits
         _face_geo: list[str] = []
@@ -1481,8 +1529,10 @@ def generate_identity_sketch(
         elif identity_spec.hairline_type:
             prompt_parts.append(f"{identity_spec.hairline_type.replace('_', ' ')} hairline")
 
+        # B15.1: facial hair — explicit phrasing so model treats it as a concrete feature
         if identity_spec.facial_hair_type and identity_spec.facial_hair_type != "none":
-            prompt_parts.append(identity_spec.facial_hair_type.replace("_", " "))
+            _fh = identity_spec.facial_hair_type.replace("_", " ")
+            prompt_parts.append(f"visible {_fh}")
 
         # Species cues (skipped for human to avoid redundancy)
         from app.services.identity_compiler import _species_prompt as _sp

@@ -2448,6 +2448,236 @@ def test_b15_null_fields_accepted(client: TestClient):
     assert resp.status_code == 200, resp.text
 
 
+# ── B15.1: Stale sketch fix + gender enforcement ──────────────────────
+
+def test_b15_1_gender_change_changes_sketch_prompt(client: TestClient):
+    """Changing gender from female to male must change the sketch prompt preview."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # Generate with female spec
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "female",
+                "age_band": "26-35",
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with _mock_sketch_provider():
+        resp_f = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp_f.status_code == 200, resp_f.text
+    preview_female = resp_f.json()["prompt_preview"].lower()
+
+    # Now switch to male spec
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "male",
+                "age_band": "26-35",
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with _mock_sketch_provider():
+        resp_m = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp_m.status_code == 200, resp_m.text
+    preview_male = resp_m.json()["prompt_preview"].lower()
+
+    assert "woman" in preview_female or "female" in preview_female, (
+        f"Expected 'woman'/'female' in female prompt: {preview_female!r}"
+    )
+    assert "man" in preview_male or "male" in preview_male, (
+        f"Expected 'man'/'male' in male prompt: {preview_male!r}"
+    )
+    assert preview_female != preview_male, "Gender change must produce a different sketch prompt"
+
+
+def test_b15_1_gender_explicit_female_in_sketch_prompt(client: TestClient):
+    """Female gender must appear as 'adult woman' in the sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": {"style": "realistic", "gender": "female", "age_band": "26-35"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    assert "adult woman" in resp.json()["prompt_preview"].lower()
+
+
+def test_b15_1_gender_explicit_male_in_sketch_prompt(client: TestClient):
+    """Male gender must appear as 'adult man' in the sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": {"style": "realistic", "gender": "male", "age_band": "26-35"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    assert "adult man" in resp.json()["prompt_preview"].lower()
+
+
+def test_b15_1_gender_explicit_other_in_sketch_prompt(client: TestClient):
+    """Non-binary gender must appear as 'adult person' in the sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": {"style": "realistic", "gender": "other", "age_band": "26-35"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    assert "adult person" in resp.json()["prompt_preview"].lower()
+
+
+def test_b15_1_previous_sketch_archived_on_regenerate(client: TestClient):
+    """Generating a new sketch archives the previous one; response contains only the new image."""
+    from tests.conftest import TestingSessionLocal
+    from app.models.character_image import CharacterImage, ImageStatusEnum
+
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    with _mock_sketch_provider():
+        resp1 = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp1.status_code == 200, resp1.text
+    first_image_id = resp1.json()["image_id"]
+
+    with _mock_sketch_provider():
+        resp2 = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "charcoal"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp2.status_code == 200, resp2.text
+    second_image_id = resp2.json()["image_id"]
+
+    assert first_image_id != second_image_id, "Second generate must produce a new image record"
+
+    # Confirm first image is now archived
+    with TestingSessionLocal() as session:
+        first_img = session.get(CharacterImage, first_image_id)
+        assert first_img is not None
+        assert first_img.status == ImageStatusEnum.ARCHIVED, (
+            f"First sketch must be ARCHIVED after regenerate, got {first_img.status!r}"
+        )
+        second_img = session.get(CharacterImage, second_image_id)
+        assert second_img is not None
+        assert second_img.status == ImageStatusEnum.ACTIVE
+
+
+def test_b15_1_sketch_uses_dna_spec_when_no_identity_pack(client: TestClient):
+    """Sketch endpoint must use identity spec from DNA visual_traits_json when
+    identity-pack/generate has never been called (creation flow: interview → sketch)."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # Simulate what handleAfterPersonality does: upsert DNA with identity_spec
+    # embedded in visual_traits_json.  Do NOT call identity-pack/generate.
+    client.post(
+        f"/characters/{cid}/dna",
+        json={
+            "species": "human",
+            "gender_presentation": "feminine",
+            "visual_traits_json": {
+                "identity_spec": {
+                    "style": "realistic",
+                    "gender": "female",
+                    "age_band": "18-25",
+                    "identity": {
+                        "hair_color": "platinum",
+                        "hair_length": "Long",
+                        "eye_color": "violet",
+                        "skin_tone": "fair",
+                        "face_features": [],
+                    },
+                }
+            },
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    preview = resp.json()["prompt_preview"].lower()
+
+    assert "adult woman" in preview, f"Expected 'adult woman' in prompt: {preview!r}"
+    assert "platinum" in preview, f"Expected 'platinum' in prompt: {preview!r}"
+    assert "violet" in preview, f"Expected 'violet' in prompt: {preview!r}"
+
+
+def test_b15_1_facial_hair_explicit_in_sketch_prompt(client: TestClient):
+    """Facial hair must appear with 'visible' prefix in the sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "male",
+                "age_band": "36-50",
+                "facial_hair_type": "full_beard",
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    preview = resp.json()["prompt_preview"].lower()
+    assert "visible full beard" in preview, (
+        f"Expected 'visible full beard' in prompt: {preview!r}"
+    )
+
+
 # ── B12: Face signature in accept_identity_pack ───────────────────────
 
 def _generate_and_accept(client, token, cid):
