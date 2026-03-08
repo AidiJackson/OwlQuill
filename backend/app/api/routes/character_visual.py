@@ -1382,98 +1382,85 @@ _SKETCH_STYLE_PROMPTS = {
 }
 
 
-@router.post(
-    "/{character_id}/identity-sketch/generate",
-    response_model=IdentitySketchGenerateResponse,
-    summary="Generate and store an identity sketch anchor image",
-)
-def generate_identity_sketch(
+# ── B15.4: Sketch generation helpers ────────────────────────────────
+
+
+def _load_sketch_identity_spec(
+    character: "CharacterModel",
     character_id: int,
-    body: IdentitySketchGenerateRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> IdentitySketchGenerateResponse:
-    """Generate a single sketch image and store it as a permanent identity anchor.
+    db: "Session",
+) -> "tuple[object | None, str, int | None]":
+    """Load identity spec for sketch generation.
 
-    Does not consume identity-pack quotas.  The sketch is saved immediately
-    (is_temp=False) and the character's identity_anchor_json is updated with
-    sketch metadata.  Regeneration is allowed unlimited times — each call
-    simply overwrites the anchor entry.
+    Returns:
+        (identity_spec, source, dna_id) where source is one of
+        ``"identity_spec_json"``, ``"dna"``, or ``"none"``.
     """
-    character = _get_owned_character(character_id, current_user, db)
+    from app.schemas.character_visual import CharacterIdentitySpec  # local import keeps top clean
 
-    style = body.style  # already coerced by schema validator
-
-    # Build sketch prompt from stored identity spec (if any) or character basics.
-    identity_spec = None
     if character.identity_spec_json:
         try:
-            from app.schemas.character_visual import CharacterIdentitySpec
-            identity_spec = CharacterIdentitySpec(**_json.loads(character.identity_spec_json))
+            spec = CharacterIdentitySpec(**_json.loads(character.identity_spec_json))
+            return spec, "identity_spec_json", None
         except Exception:
             pass
 
-    # B15.1: fallback — read identity_spec from DNA visual_traits_json when
-    # identity_spec_json hasn't been set yet (e.g. creation flow: interview → sketch
-    # without an identity-pack/generate call in between).
-    if identity_spec is None:
-        dna_record = (
-            db.query(CharacterDNA)
-            .filter(CharacterDNA.character_id == character_id)
-            .first()
-        )
-        if dna_record and dna_record.visual_traits_json:
-            spec_dict = dna_record.visual_traits_json.get("identity_spec")
-            if spec_dict and isinstance(spec_dict, dict):
-                try:
-                    from app.schemas.character_visual import CharacterIdentitySpec
-                    identity_spec = CharacterIdentitySpec(**spec_dict)
-                    logger.debug(
-                        "identity_sketch_spec_from_dna character_id=%s",
-                        character_id,
-                    )
-                except Exception as _e:
-                    logger.debug(
-                        "identity_sketch_dna_spec_parse_failed character_id=%s err=%r",
-                        character_id, _e,
-                    )
+    dna_record = (
+        db.query(CharacterDNA)
+        .filter(CharacterDNA.character_id == character_id)
+        .first()
+    )
+    if dna_record and dna_record.visual_traits_json:
+        spec_dict = dna_record.visual_traits_json.get("identity_spec")
+        if spec_dict and isinstance(spec_dict, dict):
+            try:
+                from app.schemas.character_visual import CharacterIdentitySpec as _CIS
+                spec = _CIS(**spec_dict)
+                logger.debug(
+                    "identity_sketch_spec_from_dna character_id=%s dna_id=%s",
+                    character_id, dna_record.id,
+                )
+                return spec, "dna", dna_record.id
+            except Exception as _e:
+                logger.debug(
+                    "identity_sketch_dna_spec_parse_failed character_id=%s err=%r",
+                    character_id, _e,
+                )
 
-    # B15.1: dev-mode diagnostic log — key fields used for this sketch
-    if settings.is_dev_mode() and identity_spec:
-        _hc = (identity_spec.identity.hair_color if identity_spec.identity else None) or "—"
-        _hl = (identity_spec.identity.hair_length if identity_spec.identity else None) or "—"
-        logger.debug(
-            "identity_sketch_prompt_fields character_id=%s gender=%r age_band=%r "
-            "hair_color=%r hair_length=%r hair_texture=%r facial_hair=%r",
-            character_id,
-            identity_spec.gender,
-            identity_spec.age_band,
-            _hc,
-            _hl,
-            identity_spec.hair_texture or "—",
-            identity_spec.facial_hair_type or "—",
-        )
+    return None, "none", None
 
-    # ── B15.2: hardened sketch prompt ────────────────────────────────
-    # Strict ordering: style → gender lock → age → species → geometry → hair
-    # → extras → composition → safety.  Anti-drift clause placed after gender lock.
 
-    # A. Gender lock: explicit noun + structural call-out + anti-drift negative
+def _build_sketch_prompt(identity_spec, style: str, character_name: str | None = None) -> str:
+    """Compose the final sketch prompt from an identity spec and style.
+
+    Implements the B15.2 hardened prompt structure:
+    style → gender lock → age → species → geometry → hair → extras →
+    composition → safety.  Returns a string truncated to 400 characters.
+
+    Args:
+        identity_spec: ``CharacterIdentitySpec`` instance or ``None``.
+        style: one of ``"pencil"``, ``"charcoal"``, ``"dossier"``.
+        character_name: fallback name used when ``identity_spec`` is ``None``.
+    """
+    from app.services.identity_compiler import _species_prompt as _sp
+
     _GENDER_LOCK = {
-        "male":   (
-            "adult male face, clearly masculine facial structure, not feminine"
-        ),
-        "female": (
-            "adult female face, clearly feminine facial structure, not masculine"
-        ),
-        "other":  (
-            "androgynous adult face, balanced masculine and feminine cues"
-        ),
+        "male":   "adult male face, clearly masculine facial structure, not feminine",
+        "female": "adult female face, clearly feminine facial structure, not masculine",
+        "other":  "androgynous adult face, balanced masculine and feminine cues",
     }
     _GENDER_ANTI_DRIFT = {
         "male":   "do not depict a woman or feminine face",
         "female": "do not depict a man or masculine face",
         "other":  "",
+    }
+    _FH_LABELS = {
+        "stubble":     "visible male stubble",
+        "short_beard": "visible short beard",
+        "full_beard":  "visible full beard",
+        "long_beard":  "visible long beard",
+        "mustache":    "visible mustache",
+        "goatee":      "visible goatee",
     }
 
     prompt_parts: list[str] = [_SKETCH_STYLE_PROMPTS[style]]
@@ -1481,7 +1468,7 @@ def generate_identity_sketch(
     if identity_spec:
         gender_val = identity_spec.gender or ""
 
-        # 1. Gender lock (always first when we have a spec)
+        # 1. Gender lock
         if gender_val:
             prompt_parts.append(_GENDER_LOCK.get(gender_val, f"adult {gender_val}"))
 
@@ -1490,12 +1477,11 @@ def generate_identity_sketch(
             prompt_parts.append(f"age range {identity_spec.age_band}")
 
         # 3. Species (non-human only)
-        from app.services.identity_compiler import _species_prompt as _sp
         species_desc = _sp(identity_spec)
         if species_desc:
             prompt_parts.append(species_desc)
 
-        # 4. Face geometry block — combined into one phrase for density
+        # 4. Face geometry block
         _geo: list[str] = []
         if identity_spec.face_shape:
             _geo.append(f"{identity_spec.face_shape} face")
@@ -1507,7 +1493,6 @@ def generate_identity_sketch(
             _geo.append(f"{identity_spec.eye_shape} eyes")
         if identity_spec.eye_spacing:
             _geo.append(f"{identity_spec.eye_spacing.replace('_', ' ')} eyes")
-        # eyebrow_shape (B15) takes precedence over brow_type (B14)
         if identity_spec.eyebrow_shape:
             _geo.append(f"{identity_spec.eyebrow_shape} eyebrows")
         elif identity_spec.brow_type:
@@ -1519,7 +1504,7 @@ def generate_identity_sketch(
         if _geo:
             prompt_parts.append(", ".join(_geo))
 
-        # 5. Hair block: length + style + texture + colour + "hair"
+        # 5. Hair block
         _hair_parts: list[str] = []
         core = identity_spec.identity
         if core and core.hair_length:
@@ -1545,15 +1530,7 @@ def generate_identity_sketch(
             if core.face_features:
                 prompt_parts.append(", ".join(core.face_features))
 
-        # 7. Facial hair — strong explicit phrasing per variant
-        _FH_LABELS = {
-            "stubble":     "visible male stubble",
-            "short_beard": "visible short beard",
-            "full_beard":  "visible full beard",
-            "long_beard":  "visible long beard",
-            "mustache":    "visible mustache",
-            "goatee":      "visible goatee",
-        }
+        # 7. Facial hair
         if identity_spec.facial_hair_type and identity_spec.facial_hair_type != "none":
             fh_label = _FH_LABELS.get(
                 identity_spec.facial_hair_type,
@@ -1561,13 +1538,13 @@ def generate_identity_sketch(
             )
             prompt_parts.append(fh_label)
 
-        # 8. Anti-drift negative clause (gender-specific, kept short)
+        # 8. Anti-drift negative clause
         anti_drift = _GENDER_ANTI_DRIFT.get(gender_val, "")
         if anti_drift:
             prompt_parts.append(anti_drift)
 
-    elif character.name:
-        prompt_parts.append(f"character named {character.name}")
+    elif character_name:
+        prompt_parts.append(f"character named {character_name}")
 
     # 9. Composition + safety (always last)
     prompt_parts.append(
@@ -1577,15 +1554,38 @@ def generate_identity_sketch(
         f"{_SAFETY_PREFIX}. Fully clothed or bust portrait only. Non-sexual. PG-13."
     )
 
-    sketch_prompt = ". ".join(prompt_parts)[:400]
+    return ". ".join(prompt_parts)[:400]
 
-    # B15.2: dev-mode log of the final prompt (helps verify gender lock + geometry)
-    if settings.is_dev_mode():
-        logger.debug(
-            "identity_sketch_final_prompt character_id=%s preview=%r",
-            character_id,
-            sketch_prompt[:350],
-        )
+
+@router.post(
+    "/{character_id}/identity-sketch/generate",
+    response_model=IdentitySketchGenerateResponse,
+    summary="Generate and store an identity sketch anchor image",
+)
+def generate_identity_sketch(
+    character_id: int,
+    body: IdentitySketchGenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> IdentitySketchGenerateResponse:
+    """Generate a single sketch image and store it as a permanent identity anchor.
+
+    Does not consume identity-pack quotas.  The sketch is saved immediately
+    (is_temp=False) and the character's identity_anchor_json is updated with
+    sketch metadata.  Regeneration is allowed unlimited times — each call
+    simply overwrites the anchor entry.
+    """
+    character = _get_owned_character(character_id, current_user, db)
+
+    style = body.style  # already coerced by schema validator
+
+    # B15.4: load identity spec via shared helper (identity_spec_json → DNA → none)
+    identity_spec, spec_source, dna_id = _load_sketch_identity_spec(
+        character, character_id, db
+    )
+
+    # B15.4: build prompt via shared helper
+    sketch_prompt = _build_sketch_prompt(identity_spec, style, character.name)
 
     # Generate image — requires a real provider; fail loudly if unavailable.
     # Mirror identity pack provider resolution: IDENTITY_IMAGE_PROVIDER overrides
@@ -1675,6 +1675,38 @@ def generate_identity_sketch(
         character_id, style, provider_name, sketch_img.id,
     )
 
+    # B15.4: comprehensive runtime trace — dev-only, not emitted in production
+    if settings.is_dev_mode():
+        _archived_ids = [p.id for p in previous_sketches]
+        logger.debug(
+            "identity_sketch_trace "
+            "character_id=%s user_id=%s "
+            "spec_source=%r dna_id=%s "
+            "gender=%r age_band=%r hair_color=%r hair_length=%r hair_texture=%r "
+            "eye_color=%r facial_hair=%r "
+            "sketch_prompt=%r prompt_len=%d "
+            "provider=%r provider_mode=text-to-image reference_image=None "
+            "archived_sketch_ids=%s "
+            "new_image_id=%s new_image_url=%r",
+            character_id,
+            current_user.id,
+            spec_source,
+            dna_id,
+            (identity_spec.gender if identity_spec else None),
+            (identity_spec.age_band if identity_spec else None),
+            (identity_spec.identity.hair_color if identity_spec and identity_spec.identity else None),
+            (identity_spec.identity.hair_length if identity_spec and identity_spec.identity else None),
+            (identity_spec.hair_texture if identity_spec else None),
+            (identity_spec.identity.eye_color if identity_spec and identity_spec.identity else None),
+            (identity_spec.facial_hair_type if identity_spec else None),
+            sketch_prompt,
+            len(sketch_prompt),
+            provider_name,
+            _archived_ids,
+            sketch_img.id,
+            image_url,
+        )
+
     return IdentitySketchGenerateResponse(
         image_url=image_url,
         image_id=sketch_img.id,
@@ -1682,6 +1714,110 @@ def generate_identity_sketch(
         prompt_preview=sketch_prompt,  # full prompt (already ≤ 400 chars)
         provider_used=provider_name,
     )
+
+
+# ── B15.4: DEV-ONLY debug trace endpoint ─────────────────────────────
+# Returns the composed sketch prompt and trace metadata WITHOUT calling
+# the image provider.  Returns 404 when not in dev mode so it is never
+# reachable in production.
+
+@router.get(
+    "/{character_id}/identity-sketch/debug-trace",
+    summary="[DEV ONLY] Inspect the composed sketch prompt and trace metadata",
+    include_in_schema=False,  # hidden from public OpenAPI docs
+)
+def sketch_debug_trace(
+    character_id: int,
+    style: str = Query(default="pencil"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Developer-only: compose and return the sketch prompt + full trace without generating an image.
+
+    Only available when ``settings.is_dev_mode()`` is True (DEBUG=true or DEV_MODE=true).
+    Returns HTTP 404 in production so it cannot be reached by normal users.
+
+    Useful for inspecting:
+    - which identity spec source is used (identity_spec_json / dna / none)
+    - the exact prompt that *would* be sent to the image provider
+    - the provider mode (always text-to-image — no reference image is ever attached)
+    - how many active previous sketches exist (for stale-sketch diagnosis)
+    """
+    if not settings.is_dev_mode():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    character = _get_owned_character(character_id, current_user, db)
+
+    # Coerce style
+    from app.schemas.character_visual import _VALID_SKETCH_STYLES
+    style = style.strip().lower() if style else "pencil"
+    if style not in _VALID_SKETCH_STYLES:
+        style = "pencil"
+
+    identity_spec, spec_source, dna_id = _load_sketch_identity_spec(
+        character, character_id, db
+    )
+    sketch_prompt = _build_sketch_prompt(identity_spec, style, character.name)
+
+    # Count active previous sketches (diagnostic: are old sketches piling up?)
+    previous_active = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.character_id == character_id,
+            CharacterImage.kind == ImageKindEnum.IDENTITY_SKETCH,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .all()
+    )
+
+    # Snapshot of identity_anchor_json sketch entry
+    try:
+        anchor = _json.loads(character.identity_anchor_json) if character.identity_anchor_json else {}
+        anchor_sketch = anchor.get("sketch")
+    except Exception:
+        anchor_sketch = None
+
+    # Normalised identity spec summary (safe to serialise)
+    spec_summary: dict | None = None
+    if identity_spec:
+        core = identity_spec.identity
+        spec_summary = {
+            "gender": identity_spec.gender,
+            "age_band": identity_spec.age_band,
+            "species": identity_spec.species,
+            "face_shape": identity_spec.face_shape,
+            "jaw_type": identity_spec.jaw_type,
+            "cheekbone_type": identity_spec.cheekbone_type,
+            "eye_shape": identity_spec.eye_shape,
+            "eye_spacing": identity_spec.eye_spacing,
+            "eyebrow_shape": identity_spec.eyebrow_shape,
+            "nose_type": identity_spec.nose_type,
+            "lip_type": identity_spec.lip_type,
+            "hair_texture": identity_spec.hair_texture,
+            "hair_style": identity_spec.hair_style,
+            "facial_hair_type": identity_spec.facial_hair_type,
+            "hair_color": (core.hair_color if core else None),
+            "hair_length": (core.hair_length if core else None),
+            "eye_color": (core.eye_color if core else None),
+            "skin_tone": (core.skin_tone if core else None),
+        }
+
+    return JSONResponse({
+        "character_id": character_id,
+        "user_id": current_user.id,
+        "spec_source": spec_source,
+        "dna_id": dna_id,
+        "identity_spec": spec_summary,
+        "sketch_prompt": sketch_prompt,
+        "sketch_prompt_length": len(sketch_prompt),
+        "prompt_cap": 400,
+        "style": style,
+        "provider_mode": "text-to-image",
+        "reference_image": None,
+        "active_previous_sketch_count": len(previous_active),
+        "previous_sketch_ids": [img.id for img in previous_active],
+        "identity_anchor_sketch": anchor_sketch,
+    })
 
 
 # ── 4) POST /characters/{id}/images/generate ────────────────────────

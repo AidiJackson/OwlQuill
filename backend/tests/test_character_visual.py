@@ -3284,6 +3284,230 @@ def test_b15_3_anime_fae_archetype_composite(client: TestClient):
     assert "thin eyebrows" in preview, preview
 
 
+# ── B15.4: Sketch runtime trace diagnostics ──────────────────────────
+#
+# Tests for:
+#   - debug-trace endpoint returns 404 when not in dev mode
+#   - debug-trace returns correct trace fields in dev mode
+#   - provider_mode is always "text-to-image", reference_image always null
+#   - spec_source correctly reported for identity_spec_json vs DNA fallback
+#   - prompt fields match what generate endpoint would produce
+
+
+def test_b15_4_debug_trace_hidden_in_non_dev_mode(client: TestClient):
+    """Debug-trace endpoint must return 404 when DEV_MODE / DEBUG is off."""
+    from unittest.mock import patch
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    # Ensure dev mode is explicitly off
+    with patch("app.api.routes.character_visual.settings") as mock_settings:
+        mock_settings.is_dev_mode.return_value = False
+        mock_settings.IDENTITY_IMAGE_PROVIDER = None
+        mock_settings.IDENTITY_SEED_PROVIDER = "stub"
+        resp = client.get(
+            f"/characters/{cid}/identity-sketch/debug-trace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 404, resp.text
+
+
+def test_b15_4_debug_trace_returns_required_fields_in_dev_mode(client: TestClient):
+    """Debug-trace must return all required trace fields when dev mode is on."""
+    from unittest.mock import patch
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    # Store a spec so we get a non-trivial response
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": {"style": "realistic", "gender": "female", "age_band": "26-35"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with patch("app.api.routes.character_visual.settings") as mock_settings:
+        mock_settings.is_dev_mode.return_value = True
+        mock_settings.IDENTITY_IMAGE_PROVIDER = None
+        mock_settings.IDENTITY_SEED_PROVIDER = "stub"
+        resp = client.get(
+            f"/characters/{cid}/identity-sketch/debug-trace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    required_keys = {
+        "character_id", "user_id", "spec_source", "dna_id",
+        "identity_spec", "sketch_prompt", "sketch_prompt_length",
+        "prompt_cap", "style", "provider_mode", "reference_image",
+        "active_previous_sketch_count", "previous_sketch_ids",
+        "identity_anchor_sketch",
+    }
+    assert required_keys.issubset(data.keys()), f"Missing keys: {required_keys - set(data.keys())}"
+    assert data["character_id"] == cid
+
+
+def test_b15_4_debug_trace_provider_mode_is_text_to_image(client: TestClient):
+    """Debug-trace must confirm provider_mode=text-to-image and reference_image=null."""
+    from unittest.mock import patch
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    with patch("app.api.routes.character_visual.settings") as mock_settings:
+        mock_settings.is_dev_mode.return_value = True
+        mock_settings.IDENTITY_IMAGE_PROVIDER = None
+        mock_settings.IDENTITY_SEED_PROVIDER = "stub"
+        resp = client.get(
+            f"/characters/{cid}/identity-sketch/debug-trace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["provider_mode"] == "text-to-image"
+    assert data["reference_image"] is None
+
+
+def test_b15_4_debug_trace_spec_source_identity_spec_json(client: TestClient):
+    """Debug-trace reports spec_source='identity_spec_json' when spec was stored via pack generate."""
+    from unittest.mock import patch
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    # Calling identity-pack/generate with an identity_spec stores it in identity_spec_json
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": {"style": "realistic", "gender": "male", "age_band": "26-35"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with patch("app.api.routes.character_visual.settings") as mock_settings:
+        mock_settings.is_dev_mode.return_value = True
+        mock_settings.IDENTITY_IMAGE_PROVIDER = None
+        mock_settings.IDENTITY_SEED_PROVIDER = "stub"
+        resp = client.get(
+            f"/characters/{cid}/identity-sketch/debug-trace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["spec_source"] == "identity_spec_json"
+    assert data["identity_spec"] is not None
+    assert data["identity_spec"]["gender"] == "male"
+
+
+def test_b15_4_debug_trace_spec_source_none_for_bare_character(client: TestClient):
+    """Debug-trace reports spec_source='none' for a freshly created character with no spec."""
+    from unittest.mock import patch
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    with patch("app.api.routes.character_visual.settings") as mock_settings:
+        mock_settings.is_dev_mode.return_value = True
+        mock_settings.IDENTITY_IMAGE_PROVIDER = None
+        mock_settings.IDENTITY_SEED_PROVIDER = "stub"
+        resp = client.get(
+            f"/characters/{cid}/identity-sketch/debug-trace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["spec_source"] == "none"
+    assert data["identity_spec"] is None
+
+
+def test_b15_4_debug_trace_prompt_matches_generate_prompt(client: TestClient):
+    """Debug-trace sketch_prompt must equal what generate endpoint returns as prompt_preview."""
+    from unittest.mock import patch
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    spec = {"style": "realistic", "gender": "female", "age_band": "26-35",
+            "face_shape": "oval", "eye_shape": "almond"}
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": spec},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    # Get prompt from debug-trace
+    with patch("app.api.routes.character_visual.settings") as mock_settings:
+        mock_settings.is_dev_mode.return_value = True
+        mock_settings.IDENTITY_IMAGE_PROVIDER = None
+        mock_settings.IDENTITY_SEED_PROVIDER = "stub"
+        trace_resp = client.get(
+            f"/characters/{cid}/identity-sketch/debug-trace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    trace_prompt = trace_resp.json()["sketch_prompt"]
+
+    # Get prompt from generate endpoint
+    with _mock_sketch_provider():
+        gen_resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    gen_prompt = gen_resp.json()["prompt_preview"]
+
+    assert trace_prompt == gen_prompt, (
+        f"debug-trace prompt differs from generate prompt:\n"
+        f"  trace:    {trace_prompt!r}\n"
+        f"  generate: {gen_prompt!r}"
+    )
+
+
+def test_b15_4_debug_trace_prompt_length_within_cap(client: TestClient):
+    """Debug-trace sketch_prompt_length must equal len(sketch_prompt) and be ≤ 400."""
+    from unittest.mock import patch
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": _B15_3_ARCHETYPES["vampire"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with patch("app.api.routes.character_visual.settings") as mock_settings:
+        mock_settings.is_dev_mode.return_value = True
+        mock_settings.IDENTITY_IMAGE_PROVIDER = None
+        mock_settings.IDENTITY_SEED_PROVIDER = "stub"
+        resp = client.get(
+            f"/characters/{cid}/identity-sketch/debug-trace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    data = resp.json()
+    assert data["sketch_prompt_length"] == len(data["sketch_prompt"])
+    assert data["sketch_prompt_length"] <= 400, (
+        f"Prompt length {data['sketch_prompt_length']} exceeds 400-char cap"
+    )
+
+
+def test_b15_4_debug_trace_previous_sketch_tracking(client: TestClient):
+    """Debug-trace correctly reports active_previous_sketch_count after a sketch is generated."""
+    from unittest.mock import patch
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # No sketch yet: count should be 0
+    with patch("app.api.routes.character_visual.settings") as mock_settings:
+        mock_settings.is_dev_mode.return_value = True
+        mock_settings.IDENTITY_IMAGE_PROVIDER = None
+        mock_settings.IDENTITY_SEED_PROVIDER = "stub"
+        resp_before = client.get(
+            f"/characters/{cid}/identity-sketch/debug-trace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp_before.json()["active_previous_sketch_count"] == 0
+
+    # Generate one sketch
+    with _mock_sketch_provider():
+        client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    # Now count should be 1
+    with patch("app.api.routes.character_visual.settings") as mock_settings:
+        mock_settings.is_dev_mode.return_value = True
+        mock_settings.IDENTITY_IMAGE_PROVIDER = None
+        mock_settings.IDENTITY_SEED_PROVIDER = "stub"
+        resp_after = client.get(
+            f"/characters/{cid}/identity-sketch/debug-trace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp_after.json()["active_previous_sketch_count"] == 1
+
+
 # ── B12: Face signature in accept_identity_pack ───────────────────────
 
 def _generate_and_accept(client, token, cid):
