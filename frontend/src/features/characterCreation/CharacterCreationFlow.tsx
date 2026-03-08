@@ -212,6 +212,7 @@ export default function CharacterCreationFlow() {
 
         {step === 2 && characterId && (
           <StepSketch
+            key={characterId}
             characterId={characterId}
             identitySpec={seeds.identitySpec}
             basics={basics}

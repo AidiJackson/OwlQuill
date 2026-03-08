@@ -1,8 +1,66 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PenLine, RefreshCw, CheckCircle } from 'lucide-react';
 import type { SketchResponse, SketchStyle, IdentitySpec, CreationBasics } from '../shared/types';
 import { SKETCH_STYLES } from '../shared/types';
 import { generateIdentitySketch, resolveImageUrl } from '../shared/api';
+
+// ── B15.5: DEV-ONLY sketch trace ─────────────────────────────────────
+// All logging and the on-screen debug panel are gated behind the Vite
+// build-time flag so they are tree-shaken out of production bundles.
+const _SKETCH_TRACE = import.meta.env.DEV;
+
+function _traceLog(event: string, data?: Record<string, unknown>) {
+  if (!_SKETCH_TRACE) return;
+  // eslint-disable-next-line no-console
+  console.info(`[SketchTrace] ${event}`, data ?? '');
+}
+
+// ── B15.5: Dev-only debug panel ───────────────────────────────────────
+// Renders a collapsible on-screen overlay with live sketch trace state.
+// Easy to inspect on mobile: visible directly in the viewport without
+// needing desktop DevTools.
+interface _DebugPanelProps {
+  characterId: number;
+  mountCharacterId: number;
+  specFingerprint: string;
+  sketch: SketchResponse | null;
+  loading: boolean;
+}
+function _SketchDebugPanel({
+  characterId,
+  mountCharacterId,
+  specFingerprint,
+  sketch,
+  loading,
+}: _DebugPanelProps) {
+  if (!_SKETCH_TRACE) return null;
+  const idDrift = characterId !== mountCharacterId;
+  const renderedUrl = sketch ? resolveImageUrl(sketch.image_url) : null;
+  return (
+    <details className="mt-2 rounded-lg border border-green-800 bg-black/80 px-3 py-2 text-xs font-mono">
+      <summary className="cursor-pointer select-none text-green-400 font-semibold">
+        ▶ [DEV] Sketch Trace
+      </summary>
+      <div className="mt-2 space-y-1 text-green-300 leading-relaxed">
+        <div>
+          <span className="text-green-600">characterId (prop):</span>{' '}
+          <span className={idDrift ? 'text-red-400 font-bold' : ''}>{characterId}</span>
+          {idDrift && (
+            <span className="ml-2 text-red-400">⚠ DRIFTED from mount id={mountCharacterId}</span>
+          )}
+        </div>
+        <div><span className="text-green-600">mountCharacterId:</span> {mountCharacterId}</div>
+        <div><span className="text-green-600">specFingerprint:</span> <span className="break-all">{specFingerprint || '(none)'}</span></div>
+        <div><span className="text-green-600">loading:</span> {String(loading)}</div>
+        <div><span className="text-green-600">sketchImageId:</span> {sketch?.image_id ?? 'null'}</div>
+        <div><span className="text-green-600">sketchImageUrl:</span> <span className="break-all">{sketch?.image_url ?? 'null'}</span></div>
+        <div><span className="text-green-600">renderedUrl:</span> <span className="break-all">{renderedUrl ?? 'null'}</span></div>
+        <div><span className="text-green-600">imageSource:</span> {sketch ? 'local-state' : 'none'}</div>
+        <div><span className="text-green-600">providerUsed:</span> {sketch?.provider_used ?? 'n/a'}</div>
+      </div>
+    </details>
+  );
+}
 
 interface Props {
   characterId: number;
@@ -68,38 +126,104 @@ export default function StepSketch({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // B15.5: record the characterId at mount time so we can detect drift
+  const mountCharacterIdRef = useRef<number>(characterId);
+
   // Clear stale sketch whenever the identity spec changes after a sketch was made.
   // In the current creation flow the component unmounts on Back/Next, so this
   // mainly guards against edge cases where the prop updates while mounted.
   const currentSpecKey = specFingerprint(identitySpec);
   useEffect(() => {
     if (sketch && sketchSpecKey && currentSpecKey !== sketchSpecKey) {
+      _traceLog('specFingerprint changed → clearing stale sketch', {
+        old: sketchSpecKey,
+        new: currentSpecKey,
+        characterId,
+      });
       setSketch(null);
       setSketchSpecKey('');
     }
   }, [currentSpecKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // B15.5: mount/unmount trace
+  useEffect(() => {
+    _traceLog('MOUNT', {
+      characterId,
+      mountCharacterId: mountCharacterIdRef.current,
+      specFingerprint: currentSpecKey || '(none)',
+    });
+    return () => {
+      _traceLog('UNMOUNT', {
+        characterId,
+        hadSketch: sketch !== null,
+        sketchImageId: sketch?.image_id ?? null,
+      });
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // B15.5: characterId drift trace — fires if the prop changes after mount
+  // (should not happen in normal flow because CharacterCreationFlow uses key={characterId})
+  useEffect(() => {
+    if (characterId !== mountCharacterIdRef.current) {
+      _traceLog('⚠ characterId DRIFT detected (prop changed after mount)', {
+        mountCharacterId: mountCharacterIdRef.current,
+        currentCharacterId: characterId,
+        hasSketch: sketch !== null,
+        sketchImageId: sketch?.image_id ?? null,
+        sketchBelongsTo: mountCharacterIdRef.current,
+      });
+    }
+  }, [characterId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleGenerate = async () => {
+    _traceLog('GENERATE start', {
+      characterId,
+      mountCharacterId: mountCharacterIdRef.current,
+      style: selectedStyle,
+      specFingerprint: currentSpecKey,
+      previousSketchId: sketch?.image_id ?? null,
+    });
     // Clear any previously displayed sketch immediately so the user never sees
     // a stale image while the new one is loading.
     setSketch(null);
+    _traceLog('setSketch(null) fired');
     setLoading(true);
     setError('');
     try {
       const result = await generateIdentitySketch(characterId, selectedStyle);
       if (!result.image_url) {
+        _traceLog('GENERATE error: no image_url in response', { result });
         setError('Sketch generated, but no image was returned. Please try again.');
         return;
       }
       const resolvedUrl = resolveImageUrl(result.image_url);
+      _traceLog('GENERATE response received', {
+        image_id: result.image_id,
+        image_url: result.image_url,
+        resolvedUrl,
+        style: result.style,
+        provider_used: result.provider_used,
+        prompt_preview: result.prompt_preview?.slice(0, 80),
+      });
       await new Promise<void>((resolve, reject) => {
         const img = new Image();
-        img.onload = () => resolve();
-        img.onerror = () =>
+        img.onload = () => {
+          _traceLog('img preload SUCCESS', { resolvedUrl });
+          resolve();
+        };
+        img.onerror = () => {
+          _traceLog('img preload FAILED', { resolvedUrl });
           reject(new Error('Sketch generated, but the image could not be loaded. Please try again.'));
+        };
         img.src = resolvedUrl;
       });
       setSketch(result);
+      _traceLog('setSketch(result) committed', {
+        image_id: result.image_id,
+        image_url: result.image_url,
+        renderedUrl: resolveImageUrl(result.image_url),
+        imageSource: 'local-state (just set)',
+      });
       setSketchSpecKey(currentSpecKey);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate sketch.');
@@ -263,6 +387,15 @@ export default function StepSketch({
           Skip for now
         </button>
       </div>
+
+      {/* B15.5: DEV-ONLY debug panel — tree-shaken in production */}
+      <_SketchDebugPanel
+        characterId={characterId}
+        mountCharacterId={mountCharacterIdRef.current}
+        specFingerprint={currentSpecKey}
+        sketch={sketch}
+        loading={loading}
+      />
     </div>
   );
 }
