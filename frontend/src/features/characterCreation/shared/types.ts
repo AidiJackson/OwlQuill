@@ -93,6 +93,11 @@ export interface IdentitySpec {
   lip_type?: string;
   hairline_type?: string;
   facial_hair_type?: string;
+
+  // B15 — all optional
+  hair_texture?: string;    // straight | wavy | curly | coily | messy
+  hair_style?: string;      // loose | layered | tied_back | side_parted | slicked_back | short_cut
+  eyebrow_shape?: string;   // soft | arched | straight | sharp | thick | thin
 }
 
 // ── Species ──────────────────────────────────────────────────────────
@@ -228,6 +233,34 @@ export const FACIAL_HAIR_TYPES = [
   { label: 'Short beard',  value: 'short_beard'  },
   { label: 'Full beard',   value: 'full_beard'   },
   { label: 'Long beard',   value: 'long_beard'   },
+] as const;
+
+// ── B15 option constants ─────────────────────────────────────────────
+
+export const HAIR_TEXTURE_OPTIONS = [
+  { label: 'Straight', value: 'straight' },
+  { label: 'Wavy',     value: 'wavy'     },
+  { label: 'Curly',    value: 'curly'    },
+  { label: 'Coily',    value: 'coily'    },
+  { label: 'Messy',    value: 'messy'    },
+] as const;
+
+export const HAIR_STYLE_OPTIONS = [
+  { label: 'Loose',        value: 'loose'        },
+  { label: 'Layered',      value: 'layered'      },
+  { label: 'Tied back',    value: 'tied_back'    },
+  { label: 'Side parted',  value: 'side_parted'  },
+  { label: 'Slicked back', value: 'slicked_back' },
+  { label: 'Short cut',    value: 'short_cut'    },
+] as const;
+
+export const EYEBROW_SHAPE_OPTIONS = [
+  { label: 'Soft',     value: 'soft'     },
+  { label: 'Arched',   value: 'arched'   },
+  { label: 'Straight', value: 'straight' },
+  { label: 'Sharp',    value: 'sharp'    },
+  { label: 'Thick',    value: 'thick'    },
+  { label: 'Thin',     value: 'thin'     },
 ] as const;
 
 // ── Flow state slices ───────────────────────────────────────────────

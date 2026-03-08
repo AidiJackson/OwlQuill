@@ -135,15 +135,29 @@ def compile_identity_prompt(
 
     if spec.identity:
         id_ = spec.identity
-        if id_.hair_color and id_.hair_length:
-            identity_parts.append(f"{id_.hair_length} {id_.hair_color} hair")
+        # B15: natural hair description — length + style + texture + colour + "hair"
+        _hair_parts: list[str] = []
+        if id_.hair_length:
+            _hair_parts.append(id_.hair_length.lower())
+        if spec.hair_style:
+            _hair_parts.append(spec.hair_style.replace("_", " "))
+        if spec.hair_texture:
+            _hair_parts.append(spec.hair_texture)
+        if id_.hair_color:
+            _hair_parts.append(id_.hair_color)
+        if _hair_parts:
+            _hair_parts.append("hair")
+            identity_parts.append(" ".join(_hair_parts))
         elif id_.hair_color:
             identity_parts.append(f"{id_.hair_color} hair")
-        elif id_.hair_length:
-            identity_parts.append(f"{id_.hair_length} hair")
 
         if id_.eye_color:
             identity_parts.append(f"{id_.eye_color} eyes")
+        # B15: eye spacing and eyebrow shape
+        if spec.eye_spacing and spec.eye_spacing != "average":
+            identity_parts.append(f"{spec.eye_spacing.replace('_', ' ')} eyes")
+        if spec.eyebrow_shape:
+            identity_parts.append(f"{spec.eyebrow_shape} eyebrows")
 
         if id_.skin_tone:
             identity_parts.append(f"{id_.skin_tone} skin")

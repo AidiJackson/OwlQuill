@@ -2238,6 +2238,216 @@ def test_facial_geometry_null_fields_accepted(client: TestClient):
     assert resp.status_code == 200, resp.text
 
 
+# ── B15: Hair texture, hair style, eyebrow shape ─────────────────────
+
+def test_b15_fields_accepted_in_identity_spec(client: TestClient):
+    """All B15 fields are accepted in identity_spec without error."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "female",
+                "age_band": "26-35",
+                "hair_texture": "wavy",
+                "hair_style": "loose",
+                "eyebrow_shape": "arched",
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_b15_invalid_hair_texture_rejected(client: TestClient):
+    """hair_texture with unknown value is rejected with 422."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "male",
+                "age_band": "18-25",
+                "hair_texture": "silky",  # invalid
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+
+
+def test_b15_invalid_hair_style_rejected(client: TestClient):
+    """hair_style with unknown value is rejected with 422."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "male",
+                "age_band": "18-25",
+                "hair_style": "braided",  # invalid
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+
+
+def test_b15_invalid_eyebrow_shape_rejected(client: TestClient):
+    """eyebrow_shape with unknown value is rejected with 422."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "female",
+                "age_band": "26-35",
+                "eyebrow_shape": "bushy",  # invalid
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+
+
+def test_b15_fields_appear_in_sketch_prompt(client: TestClient):
+    """B15 hair_texture, hair_style, and eyebrow_shape appear in sketch prompt_preview."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "female",
+                "age_band": "26-35",
+                "hair_texture": "curly",
+                "hair_style": "loose",
+                "eyebrow_shape": "thin",
+                "identity": {
+                    "hair_color": "auburn",
+                    "hair_length": "Long",
+                    "eye_color": "green",
+                    "skin_tone": "fair",
+                    "face_features": [],
+                },
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    with _mock_sketch_provider():
+        resp = client.post(
+            f"/characters/{cid}/identity-sketch/generate",
+            json={"style": "pencil"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    preview = resp.json()["prompt_preview"].lower()
+
+    assert "curly" in preview, f"Expected 'curly' in prompt: {preview!r}"
+    assert "thin eyebrows" in preview, f"Expected 'thin eyebrows' in prompt: {preview!r}"
+    assert "auburn" in preview, f"Expected 'auburn' in prompt: {preview!r}"
+
+
+def test_b15_all_hair_textures_accepted(client: TestClient):
+    """All canonical hair_texture values are accepted without error."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    for texture in ("straight", "wavy", "curly", "coily", "messy"):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={
+                "identity_spec": {
+                    "style": "realistic",
+                    "gender": "female",
+                    "age_band": "18-25",
+                    "hair_texture": texture,
+                }
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200, f"texture={texture!r} failed: {resp.text}"
+
+
+def test_b15_all_hair_styles_accepted(client: TestClient):
+    """All canonical hair_style values are accepted without error."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    for style in ("loose", "layered", "tied_back", "side_parted", "slicked_back", "short_cut"):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={
+                "identity_spec": {
+                    "style": "realistic",
+                    "gender": "male",
+                    "age_band": "26-35",
+                    "hair_style": style,
+                }
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200, f"style={style!r} failed: {resp.text}"
+
+
+def test_b15_all_eyebrow_shapes_accepted(client: TestClient):
+    """All canonical eyebrow_shape values are accepted without error."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    for shape in ("soft", "arched", "straight", "sharp", "thick", "thin"):
+        resp = client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={
+                "identity_spec": {
+                    "style": "realistic",
+                    "gender": "female",
+                    "age_band": "26-35",
+                    "eyebrow_shape": shape,
+                }
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200, f"shape={shape!r} failed: {resp.text}"
+
+
+def test_b15_null_fields_accepted(client: TestClient):
+    """Explicitly null B15 fields are accepted (backward-compatible)."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={
+            "identity_spec": {
+                "style": "realistic",
+                "gender": "male",
+                "age_band": "18-25",
+                "hair_texture": None,
+                "hair_style": None,
+                "eyebrow_shape": None,
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 # ── B12: Face signature in accept_identity_pack ───────────────────────
 
 def _generate_and_accept(client, token, cid):

@@ -57,6 +57,11 @@ _VALID_FACIAL_HAIR_TYPES = {
     "long_beard", "mustache", "goatee",
 }
 
+# ── B15 new fields ────────────────────────────────────────────────────
+_VALID_HAIR_TEXTURES = {"straight", "wavy", "curly", "coily", "messy"}
+_VALID_HAIR_STYLES = {"loose", "layered", "tied_back", "side_parted", "slicked_back", "short_cut"}
+_VALID_EYEBROW_SHAPES = {"soft", "arched", "straight", "sharp", "thick", "thin"}
+
 _FACIAL_GEOMETRY_FIELD_MAP: dict[str, set[str]] = {
     "face_shape": _VALID_FACE_SHAPES,
     "jaw_type": _VALID_JAW_TYPES,
@@ -68,6 +73,10 @@ _FACIAL_GEOMETRY_FIELD_MAP: dict[str, set[str]] = {
     "lip_type": _VALID_LIP_TYPES,
     "hairline_type": _VALID_HAIRLINE_TYPES,
     "facial_hair_type": _VALID_FACIAL_HAIR_TYPES,
+    # B15
+    "hair_texture": _VALID_HAIR_TEXTURES,
+    "hair_style": _VALID_HAIR_STYLES,
+    "eyebrow_shape": _VALID_EYEBROW_SHAPES,
 }
 
 
@@ -147,6 +156,11 @@ class CharacterIdentitySpec(BaseModel):
     hairline_type: Optional[str] = None     # straight | receding | widows_peak | messy
     facial_hair_type: Optional[str] = None  # none | stubble | short_beard | full_beard | long_beard | mustache | goatee
 
+    # ── B15 — all optional, backward-compatible ───────────────────────
+    hair_texture: Optional[str] = None   # straight | wavy | curly | coily | messy
+    hair_style: Optional[str] = None     # loose | layered | tied_back | side_parted | slicked_back | short_cut
+    eyebrow_shape: Optional[str] = None  # soft | arched | straight | sharp | thick | thin
+
     @field_validator("style", mode="before")
     @classmethod
     def _coerce_style(cls, v) -> str:
@@ -201,6 +215,7 @@ class CharacterIdentitySpec(BaseModel):
         "face_shape", "jaw_type", "cheekbone_type",
         "eye_shape", "eye_spacing", "brow_type",
         "nose_type", "lip_type", "hairline_type", "facial_hair_type",
+        "hair_texture", "hair_style", "eyebrow_shape",
         mode="before",
     )
     @classmethod

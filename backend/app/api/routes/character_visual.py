@@ -1438,7 +1438,10 @@ def generate_identity_sketch(
             _eye_geo.append(f"{identity_spec.eye_shape} eyes")
         if identity_spec.eye_spacing:
             _eye_geo.append(f"{identity_spec.eye_spacing.replace('_', ' ')} eyes")
-        if identity_spec.brow_type:
+        # eyebrow_shape (B15) takes precedence over brow_type (B14)
+        if identity_spec.eyebrow_shape:
+            _eye_geo.append(f"{identity_spec.eyebrow_shape} eyebrows")
+        elif identity_spec.brow_type:
             _eye_geo.append(f"{identity_spec.brow_type} brows")
         if _eye_geo:
             prompt_parts.append(", ".join(_eye_geo))
@@ -1454,10 +1457,19 @@ def generate_identity_sketch(
             _hair: list[str] = []
             if identity_spec.hairline_type:
                 _hair.append(f"{identity_spec.hairline_type.replace('_', ' ')} hairline")
-            if core.hair_color:
-                _hair.append(f"{core.hair_color} hair")
+            # B15: build natural hair description — length + style + texture + colour + "hair"
+            _hair_desc: list[str] = []
             if core.hair_length:
-                _hair.append(f"{core.hair_length} length")
+                _hair_desc.append(core.hair_length.lower())
+            if identity_spec.hair_style:
+                _hair_desc.append(identity_spec.hair_style.replace("_", " "))
+            if identity_spec.hair_texture:
+                _hair_desc.append(identity_spec.hair_texture)
+            if core.hair_color:
+                _hair_desc.append(core.hair_color)
+            if _hair_desc:
+                _hair_desc.append("hair")
+                _hair.append(" ".join(_hair_desc))
             if _hair:
                 prompt_parts.append(", ".join(_hair))
             if core.eye_color:

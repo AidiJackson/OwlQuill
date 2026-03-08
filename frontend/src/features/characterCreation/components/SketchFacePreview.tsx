@@ -61,6 +61,9 @@ const BROW_SHAPES: Record<string, LR> = {
   arched:   { L: 'M26,46 Q34,40 42,46',    R: 'M58,46 Q66,40 74,46' },
   thick:    { L: 'M25,45 Q34,40 43,45',    R: 'M57,45 Q66,40 75,45' },
   sharp:    { L: 'M26,46 L34,41 L42,45',   R: 'M58,45 L66,41 L74,46' },
+  // B15 eyebrow_shape additions
+  soft:     { L: 'M27,46 Q34,42 41,46',    R: 'M59,46 Q66,42 73,46' },
+  thin:     { L: 'M27,44 L41,44',          R: 'M59,44 L73,44' },
 };
 const BROW_DEFAULT = BROW_SHAPES.straight;
 
@@ -122,6 +125,26 @@ const EARS: LR = {
   R: 'M86,57 Q92,62 92,70 Q92,78 86,83',
 };
 
+// ── B15: Hair style override silhouettes ──────────────────────────────
+// When hair_style is set, replaces length-based silhouette (except 'loose').
+
+const HAIR_STYLE_PATHS: Record<string, string | null> = {
+  loose:        null,   // use length-based HAIR_PATHS unchanged
+  layered:      null,   // length-based path kept; texture adds layering marks
+  tied_back:    'M18,38 Q20,20 50,16 Q80,20 82,38 Q78,26 50,23 Q22,26 18,38 Z',
+  side_parted:  null,   // length-based; part mark drawn separately
+  slicked_back: 'M16,50 Q18,18 50,13 Q82,18 84,50 Q80,26 50,20 Q20,26 16,50 Z',
+  short_cut:    'M14,55 Q14,16 50,10 Q86,16 86,55 Q80,30 50,26 Q20,30 14,55 Z',
+};
+
+// ── B15: Eye spacing — pixel offset applied via SVG transform ─────────
+
+function eyeSpacingOffset(spacing?: string): number {
+  if (spacing === 'close_set') return 3;   // each eye moves 3px toward centre
+  if (spacing === 'wide_set')  return -3;  // each eye moves 3px away from centre
+  return 0;
+}
+
 // ── Component ─────────────────────────────────────────────────────────
 
 interface Props {
@@ -137,15 +160,35 @@ export default function SketchFacePreview({ spec }: Props) {
   const jawPath  = spec.jaw_type ? JAW_ACCENTS[spec.jaw_type] : null;
   const eyes     = (spec.eye_shape ? EYE_SHAPES[spec.eye_shape] : null) ?? EYE_DEFAULT;
   const eyeAnswered = !!spec.eye_shape;
-  const brows    = (spec.brow_type ? BROW_SHAPES[spec.brow_type] : null) ?? BROW_DEFAULT;
-  const browAnswered = !!spec.brow_type;
+
+  // B15: eyebrow_shape takes precedence over brow_type; both resolved from merged BROW_SHAPES
+  const browKey    = spec.eyebrow_shape || spec.brow_type;
+  const brows      = (browKey ? BROW_SHAPES[browKey] : null) ?? BROW_DEFAULT;
+  const browAnswered = !!browKey;
+  const browStrokeW = browKey === 'thick' ? 2.5 : browKey === 'thin' ? 0.7 : browAnswered ? 2.0 : 0.8;
+
   const nosePath = (spec.nose_type && NOSE_PATHS[spec.nose_type]) ?? NOSE_DEFAULT;
   const lipPath  = (spec.lip_type  && LIP_PATHS[spec.lip_type])  ?? LIP_DEFAULT;
+
   const hairLength = spec.identity?.hair_length ?? '';
-  const hairPath   = hairLength ? (HAIR_PATHS[hairLength] ?? null) : null;
+  // B15: hair_style override supersedes length-based path when defined
+  const hairStylePath = spec.hair_style ? (HAIR_STYLE_PATHS[spec.hair_style] ?? null) : null;
+  const hairPath = hairStylePath ?? (hairLength ? (HAIR_PATHS[hairLength] ?? null) : null);
+  const hairAnswered = !!(hairStylePath || hairLength);
+
   const hairlinePath = spec.hairline_type ? (HAIRLINE_PATHS[spec.hairline_type] ?? null) : null;
   const faceHairPath = spec.facial_hair_type ? (FACIAL_HAIR_PATHS[spec.facial_hair_type] ?? null) : null;
   const isStubble  = spec.facial_hair_type === 'stubble';
+
+  // B15: eye spacing offset — left eye shifts right by +dx, right eye shifts left by +dx (close_set)
+  const eyeDx = eyeSpacingOffset(spec.eye_spacing);
+  // left eye: toward centre = +dx; right eye: toward centre = -dx
+  const eyeTransL = eyeDx !== 0 ? `translate(${eyeDx},0)` : undefined;
+  const eyeTransR = eyeDx !== 0 ? `translate(${-eyeDx},0)` : undefined;
+
+  // B15: hair texture marks drawn as a second pass over the hair silhouette
+  const hairTexture = spec.hair_texture;
+  const showSidePart = spec.hair_style === 'side_parted';
 
   return (
     <div
@@ -197,11 +240,56 @@ export default function SketchFacePreview({ spec }: Props) {
           {hairPath && (
             <>
               <path d={hairPath} fill="none" stroke={INK} strokeWidth="1.1"
-                style={{ opacity: SOLID, transition: 'opacity 0.45s' }} />
+                style={{ opacity: hairAnswered ? SOLID : GHOST, transition: 'opacity 0.45s' }} />
               {/* second pass for rough texture */}
               <path d={hairPath} fill="none" stroke={INK} strokeWidth="0.4"
                 transform="translate(0.3,0.4)"
-                style={{ opacity: 0.25, transition: 'opacity 0.45s' }} />
+                style={{ opacity: hairAnswered ? 0.25 : 0.02, transition: 'opacity 0.45s' }} />
+              {/* B15: hair texture overlay marks */}
+              {hairTexture === 'wavy' && hairAnswered && (
+                <g stroke={INK} strokeWidth="0.55" fill="none" opacity="0.55">
+                  <path d="M22,40 Q28,36 34,40 Q40,44 46,40 Q52,36 58,40 Q64,44 70,40 Q76,36 80,40" />
+                  <path d="M18,50 Q24,46 30,50 Q36,54 42,50 Q48,46 54,50 Q60,54 66,50 Q72,46 78,50" />
+                </g>
+              )}
+              {hairTexture === 'curly' && hairAnswered && (
+                <g stroke={INK} strokeWidth="0.55" fill="none" opacity="0.55">
+                  {[22,32,42,52,62,72].map((x, i) => (
+                    <path key={x} d={`M${x},${38 + (i%2)*6} A3,3 0 1 1 ${x+6},${38 + (i%2)*6}`} />
+                  ))}
+                  {[27,37,47,57,67].map((x, i) => (
+                    <path key={x+100} d={`M${x},${50 + (i%2)*5} A2.5,2.5 0 1 1 ${x+5},${50 + (i%2)*5}`} />
+                  ))}
+                </g>
+              )}
+              {hairTexture === 'coily' && hairAnswered && (
+                <g stroke={INK} strokeWidth="0.5" fill="none" opacity="0.55">
+                  {[20,28,36,44,52,60,68,76].map((x, i) => (
+                    <path key={x} d={`M${x},${36+(i%3)*4} Q${x+2},${32+(i%3)*4} ${x+4},${36+(i%3)*4} Q${x+2},${40+(i%3)*4} ${x},${36+(i%3)*4}`} />
+                  ))}
+                </g>
+              )}
+              {hairTexture === 'messy' && hairAnswered && (
+                <g stroke={INK} strokeWidth="0.5" opacity="0.45">
+                  <line x1="20" y1="35" x2="30" y2="42" />
+                  <line x1="35" y1="30" x2="28" y2="45" />
+                  <line x1="50" y1="28" x2="45" y2="40" />
+                  <line x1="65" y1="30" x2="72" y2="44" />
+                  <line x1="78" y1="35" x2="70" y2="42" />
+                  <line x1="40" y1="40" x2="55" y2="35" />
+                </g>
+              )}
+              {/* B15: side-part line */}
+              {showSidePart && hairAnswered && (
+                <line x1="35" y1="18" x2="38" y2="32" stroke={INK} strokeWidth="0.7" opacity="0.6" />
+              )}
+              {/* B15: layered — extra layer lines */}
+              {hairTexture !== 'messy' && spec.hair_style === 'layered' && hairAnswered && (
+                <g stroke={INK} strokeWidth="0.5" fill="none" opacity="0.4">
+                  <path d="M20,55 Q50,48 80,55" />
+                  <path d="M16,68 Q50,60 84,68" />
+                </g>
+              )}
             </>
           )}
           {hairlinePath && (
@@ -227,27 +315,35 @@ export default function SketchFacePreview({ spec }: Props) {
               style={{ opacity: SOLID, transition: 'opacity 0.45s' }} />
           )}
 
-          {/* Eyebrows */}
-          <path d={brows.L} fill="none" stroke={INK}
-            strokeWidth={browAnswered ? 2.0 : 0.8} strokeLinecap="round"
-            filter={browAnswered ? 'url(#sfp-brow)' : undefined}
-            style={{ opacity: op(browAnswered), transition: 'opacity 0.45s' }} />
-          <path d={brows.R} fill="none" stroke={INK}
-            strokeWidth={browAnswered ? 2.0 : 0.8} strokeLinecap="round"
-            filter={browAnswered ? 'url(#sfp-brow)' : undefined}
-            style={{ opacity: op(browAnswered), transition: 'opacity 0.45s' }} />
+          {/* Eyebrows — B15: eyebrow_shape takes precedence, browStrokeW varies by type */}
+          <g transform={eyeTransL}>
+            <path d={brows.L} fill="none" stroke={INK}
+              strokeWidth={browStrokeW} strokeLinecap="round"
+              filter={browAnswered ? 'url(#sfp-brow)' : undefined}
+              style={{ opacity: op(browAnswered), transition: 'opacity 0.45s' }} />
+          </g>
+          <g transform={eyeTransR}>
+            <path d={brows.R} fill="none" stroke={INK}
+              strokeWidth={browStrokeW} strokeLinecap="round"
+              filter={browAnswered ? 'url(#sfp-brow)' : undefined}
+              style={{ opacity: op(browAnswered), transition: 'opacity 0.45s' }} />
+          </g>
 
-          {/* Eyes */}
-          <path d={eyes.L} fill="none" stroke={INK} strokeWidth="1.05"
-            style={{ opacity: op(eyeAnswered), transition: 'opacity 0.45s' }} />
-          <path d={eyes.R} fill="none" stroke={INK} strokeWidth="1.05"
-            style={{ opacity: op(eyeAnswered), transition: 'opacity 0.45s' }} />
+          {/* Eyes — B15: eye_spacing shifts each eye L/R via transform */}
+          <g transform={eyeTransL}>
+            <path d={eyes.L} fill="none" stroke={INK} strokeWidth="1.05"
+              style={{ opacity: op(eyeAnswered), transition: 'opacity 0.45s' }} />
+          </g>
+          <g transform={eyeTransR}>
+            <path d={eyes.R} fill="none" stroke={INK} strokeWidth="1.05"
+              style={{ opacity: op(eyeAnswered), transition: 'opacity 0.45s' }} />
+          </g>
           {/* Pupil dot */}
           {eyeAnswered && (
             <>
-              <circle cx={PUPIL.Lx} cy={PUPIL.Ly} r={1.6} fill={INK}
+              <circle cx={PUPIL.Lx + eyeDx} cy={PUPIL.Ly} r={1.6} fill={INK}
                 style={{ opacity: 0.65, transition: 'opacity 0.45s' }} />
-              <circle cx={PUPIL.Rx} cy={PUPIL.Ry} r={1.6} fill={INK}
+              <circle cx={PUPIL.Rx - eyeDx} cy={PUPIL.Ry} r={1.6} fill={INK}
                 style={{ opacity: 0.65, transition: 'opacity 0.45s' }} />
             </>
           )}

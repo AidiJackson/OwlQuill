@@ -23,6 +23,9 @@ import {
   LIP_TYPES,
   HAIRLINE_TYPES,
   FACIAL_HAIR_TYPES,
+  HAIR_TEXTURE_OPTIONS,
+  HAIR_STYLE_OPTIONS,
+  EYEBROW_SHAPE_OPTIONS,
 } from '../shared/types';
 import SketchFacePreview from '../components/SketchFacePreview';
 
@@ -41,6 +44,10 @@ const EMPTY_SPEC: IdentitySpec = {
   marks_accessories: { items: [] },
   wardrobe: { outfit_type: '', primary_color: '', secondary_color: '', footwear: '', accessory: '', notes: '' },
   extra_notes: '',
+  // B15
+  hair_texture: undefined,
+  hair_style: undefined,
+  eyebrow_shape: undefined,
 };
 
 // ── Question groups ──────────────────────────────────────────────────
@@ -52,7 +59,7 @@ const GROUP_ARTIST_LINE: Record<GroupId, string> = {
   1: "Now the shape of the face.",
   2: "And the eyes?",
   3: "What about the nose and mouth?",
-  4: "Now the hair and complexion.",
+  4: "Tell me about the hair.",
   5: "Anything distinctive I should capture?",
 };
 
@@ -192,6 +199,9 @@ function NotesStrip({ spec }: { spec: IdentitySpec }) {
   if (spec.lip_type) parts.push(spec.lip_type + ' lips');
   if (spec.identity?.hair_color) parts.push(spec.identity.hair_color);
   if (spec.identity?.hair_length) parts.push(spec.identity.hair_length + ' hair');
+  if (spec.hair_texture) parts.push(spec.hair_texture);
+  if (spec.hair_style) parts.push(spec.hair_style.replace(/_/g, ' '));
+  if (spec.eyebrow_shape) parts.push(spec.eyebrow_shape + ' brows');
   if (spec.facial_hair_type && spec.facial_hair_type !== 'none') parts.push(spec.facial_hair_type.replace(/_/g, ' '));
 
   if (!parts.length) return null;
@@ -283,7 +293,11 @@ function GroupQ2({ spec, set, setIdentity }: {
         <ChipRow options={EYE_COLORS} value={spec.identity.eye_color} onChange={(v) => setIdentity('eye_color', v as string)} />
       </div>
       <div>
-        <Note>Brows</Note>
+        <Note>Eyebrow shape</Note>
+        <LabeledChipRow options={EYEBROW_SHAPE_OPTIONS} value={spec.eyebrow_shape ?? ''} onChange={(v) => set('eyebrow_shape', v || undefined)} />
+      </div>
+      <div>
+        <Note>Brows (detailed)</Note>
         <LabeledChipRow options={BROW_TYPES} value={spec.brow_type ?? ''} onChange={(v) => set('brow_type', v || undefined)} />
       </div>
     </div>
@@ -322,6 +336,14 @@ function GroupQ4({ spec, set, setIdentity }: {
       <div>
         <Note>Hair length</Note>
         <ChipRow options={HAIR_LENGTHS} value={spec.identity.hair_length} onChange={(v) => setIdentity('hair_length', v as string)} />
+      </div>
+      <div>
+        <Note>Hair texture</Note>
+        <LabeledChipRow options={HAIR_TEXTURE_OPTIONS} value={spec.hair_texture ?? ''} onChange={(v) => set('hair_texture', v || undefined)} />
+      </div>
+      <div>
+        <Note>Hair style</Note>
+        <LabeledChipRow options={HAIR_STYLE_OPTIONS} value={spec.hair_style ?? ''} onChange={(v) => set('hair_style', v || undefined)} />
       </div>
       <div>
         <Note>Hairline</Note>

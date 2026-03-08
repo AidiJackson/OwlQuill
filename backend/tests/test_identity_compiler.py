@@ -422,3 +422,93 @@ class TestSpeciesInPrompt:
             prompt = compile_identity_prompt(spec, role)
             assert "fae" in prompt.lower(), f"fae missing from role={role}"
             assert "pointed ears" in prompt.lower(), f"tell missing from role={role}"
+
+
+# ── B15: Hair texture, hair style, eyebrow shape in identity prompts ──
+
+class TestB15FieldsInPrompt:
+
+    def test_hair_texture_in_prompt(self):
+        """hair_texture must appear in the identity prompt."""
+        spec = _make_grace_spec(hair_texture="wavy")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "wavy" in prompt.lower(), f"'wavy' not found in prompt: {prompt!r}"
+
+    def test_hair_style_in_prompt(self):
+        """hair_style must appear in the identity prompt."""
+        spec = _make_grace_spec(hair_style="loose")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "loose" in prompt.lower(), f"'loose' not found in prompt: {prompt!r}"
+
+    def test_hair_style_with_underscore_expanded(self):
+        """tied_back must appear as 'tied back' (underscore → space) in prompt."""
+        spec = _make_grace_spec(hair_style="tied_back")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "tied back" in prompt.lower(), f"'tied back' not found in prompt: {prompt!r}"
+
+    def test_eyebrow_shape_in_prompt(self):
+        """eyebrow_shape must appear in the identity prompt."""
+        spec = _make_grace_spec(eyebrow_shape="arched")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "arched eyebrows" in prompt.lower(), f"'arched eyebrows' not found in prompt: {prompt!r}"
+
+    def test_eyebrow_shape_thin_in_prompt(self):
+        """eyebrow_shape=thin must appear as 'thin eyebrows'."""
+        spec = _make_grace_spec(eyebrow_shape="thin")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "thin eyebrows" in prompt.lower()
+
+    def test_wide_set_eye_spacing_in_prompt(self):
+        """eye_spacing=wide_set must appear as 'wide set eyes' in prompt."""
+        spec = _make_grace_spec(eye_spacing="wide_set")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "wide set eyes" in prompt.lower()
+
+    def test_close_set_eye_spacing_in_prompt(self):
+        """eye_spacing=close_set must appear in prompt."""
+        spec = _make_grace_spec(eye_spacing="close_set")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "close set eyes" in prompt.lower()
+
+    def test_average_eye_spacing_not_in_prompt(self):
+        """eye_spacing=average (the default) must not add redundant text."""
+        spec = _make_grace_spec(eye_spacing="average")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "average eyes" not in prompt.lower()
+
+    def test_natural_hair_description_combined(self):
+        """hair_length + hair_style + hair_texture + hair_color must form a natural phrase."""
+        spec = _make_grace_spec(
+            hair_texture="wavy",
+            hair_style="loose",
+            identity=CharacterIdentitySpec.__fields__['identity'].default,  # type: ignore[attr-defined]
+        )
+        # Rebuild with full identity so hair_color is set
+        from app.schemas.character_visual import IdentityCore
+        spec = _make_grace_spec(
+            hair_texture="wavy",
+            hair_style="loose",
+            identity=IdentityCore(
+                hair_color="brunette",
+                hair_length="long",
+                eye_color="hazel",
+                skin_tone="tan",
+                face_features=[],
+            ),
+        )
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        # All four components must appear in proximity
+        assert "wavy" in prompt.lower()
+        assert "loose" in prompt.lower()
+        assert "brunette" in prompt.lower()
+
+    def test_b15_fields_within_cap(self):
+        """Prompt with all B15 fields must still be within 800-char cap."""
+        spec = _make_grace_spec(
+            hair_texture="curly",
+            hair_style="side_parted",
+            eyebrow_shape="thick",
+            eye_spacing="wide_set",
+        )
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"

@@ -7,6 +7,7 @@ channel = "stable-24_05"
 
 # Run button starts the unified dev server
 run = "bash start-dev.sh"
+packages = ["lsof"]
 
 # Deployment configuration
 [deployment]
