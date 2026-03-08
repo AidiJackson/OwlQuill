@@ -2915,6 +2915,375 @@ def test_b15_2_prompt_within_400_chars(client: TestClient):
     assert len(preview) <= 400, f"Prompt too long: {len(preview)} chars"
 
 
+# ── B15.3: Sketch validation matrix ──────────────────────────────────
+#
+# Six canonical archetypes covering realistic human (male/female),
+# androgynous, vampire, werewolf, and fae/anime-inspired characters.
+# Each uses a compact but representative identity spec with all B15 fields.
+# Validation goals:
+#   - gender lock present and correctly ordered
+#   - anti-drift clauses appear only where intended
+#   - geometry block survives across all archetypes
+#   - species/style modifiers do not replace the geometry block
+#   - hair phrase remains natural and ordered
+#   - eye colour and key traits survive in the final prompt
+#   - prompt length stays within the 400-char hard limit
+
+_B15_3_ARCHETYPES: dict[str, dict] = {
+    "realistic_male": {
+        # Human male — full geometry, short straight hair, stubble
+        "style": "realistic", "gender": "male", "age_band": "26-35",
+        "face_shape": "square", "jaw_type": "sharp", "cheekbone_type": "high",
+        "eye_shape": "deep_set", "eyebrow_shape": "straight",
+        "nose_type": "roman", "lip_type": "thin",
+        "hair_texture": "straight", "hair_style": "short_cut",
+        "facial_hair_type": "stubble",
+        "identity": {
+            "hair_color": "dark brown", "hair_length": "Short",
+            "eye_color": "hazel", "skin_tone": "olive", "face_features": [],
+        },
+    },
+    "realistic_female": {
+        # Human female — full geometry, long wavy auburn hair
+        "style": "realistic", "gender": "female", "age_band": "26-35",
+        "face_shape": "oval", "jaw_type": "soft", "cheekbone_type": "high",
+        "eye_shape": "almond", "eye_spacing": "wide_set", "eyebrow_shape": "arched",
+        "nose_type": "straight", "lip_type": "full",
+        "hair_texture": "wavy", "hair_style": "loose",
+        "identity": {
+            "hair_color": "auburn", "hair_length": "Long",
+            "eye_color": "green", "skin_tone": "fair", "face_features": [],
+        },
+    },
+    "other_androgynous": {
+        # Non-binary — balanced geometry, curly black hair, no facial hair
+        "style": "realistic", "gender": "other", "age_band": "18-25",
+        "face_shape": "oval", "jaw_type": "soft", "cheekbone_type": "high",
+        "eye_shape": "almond", "eyebrow_shape": "thin",
+        "nose_type": "narrow", "lip_type": "full",
+        "hair_texture": "curly", "hair_style": "loose",
+        "identity": {
+            "hair_color": "black", "hair_length": "Medium",
+            "eye_color": "grey", "skin_tone": "medium", "face_features": [],
+        },
+    },
+    "vampire": {
+        # Vampire male — angular geometry, slicked-back black hair, supernatural tells
+        "style": "realistic", "gender": "male", "age_band": "26-35",
+        "species": "vampire",
+        "species_tells": ["subtle_fangs", "pale_complexion", "predatory_gaze"],
+        "face_shape": "angular", "jaw_type": "sharp", "cheekbone_type": "high",
+        "eye_shape": "deep_set", "eyebrow_shape": "sharp",
+        "nose_type": "hooked", "lip_type": "thin",
+        "hair_texture": "straight", "hair_style": "slicked_back",
+        "identity": {
+            "hair_color": "black", "hair_length": "Short",
+            "eye_color": "crimson", "skin_tone": "pale", "face_features": [],
+        },
+    },
+    "werewolf": {
+        # Werewolf male — rugged square geometry, messy hair, stubble, supernatural tells
+        "style": "realistic", "gender": "male", "age_band": "36-50",
+        "species": "werewolf",
+        "species_tells": ["heavy_brow", "scarred_cheek", "amber_eyes"],
+        "face_shape": "square", "jaw_type": "square", "cheekbone_type": "wide",
+        "eye_shape": "narrow", "eyebrow_shape": "thick",
+        "nose_type": "broad", "lip_type": "balanced",
+        "hair_texture": "messy", "hair_style": "loose",
+        "facial_hair_type": "stubble",
+        "identity": {
+            "hair_color": "dark brown", "hair_length": "Medium",
+            "eye_color": "amber", "skin_tone": "tan", "face_features": [],
+        },
+    },
+    "anime_fae": {
+        # Fae female (anime-inspired) — delicate oval face, round eyes, long silver hair
+        "style": "realistic", "gender": "female", "age_band": "18-25",
+        "species": "fae",
+        "species_tells": ["pointed_ears", "luminous_skin", "wide_eyes"],
+        "face_shape": "oval", "jaw_type": "narrow", "cheekbone_type": "high",
+        "eye_shape": "round", "eyebrow_shape": "thin",
+        "nose_type": "narrow", "lip_type": "full",
+        "hair_texture": "straight", "hair_style": "loose",
+        "identity": {
+            "hair_color": "silver", "hair_length": "Long",
+            "eye_color": "violet", "skin_tone": "fair", "face_features": [],
+        },
+    },
+}
+
+
+def _b15_3_dump_archetype_prompts(client: TestClient, token: str) -> dict[str, str]:
+    """DEV-ONLY utility: generate and print the composed sketch prompt for every B15.3 archetype.
+
+    Not a pytest test (no 'test_' prefix). Run manually with pytest -s to inspect
+    prompt quality without relying on a real image provider. Each archetype creates
+    its own character to avoid SQLite state collisions within a single test session.
+
+    Usage::
+        # In a scratch test or pytest session:
+        def test_dump(client, _register_and_login):
+            token = _register_and_login(client)
+            _b15_3_dump_archetype_prompts(client, token)
+
+    Returns a dict mapping archetype_name → prompt_preview.
+    """
+    results: dict[str, str] = {}
+    for name, spec in _B15_3_ARCHETYPES.items():
+        cid = _create_character(client, token)
+        prompt = _sketch_preview(client, token, cid, spec)
+        results[name] = prompt
+        print(f"\n[B15.3 prompt dump] {name}:\n  {prompt}\n")
+    return results
+
+
+# ── Gender lock ───────────────────────────────────────────────────────
+
+def test_b15_3_gender_lock_realistic_male(client: TestClient):
+    """Realistic male: all gender-lock and anti-drift phrases must be present."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "male", "age_band": "26-35"},
+    )
+    assert "adult male face" in preview, preview
+    assert "clearly masculine facial structure" in preview, preview
+    assert "not feminine" in preview, preview
+    assert "do not depict a woman" in preview, preview
+
+
+def test_b15_3_gender_lock_realistic_female(client: TestClient):
+    """Realistic female: all gender-lock and anti-drift phrases must be present."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "female", "age_band": "26-35"},
+    )
+    assert "adult female face" in preview, preview
+    assert "clearly feminine facial structure" in preview, preview
+    assert "not masculine" in preview, preview
+    assert "do not depict a man" in preview, preview
+
+
+def test_b15_3_gender_lock_other_androgynous(client: TestClient):
+    """Non-binary: androgynous lock phrase present; no binary anti-drift clauses."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "other", "age_band": "18-25"},
+    )
+    assert "androgynous adult face" in preview, preview
+    assert "do not depict a woman" not in preview, preview
+    assert "do not depict a man" not in preview, preview
+
+
+# ── Anti-drift present for species archetypes ─────────────────────────
+
+def test_b15_3_anti_drift_present_for_vampire_gender(client: TestClient):
+    """Vampire is male → male anti-drift must appear even when species is set."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    # Minimal spec (no geometry) keeps the prompt short so anti-drift fits in 400 chars.
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "male", "age_band": "26-35", "species": "vampire"},
+    )
+    assert "adult male face" in preview, preview
+    assert "do not depict a woman" in preview, preview
+
+
+def test_b15_3_anti_drift_present_for_werewolf_gender(client: TestClient):
+    """Werewolf is male → male anti-drift must appear even when species is set."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {"style": "realistic", "gender": "male", "age_band": "36-50", "species": "werewolf"},
+    )
+    assert "adult male face" in preview, preview
+    assert "do not depict a woman" in preview, preview
+
+
+# ── Geometry block survives ───────────────────────────────────────────
+
+def test_b15_3_geometry_survives_male_archetype(client: TestClient):
+    """Male archetype: all 7 geometry fields must appear in the sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["realistic_male"])
+    assert "square face" in preview, preview
+    assert "sharp jaw" in preview, preview
+    assert "high cheekbones" in preview, preview
+    assert "deep_set eyes" in preview, preview
+    assert "straight eyebrows" in preview, preview
+    assert "roman nose" in preview, preview
+    assert "thin lips" in preview, preview
+
+
+def test_b15_3_geometry_survives_female_archetype(client: TestClient):
+    """Female archetype: all 8 geometry + eye-spacing fields must appear in sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["realistic_female"])
+    assert "oval face" in preview, preview
+    assert "soft jaw" in preview, preview
+    assert "high cheekbones" in preview, preview
+    assert "almond eyes" in preview, preview
+    assert "wide set eyes" in preview, preview   # eye_spacing replaces _ with space
+    assert "arched eyebrows" in preview, preview
+    assert "straight nose" in preview, preview
+    assert "full lips" in preview, preview
+
+
+def test_b15_3_geometry_survives_vampire_species(client: TestClient):
+    """Vampire archetype: species modifier must not replace the geometry block."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    # Use 2 tells so the species text stays shorter and geometry fits within 400 chars.
+    spec = dict(_B15_3_ARCHETYPES["vampire"])
+    spec["species_tells"] = ["subtle_fangs", "pale_complexion"]
+    preview = _sketch_preview(client, token, cid, spec)
+    assert "vampire character" in preview, preview
+    assert "angular face" in preview, preview
+    assert "sharp jaw" in preview, preview
+    assert "deep_set eyes" in preview, preview
+    assert "hooked nose" in preview, preview
+    assert "thin lips" in preview, preview
+
+
+def test_b15_3_geometry_survives_werewolf_species(client: TestClient):
+    """Werewolf archetype: species modifier must not replace the geometry block."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    spec = dict(_B15_3_ARCHETYPES["werewolf"])
+    spec["species_tells"] = ["heavy_brow", "scarred_cheek"]
+    preview = _sketch_preview(client, token, cid, spec)
+    assert "werewolf character" in preview, preview
+    assert "square face" in preview, preview
+    assert "wide cheekbones" in preview, preview
+    assert "narrow eyes" in preview, preview
+    assert "broad nose" in preview, preview
+
+
+# ── Species tells ─────────────────────────────────────────────────────
+
+def test_b15_3_species_tells_vampire(client: TestClient):
+    """Vampire tells must appear verbatim (underscores → spaces) in sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {
+            "style": "realistic", "gender": "male", "age_band": "26-35",
+            "species": "vampire",
+            "species_tells": ["subtle_fangs", "predatory_gaze"],
+        },
+    )
+    assert "vampire character" in preview, preview
+    assert "subtle fangs" in preview, preview
+    assert "predatory gaze" in preview, preview
+
+
+def test_b15_3_species_tells_werewolf(client: TestClient):
+    """Werewolf tells must appear verbatim (underscores → spaces) in sketch prompt."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(
+        client, token, cid,
+        {
+            "style": "realistic", "gender": "male", "age_band": "36-50",
+            "species": "werewolf",
+            "species_tells": ["heavy_brow", "amber_eyes"],
+        },
+    )
+    assert "werewolf character" in preview, preview
+    assert "heavy brow" in preview, preview
+    assert "amber eyes" in preview, preview
+
+
+# ── Natural hair phrase ───────────────────────────────────────────────
+
+def test_b15_3_hair_phrase_male_archetype(client: TestClient):
+    """Male archetype: hair phrase must contain style, texture, colour, and 'hair'."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["realistic_male"])
+    assert "short cut" in preview, preview    # hair_style (underscore → space)
+    assert "straight" in preview, preview     # hair_texture
+    assert "dark brown" in preview, preview   # hair_color
+    assert "hair" in preview, preview
+
+
+def test_b15_3_hair_phrase_female_archetype(client: TestClient):
+    """Female archetype: hair phrase must form a natural length+style+texture+colour+hair phrase."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["realistic_female"])
+    assert "long loose wavy auburn hair" in preview, preview
+
+
+# ── Eye colour survival ───────────────────────────────────────────────
+
+def test_b15_3_eye_colour_male_archetype(client: TestClient):
+    """Male archetype: eye colour must survive prompt composition."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["realistic_male"])
+    assert "hazel eyes" in preview, preview
+
+
+def test_b15_3_eye_colour_female_archetype(client: TestClient):
+    """Female archetype: eye colour must survive prompt composition."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["realistic_female"])
+    assert "green eyes" in preview, preview
+
+
+def test_b15_3_eye_colour_other_archetype(client: TestClient):
+    """Non-binary archetype: eye colour must survive prompt composition."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["other_androgynous"])
+    assert "grey eyes" in preview, preview
+
+
+# ── Prompt length within 400-char cap ────────────────────────────────
+
+def test_b15_3_prompt_length_vampire_archetype(client: TestClient):
+    """Vampire archetype (species + full geometry): prompt must stay within 400-char cap."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["vampire"])
+    assert len(preview) <= 400, f"Prompt exceeds cap ({len(preview)} chars): {preview!r}"
+
+
+def test_b15_3_prompt_length_werewolf_archetype(client: TestClient):
+    """Werewolf archetype (species + geometry + stubble): prompt must stay within 400-char cap."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["werewolf"])
+    assert len(preview) <= 400, f"Prompt exceeds cap ({len(preview)} chars): {preview!r}"
+
+
+# ── Anime/Fae composite ───────────────────────────────────────────────
+
+def test_b15_3_anime_fae_archetype_composite(client: TestClient):
+    """Anime-fae archetype: fae species, female gender lock, and geometry all present."""
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["anime_fae"])
+    assert "adult female face" in preview, preview
+    assert "clearly feminine facial structure" in preview, preview
+    assert "fae character" in preview, preview
+    assert "oval face" in preview, preview
+    assert "round eyes" in preview, preview
+    assert "thin eyebrows" in preview, preview
+
+
 # ── B12: Face signature in accept_identity_pack ───────────────────────
 
 def _generate_and_accept(client, token, cid):
