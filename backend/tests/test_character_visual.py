@@ -3643,3 +3643,278 @@ def test_generate_identity_sketch_returns_503_on_value_error(client: TestClient)
 
     assert resp.status_code == 503, resp.text
     assert "temporarily unavailable" in resp.json()["detail"].lower()
+
+# ── B15.8: Draft edit semantics ───────────────────────────────────────
+#
+# These tests verify that sketch generation for DRAFT characters always
+# uses the latest DNA spec (updated on every StepPersonality save via
+# POST /dna), not the stale identity_spec_json written by identity-pack/generate.
+#
+# Test scenarios:
+#   1. Draft female → sketch prompt reflects female (reads DNA, no stale json)
+#   2. Draft female spec saved in identity_spec_json (via pack gen), user edits
+#      to male via DNA update → sketch now reflects male (DNA wins over stale json)
+#   3. Long brunette → short blonde: latest hair values replace old ones
+#   4. Human → vampire: latest species wins via DNA
+#   5. Locked character: DNA update does NOT override locked identity_spec_json
+
+
+def _make_identity_spec(gender: str, **overrides) -> dict:
+    """Minimal valid CharacterIdentitySpec dict for test use."""
+    spec = {
+        "style": "realistic",
+        "gender": gender,
+        "age_band": "26-35",
+    }
+    spec.update(overrides)
+    return spec
+
+
+def _make_identity_spec_with_hair(
+    gender: str,
+    hair_color: str,
+    hair_length: str,
+    **overrides,
+) -> dict:
+    spec = _make_identity_spec(gender, **overrides)
+    spec["identity"] = {
+        "hair_color": hair_color,
+        "hair_length": hair_length,
+        "eye_color": "Brown",
+        "skin_tone": "Fair",
+        "face_features": [],
+    }
+    return spec
+
+
+class TestDraftEditSemantics:
+    """B15.8: Sketch generation for DRAFT characters uses the latest DNA spec."""
+
+    def test_draft_sketch_gender_reads_from_dna(self, client: TestClient):
+        """Scenario 1: Draft character with DNA-only spec (no identity_spec_json).
+        Sketch must use the DNA spec directly — proving DNA is the edit source of truth."""
+        token = _register_and_login(client)
+        cid = _create_character(client, token)
+
+        # Save female spec to DNA only (no identity-pack/generate call)
+        client.post(
+            f"/characters/{cid}/dna",
+            json={"visual_traits_json": {"identity_spec": _make_identity_spec("female")}},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        with _mock_sketch_provider():
+            resp = client.post(
+                f"/characters/{cid}/identity-sketch/generate",
+                json={"style": "pencil"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200, resp.text
+        prompt = resp.json()["prompt_preview"]
+        # Female gender_lock contains "not masculine"; male gender_lock contains "not feminine".
+        # These are the unique discriminating substrings — both prompts contain "masculine"
+        # and "feminine" as substrings (e.g. in anti-drift clauses), so we can't use those.
+        assert "not masculine" in prompt.lower(), (
+            f"Expected 'not masculine' (female gender lock) in prompt, got: {prompt!r}"
+        )
+        assert "not feminine" not in prompt.lower(), (
+            f"'not feminine' (male gender lock) should not appear in female prompt: {prompt!r}"
+        )
+
+    def test_draft_sketch_reflects_latest_gender_edit_after_pack_generated(
+        self, client: TestClient
+    ):
+        """Scenario 2 — core regression guard.
+
+        Simulates the stale-state bug:
+          a. User completes StepPersonality with female spec → DNA and identity_spec_json
+             both set to female (via /dna + /identity-pack/generate).
+          b. User goes back, edits to male, re-saves DNA only (no new pack generated).
+          c. Sketch generation must use the fresh male spec from DNA, NOT the stale
+             female spec from identity_spec_json.
+
+        Before B15.8 fix: sketch would return female (stale identity_spec_json wins).
+        After  B15.8 fix: sketch returns male    (fresh DNA wins for drafts).
+        """
+        token = _register_and_login(client)
+        cid = _create_character(client, token)
+
+        female_spec = _make_identity_spec("female")
+
+        # Step 1a: initial DNA save with female spec
+        client.post(
+            f"/characters/{cid}/dna",
+            json={"visual_traits_json": {"identity_spec": female_spec}},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        # Step 1b: identity-pack/generate writes female spec to identity_spec_json
+        client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"identity_spec": female_spec},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        # Step 2: user edits — saves male spec to DNA only (no new pack generated)
+        male_spec = _make_identity_spec("male")
+        client.post(
+            f"/characters/{cid}/dna",
+            json={"visual_traits_json": {"identity_spec": male_spec}},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        # Step 3: sketch — must reflect the latest (male) edit, not the stale female json
+        with _mock_sketch_provider():
+            resp = client.post(
+                f"/characters/{cid}/identity-sketch/generate",
+                json={"style": "pencil"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200, resp.text
+        prompt = resp.json()["prompt_preview"]
+        # "not feminine" is unique to the MALE gender lock; "not masculine" is unique to female.
+        assert "not feminine" in prompt.lower(), (
+            f"B15.8 regression: expected 'not feminine' (male gender lock) in prompt. "
+            f"Got: {prompt!r}. Likely reading stale female identity_spec_json (old bug)."
+        )
+        assert "not masculine" not in prompt.lower(), (
+            f"B15.8 regression: 'not masculine' (female gender lock) should not appear "
+            f"after editing to male. Got: {prompt!r}"
+        )
+
+    def test_draft_hair_change_reflected_in_sketch_after_edit(self, client: TestClient):
+        """Scenario 3: Long brunette → short blonde.
+        Latest hair values from DNA must replace old identity_spec_json values."""
+        token = _register_and_login(client)
+        cid = _create_character(client, token)
+
+        initial_spec = _make_identity_spec_with_hair("female", "Brunette", "Long")
+
+        # Initial: DNA + identity_spec_json both have long brunette
+        client.post(
+            f"/characters/{cid}/dna",
+            json={"visual_traits_json": {"identity_spec": initial_spec}},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"identity_spec": initial_spec},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        # Edit: DNA updated to short blonde
+        updated_spec = _make_identity_spec_with_hair("female", "Blonde", "Short")
+        client.post(
+            f"/characters/{cid}/dna",
+            json={"visual_traits_json": {"identity_spec": updated_spec}},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        with _mock_sketch_provider():
+            resp = client.post(
+                f"/characters/{cid}/identity-sketch/generate",
+                json={"style": "pencil"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200, resp.text
+        prompt = resp.json()["prompt_preview"].lower()
+        assert "blonde" in prompt, (
+            f"Expected 'blonde' (latest hair edit) in prompt, got: {prompt!r}"
+        )
+        assert "brunette" not in prompt, (
+            f"'brunette' (stale value) should not appear after editing to blonde, "
+            f"got: {prompt!r}"
+        )
+
+    def test_draft_species_change_reflected_in_sketch_after_edit(self, client: TestClient):
+        """Scenario 4: Human → vampire.
+        Latest species from DNA must win over stale identity_spec_json."""
+        token = _register_and_login(client)
+        cid = _create_character(client, token)
+
+        human_spec = _make_identity_spec("female", species="human")
+
+        # Initial: human spec in identity_spec_json
+        client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"identity_spec": human_spec},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        # Edit: vampire spec saved to DNA only
+        vampire_spec = _make_identity_spec(
+            "female",
+            species="vampire",
+            species_tells=["subtle_fangs", "predatory_gaze"],
+        )
+        client.post(
+            f"/characters/{cid}/dna",
+            json={"visual_traits_json": {"identity_spec": vampire_spec}},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        with _mock_sketch_provider():
+            resp = client.post(
+                f"/characters/{cid}/identity-sketch/generate",
+                json={"style": "pencil"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200, resp.text
+        prompt = resp.json()["prompt_preview"].lower()
+        assert "vampire" in prompt, (
+            f"Expected 'vampire' (latest species edit via DNA), got: {prompt!r}"
+        )
+
+    def test_locked_sketch_uses_identity_spec_json_not_dna(self, client: TestClient):
+        """Scenario 5: Locked character — DNA update must not override locked spec.
+        For locked characters, identity_spec_json is the canonical source of truth."""
+        token = _register_and_login(client)
+        cid = _create_character(client, token)
+
+        locked_female_spec = _make_identity_spec("female")
+
+        # Establish the locked spec via identity-pack/generate (sets identity_spec_json)
+        client.post(
+            f"/characters/{cid}/identity-pack/generate",
+            json={"identity_spec": locked_female_spec},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        # Lock the character directly in the DB (simulates identity-pack/accept)
+        from app.models.character import Character as CharacterModel
+        from tests.conftest import TestingSessionLocal
+        db = TestingSessionLocal()
+        try:
+            char = db.query(CharacterModel).filter(CharacterModel.id == cid).first()
+            assert char is not None
+            char.visual_locked = True
+            db.commit()
+        finally:
+            db.close()
+
+        # Simulate someone attempting to change the character to male via DNA
+        # (e.g. an errant client call after lock)
+        male_spec = _make_identity_spec("male")
+        client.post(
+            f"/characters/{cid}/dna",
+            json={"visual_traits_json": {"identity_spec": male_spec}},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        # Sketch must still use the locked female spec from identity_spec_json
+        with _mock_sketch_provider():
+            resp = client.post(
+                f"/characters/{cid}/identity-sketch/generate",
+                json={"style": "pencil"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200, resp.text
+        prompt = resp.json()["prompt_preview"]
+        # "not masculine" is unique to the FEMALE gender lock — proves locked female spec is used.
+        assert "not masculine" in prompt.lower(), (
+            f"Locked character must use identity_spec_json (female), not DNA (male). "
+            f"Got: {prompt!r}"
+        )
+        assert "not feminine" not in prompt.lower(), (
+            f"'not feminine' (male gender lock) should not appear for locked female. "
+            f"Got: {prompt!r}"
+        )

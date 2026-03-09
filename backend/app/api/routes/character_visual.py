@@ -1392,42 +1392,120 @@ def _load_sketch_identity_spec(
 ) -> "tuple[object | None, str, int | None]":
     """Load identity spec for sketch generation.
 
+    B15.8: Source priority is determined by the character's draft/locked state.
+
+    DRAFT (visual_locked=False):
+        DNA → identity_spec_json → none
+        DNA is updated by POST /dna on every creation-flow StepPersonality save,
+        so it always holds the user's latest interview answers.
+        identity_spec_json is only written by POST /identity-pack/generate (step 3
+        of the creation flow) and may be stale if the user went back to edit their
+        answers without re-running step 3.
+
+    LOCKED (visual_locked=True):
+        identity_spec_json → DNA → none
+        The locked spec is the canonical, committed representation of the
+        character's visual identity.  DNA is not authoritative once locked.
+
     Returns:
         (identity_spec, source, dna_id) where source is one of
         ``"identity_spec_json"``, ``"dna"``, or ``"none"``.
     """
     from app.schemas.character_visual import CharacterIdentitySpec  # local import keeps top clean
 
-    if character.identity_spec_json:
+    is_draft = not character.visual_locked
+
+    # B15.8: dev-mode logging of priority decision
+    if settings.is_dev_mode():
+        logger.debug(
+            "identity_sketch_spec_load character_id=%s is_draft=%s "
+            "has_identity_spec_json=%s",
+            character_id,
+            is_draft,
+            bool(character.identity_spec_json),
+        )
+
+    # ── Inner helpers ─────────────────────────────────────────────────
+
+    def _from_json_spec():
+        """Try to parse identity spec from character.identity_spec_json."""
+        if not character.identity_spec_json:
+            return None, "identity_spec_json", None
         try:
             spec = CharacterIdentitySpec(**_json.loads(character.identity_spec_json))
             return spec, "identity_spec_json", None
         except Exception:
-            pass
+            return None, "identity_spec_json", None
 
-    dna_record = (
-        db.query(CharacterDNA)
-        .filter(CharacterDNA.character_id == character_id)
-        .first()
-    )
-    if dna_record and dna_record.visual_traits_json:
+    def _from_dna():
+        """Try to parse identity spec from the character's DNA record."""
+        dna_record = (
+            db.query(CharacterDNA)
+            .filter(CharacterDNA.character_id == character_id)
+            .first()
+        )
+        if not dna_record or not dna_record.visual_traits_json:
+            return None, "dna", None
         spec_dict = dna_record.visual_traits_json.get("identity_spec")
-        if spec_dict and isinstance(spec_dict, dict):
-            try:
-                from app.schemas.character_visual import CharacterIdentitySpec as _CIS
-                spec = _CIS(**spec_dict)
-                logger.debug(
-                    "identity_sketch_spec_from_dna character_id=%s dna_id=%s",
-                    character_id, dna_record.id,
-                )
-                return spec, "dna", dna_record.id
-            except Exception as _e:
-                logger.debug(
-                    "identity_sketch_dna_spec_parse_failed character_id=%s err=%r",
-                    character_id, _e,
-                )
+        if not spec_dict or not isinstance(spec_dict, dict):
+            return None, "dna", None
+        try:
+            spec = CharacterIdentitySpec(**spec_dict)
+            logger.debug(
+                "identity_sketch_spec_from_dna character_id=%s dna_id=%s",
+                character_id, dna_record.id,
+            )
+            return spec, "dna", dna_record.id
+        except Exception as _e:
+            logger.debug(
+                "identity_sketch_dna_spec_parse_failed character_id=%s err=%r",
+                character_id, _e,
+            )
+            return None, "dna", None
 
-    return None, "none", None
+    # ── B15.8: Draft vs locked source priority ────────────────────────
+
+    if is_draft:
+        # DRAFT: DNA is the editing source of truth (latest interview answers).
+        spec, source, dna_id = _from_dna()
+        if spec is not None:
+            if settings.is_dev_mode():
+                logger.debug(
+                    "identity_sketch_draft_spec_chosen character_id=%s source=dna "
+                    "dna_id=%s gender=%r hair_color=%r hair_length=%r "
+                    "eye_color=%r species=%r",
+                    character_id,
+                    dna_id,
+                    spec.gender,
+                    spec.identity.hair_color if spec.identity else None,
+                    spec.identity.hair_length if spec.identity else None,
+                    spec.identity.eye_color if spec.identity else None,
+                    spec.species,
+                )
+            return spec, source, dna_id
+        # No DNA spec yet — fall back to identity_spec_json (e.g. legacy draft or
+        # user who skipped the personality step and went straight to identity-pack/generate)
+        spec, source, dna_id = _from_json_spec()
+        if spec is not None and settings.is_dev_mode():
+            logger.debug(
+                "identity_sketch_draft_spec_chosen character_id=%s "
+                "source=identity_spec_json (no-dna-spec fallback) gender=%r",
+                character_id,
+                spec.gender,
+            )
+        if spec is None:
+            return None, "none", None
+        return spec, source, dna_id
+    else:
+        # LOCKED: identity_spec_json is the canonical locked spec.
+        spec, source, dna_id = _from_json_spec()
+        if spec is not None:
+            return spec, source, dna_id
+        # Fallback to DNA for legacy locked characters that pre-date identity_spec_json.
+        spec, source, dna_id = _from_dna()
+        if spec is None:
+            return None, "none", None
+        return spec, source, dna_id
 
 
 def _build_sketch_prompt(identity_spec, style: str, character_name: str | None = None) -> str:
