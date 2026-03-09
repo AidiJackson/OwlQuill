@@ -3,6 +3,7 @@ import { PenLine, RefreshCw, CheckCircle } from 'lucide-react';
 import type { SketchResponse, SketchStyle, IdentitySpec, CreationBasics } from '../shared/types';
 import { SKETCH_STYLES } from '../shared/types';
 import { generateIdentitySketch, resolveImageUrl } from '../shared/api';
+import { isSketchBlocked } from '../shared/sessionGuard';
 
 // ── B15.5: DEV-ONLY sketch trace ─────────────────────────────────────
 // All logging and the on-screen debug panel are gated behind the Vite
@@ -15,7 +16,7 @@ function _traceLog(event: string, data?: Record<string, unknown>) {
   console.info(`[SketchTrace] ${event}`, data ?? '');
 }
 
-// ── B15.5: Dev-only debug panel ───────────────────────────────────────
+// ── B15.5/B15.6: Dev-only debug panel ────────────────────────────────
 // Renders a collapsible on-screen overlay with live sketch trace state.
 // Easy to inspect on mobile: visible directly in the viewport without
 // needing desktop DevTools.
@@ -25,6 +26,12 @@ interface _DebugPanelProps {
   specFingerprint: string;
   sketch: SketchResponse | null;
   loading: boolean;
+  // B15.6 additions
+  activeCreationCharacterId: number | null | undefined;
+  routeCharacterId: number | null | undefined;
+  pageshowPersisted: boolean | undefined;
+  sessionRecoveryAction: string | undefined;
+  sketchBlocked: boolean;
 }
 function _SketchDebugPanel({
   characterId,
@@ -32,6 +39,11 @@ function _SketchDebugPanel({
   specFingerprint,
   sketch,
   loading,
+  activeCreationCharacterId,
+  routeCharacterId,
+  pageshowPersisted,
+  sessionRecoveryAction,
+  sketchBlocked,
 }: _DebugPanelProps) {
   if (!_SKETCH_TRACE) return null;
   const idDrift = characterId !== mountCharacterId;
@@ -50,6 +62,24 @@ function _SketchDebugPanel({
           )}
         </div>
         <div><span className="text-green-600">mountCharacterId:</span> {mountCharacterId}</div>
+        <div><span className="text-green-600">activeCreationCharacterId:</span>{' '}
+          <span className={activeCreationCharacterId != null && characterId !== activeCreationCharacterId ? 'text-red-400 font-bold' : ''}>
+            {activeCreationCharacterId ?? 'n/a'}
+          </span>
+        </div>
+        <div><span className="text-green-600">routeCharacterId:</span> {routeCharacterId ?? 'n/a'}</div>
+        <div>
+          <span className="text-green-600">pageshowPersisted:</span>{' '}
+          <span className={pageshowPersisted ? 'text-yellow-400 font-bold' : ''}>{String(pageshowPersisted ?? false)}</span>
+        </div>
+        <div>
+          <span className="text-green-600">recoveryAction:</span>{' '}
+          <span className={sessionRecoveryAction ? 'text-yellow-300' : ''}>{sessionRecoveryAction || 'none'}</span>
+        </div>
+        <div>
+          <span className="text-green-600">sketchBlocked:</span>{' '}
+          <span className={sketchBlocked ? 'text-red-400 font-bold' : ''}>{String(sketchBlocked)}</span>
+        </div>
         <div><span className="text-green-600">specFingerprint:</span> <span className="break-all">{specFingerprint || '(none)'}</span></div>
         <div><span className="text-green-600">loading:</span> {String(loading)}</div>
         <div><span className="text-green-600">sketchImageId:</span> {sketch?.image_id ?? 'null'}</div>
@@ -68,6 +98,15 @@ interface Props {
   basics?: CreationBasics | null;
   onConfirmed: (sketchImageId: number) => void;
   onBack: () => void;
+  // B15.6: session hardening — optional so the component stays usable in isolation
+  /** The flow's authoritative active character id. Must match characterId or sketch is blocked. */
+  activeCreationCharacterId?: number | null;
+  /** The characterId parsed from the URL query params at the time of this mount. */
+  routeCharacterId?: number | null;
+  /** True when this mount was triggered after a bfcache page restore. */
+  pageshowPersisted?: boolean;
+  /** Human-readable string describing what recovery action the flow took (dev/debug). */
+  sessionRecoveryAction?: string;
 }
 
 /**
@@ -119,6 +158,10 @@ export default function StepSketch({
   basics: _basics,
   onConfirmed,
   onBack,
+  activeCreationCharacterId,
+  routeCharacterId,
+  pageshowPersisted,
+  sessionRecoveryAction,
 }: Props) {
   const [selectedStyle, setSelectedStyle] = useState<SketchStyle>('pencil');
   const [sketch, setSketch] = useState<SketchResponse | null>(null);
@@ -128,6 +171,13 @@ export default function StepSketch({
 
   // B15.5: record the characterId at mount time so we can detect drift
   const mountCharacterIdRef = useRef<number>(characterId);
+
+  // B15.6: explicit mismatch guard — true when this component's characterId no
+  // longer matches the flow's authoritative active creation character id.
+  // In the normal flow this is always false; key={nonce} remount handles bfcache
+  // restores before they reach this component, but this is a belt-and-suspenders
+  // check that also surfaces clearly in the debug panel.
+  const sketchBlocked = isSketchBlocked({ characterId, activeCreationCharacterId });
 
   // Clear stale sketch whenever the identity spec changes after a sketch was made.
   // In the current creation flow the component unmounts on Back/Next, so this
@@ -145,12 +195,18 @@ export default function StepSketch({
     }
   }, [currentSpecKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // B15.5: mount/unmount trace
+  // B15.5/B15.6: mount/unmount trace
   useEffect(() => {
     _traceLog('MOUNT', {
       characterId,
       mountCharacterId: mountCharacterIdRef.current,
       specFingerprint: currentSpecKey || '(none)',
+      // B15.6 fields
+      afterBfcacheRestore: pageshowPersisted ?? false,
+      activeCreationCharacterId: activeCreationCharacterId ?? 'n/a',
+      routeCharacterId: routeCharacterId ?? 'n/a',
+      sessionRecoveryAction: sessionRecoveryAction || 'none',
+      sketchBlocked,
     });
     return () => {
       _traceLog('UNMOUNT', {
@@ -176,6 +232,19 @@ export default function StepSketch({
   }, [characterId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerate = async () => {
+    // B15.6: block if characterId no longer matches the flow's active draft.
+    // This should not happen in normal operation (nonce remount prevents it), but
+    // is an explicit last-resort guard for any residual drift that slips through.
+    if (sketchBlocked) {
+      _traceLog('⚠ GENERATE blocked: session mismatch', {
+        characterId,
+        activeCreationCharacterId,
+        routeCharacterId,
+      });
+      setError('Session mismatch — please go back and try again.');
+      return;
+    }
+
     _traceLog('GENERATE start', {
       characterId,
       mountCharacterId: mountCharacterIdRef.current,
@@ -325,7 +394,7 @@ export default function StepSketch({
       {/* Generate / Refine button */}
       <button
         onClick={handleGenerate}
-        disabled={loading}
+        disabled={loading || sketchBlocked}
         className="flex items-center justify-center gap-2 w-full py-3 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? (
@@ -388,13 +457,18 @@ export default function StepSketch({
         </button>
       </div>
 
-      {/* B15.5: DEV-ONLY debug panel — tree-shaken in production */}
+      {/* B15.5/B15.6: DEV-ONLY debug panel — tree-shaken in production */}
       <_SketchDebugPanel
         characterId={characterId}
         mountCharacterId={mountCharacterIdRef.current}
         specFingerprint={currentSpecKey}
         sketch={sketch}
         loading={loading}
+        activeCreationCharacterId={activeCreationCharacterId}
+        routeCharacterId={routeCharacterId}
+        pageshowPersisted={pageshowPersisted}
+        sessionRecoveryAction={sessionRecoveryAction}
+        sketchBlocked={sketchBlocked}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Feather } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
@@ -12,6 +12,7 @@ import StepDossierLock from './steps/StepDossierLock';
 
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { upsertDNA } from './shared/api';
+import { checkCreationSession } from './shared/sessionGuard';
 import type {
   CreationBasics,
   CreationSeeds,
@@ -45,6 +46,82 @@ export default function CharacterCreationFlow() {
   const [_sketchImageId, setSketchImageId] = useState<number | null>(null);
   const [generatedPack, setGeneratedPack] = useState<IdentityPackResponse | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+
+  // ── B15.6: bfcache / mobile restore session hardening ───────────────
+  // sketchSessionNonce: incremented on bfcache restore so StepSketch remounts
+  // with clean state, preventing a stale sketch from surviving a back/fwd restore.
+  const [sketchSessionNonce, setSketchSessionNonce] = useState(0);
+  const [pageshowPersisted, setPageshowPersisted] = useState(false);
+  const [sessionRecoveryAction, setSessionRecoveryAction] = useState('');
+
+  // Refs give the pageshow handler access to current step/characterId without
+  // stale-closure issues (handler is registered once, deps array is []).
+  const stepRef = useRef(step);
+  const characterIdRef = useRef(characterId);
+  useEffect(() => { stepRef.current = step; }, [step]);
+  useEffect(() => { characterIdRef.current = characterId; }, [characterId]);
+
+  // The "route characterId" is the characterId present in the URL query string.
+  // On a normal resume it matches stateCharacterId; on bfcache-restore after
+  // navigating away it may differ, which is the key mismatch we guard against.
+  const routeCharacterIdRaw = searchParams.get('characterId');
+  const routeCharacterId = routeCharacterIdRaw
+    ? (Number.isNaN(Number(routeCharacterIdRaw)) ? null : Number(routeCharacterIdRaw))
+    : null;
+
+  // ── B15.6: pageshow guard — fires on every page navigation including bfcache
+  useEffect(() => {
+    const handlePageshow = (evt: PageTransitionEvent) => {
+      const currentStep = stepRef.current;
+      const currentCharId = characterIdRef.current;
+
+      // Recompute route id at event time from the live URL (avoids closure staleness).
+      const rawRouteId = new URLSearchParams(window.location.search).get('characterId');
+      const currentRouteId = rawRouteId
+        ? (Number.isNaN(Number(rawRouteId)) ? null : Number(rawRouteId))
+        : null;
+
+      const result = checkCreationSession({
+        persisted: evt.persisted,
+        stateCharacterId: currentCharId,
+        routeCharacterId: currentRouteId,
+        step: currentStep,
+      });
+
+      if (result.recoveryAction === 'none') return;
+
+      if (import.meta.env.DEV) {
+        console.info('[CreationSession] pageshow guard fired', {
+          persisted: evt.persisted,
+          step: currentStep,
+          stateCharacterId: currentCharId,
+          routeCharacterId: currentRouteId,
+          mismatch: result.mismatch,
+          recoveryAction: result.recoveryAction,
+        });
+      }
+
+      setPageshowPersisted(true);
+      setSessionRecoveryAction(result.recoveryAction);
+
+      if (result.recoveryAction === 'bfcache-mismatch:reset-to-step-0') {
+        // Route and state ids diverge — recover to a safe starting point.
+        setCharacterId(null);
+        setStep(0);
+        setSketchImageId(null);
+        return;
+      }
+
+      if (result.recoveryAction === 'bfcache-restore:sketch-cleared') {
+        // Same ids but bfcache restored the sketch step — clear stale sketch.
+        setSketchImageId(null);
+        setSketchSessionNonce((n) => n + 1);
+      }
+    };
+
+    window.addEventListener('pageshow', handlePageshow);
+    return () => window.removeEventListener('pageshow', handlePageshow);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load existing draft when characterId query param is present
   useEffect(() => {
@@ -212,10 +289,14 @@ export default function CharacterCreationFlow() {
 
         {step === 2 && characterId && (
           <StepSketch
-            key={characterId}
+            key={`${characterId}-${sketchSessionNonce}`}
             characterId={characterId}
             identitySpec={seeds.identitySpec}
             basics={basics}
+            activeCreationCharacterId={characterId}
+            routeCharacterId={routeCharacterId}
+            pageshowPersisted={pageshowPersisted}
+            sessionRecoveryAction={sessionRecoveryAction}
             onConfirmed={(id) => {
               setSketchImageId(id || null);
               setStep(3);
