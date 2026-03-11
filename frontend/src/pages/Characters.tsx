@@ -146,7 +146,7 @@ export default function Characters() {
 
   const handleCreateCharacter = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (cooldownInfo) {
+    if (cooldownInfo && !currentUser?.is_admin) {
       alert(`Character creation is on cooldown. You can create a new character in ${cooldownInfo.hours}h ${cooldownInfo.minutes}m.`);
       return;
     }
@@ -179,7 +179,23 @@ export default function Characters() {
     <div className="max-w-4xl mx-auto p-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">My Characters</h1>
-        {characters.length === 0 && cooldownInfo ? (
+        {currentUser?.is_admin ? (
+          // Admin: always show create actions, no beta-limit badge
+          <div className="flex gap-2">
+            <button
+              onClick={() => navigate('/characters/new')}
+              className="btn btn-primary"
+            >
+              + New Character
+            </button>
+            <button
+              onClick={() => setShowCreateForm(!showCreateForm)}
+              className="btn btn-secondary text-sm"
+            >
+              Quick Create
+            </button>
+          </div>
+        ) : characters.length === 0 && cooldownInfo ? (
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500 bg-gray-800 px-3 py-1.5 rounded-full">
               Beta limit: 1 character per account

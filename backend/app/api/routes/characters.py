@@ -1,4 +1,5 @@
 """Character routes."""
+import logging
 from datetime import datetime, timedelta
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,13 +14,19 @@ from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _COOLDOWN_HOURS = 24
+_BETA_CHARACTER_LIMIT = 1
 
 
 def _is_admin(user: User) -> bool:
-    """Check if user is an admin (bypasses cooldowns)."""
-    return user.email.lower() in settings.get_admin_emails()
+    """Check if user is an admin (bypasses beta restrictions).
+
+    Checks the is_admin DB flag first, then falls back to the ADMIN_EMAILS
+    config list so email-configured admins also get the bypass.
+    """
+    return bool(user.is_admin) or user.email.lower() in settings.get_admin_emails()
 
 
 @router.post("/", response_model=Character, status_code=status.HTTP_201_CREATED)
@@ -29,8 +36,10 @@ def create_character(
     db: Session = Depends(get_db)
 ) -> Character:
     """Create a new character."""
+    is_admin = _is_admin(current_user)
+
     # Enforce cooldown after character deletion (admins bypass)
-    if current_user.next_character_allowed_at and not _is_admin(current_user):
+    if current_user.next_character_allowed_at and not is_admin:
         now = datetime.utcnow()
         if now < current_user.next_character_allowed_at:
             remaining = current_user.next_character_allowed_at - now
@@ -44,6 +53,25 @@ def create_character(
                     f"(after {current_user.next_character_allowed_at.isoformat()}Z)."
                 ),
             )
+
+    # Enforce beta 1-character limit (admins bypass)
+    if not is_admin:
+        existing_count = db.query(CharacterModel).filter(
+            CharacterModel.owner_id == current_user.id
+        ).count()
+        if existing_count >= _BETA_CHARACTER_LIMIT:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Beta limit: only {_BETA_CHARACTER_LIMIT} character per account. "
+                    "Delete your existing character first."
+                ),
+            )
+    else:
+        logger.info(
+            "[admin-bypass] user=%s bypassing beta character limit (create)",
+            current_user.email,
+        )
 
     db_character = CharacterModel(
         **character_data.model_dump(),
@@ -168,5 +196,11 @@ def delete_character(
     # Set 24h cooldown on the user (admins bypass)
     if not _is_admin(current_user):
         current_user.next_character_allowed_at = datetime.utcnow() + timedelta(hours=_COOLDOWN_HOURS)
+    else:
+        logger.info(
+            "[admin-bypass] user=%s bypassing delete cooldown (character_id=%s)",
+            current_user.email,
+            character_id,
+        )
 
     db.commit()
