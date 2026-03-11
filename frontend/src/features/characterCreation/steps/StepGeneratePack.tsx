@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { ImageIcon, ChevronDown, ChevronUp, RefreshCw, ZoomIn, X, Info } from 'lucide-react';
-import type { IdentityPackResponse, IdentitySpec } from '../shared/types';
-import { TWEAK_CATEGORIES } from '../shared/types';
+import type { IdentityPackResponse, IdentitySpec, BodyMorphology } from '../shared/types';
+import { TWEAK_CATEGORIES, BODY_HEIGHT_OPTIONS, BODY_BUILD_OPTIONS } from '../shared/types';
 import { generateIdentityPack, resolveImageUrl } from '../shared/api';
 
 interface Props {
   characterId: number;
   vibeText: string;
   identitySpec?: IdentitySpec | null;
+  bodyMorphology: BodyMorphology;
+  onBodyMorphologyChange: (m: BodyMorphology) => void;
   pack: IdentityPackResponse | null;
   onPackGenerated: (pack: IdentityPackResponse) => void;
   onNext: () => void;
@@ -25,6 +27,8 @@ export default function StepGeneratePack({
   characterId,
   vibeText,
   identitySpec,
+  bodyMorphology,
+  onBodyMorphologyChange,
   pack,
   onPackGenerated,
   onNext,
@@ -115,7 +119,11 @@ export default function StepGeneratePack({
     setLoading(true);
     setError('');
     try {
-      const result = await generateIdentityPack(characterId, tweaks, vibeText, identitySpec);
+      // Merge body morphology into identity spec so the backend includes it in the prompt.
+      const specWithBody: IdentitySpec | null = identitySpec
+        ? { ...identitySpec, body_height: bodyMorphology.height, body_build: bodyMorphology.build }
+        : null;
+      const result = await generateIdentityPack(characterId, tweaks, vibeText, specWithBody);
       onPackGenerated(result);
     } catch {
       setError("We couldn't generate the images right now. Please try again.");
@@ -360,6 +368,56 @@ export default function StepGeneratePack({
           </div>
         </div>
       )}
+
+      {/* Body Identity */}
+      <div className="border border-gray-800 rounded-lg px-4 py-4 space-y-4">
+        <p className="text-sm font-medium text-gray-300">Body Identity</p>
+        <p className="text-xs text-gray-500">
+          Set body proportions — applied to every shot in the pack.
+        </p>
+
+        {/* Height */}
+        <div className="space-y-1.5">
+          <span className="text-xs font-medium text-gray-400">Height</span>
+          <div className="flex gap-2">
+            {BODY_HEIGHT_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onBodyMorphologyChange({ ...bodyMorphology, height: opt.value })}
+                className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
+                  bodyMorphology.height === opt.value
+                    ? 'bg-emerald-600 border-emerald-500 text-white'
+                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Build */}
+        <div className="space-y-1.5">
+          <span className="text-xs font-medium text-gray-400">Build</span>
+          <div className="flex flex-wrap gap-2">
+            {BODY_BUILD_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onBodyMorphologyChange({ ...bodyMorphology, build: opt.value })}
+                className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
+                  bodyMorphology.build === opt.value
+                    ? 'bg-emerald-600 border-emerald-500 text-white'
+                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div className="flex justify-between pt-2">
         <button className="btn btn-secondary" onClick={onBack}>

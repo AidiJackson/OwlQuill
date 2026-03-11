@@ -45,6 +45,22 @@ _STYLE_TOKENS: dict[str, str] = {
     "3d_animated": "3D animated character, stylized render",
 }
 
+# ── B16: Body morphology mappings ────────────────────────────────────
+
+_HEIGHT_MORPHOLOGY: dict[str, str] = {
+    "short": "short stature",
+    "medium": "average height",
+    "tall": "tall stature",
+}
+
+_BUILD_MORPHOLOGY: dict[str, str] = {
+    "slim": "slim build, narrow shoulders, lean frame",
+    "athletic": "athletic build, defined shoulders, balanced physique",
+    "muscular": "muscular build, broad shoulders, powerful chest and arms",
+    "stocky": "stocky muscular build, broad shoulders, thick neck, compact powerful frame",
+    "heavy": "large heavy build, broad torso, thick powerful frame",
+}
+
 # ── Role shot descriptions ───────────────────────────────────────────
 
 ROLE_SHOT_DESCRIPTION: dict[str, str] = {
@@ -181,13 +197,19 @@ def compile_identity_prompt(
     if shot_desc:
         sections.append(shot_desc)
 
-    # 6. Build + marks/accessories
+    # 6. Body morphology (B16) + legacy build + marks/accessories
     build_parts: list[str] = []
-    if spec.build:
-        if spec.build.body_type:
-            build_parts.append(f"{spec.build.body_type} build")
-        if spec.build.height_band:
-            build_parts.append(spec.build.height_band)
+    # B16: structured height/build take priority over legacy free-text fields
+    _body_height = getattr(spec, "body_height", None)
+    _body_build = getattr(spec, "body_build", None)
+    if _body_height and _body_height in _HEIGHT_MORPHOLOGY:
+        build_parts.append(_HEIGHT_MORPHOLOGY[_body_height])
+    elif spec.build and spec.build.height_band:
+        build_parts.append(spec.build.height_band)
+    if _body_build and _body_build in _BUILD_MORPHOLOGY:
+        build_parts.append(_BUILD_MORPHOLOGY[_body_build])
+    elif spec.build and spec.build.body_type:
+        build_parts.append(f"{spec.build.body_type} build")
     if spec.marks_accessories and spec.marks_accessories.items:
         build_parts.extend(spec.marks_accessories.items)
     if build_parts:
@@ -264,6 +286,14 @@ def compile_identity_lock_string(spec: CharacterIdentitySpec) -> str:
 
     if spec.marks_accessories and spec.marks_accessories.items:
         parts.extend(spec.marks_accessories.items[:2])
+
+    # B16: body morphology — include in lock string so scene prompts stay consistent
+    _body_height = getattr(spec, "body_height", None)
+    _body_build = getattr(spec, "body_build", None)
+    if _body_height and _body_height in _HEIGHT_MORPHOLOGY:
+        parts.append(_HEIGHT_MORPHOLOGY[_body_height])
+    if _body_build and _body_build in _BUILD_MORPHOLOGY:
+        parts.append(_BUILD_MORPHOLOGY[_body_build])
 
     return ", ".join(parts)
 

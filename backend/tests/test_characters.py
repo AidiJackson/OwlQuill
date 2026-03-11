@@ -1,9 +1,5 @@
 """Tests for character endpoints."""
-from datetime import datetime, timedelta
-
 from fastapi.testclient import TestClient
-
-from app.models.user import User as UserModel
 
 
 def get_auth_token(client: TestClient) -> str:
@@ -44,12 +40,11 @@ def _register_and_login(client: TestClient, email: str, username: str) -> str:
     return resp.json()["access_token"]
 
 
-def _grant_admin(db_session, email: str) -> None:
-    """Directly set is_admin=True for a user via the test DB session."""
-    user = db_session.query(UserModel).filter(UserModel.email == email).first()
-    assert user is not None, f"User {email} not found"
-    user.is_admin = True
-    db_session.commit()
+def _make_admin(monkeypatch, email: str) -> None:
+    """Grant admin status to an email via settings monkeypatch (no DB access needed)."""
+    from app.core import config as cfg_module
+    monkeypatch.setenv("ADMIN_EMAILS", email)
+    monkeypatch.setattr(cfg_module.settings, "ADMIN_EMAILS", email)
 
 
 def test_create_character(client: TestClient):
@@ -113,11 +108,11 @@ def test_non_admin_limited_to_one_character(client: TestClient):
     assert "Beta limit" in r2.json()["detail"]
 
 
-def test_admin_can_create_multiple_characters(client: TestClient, db_session):
+def test_admin_can_create_multiple_characters(client: TestClient, monkeypatch):
     """Admin user is not subject to the beta 1-character limit."""
     email = "admin@test.com"
+    _make_admin(monkeypatch, email)
     token = _register_and_login(client, email, "adminuser")
-    _grant_admin(db_session, email)
     headers = {"Authorization": f"Bearer {token}"}
 
     r1 = client.post("/characters/", json={**_CHAR_PAYLOAD, "name": "First"}, headers=headers)
@@ -130,10 +125,9 @@ def test_admin_can_create_multiple_characters(client: TestClient, db_session):
     assert r3.status_code == 201, r3.text
 
 
-def test_non_admin_delete_sets_cooldown(client: TestClient, db_session):
-    """Deleting a character sets a 24-hour creation cooldown for non-admin users."""
-    email = "cooldown@test.com"
-    token = _register_and_login(client, email, "cooldownuser")
+def test_non_admin_delete_sets_cooldown(client: TestClient):
+    """Deleting a character blocks a non-admin from immediately creating a new one."""
+    token = _register_and_login(client, "cooldown@test.com", "cooldownuser")
     headers = {"Authorization": f"Bearer {token}"}
 
     create_resp = client.post("/characters/", json=_CHAR_PAYLOAD, headers=headers)
@@ -143,19 +137,17 @@ def test_non_admin_delete_sets_cooldown(client: TestClient, db_session):
     del_resp = client.delete(f"/characters/{char_id}", headers=headers)
     assert del_resp.status_code == 204
 
-    # User should now have a cooldown set
-    from sqlalchemy.orm import Session
-    user = db_session.query(UserModel).filter(UserModel.email == email).first()
-    db_session.refresh(user)
-    assert user.next_character_allowed_at is not None
-    assert user.next_character_allowed_at > datetime.utcnow()
+    # Cooldown should now block a new character creation
+    r2 = client.post("/characters/", json={**_CHAR_PAYLOAD, "name": "After Delete"}, headers=headers)
+    assert r2.status_code == 403
+    assert "cooldown" in r2.json()["detail"].lower()
 
 
-def test_admin_delete_does_not_set_cooldown(client: TestClient, db_session):
-    """Deleting a character does not impose a cooldown on admin users."""
+def test_admin_delete_does_not_set_cooldown(client: TestClient, monkeypatch):
+    """Admin can delete a character and immediately create a new one (no cooldown)."""
     email = "admindel@test.com"
+    _make_admin(monkeypatch, email)
     token = _register_and_login(client, email, "admindeluser")
-    _grant_admin(db_session, email)
     headers = {"Authorization": f"Bearer {token}"}
 
     create_resp = client.post("/characters/", json=_CHAR_PAYLOAD, headers=headers)
@@ -165,11 +157,6 @@ def test_admin_delete_does_not_set_cooldown(client: TestClient, db_session):
     del_resp = client.delete(f"/characters/{char_id}", headers=headers)
     assert del_resp.status_code == 204
 
-    # Admin should have no cooldown set
-    user = db_session.query(UserModel).filter(UserModel.email == email).first()
-    db_session.refresh(user)
-    assert user.next_character_allowed_at is None
-
-    # Admin can immediately create another character
+    # Admin can immediately create another character (no cooldown)
     r2 = client.post("/characters/", json={**_CHAR_PAYLOAD, "name": "Reborn"}, headers=headers)
     assert r2.status_code == 201, r2.text

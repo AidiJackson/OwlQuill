@@ -1261,6 +1261,8 @@ def accept_identity_pack(
     _lock_string = None
     _prompt_hash = None
     _style = "realistic"
+    _anchor_height: str | None = None
+    _anchor_build: str | None = None
     if character.identity_spec_json:
         try:
             from app.schemas.character_visual import CharacterIdentitySpec
@@ -1268,6 +1270,8 @@ def accept_identity_pack(
             _lock_string = compile_identity_lock_string(spec_obj)
             _prompt_hash = identity_prompt_hash(spec_obj)
             _style = spec_obj.style
+            _anchor_height = getattr(spec_obj, "body_height", None)
+            _anchor_build = getattr(spec_obj, "body_build", None)
         except Exception:
             pass  # graceful fallback — lock/hash stay null
 
@@ -1278,6 +1282,8 @@ def accept_identity_pack(
         "identity_prompt_hash": _prompt_hash,
         "identity_lock_string": _lock_string,
         "anchors": anchors_dict,
+        "height": _anchor_height,
+        "build": _anchor_build,
     })
 
     # Create a tight face-reference crop from the accepted front anchor.

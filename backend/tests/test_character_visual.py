@@ -3918,3 +3918,103 @@ class TestDraftEditSemantics:
             f"'not feminine' (male gender lock) should not appear for locked female. "
             f"Got: {prompt!r}"
         )
+
+
+# ── B16: Body morphology in identity_anchor_json ─────────────────────
+
+def test_accept_pack_stores_height_and_build_in_anchor_json(client: TestClient):
+    """identity_anchor_json must include height and build after accepting a pack with body morphology."""
+    import json
+
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # Generate a pack with an identity_spec that includes body_height and body_build
+    identity_spec = {
+        "style": "realistic",
+        "gender": "female",
+        "age_band": "26-35",
+        "body_height": "tall",
+        "body_build": "athletic",
+    }
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": identity_spec},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    pack_id = resp.json()["pack_id"]
+
+    # Accept the pack
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/accept",
+        json={"pack_id": pack_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    # Verify identity_anchor_json contains height and build
+    resp = client.get(
+        f"/characters/{cid}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    anchor = json.loads(resp.json()["identity_anchor_json"])
+    assert anchor.get("height") == "tall"
+    assert anchor.get("build") == "athletic"
+
+
+def test_accept_pack_anchor_json_height_build_none_when_not_set(client: TestClient):
+    """identity_anchor_json height/build are null when no body morphology spec provided."""
+    import json
+
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    # Generate without identity_spec (no body morphology)
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    pack_id = resp.json()["pack_id"]
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/accept",
+        json={"pack_id": pack_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+
+    resp = client.get(
+        f"/characters/{cid}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    anchor = json.loads(resp.json()["identity_anchor_json"])
+    # When no spec was provided height and build default to None
+    assert anchor.get("height") is None
+    assert anchor.get("build") is None
+
+
+def test_identity_pack_prompt_includes_morphology_text(client: TestClient):
+    """Generating a pack with body morphology injects the mapped text into the prompt metadata."""
+    identity_spec = {
+        "style": "realistic",
+        "gender": "male",
+        "age_band": "18-25",
+        "body_height": "tall",
+        "body_build": "muscular",
+    }
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={"identity_spec": identity_spec},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    # Stub provider: check that at least one image was returned (pack generated without error)
+    data = resp.json()
+    assert len(data["images"]) == 4

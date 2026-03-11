@@ -98,6 +98,10 @@ export interface IdentitySpec {
   hair_texture?: string;    // straight | wavy | curly | coily | messy
   hair_style?: string;      // loose | layered | tied_back | side_parted | slicked_back | short_cut
   eyebrow_shape?: string;   // soft | arched | straight | sharp | thick | thin
+
+  // B16: Body morphology — all optional
+  body_height?: 'short' | 'medium' | 'tall';
+  body_build?: 'slim' | 'athletic' | 'muscular' | 'stocky' | 'heavy';
 }
 
 // ── Species ──────────────────────────────────────────────────────────
@@ -387,3 +391,32 @@ export const STEP_LABELS = [
   'Choose Canon',
   'Dossier',
 ];
+
+// ── B16: Body morphology ─────────────────────────────────────────────
+
+export type BodyHeight = 'short' | 'medium' | 'tall';
+export type BodyBuild = 'slim' | 'athletic' | 'muscular' | 'stocky' | 'heavy';
+
+export interface BodyMorphology {
+  height: BodyHeight;
+  build: BodyBuild;
+}
+
+export const BODY_HEIGHT_OPTIONS: { value: BodyHeight; label: string }[] = [
+  { value: 'short',  label: 'Short'   },
+  { value: 'medium', label: 'Medium'  },
+  { value: 'tall',   label: 'Tall'    },
+];
+
+export const BODY_BUILD_OPTIONS: { value: BodyBuild; label: string }[] = [
+  { value: 'slim',      label: 'Slim'      },
+  { value: 'athletic',  label: 'Athletic'  },
+  { value: 'muscular',  label: 'Muscular'  },
+  { value: 'stocky',    label: 'Stocky'    },
+  { value: 'heavy',     label: 'Heavy'     },
+];
+
+export const DEFAULT_BODY_MORPHOLOGY: BodyMorphology = {
+  height: 'medium',
+  build: 'athletic',
+};

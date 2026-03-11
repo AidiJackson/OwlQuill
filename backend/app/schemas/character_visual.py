@@ -62,6 +62,10 @@ _VALID_HAIR_TEXTURES = {"straight", "wavy", "curly", "coily", "messy"}
 _VALID_HAIR_STYLES = {"loose", "layered", "tied_back", "side_parted", "slicked_back", "short_cut"}
 _VALID_EYEBROW_SHAPES = {"soft", "arched", "straight", "sharp", "thick", "thin"}
 
+# ── B16: Body morphology (Height + Build) ────────────────────────────
+_VALID_BODY_HEIGHTS = {"short", "medium", "tall"}
+_VALID_BODY_BUILDS = {"slim", "athletic", "muscular", "stocky", "heavy"}
+
 _FACIAL_GEOMETRY_FIELD_MAP: dict[str, set[str]] = {
     "face_shape": _VALID_FACE_SHAPES,
     "jaw_type": _VALID_JAW_TYPES,
@@ -161,6 +165,10 @@ class CharacterIdentitySpec(BaseModel):
     hair_style: Optional[str] = None     # loose | layered | tied_back | side_parted | slicked_back | short_cut
     eyebrow_shape: Optional[str] = None  # soft | arched | straight | sharp | thick | thin
 
+    # ── B16: Body morphology — all optional, backward-compatible ──────
+    body_height: Optional[str] = None  # short | medium | tall
+    body_build: Optional[str] = None   # slim | athletic | muscular | stocky | heavy
+
     @field_validator("style", mode="before")
     @classmethod
     def _coerce_style(cls, v) -> str:
@@ -231,6 +239,32 @@ class CharacterIdentitySpec(BaseModel):
             raise ValueError(
                 f"{info.field_name} must be one of: {', '.join(sorted(valid_set))}"
             )
+        return normed
+
+    @field_validator("body_height", mode="before")
+    @classmethod
+    def _validate_body_height(cls, v: object) -> Optional[str]:
+        """Accept None/empty; otherwise enforce short | medium | tall."""
+        if v is None or v == "":
+            return None
+        if not isinstance(v, str):
+            raise ValueError("body_height must be a string or null")
+        normed = v.strip().lower()
+        if normed not in _VALID_BODY_HEIGHTS:
+            raise ValueError(f"body_height must be one of: {', '.join(sorted(_VALID_BODY_HEIGHTS))}")
+        return normed
+
+    @field_validator("body_build", mode="before")
+    @classmethod
+    def _validate_body_build(cls, v: object) -> Optional[str]:
+        """Accept None/empty; otherwise enforce slim | athletic | muscular | stocky | heavy."""
+        if v is None or v == "":
+            return None
+        if not isinstance(v, str):
+            raise ValueError("body_build must be a string or null")
+        normed = v.strip().lower()
+        if normed not in _VALID_BODY_BUILDS:
+            raise ValueError(f"body_build must be one of: {', '.join(sorted(_VALID_BODY_BUILDS))}")
         return normed
 
 

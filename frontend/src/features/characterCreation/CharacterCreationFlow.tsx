@@ -17,8 +17,9 @@ import type {
   CreationBasics,
   CreationSeeds,
   IdentityPackResponse,
+  BodyMorphology,
 } from './shared/types';
-import { STEP_LABELS } from './shared/types';
+import { STEP_LABELS, DEFAULT_BODY_MORPHOLOGY } from './shared/types';
 
 export default function CharacterCreationFlow() {
   const navigate = useNavigate();
@@ -42,6 +43,8 @@ export default function CharacterCreationFlow() {
     vibeText: '',
     identitySpec: null,
   });
+
+  const [bodyMorphology, setBodyMorphology] = useState<BodyMorphology>(DEFAULT_BODY_MORPHOLOGY);
 
   const [_sketchImageId, setSketchImageId] = useState<number | null>(null);
   const [generatedPack, setGeneratedPack] = useState<IdentityPackResponse | null>(null);
@@ -310,6 +313,8 @@ export default function CharacterCreationFlow() {
             characterId={characterId}
             vibeText={seeds.vibeText}
             identitySpec={seeds.identitySpec}
+            bodyMorphology={bodyMorphology}
+            onBodyMorphologyChange={setBodyMorphology}
             pack={generatedPack}
             onPackGenerated={(pack) => {
               setGeneratedPack(pack);

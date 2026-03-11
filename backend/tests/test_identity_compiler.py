@@ -512,3 +512,174 @@ class TestB15FieldsInPrompt:
         )
         prompt = compile_identity_prompt(spec, "anchor_front")
         assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"
+
+
+# ── B16: Body morphology (Height + Build) ────────────────────────────
+
+def _make_morphology_spec(body_height=None, body_build=None, **overrides) -> CharacterIdentitySpec:
+    """Build a spec with optional body_height and body_build fields."""
+    base = dict(
+        style="realistic",
+        gender="female",
+        age_band="26-35",
+        identity=IdentityCore(
+            hair_color="brunette",
+            hair_length="long",
+            eye_color="hazel",
+            skin_tone="tan",
+        ),
+    )
+    base.update(overrides)
+    spec = CharacterIdentitySpec(**base)
+    spec.body_height = body_height
+    spec.body_build = body_build
+    return spec
+
+
+class TestBodyMorphologyPrompt:
+    """B16: body_height and body_build are injected with mapped descriptors."""
+
+    def test_height_short_in_prompt(self):
+        spec = _make_morphology_spec(body_height="short")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "short stature" in prompt
+
+    def test_height_medium_in_prompt(self):
+        spec = _make_morphology_spec(body_height="medium")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "average height" in prompt
+
+    def test_height_tall_in_prompt(self):
+        spec = _make_morphology_spec(body_height="tall")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "tall stature" in prompt
+
+    def test_build_slim_in_prompt(self):
+        spec = _make_morphology_spec(body_build="slim")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "slim build, narrow shoulders, lean frame" in prompt
+
+    def test_build_athletic_in_prompt(self):
+        spec = _make_morphology_spec(body_build="athletic")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "athletic build, defined shoulders, balanced physique" in prompt
+
+    def test_build_muscular_in_prompt(self):
+        spec = _make_morphology_spec(body_build="muscular")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "muscular build, broad shoulders, powerful chest and arms" in prompt
+
+    def test_build_stocky_in_prompt(self):
+        spec = _make_morphology_spec(body_build="stocky")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "stocky muscular build" in prompt
+
+    def test_build_heavy_in_prompt(self):
+        spec = _make_morphology_spec(body_build="heavy")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "large heavy build" in prompt
+
+    def test_height_and_build_together(self):
+        """Both height and build appear in the same prompt."""
+        spec = _make_morphology_spec(body_height="tall", body_build="muscular")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "tall stature" in prompt
+        assert "muscular build, broad shoulders, powerful chest and arms" in prompt
+
+    def test_no_morphology_no_raw_keywords(self):
+        """When body_height/body_build are None the mapped phrases must not appear."""
+        spec = _make_morphology_spec()  # no body fields
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "stature" not in prompt
+        assert "average height" not in prompt
+
+    def test_morphology_prompt_within_cap(self):
+        """Prompt with all B16 fields must remain within 800-char cap."""
+        spec = _make_morphology_spec(body_height="tall", body_build="stocky")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"
+
+
+class TestBodyMorphologyLockString:
+    """B16: body_height and body_build appear in the identity lock string (for scene consistency)."""
+
+    def test_height_in_lock_string(self):
+        spec = _make_morphology_spec(body_height="short")
+        lock = compile_identity_lock_string(spec)
+        assert "short stature" in lock
+
+    def test_build_in_lock_string(self):
+        spec = _make_morphology_spec(body_build="athletic")
+        lock = compile_identity_lock_string(spec)
+        assert "athletic build, defined shoulders, balanced physique" in lock
+
+    def test_height_and_build_in_lock_string(self):
+        spec = _make_morphology_spec(body_height="tall", body_build="slim")
+        lock = compile_identity_lock_string(spec)
+        assert "tall stature" in lock
+        assert "slim build, narrow shoulders, lean frame" in lock
+
+    def test_no_morphology_not_in_lock_string(self):
+        spec = _make_morphology_spec()
+        lock = compile_identity_lock_string(spec)
+        assert "stature" not in lock
+        assert "build" not in lock
+
+
+class TestBodyMorphologyDefaults:
+    """B16: schema defaults and validator behaviour."""
+
+    def test_body_height_default_is_none(self):
+        """Without body_height the field defaults to None (no morphology injected)."""
+        spec = CharacterIdentitySpec(
+            style="realistic",
+            gender="female",
+            age_band="26-35",
+        )
+        assert spec.body_height is None
+
+    def test_body_build_default_is_none(self):
+        spec = CharacterIdentitySpec(
+            style="realistic",
+            gender="female",
+            age_band="26-35",
+        )
+        assert spec.body_build is None
+
+    def test_body_height_medium_accepted(self):
+        spec = CharacterIdentitySpec(
+            style="realistic",
+            gender="female",
+            age_band="26-35",
+            body_height="medium",
+        )
+        assert spec.body_height == "medium"
+
+    def test_body_build_athletic_accepted(self):
+        spec = CharacterIdentitySpec(
+            style="realistic",
+            gender="female",
+            age_band="26-35",
+            body_build="athletic",
+        )
+        assert spec.body_build == "athletic"
+
+    def test_invalid_body_height_raises(self):
+        import pytest
+        with pytest.raises(Exception):
+            CharacterIdentitySpec(
+                style="realistic",
+                gender="female",
+                age_band="26-35",
+                body_height="gigantic",
+            )
+
+    def test_invalid_body_build_raises(self):
+        import pytest
+        with pytest.raises(Exception):
+            CharacterIdentitySpec(
+                style="realistic",
+                gender="female",
+                age_band="26-35",
+                body_build="ripped",
+            )
