@@ -323,6 +323,35 @@ def get_identity_provider_by_name(name: str) -> ImageProvider:
     return provider
 
 
+def get_provider_for_option(option: str) -> ImageProvider:
+    """Return the image provider mapped to a B17 provider option key.
+
+    Mapping (internal, not exposed to end users):
+      option1 -> openai
+      option2 -> google
+
+    When IMAGE_GENERATOR_PROVIDER_TOGGLE is False, always returns the openai
+    provider regardless of the option value (easy rollback path).
+
+    Raises:
+        RuntimeError: If the resolved provider is missing required credentials.
+        ValueError: If the option key is unrecognised.
+    """
+    _OPTION_MAP = {
+        "option1": "openai",
+        "option2": "google",
+    }
+    effective = option.lower() if settings.IMAGE_GENERATOR_PROVIDER_TOGGLE else "option1"
+    provider_name = _OPTION_MAP.get(effective)
+    if provider_name is None:
+        raise ValueError(f"Unknown provider option: {option!r}. Expected 'option1' or 'option2'.")
+    if provider_name == "openai":
+        return _OpenAIImageProvider()
+    if provider_name == "google":
+        return _GoogleImageProviderAdapter()
+    raise ValueError(f"No provider implementation for resolved name: {provider_name!r}")
+
+
 def get_fallback_provider() -> ImageProvider | None:
     """Factory: return a fallback provider for tier-C generation.
 

@@ -116,6 +116,11 @@ class Settings(BaseSettings):
     # Per-user daily chapter generation quota (0 = unlimited)
     STORYLAB_DAILY_LIMIT: int = 20
 
+    # B17: Simplified image generator provider toggle.
+    # When True, the frontend toggle (Option 1 / Option 2) is active and respected.
+    # Set to False to collapse to Option 1 (OpenAI) only for production.
+    IMAGE_GENERATOR_PROVIDER_TOGGLE: bool = True
+
 
     model_config = SettingsConfigDict(
         env_file=".env",

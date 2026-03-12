@@ -141,6 +141,22 @@ export async function generateSceneImage(
   });
 }
 
+export async function generateImage(
+  characterId: number,
+  prompt: string,
+  includeCharacter: boolean,
+  providerOption: 'option1' | 'option2',
+): Promise<CharacterImageRead> {
+  return request(`/characters/${characterId}/image-generator/generate`, {
+    method: 'POST',
+    body: JSON.stringify({
+      prompt,
+      include_character: includeCharacter,
+      provider_option: providerOption,
+    }),
+  });
+}
+
 export async function generateIdentitySketch(
   characterId: number,
   style: string = 'pencil',

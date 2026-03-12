@@ -440,11 +440,12 @@ export default function CharacterDetail() {
           </div>
         )}
 
-        {/* Scene image generator (post-lock, owner only) */}
-        {character.visual_locked && currentUser && character.owner_id === currentUser.id && (
+        {/* Image generator (owner only) — include_character requires a locked identity */}
+        {currentUser && character.owner_id === currentUser.id && (
           <div className="border-t border-gray-800 pt-6 space-y-4">
             <SceneGeneratorPanel
               characterId={character.id}
+              isCharacterLocked={character.visual_locked ?? false}
               onGeneratingChange={setIsGeneratingScene}
               onGenerated={(image) => {
                 setGalleryImages((prev) => [image, ...prev]);
