@@ -112,6 +112,89 @@ class GoogleImageProvider(ImageProviderBase):
             f"Google Gemini response contained no inlineData image: {snippet}"
         )
 
+    def generate_with_multi_reference(
+        self,
+        *,
+        prompt: str,
+        reference_images: list[bytes],
+        size: str = "1024x1024",
+    ) -> bytes:
+        """Generate conditioned on multiple identity anchor images (B19).
+
+        Sends all anchor images as inlineData parts before the text prompt,
+        giving the model multi-angle visual identity context.
+        """
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt must not be empty.")
+        if not reference_images:
+            raise ValueError("reference_images must not be empty.")
+
+        parts: list[dict] = []
+        for img_bytes in reference_images:
+            encoded = base64.b64encode(img_bytes).decode("ascii")
+            parts.append({
+                "inlineData": {
+                    "mimeType": "image/png",
+                    "data": encoded,
+                }
+            })
+        parts.append({"text": prompt})
+
+        payload = {"contents": [{"parts": parts}]}
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self._model}:generateContent?key={self._api_key}"
+        )
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            url, data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+                body = json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            logger.warning("google_gemini_multi_anchor_api_error status=%s", exc.code)
+            raise RuntimeError(
+                f"Google Gemini multi-anchor generation failed (HTTP {exc.code})"
+            ) from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise RuntimeError(f"Google Gemini multi-anchor request failed: {exc}") from exc
+
+        _cands = body.get("candidates", [])
+        if _cands:
+            _c0 = _cands[0]
+            if (
+                _c0.get("finishReason") == "IMAGE_RECITATION"
+                or "unable to show the generated image" in str(
+                    _c0.get("finishMessage") or ""
+                ).lower()
+                or _c0.get("content") == {}
+            ):
+                raise RuntimeError("google_refused_image: IMAGE_RECITATION")
+
+        try:
+            resp_parts = body["candidates"][0]["content"]["parts"]
+        except (KeyError, IndexError, TypeError):
+            snippet = json.dumps(body)[:300]
+            raise RuntimeError(
+                f"Google Gemini multi-anchor response missing expected structure: {snippet}"
+            )
+
+        for part in resp_parts:
+            inline = part.get("inlineData")
+            if inline:
+                encoded_out = inline.get("data", "")
+                if encoded_out:
+                    return base64.b64decode(encoded_out)
+
+        snippet = json.dumps(body)[:300]
+        raise RuntimeError(
+            f"Google Gemini multi-anchor response contained no inlineData image: {snippet}"
+        )
+
     def generate_with_reference(
         self,
         *,

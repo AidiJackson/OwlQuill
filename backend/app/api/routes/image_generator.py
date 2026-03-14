@@ -6,11 +6,14 @@ Replaces the mental model of 'scene generator' with a plain image generator:
   - provider_option selects the backend provider (option1=OpenAI, option2=Google)
 
 B18: Strict identity mode is automatically enabled when include_character=True.
-  - Prepends a strong identity-preservation wrapper to the provider prompt
-  - Injects identity lock string, face signature, and available anchor refs
-  - Instructs the provider not to substitute a generic archetype or different person
   - Blocks silent fallback to plain generic generation or stub placeholder
-  - Allows at most one retry with stronger identity wording before controlled failure
+  - Allows at most one retry with escalated wording before controlled failure
+
+B19: Anchor-image conditioning.
+  - Loads identity pack images (front, three-quarter, torso, full-body) from disk
+  - Passes them as real provider inputs via generate_with_anchors when supported
+  - Falls back to single-image grounded generation (face-ref crop) when not
+  - Tightens the strict identity text wrapper to be short and punchy
 """
 import json as _json
 import logging
@@ -44,29 +47,29 @@ router = APIRouter()
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
 
 # B17 provider option → internal provider name (not exposed to end users).
-# To collapse to single-provider: set IMAGE_GENERATOR_PROVIDER_TOGGLE=False in config.
 _OPTION_PROVIDER_NAMES: dict[str, str] = {
     "option1": "openai",
     "option2": "google",
 }
 
-# ── B18 strict identity constants ─────────────────────────────────────
+# ── B18/B19 strict identity prompt constants ──────────────────────────
+# Shorter, punchier wording — actual images carry the visual identity;
+# the text wrapper confirms the requirement without bloat.
 
 _STRICT_IDENTITY_PREFIX = (
-    "STRICT IDENTITY LOCK — this image depicts a specific named character, "
-    "NOT a generic person or archetype. "
-    "You MUST reproduce the exact same individual shown in the reference: "
-    "exact face, exact hair colour and style, exact skin tone, exact eye colour. "
-    "Do NOT substitute a different person. Do NOT use a generic or averaged appearance. "
-    "Use the reference image for facial identity ONLY; outfit must follow the scene prompt. "
+    "The subject must be the same person as the reference images. "
+    "Preserve the exact face, facial structure, hair, body build, "
+    "and any distinctive marks or tattoos. "
+    "Do not generate a different person."
 )
 
 _STRICT_IDENTITY_RETRY_PREFIX = (
-    "ABSOLUTE IDENTITY REQUIREMENT — CRITICAL: Reproduce the EXACT person from the reference. "
-    "Same specific individual ONLY. Zero substitution permitted. "
-    "Same facial geometry, same hair, same colouring, same distinguishing marks. "
-    "Use the reference image for facial identity ONLY; outfit must follow the scene prompt. "
+    "CRITICAL: Reproduce the exact person from the reference images only. "
+    "Same face, hair, build, distinctive marks. No substitution permitted."
 )
+
+# Preferred anchor load order: widest-identity coverage first
+_ANCHOR_LOAD_ORDER = ("front", "three_quarter", "torso", "full_body")
 
 
 # ── Request schema ────────────────────────────────────────────────────
@@ -104,44 +107,74 @@ def _parse_anchor_json(raw: str | None) -> dict | None:
     return data
 
 
+def _load_anchor_images(
+    anchor_data: dict,
+    character_id: int,
+) -> tuple[list[bytes], list[str]]:
+    """Load identity anchor images from disk in preferred order (B19).
+
+    Preferred order: front → three_quarter → torso → full_body.
+
+    Returns:
+        (loaded_bytes, loaded_type_keys) — parallel lists.
+        Entries for missing or unreadable files are silently skipped.
+    """
+    anchors = anchor_data.get("anchors") or {}
+    loaded_bytes: list[bytes] = []
+    loaded_keys: list[str] = []
+
+    for key in _ANCHOR_LOAD_ORDER:
+        entry = anchors.get(key)
+        if not entry:
+            continue
+        url = entry.get("url", "")
+        if not url:
+            continue
+        # URL format: "/static/generated/xxx.png" → filename "xxx.png"
+        filename = Path(url.lstrip("/")).name
+        abs_path = _GENERATED_DIR / filename
+        try:
+            img_bytes = abs_path.read_bytes()
+            loaded_bytes.append(img_bytes)
+            loaded_keys.append(key)
+        except Exception:
+            logger.warning(
+                "anchor_image_load_failed character_id=%s key=%s path=%s",
+                character_id,
+                key,
+                str(abs_path),
+            )
+
+    return loaded_bytes, loaded_keys
+
+
 def _build_strict_identity_prompt(
     *,
     base_prompt: str,
     anchor_data: dict,
+    character_name: str = "",
     retry: bool = False,
 ) -> str:
-    """Build a strict-identity-mode prompt for character-grounded generation.
+    """Build a tightened strict-identity prompt (B19).
 
-    Wraps base_prompt with a strong identity-preservation header that includes:
-    - Identity lock directive (retry escalates the language)
-    - Face signature text (canonical textual description of the face)
-    - Identity lock string (hair, eyes, skin, body morphology)
-    - Available anchor reference angles
+    Short, punchy directive + character name + identity lock string + scene prompt.
+    Face-signature text and anchor-ref listing are omitted here — actual image
+    inputs carry that information when the provider supports multi-image input.
 
     Hard-capped at 800 characters.
     """
     prefix = _STRICT_IDENTITY_RETRY_PREFIX if retry else _STRICT_IDENTITY_PREFIX
     parts: list[str] = [prefix.rstrip()]
 
-    # Canonical face signature for textual grounding
-    face_sig = (anchor_data.get("face_signature") or {}).get("text", "")
-    if face_sig:
-        parts.append(f"FACE SIGNATURE: {face_sig}")
+    if character_name:
+        parts.append(f"Character: {character_name}")
 
     # Identity lock string already includes hair/eyes/skin and body morphology (B16)
     lock = anchor_data.get("identity_lock_string") or ""
     if lock:
-        parts.append(f"IDENTITY: {lock}")
+        parts.append(lock)
 
-    # List available anchor reference angles for the provider's context
-    anchor_keys = [
-        k for k in ("front", "three_quarter", "torso", "full_body")
-        if (anchor_data.get("anchors") or {}).get(k)
-    ]
-    if anchor_keys:
-        parts.append(f"Anchor refs: {', '.join(anchor_keys)}")
-
-    # Original scene prompt last
+    # User's scene prompt last
     parts.append(base_prompt)
 
     combined = ". ".join(p.rstrip(". ") for p in parts)
@@ -154,7 +187,7 @@ def _build_strict_identity_prompt(
 @router.post(
     "/{character_id}/image-generator/generate",
     response_model=CharacterImageRead,
-    summary="Generate an image with optional character identity and provider selection (B17/B18)",
+    summary="Generate an image with optional character identity and provider selection (B17-B19)",
 )
 def generate_image(
     character_id: int,
@@ -164,21 +197,19 @@ def generate_image(
 ) -> CharacterImageRead:
     """Generate a single image.
 
-    When include_character=True, strict identity mode (B18) is automatically
-    enabled.  The character must be visually locked with an identity anchor.
-    A strong identity-preservation wrapper is prepended to the prompt; the
-    provider is instructed not to substitute a generic archetype.  At most one
-    retry with escalated wording is attempted before a controlled failure is
-    returned — the route never silently falls back to plain or stub generation.
+    When include_character=True, strict identity mode (B18) with anchor-image
+    conditioning (B19) is automatically enabled:
+      - All available identity pack images are loaded from disk
+      - Passed as real provider inputs via generate_with_anchors (multi-image)
+      - Falls back to single-image grounded generation when multi-image unsupported
+      - Short, punchy identity directive is prepended to the prompt
+      - Provider is required; stub fallback is blocked
+      - At most one retry with escalated wording; then controlled 503 failure
 
-    When include_character=False, generation uses the user prompt only with no
-    character references; the normal stub fallback chain applies.
+    When include_character=False, normal generation applies (text → fallback → stub).
 
-    provider_option selects the backend provider:
-      option1  →  OpenAI
-      option2  →  Google
-    When IMAGE_GENERATOR_PROVIDER_TOGGLE is disabled in config, option1 is
-    always used regardless of the value sent by the client.
+    provider_option:
+      option1 → OpenAI  |  option2 → Google
     """
     # ── Auth + ownership ──────────────────────────────────────────
     character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
@@ -191,7 +222,6 @@ def generate_image(
         )
 
     # ── Provider resolution ────────────────────────────────────────
-    # Respect the toggle: if disabled, always use option1 regardless of request.
     effective_option = body.provider_option if settings.IMAGE_GENERATOR_PROVIDER_TOGGLE else "option1"
     resolved_provider_name = _OPTION_PROVIDER_NAMES[effective_option]
 
@@ -202,7 +232,6 @@ def generate_image(
     base_prompt = body.prompt.strip()
 
     if body.include_character:
-        # Guard: must be visually locked
         if not character.visual_locked:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -224,7 +253,7 @@ def generate_image(
 
         identity_hash = anchor_data.get("identity_prompt_hash")
 
-        # Load face reference bytes (tight head crop for facial grounding)
+        # Load face reference bytes (tight head crop — fallback for single-image path)
         face_ref_img = (
             db.query(CharacterImage)
             .filter(
@@ -244,7 +273,6 @@ def generate_image(
                     "image_generator face_ref_load_failed character_id=%s", character_id
                 )
 
-    # Scene prompt hard-capped at 800 for provider (identity wrapper is built separately)
     provider_prompt = base_prompt[:800]
 
     # ── Resolve provider ──────────────────────────────────────────
@@ -263,18 +291,25 @@ def generate_image(
     actual_provider_name = "stub"
     used_face_ref = False
     retry_attempted = False
+    multi_image_used = False
 
-    # ── B18 STRICT IDENTITY MODE (include_character=True) ─────────
+    # ── B18/B19 STRICT IDENTITY MODE (include_character=True) ─────
     if body.include_character:
-        anchor_refs = [
-            k for k in ("front", "three_quarter", "torso", "full_body")
-            if (anchor_data.get("anchors") or {}).get(k)  # type: ignore[union-attr]
-        ]
+        # B19: load actual anchor images from disk
+        anchor_images, anchor_types = _load_anchor_images(
+            anchor_data,  # type: ignore[arg-type]
+            character_id,
+        )
+
+        provider_supports_multi = getattr(provider, "supports_multi_image_input", False)
         logger.info(
-            "strict_identity_enabled character_id=%s provider=%s anchor_refs=%s",
+            "strict_identity_enabled character_id=%s provider=%s "
+            "anchors_loaded=%d anchor_types=%s multi_image_supported=%s",
             character_id,
             resolved_provider_name,
-            anchor_refs,
+            len(anchor_images),
+            anchor_types,
+            provider_supports_multi,
         )
 
         # Provider is required — stub fallback is never acceptable for character images
@@ -296,10 +331,35 @@ def generate_image(
         strict_prompt = _build_strict_identity_prompt(
             base_prompt=provider_prompt,
             anchor_data=anchor_data,  # type: ignore[arg-type]
+            character_name=character.name,
             retry=False,
         )
 
-        if face_ref_bytes is not None:
+        # Tier 1: multi-image anchor conditioning (B19)
+        if provider_supports_multi and anchor_images:
+            try:
+                png_bytes = provider.generate_with_anchors(
+                    prompt=strict_prompt,
+                    anchor_images=anchor_images,
+                )
+                actual_provider_name = resolved_provider_name
+                multi_image_used = True
+            except (ValueError, RuntimeError, NotImplementedError):
+                logger.info(
+                    "anchor_multi_image_failed attempt=1 character_id=%s provider=%s",
+                    character_id,
+                    resolved_provider_name,
+                )
+        else:
+            logger.info(
+                "anchor_conditioning_fallback character_id=%s "
+                "reason=multi_image_not_supported anchors_available=%d using=face_ref",
+                character_id,
+                len(anchor_images),
+            )
+
+        # Tier 2: single-image grounded (face-ref crop)
+        if png_bytes is None and face_ref_bytes is not None:
             try:
                 png_bytes = provider.generate_grounded_image(
                     prompt=strict_prompt,
@@ -314,6 +374,7 @@ def generate_image(
                     resolved_provider_name,
                 )
 
+        # Tier 3: text-only strict (no image reference available)
         if png_bytes is None:
             try:
                 png_bytes = provider.generate_image(prompt=strict_prompt)
@@ -333,10 +394,26 @@ def generate_image(
             retry_prompt = _build_strict_identity_prompt(
                 base_prompt=provider_prompt,
                 anchor_data=anchor_data,  # type: ignore[arg-type]
+                character_name=character.name,
                 retry=True,
             )
 
-            if face_ref_bytes is not None:
+            if provider_supports_multi and anchor_images:
+                try:
+                    png_bytes = provider.generate_with_anchors(
+                        prompt=retry_prompt,
+                        anchor_images=anchor_images,
+                    )
+                    actual_provider_name = resolved_provider_name
+                    multi_image_used = True
+                except (ValueError, RuntimeError, NotImplementedError):
+                    logger.info(
+                        "anchor_multi_image_failed attempt=2 character_id=%s provider=%s",
+                        character_id,
+                        resolved_provider_name,
+                    )
+
+            if png_bytes is None and face_ref_bytes is not None:
                 try:
                     png_bytes = provider.generate_grounded_image(
                         prompt=retry_prompt,
@@ -381,16 +458,20 @@ def generate_image(
 
         logger.info(
             "strict_identity_outcome character_id=%s outcome=success "
-            "retry_attempted=%s used_face_ref=%s",
+            "retry_attempted=%s used_face_ref=%s multi_image_used=%s anchors_attached=%d",
             character_id,
             retry_attempted,
             used_face_ref,
+            multi_image_used,
+            len(anchor_images),
         )
         file_path = _save_png_bytes(png_bytes)
 
     # ── NORMAL MODE (include_character=False) ─────────────────────
     else:
-        # Tier B: text-to-image (no identity context in normal mode)
+        anchor_images = []
+        anchor_types = []
+
         if provider is not None:
             try:
                 png_bytes = provider.generate_image(prompt=provider_prompt)
@@ -402,7 +483,6 @@ def generate_image(
                     resolved_provider_name,
                 )
 
-        # Tier C: fallback provider
         if png_bytes is None:
             fallback = get_fallback_provider()
             if fallback is not None:
@@ -414,7 +494,6 @@ def generate_image(
                         "image_generator fallback_failed character_id=%s", character_id
                     )
 
-        # Tier D: stub placeholder
         if png_bytes is not None:
             file_path = _save_png_bytes(png_bytes)
         else:
@@ -425,7 +504,7 @@ def generate_image(
             )
             actual_provider_name = "stub"
 
-    # ── Persist image record with evaluation metadata ─────────────
+    # ── Persist image record ──────────────────────────────────────
     metadata: dict = {
         "image_generator": True,
         "provider_option": effective_option,
@@ -439,6 +518,9 @@ def generate_image(
         metadata["used_face_ref"] = used_face_ref
         metadata["identity_hash"] = identity_hash
         metadata["strict_identity_retry"] = retry_attempted
+        metadata["anchors_attached"] = len(anchor_images)
+        metadata["anchor_types"] = anchor_types
+        metadata["multi_image_used"] = multi_image_used
 
     img = CharacterImage(
         character_id=character_id,
@@ -456,13 +538,13 @@ def generate_image(
 
     logger.info(
         "image_generator_result image_id=%s character_id=%s provider=%s "
-        "provider_option=%s include_character=%s strict_identity_mode=%s",
+        "provider_option=%s include_character=%s anchors_attached=%s",
         img.id,
         character_id,
         actual_provider_name,
         effective_option,
         body.include_character,
-        body.include_character,
+        len(anchor_images),
     )
 
     return CharacterImageRead.model_validate(img)

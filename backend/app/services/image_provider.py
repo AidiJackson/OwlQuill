@@ -24,6 +24,9 @@ class ImageProvider:
     # Subclasses that support seed-image grounding set this to True.
     supports_image_guidance: bool = False
 
+    # B19: subclasses that accept multiple reference images set this to True.
+    supports_multi_image_input: bool = False
+
     def generate_image(
         self,
         *,
@@ -90,6 +93,39 @@ class ImageProvider:
             f"{self.__class__.__name__} does not support image guidance."
         )
 
+    def generate_with_anchors(
+        self,
+        *,
+        prompt: str,
+        anchor_images: list[bytes],
+        size: str = "1024x1024",
+    ) -> bytes:
+        """Generate conditioned on multiple identity anchor images (B19).
+
+        Raises:
+            NotImplementedError: If the provider does not support multi-image input.
+            ValueError: On invalid inputs.
+            RuntimeError: On provider-side failure.
+        """
+        if not prompt or not prompt.strip():
+            raise ValueError("Prompt must not be empty.")
+        if not anchor_images:
+            raise ValueError("anchor_images must not be empty.")
+        return self._generate_with_anchors(
+            prompt=prompt, anchor_images=anchor_images, size=size
+        )
+
+    def _generate_with_anchors(
+        self,
+        *,
+        prompt: str,
+        anchor_images: list[bytes],
+        size: str,
+    ) -> bytes:
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support multi-image anchor conditioning."
+        )
+
 
 def _download_image(url: str) -> Path:
     """Download an image URL to a temporary file.
@@ -127,6 +163,7 @@ class _OpenAIImageProvider(ImageProvider):
     """OpenAI Images API provider."""
 
     supports_image_guidance = True
+    supports_multi_image_input = True
 
     def __init__(self) -> None:
         if not settings.OPENAI_API_KEY:
@@ -209,11 +246,55 @@ class _OpenAIImageProvider(ImageProvider):
         finally:
             tmp_path.unlink(missing_ok=True)
 
+    def _generate_with_anchors(
+        self,
+        *,
+        prompt: str,
+        anchor_images: list[bytes],
+        size: str,
+    ) -> bytes:
+        """Call images.edit with multiple anchor images as reference inputs (B19)."""
+        tmp_paths: list[Path] = []
+        file_handles: list = []
+        try:
+            for img_bytes in anchor_images:
+                tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+                tmp_path = Path(tmp.name)
+                tmp.write(img_bytes)
+                tmp.flush()
+                tmp.close()
+                tmp_paths.append(tmp_path)
+                file_handles.append(open(tmp_path, "rb"))  # noqa: WPS515
+
+            image_arg = file_handles if len(file_handles) > 1 else file_handles[0]
+            try:
+                response = self._client.images.edit(
+                    model=settings.IMAGE_MODEL,
+                    image=image_arg,
+                    prompt=prompt,
+                    n=1,
+                    size=size,
+                )
+                return base64.b64decode(response.data[0].b64_json)
+            except OpenAIError as exc:
+                raise RuntimeError(
+                    f"OpenAI multi-anchor image generation failed: {exc}"
+                ) from exc
+        finally:
+            for fh in file_handles:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+            for p in tmp_paths:
+                p.unlink(missing_ok=True)
+
 
 class _GoogleImageProviderAdapter(ImageProvider):
     """Adapt GoogleImageProvider to the legacy ImageProvider interface."""
 
     supports_image_guidance = True
+    supports_multi_image_input = True
 
     def __init__(self) -> None:
         from app.services.image_providers.google_provider import GoogleImageProvider
@@ -239,6 +320,20 @@ class _GoogleImageProviderAdapter(ImageProvider):
         return self._google.generate_with_reference(
             prompt=prompt,
             reference_image_bytes=reference_image_bytes,
+            size=size,
+        )
+
+    def _generate_with_anchors(
+        self,
+        *,
+        prompt: str,
+        anchor_images: list[bytes],
+        size: str,
+    ) -> bytes:
+        """Delegate to Google multi-reference generation (B19)."""
+        return self._google.generate_with_multi_reference(
+            prompt=prompt,
+            reference_images=anchor_images,
             size=size,
         )
 
