@@ -462,6 +462,60 @@ def set_avatar(
     return CharacterImageRead.model_validate(image)
 
 
+# ── 0c) DELETE /characters/{id}/images/{image_id} ─────────────────
+
+_PROTECTED_KINDS = {
+    ImageKindEnum.ANCHOR_FRONT,
+    ImageKindEnum.ANCHOR_THREE_QUARTER,
+    ImageKindEnum.ANCHOR_TORSO,
+    ImageKindEnum.ANCHOR_FULL_BODY,
+}
+
+
+@router.delete(
+    "/{character_id}/images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Archive (soft-delete) a character image",
+)
+def delete_character_image(
+    character_id: int,
+    image_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Archive a generated character image. Owner or admin only.
+    Identity anchor images are protected and cannot be deleted here.
+    """
+    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
+
+    is_admin = current_user.email.lower() in settings.get_admin_emails()
+    if character.owner_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed.")
+
+    image = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.id == image_id,
+            CharacterImage.character_id == character_id,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .first()
+    )
+    if not image:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found.")
+
+    if image.kind in _PROTECTED_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Identity anchor images cannot be deleted. Reset the character to start over.",
+        )
+
+    image.status = ImageStatusEnum.ARCHIVED
+    db.commit()
+
+
 # ── 1) POST /characters/{id}/dna ────────────────────────────────────
 
 @router.post(

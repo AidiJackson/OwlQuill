@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Image, X, Check } from 'lucide-react';
+import { ArrowLeft, Image, X, Check, Trash2, Flag } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { LibraryImage, UserImageRead } from '@/lib/types';
+import type { LibraryImage, UserImageRead, Character } from '@/lib/types';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
 
 type Tab = 'characters' | 'covers';
 
@@ -19,12 +20,27 @@ export default function Images() {
   const [coverLoading, setCoverLoading] = useState(true);
   const [coverError, setCoverError] = useState('');
 
+  // The user's character for image generation
+  const [myCharacter, setMyCharacter] = useState<Character | null>(null);
+
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [lbVisible, setLbVisible] = useState(false);
   const [lightboxCoverId, setLightboxCoverId] = useState<number | null>(null);
+  // Full image object when a character image is opened in the lightbox
+  const [lightboxCharImage, setLightboxCharImage] = useState<LibraryImage | null>(null);
   const [applyingCover, setApplyingCover] = useState(false);
   const [applyCoverDone, setApplyCoverDone] = useState(false);
   const [applyCoverErr, setApplyCoverErr] = useState('');
+
+  // Delete state
+  const [deletingImage, setDeletingImage] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  // Report state
+  const [reportStep, setReportStep] = useState<'idle' | 'form' | 'done'>('idle');
+  const [reportReason, setReportReason] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportError, setReportError] = useState('');
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -39,11 +55,16 @@ export default function Images() {
     return () => cancelAnimationFrame(id);
   }, [lightboxUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openLightbox = (url: string, coverId?: number) => {
+  const openLightbox = (url: string, coverId?: number, charImage?: LibraryImage) => {
     setLightboxUrl(url);
     setLightboxCoverId(coverId ?? null);
+    setLightboxCharImage(charImage ?? null);
     setApplyCoverDone(false);
     setApplyCoverErr('');
+    setDeleteError('');
+    setReportStep('idle');
+    setReportReason('');
+    setReportError('');
   };
 
   const closeLightbox = () => {
@@ -52,8 +73,13 @@ export default function Images() {
       if (!mountedRef.current) return;
       setLightboxUrl(null);
       setLightboxCoverId(null);
+      setLightboxCharImage(null);
       setApplyCoverDone(false);
       setApplyCoverErr('');
+      setDeleteError('');
+      setReportStep('idle');
+      setReportReason('');
+      setReportError('');
     }, 200);
   };
 
@@ -74,10 +100,43 @@ export default function Images() {
     }
   };
 
+  const handleDeleteImage = async () => {
+    if (!lightboxCharImage) return;
+    setDeletingImage(true);
+    setDeleteError('');
+    try {
+      await apiClient.deleteCharacterImage(lightboxCharImage.character_id, lightboxCharImage.id);
+      if (!mountedRef.current) return;
+      setCharImages((prev) => prev.filter((img) => img.id !== lightboxCharImage.id));
+      closeLightbox();
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete image.');
+    } finally {
+      if (mountedRef.current) setDeletingImage(false);
+    }
+  };
+
+  const handleSubmitReport = async () => {
+    if (!lightboxCharImage || !reportReason.trim()) return;
+    setReportSubmitting(true);
+    setReportError('');
+    try {
+      await apiClient.submitReport('image', String(lightboxCharImage.id), reportReason.trim());
+      if (!mountedRef.current) return;
+      setReportStep('done');
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setReportError(err instanceof Error ? err.message : 'Failed to submit report.');
+    } finally {
+      if (mountedRef.current) setReportSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     apiClient
       .listMyCharacterImages()
-      .then(setCharImages)
+      .then((imgs) => setCharImages(imgs as unknown as LibraryImage[]))
       .catch((err) => setCharError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setCharLoading(false));
 
@@ -86,6 +145,15 @@ export default function Images() {
       .then(setCoverImages)
       .catch((err) => setCoverError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setCoverLoading(false));
+
+    // Fetch the user's character for the generator panel
+    apiClient
+      .getCharacters()
+      .then((chars) => {
+        const locked = chars.find((c) => c.visual_locked) || chars[0] || null;
+        if (mountedRef.current) setMyCharacter(locked ?? null);
+      })
+      .catch(() => {});
   }, []);
 
   const tabs: { id: Tab; label: string; count: number }[] = [
@@ -129,6 +197,17 @@ export default function Images() {
         {/* Characters tab */}
         {activeTab === 'characters' && (
           <>
+            {/* Image generator */}
+            {myCharacter && (
+              <SceneGeneratorPanel
+                characterId={myCharacter.id}
+                isCharacterLocked={myCharacter.visual_locked ?? false}
+                onGenerated={(image) => {
+                  setCharImages((prev) => [image as unknown as LibraryImage, ...prev]);
+                }}
+              />
+            )}
+
             {charError && (
               <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2">
                 {charError}
@@ -138,9 +217,21 @@ export default function Images() {
               <div className="flex items-center justify-center py-16 text-gray-400">Loading...</div>
             ) : charImages.length === 0 ? (
               <EmptyState
-                message="Create a character to generate identity packs and scene images."
-                primaryAction={{ label: 'Create character', onClick: () => navigate('/characters/new') }}
-                secondaryAction={{ label: 'Go to Characters', onClick: () => navigate('/characters') }}
+                message={
+                  myCharacter
+                    ? 'No images yet. Use the generator above to create your first image.'
+                    : 'Create a character to generate images.'
+                }
+                primaryAction={
+                  !myCharacter
+                    ? { label: 'Create character', onClick: () => navigate('/characters/new') }
+                    : undefined
+                }
+                secondaryAction={
+                  !myCharacter
+                    ? { label: 'Go to Characters', onClick: () => navigate('/characters') }
+                    : undefined
+                }
               />
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -148,7 +239,7 @@ export default function Images() {
                   <button
                     key={img.id}
                     className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 hover:border-gray-600 transition-colors cursor-pointer text-left"
-                    onClick={() => openLightbox(img.url)}
+                    onClick={() => openLightbox(img.url, undefined, img)}
                   >
                     <img
                       src={img.url}
@@ -227,6 +318,8 @@ export default function Images() {
               alt="Full size"
               className="w-full rounded-lg"
             />
+
+            {/* Cover image actions */}
             {lightboxCoverId !== null && (
               <div className="flex items-center justify-between mt-2">
                 <div>
@@ -247,6 +340,66 @@ export default function Images() {
                     'Set as profile cover'
                   )}
                 </button>
+              </div>
+            )}
+
+            {/* Character image actions: delete + report */}
+            {lightboxCharImage && (
+              <div className="mt-2 space-y-2">
+                {deleteError && (
+                  <p className="text-xs text-red-400">{deleteError}</p>
+                )}
+                <div className="flex items-center justify-between">
+                  <button
+                    className="text-xs text-gray-400 hover:text-gray-200 transition-colors flex items-center gap-1"
+                    onClick={() => setReportStep(reportStep === 'form' ? 'idle' : 'form')}
+                  >
+                    <Flag className="w-3 h-3" />
+                    Report issue
+                  </button>
+                  <button
+                    className="text-xs px-3 py-1.5 rounded bg-red-900/60 hover:bg-red-800 text-red-300 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    disabled={deletingImage}
+                    onClick={handleDeleteImage}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    {deletingImage ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+
+                {reportStep === 'form' && (
+                  <div className="border border-gray-700 rounded-lg p-3 space-y-2 bg-gray-900">
+                    <p className="text-xs font-medium text-gray-300">Report this image</p>
+                    <textarea
+                      className="textarea w-full text-sm"
+                      rows={2}
+                      maxLength={200}
+                      placeholder="Describe the issue…"
+                      value={reportReason}
+                      onChange={(e) => setReportReason(e.target.value)}
+                    />
+                    {reportError && <p className="text-xs text-red-400">{reportError}</p>}
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                        onClick={() => setReportStep('idle')}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-white transition-colors disabled:opacity-50"
+                        disabled={reportSubmitting || !reportReason.trim()}
+                        onClick={handleSubmitReport}
+                      >
+                        {reportSubmitting ? 'Submitting…' : 'Submit'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {reportStep === 'done' && (
+                  <p className="text-xs text-emerald-400">Report submitted. Thank you.</p>
+                )}
               </div>
             )}
           </div>

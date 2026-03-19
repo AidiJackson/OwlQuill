@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Globe, Users, Lock, Feather, ImageIcon, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check } from 'lucide-react';
+import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, User } from '@/lib/types';
-import { generateMomentImage, listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
+import { listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
-import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
 import ImageGrid from '@/features/images/components/ImageGrid';
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -34,22 +33,9 @@ export default function CharacterDetail() {
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [lbVisible, setLbVisible] = useState(false);
 
-  const [momentImage, setMomentImage] = useState<CharacterImageRead | null>(null);
-  const [momentLoading, setMomentLoading] = useState(false);
-  const [momentError, setMomentError] = useState('');
-
   // Set-avatar state
   const [settingAvatar, setSettingAvatar] = useState(false);
   const [avatarSet, setAvatarSet] = useState(false);
-
-  // Scene generation in-flight state — used to show a placeholder tile
-  const [isGeneratingScene, setIsGeneratingScene] = useState(false);
-  // Tracks the newest scene image for the fade-in transition
-  const [newestSceneImageId, setNewestSceneImageId] = useState<number | null>(null);
-  const [newestSceneVisible, setNewestSceneVisible] = useState(false);
-
-  // Ref for scrolling new scene images into view
-  const newImageRef = useRef<HTMLDivElement>(null);
 
   // Mounted guard — prevents stale setState calls after navigation away
   const mountedRef = useRef(true);
@@ -57,18 +43,6 @@ export default function CharacterDetail() {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
-
-  // Drives the opacity-0 → opacity-100 fade-in for the newly generated scene image.
-  // Mirrors the pattern used in StepGeneratePack: reset to transparent, then RAF to opaque.
-  useEffect(() => {
-    if (!newestSceneImageId) { setNewestSceneVisible(false); return; }
-    setNewestSceneVisible(false);
-    const rafId = requestAnimationFrame(() => { if (mountedRef.current) setNewestSceneVisible(true); });
-    const clearId = setTimeout(() => {
-      if (mountedRef.current) { setNewestSceneImageId(null); setNewestSceneVisible(false); }
-    }, 700);
-    return () => { cancelAnimationFrame(rafId); clearTimeout(clearId); };
-  }, [newestSceneImageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Post composer state
   const [composerOpen, setComposerOpen] = useState(false);
@@ -109,22 +83,6 @@ export default function CharacterDetail() {
     setDeleteStep(1);
     setDeleteConfirmed(false);
     setDeleteError('');
-  };
-
-  const handleGenerateMoment = async () => {
-    if (!id) return;
-    setMomentLoading(true);
-    setMomentError('');
-    try {
-      const img = await generateMomentImage(Number(id), {});
-      if (!mountedRef.current) return;
-      setMomentImage(img);
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setMomentError(err instanceof Error ? err.message : 'Could not generate image.');
-    } finally {
-      if (mountedRef.current) setMomentLoading(false);
-    }
   };
 
   const handleSetAvatar = async (img: CharacterImageRead) => {
@@ -377,8 +335,8 @@ export default function CharacterDetail() {
           </div>
         )}
 
-        {/* Image gallery — also visible while a scene is being generated (shows placeholder) */}
-        {(galleryImages.length > 0 || isGeneratingScene) && (
+        {/* Image gallery */}
+        {galleryImages.length > 0 && (
           <div className="border-t border-gray-800 pt-6 space-y-3">
             <h2 className="text-sm font-medium text-gray-300">Images</h2>
             <ErrorBoundary>
@@ -387,77 +345,11 @@ export default function CharacterDetail() {
                 onImageClick={(idx) => setLightboxIdx(idx)}
                 onUseInPost={currentUser ? handleUseInPost : undefined}
                 onSetAsCover={currentUser && character.owner_id === currentUser.id ? handleSetAsCover : undefined}
-                showPlaceholder={isGeneratingScene}
-                newestId={newestSceneImageId}
-                newestVisible={newestSceneVisible}
               />
             </ErrorBoundary>
           </div>
         )}
 
-        {/* Moment generation (post-lock, owner only) */}
-        {character.visual_locked && currentUser && character.owner_id === currentUser.id && (
-          <div className="border-t border-gray-800 pt-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-gray-300">New moment</h2>
-              <button
-                className="btn btn-primary text-sm flex items-center gap-2"
-                onClick={handleGenerateMoment}
-                disabled={momentLoading}
-              >
-                {momentLoading ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    Generating…
-                  </>
-                ) : (
-                  <>
-                    <ImageIcon className="w-3.5 h-3.5" />
-                    Generate new moment
-                  </>
-                )}
-              </button>
-            </div>
-
-            {momentError && (
-              <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2">
-                {momentError}
-              </p>
-            )}
-
-            {momentImage && (
-              <div className="rounded-lg overflow-hidden border border-gray-800 bg-gray-900 inline-block">
-                <img
-                  src={resolveImageUrl(momentImage.url)}
-                  alt="Latest moment"
-                  className="max-w-xs w-full"
-                />
-                <div className="px-3 py-2">
-                  <span className="text-xs text-gray-400">Latest moment</span>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Image generator (owner only) — include_character requires a locked identity */}
-        {currentUser && character.owner_id === currentUser.id && (
-          <div className="border-t border-gray-800 pt-6 space-y-4">
-            <SceneGeneratorPanel
-              characterId={character.id}
-              isCharacterLocked={character.visual_locked ?? false}
-              onGeneratingChange={setIsGeneratingScene}
-              onGenerated={(image) => {
-                setGalleryImages((prev) => [image, ...prev]);
-                setNewestSceneImageId(image.id);
-                setTimeout(() => {
-                  newImageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }, 50);
-              }}
-            />
-            <div ref={newImageRef} />
-          </div>
-        )}
       </div>
 
       {/* Post composer */}

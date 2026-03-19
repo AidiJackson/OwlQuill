@@ -181,6 +181,26 @@ def compile_identity_prompt(
         if id_.face_features:
             identity_parts.extend(id_.face_features[:2])
 
+    # B21: facial geometry — inject structural face traits for generic-face hardening.
+    # These are B14 fields on the spec; they are independent of spec.identity being set.
+    # Face shape, jaw, nose, and lips are the primary drift axes for generic characters.
+    if spec.face_shape:
+        identity_parts.append(f"{spec.face_shape.replace('_', ' ')} face shape")
+    if spec.jaw_type:
+        identity_parts.append(f"{spec.jaw_type.replace('_', ' ')} jaw")
+    if spec.cheekbone_type:
+        identity_parts.append(f"{spec.cheekbone_type.replace('_', ' ')} cheekbones")
+    if spec.eye_shape:
+        identity_parts.append(f"{spec.eye_shape.replace('_', ' ')} eye shape")
+    if spec.nose_type:
+        identity_parts.append(f"{spec.nose_type.replace('_', ' ')} nose")
+    if spec.lip_type:
+        identity_parts.append(f"{spec.lip_type.replace('_', ' ')} lips")
+    if spec.hairline_type:
+        identity_parts.append(f"{spec.hairline_type.replace('_', ' ')} hairline")
+    if spec.facial_hair_type and spec.facial_hair_type != "none":
+        identity_parts.append(spec.facial_hair_type.replace('_', ' '))
+
     sections.append(", ".join(identity_parts))
 
     # 3b. Species descriptor (only injected for non-human species)
@@ -286,6 +306,18 @@ def compile_identity_lock_string(spec: CharacterIdentitySpec) -> str:
 
     if spec.marks_accessories and spec.marks_accessories.items:
         parts.extend(spec.marks_accessories.items[:2])
+
+    # B21: core face geometry in lock string so scene/moment prompts stay consistent.
+    # Kept to the highest-signal structural traits (shape, jaw, nose, lips) to avoid
+    # inflating the lock string; eye_shape and hairline are in the full identity prompt.
+    if spec.face_shape:
+        parts.append(f"{spec.face_shape.replace('_', ' ')} face")
+    if spec.jaw_type:
+        parts.append(f"{spec.jaw_type.replace('_', ' ')} jaw")
+    if spec.nose_type:
+        parts.append(f"{spec.nose_type.replace('_', ' ')} nose")
+    if spec.lip_type:
+        parts.append(f"{spec.lip_type.replace('_', ' ')} lips")
 
     # B16: body morphology — include in lock string so scene prompts stay consistent
     _body_height = getattr(spec, "body_height", None)

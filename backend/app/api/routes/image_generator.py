@@ -58,14 +58,15 @@ _OPTION_PROVIDER_NAMES: dict[str, str] = {
 
 _STRICT_IDENTITY_PREFIX = (
     "The subject must be the same person as the reference images. "
-    "Preserve the exact face, facial structure, hair, body build, "
-    "and any distinctive marks or tattoos. "
-    "Do not generate a different person."
+    "Match their exact face shape, nose, jaw, and eye shape precisely. "
+    "Preserve facial structure, hair, and body build. "
+    "Do not use a generic or average face. Do not generate a different person."
 )
 
 _STRICT_IDENTITY_RETRY_PREFIX = (
     "CRITICAL: Reproduce the exact person from the reference images only. "
-    "Same face, hair, build, distinctive marks. No substitution permitted."
+    "Same face shape, jaw, nose, eye shape, hair, and build. "
+    "No generic or average faces. No substitution permitted."
 )
 
 # Preferred anchor load order: widest-identity coverage first
@@ -146,6 +147,32 @@ def _load_anchor_images(
             )
 
     return loaded_bytes, loaded_keys
+
+
+def _prioritise_face_anchors(
+    loaded_bytes: list[bytes],
+    loaded_keys: list[str],
+) -> tuple[list[bytes], list[str]]:
+    """Boost face anchor signal by duplicating the front anchor (B21).
+
+    Prepends a second copy of the front-facing anchor image so the provider
+    sees it with higher effective weight. Face-forward shots carry the most
+    facial geometry information (nose, jaw, cheekbones, eye shape) and are
+    the primary defence against generic-face drift.
+
+    Only the front anchor is duplicated; torso and full-body shots are not
+    repeated since they add body/pose information, not face specificity.
+
+    When no front anchor is available, returns the inputs unchanged —
+    the existing fallback chain (grounded → text-only) remains intact.
+    """
+    if not loaded_bytes or "front" not in loaded_keys:
+        return loaded_bytes, loaded_keys
+
+    front_idx = loaded_keys.index("front")
+    prioritised_bytes = [loaded_bytes[front_idx]] + list(loaded_bytes)
+    prioritised_keys = ["front"] + list(loaded_keys)
+    return prioritised_bytes, prioritised_keys
 
 
 def _build_strict_identity_prompt(
@@ -300,6 +327,11 @@ def generate_image(
             anchor_data,  # type: ignore[arg-type]
             character_id,
         )
+
+        # B21: boost face anchor signal — duplicate front anchor for stronger conditioning.
+        # Tracked separately so metadata accurately reflects the boost.
+        _face_anchor_boosted = "front" in anchor_types
+        anchor_images, anchor_types = _prioritise_face_anchors(anchor_images, anchor_types)
 
         provider_supports_multi = getattr(provider, "supports_multi_image_input", False)
         logger.info(
@@ -521,6 +553,7 @@ def generate_image(
         metadata["anchors_attached"] = len(anchor_images)
         metadata["anchor_types"] = anchor_types
         metadata["multi_image_used"] = multi_image_used
+        metadata["face_anchor_boosted"] = _face_anchor_boosted  # B21
 
     img = CharacterImage(
         character_id=character_id,

@@ -700,3 +700,105 @@ def test_b19_unsupported_provider_fallback_is_logged(client: TestClient, caplog)
     assert resp.status_code == 200, resp.text
     log_text = " ".join(r.message for r in caplog.records)
     assert "multi_image_not_supported" in log_text or "anchor_conditioning_fallback" in log_text
+
+
+# ── 8. B21 face anchor prioritisation and generic-face hardening ──────
+
+
+def test_b21_face_anchor_prioritised():
+    """_prioritise_face_anchors duplicates the front anchor at position 0."""
+    from app.api.routes.image_generator import _prioritise_face_anchors
+
+    bytes_front = b"front_bytes"
+    bytes_3q = b"three_quarter_bytes"
+    bytes_torso = b"torso_bytes"
+    loaded_bytes = [bytes_front, bytes_3q, bytes_torso]
+    loaded_keys = ["front", "three_quarter", "torso"]
+
+    result_bytes, result_keys = _prioritise_face_anchors(loaded_bytes, loaded_keys)
+
+    # Front anchor should be at position 0 AND still present in original position
+    assert result_keys[0] == "front", f"First entry should be 'front', got: {result_keys[0]!r}"
+    assert result_keys.count("front") == 2, (
+        f"Front anchor should appear twice after prioritisation, got: {result_keys}"
+    )
+    assert result_bytes[0] == bytes_front, "First bytes entry should be front anchor"
+    # Total length increases by 1
+    assert len(result_bytes) == len(loaded_bytes) + 1
+    assert len(result_keys) == len(loaded_keys) + 1
+
+
+def test_b21_face_anchor_no_front_unchanged():
+    """_prioritise_face_anchors is a no-op when no front anchor is present."""
+    from app.api.routes.image_generator import _prioritise_face_anchors
+
+    bytes_torso = b"torso_bytes"
+    loaded_bytes = [bytes_torso]
+    loaded_keys = ["torso"]
+
+    result_bytes, result_keys = _prioritise_face_anchors(loaded_bytes, loaded_keys)
+
+    assert result_bytes == [bytes_torso]
+    assert result_keys == ["torso"]
+
+
+def test_b21_face_anchor_empty_unchanged():
+    """_prioritise_face_anchors handles empty input gracefully."""
+    from app.api.routes.image_generator import _prioritise_face_anchors
+
+    result_bytes, result_keys = _prioritise_face_anchors([], [])
+    assert result_bytes == []
+    assert result_keys == []
+
+
+def test_b21_face_anchor_boost_recorded_in_metadata(client: TestClient):
+    """When include_character=True and a front anchor exists, face_anchor_boosted=True
+    is recorded in metadata for observability."""
+    token = _register_and_login(client, "b21_boost@example.com")
+    cid = _create_character(client, token)
+    _lock_character(client, token, cid)
+
+    mock_provider = _mock_provider_succeeds()
+
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+        resp = _post(client, token, cid, {
+            "prompt": "Standing in a garden",
+            "include_character": True,
+            "provider_option": "option1",
+        })
+
+    assert resp.status_code == 200, resp.text
+    meta = resp.json()["metadata_json"]
+    assert "face_anchor_boosted" in meta, "face_anchor_boosted must be recorded in metadata"
+    # Since _lock_character generates a pack with a front anchor, boost should be active
+    assert isinstance(meta["face_anchor_boosted"], bool)
+
+
+def test_b21_strict_prefix_mentions_face_structure():
+    """The strict identity prefix explicitly mentions face shape/structure
+    and discourages generic faces, targeting the main drift vector."""
+    from app.api.routes.image_generator import _STRICT_IDENTITY_PREFIX
+
+    prefix_lower = _STRICT_IDENTITY_PREFIX.lower()
+    assert "face shape" in prefix_lower, (
+        f"Prefix should mention 'face shape' for generic-face hardening: {_STRICT_IDENTITY_PREFIX!r}"
+    )
+    assert "generic" in prefix_lower or "average" in prefix_lower, (
+        f"Prefix should discourage generic faces: {_STRICT_IDENTITY_PREFIX!r}"
+    )
+    assert "same person" in prefix_lower, (
+        f"Prefix must retain the identity directive 'same person': {_STRICT_IDENTITY_PREFIX!r}"
+    )
+
+
+def test_b21_retry_prefix_mentions_face_structure():
+    """The retry prefix also explicitly calls out face shape for the escalated path."""
+    from app.api.routes.image_generator import _STRICT_IDENTITY_RETRY_PREFIX
+
+    retry_lower = _STRICT_IDENTITY_RETRY_PREFIX.lower()
+    assert "face shape" in retry_lower, (
+        f"Retry prefix should mention 'face shape': {_STRICT_IDENTITY_RETRY_PREFIX!r}"
+    )
+    assert "no generic" in retry_lower or "generic" in retry_lower, (
+        f"Retry prefix should discourage generic faces: {_STRICT_IDENTITY_RETRY_PREFIX!r}"
+    )

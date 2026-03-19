@@ -309,6 +309,19 @@ class ApiClient {
       body: JSON.stringify({ prompt }),
     });
   }
+
+  async deleteCharacterImage(characterId: number, imageId: number): Promise<void> {
+    return this.request<void>(`/characters/${characterId}/images/${imageId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async submitReport(targetType: string, targetId: string, reason: string, detail?: string): Promise<{ id: number }> {
+    return this.request<{ id: number }>('/reports', {
+      method: 'POST',
+      body: JSON.stringify({ target_type: targetType, target_id: targetId, reason, detail }),
+    });
+  }
 }
 
 export const apiClient = new ApiClient();

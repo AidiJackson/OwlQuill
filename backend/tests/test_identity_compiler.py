@@ -683,3 +683,172 @@ class TestBodyMorphologyDefaults:
                 age_band="26-35",
                 body_build="ripped",
             )
+
+
+# ── B21: Facial geometry in identity prompts and lock string ──────────
+
+
+class TestFacialGeometryInPrompt:
+    """B21: B14 facial geometry fields are injected into identity prompts for generic-face hardening."""
+
+    def test_face_shape_in_prompt(self):
+        """face_shape must appear in the identity prompt."""
+        spec = _make_grace_spec(face_shape="oval")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "oval" in prompt.lower(), f"face_shape 'oval' not in prompt: {prompt!r}"
+        assert "face shape" in prompt.lower(), f"'face shape' label missing: {prompt!r}"
+
+    def test_jaw_type_in_prompt(self):
+        """jaw_type must appear in the identity prompt."""
+        spec = _make_grace_spec(jaw_type="sharp")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "sharp" in prompt.lower(), f"jaw_type 'sharp' not in prompt: {prompt!r}"
+        assert "jaw" in prompt.lower(), f"'jaw' label missing: {prompt!r}"
+
+    def test_cheekbone_type_in_prompt(self):
+        """cheekbone_type must appear in the identity prompt."""
+        spec = _make_grace_spec(cheekbone_type="high")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "high" in prompt.lower()
+        assert "cheekbone" in prompt.lower(), f"'cheekbones' missing: {prompt!r}"
+
+    def test_eye_shape_in_prompt(self):
+        """eye_shape must appear in the identity prompt."""
+        spec = _make_grace_spec(eye_shape="almond")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "almond" in prompt.lower(), f"eye_shape 'almond' not in prompt: {prompt!r}"
+
+    def test_eye_shape_deep_set_expanded(self):
+        """deep_set must appear as 'deep set' (underscore → space)."""
+        spec = _make_grace_spec(eye_shape="deep_set")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "deep set" in prompt.lower(), f"'deep set' not found in prompt: {prompt!r}"
+
+    def test_nose_type_in_prompt(self):
+        """nose_type must appear in the identity prompt."""
+        spec = _make_grace_spec(nose_type="straight")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "straight" in prompt.lower()
+        assert "nose" in prompt.lower(), f"'nose' label missing: {prompt!r}"
+
+    def test_nose_type_roman_in_prompt(self):
+        """nose_type=roman must appear."""
+        spec = _make_grace_spec(nose_type="roman")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "roman" in prompt.lower()
+        assert "nose" in prompt.lower()
+
+    def test_lip_type_in_prompt(self):
+        """lip_type must appear in the identity prompt."""
+        spec = _make_grace_spec(lip_type="full")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "full" in prompt.lower()
+        assert "lips" in prompt.lower(), f"'lips' label missing: {prompt!r}"
+
+    def test_lip_type_cupid_bow_expanded(self):
+        """cupid_bow must appear as 'cupid bow' (underscore → space)."""
+        spec = _make_grace_spec(lip_type="cupid_bow")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "cupid bow" in prompt.lower(), f"'cupid bow' not found in prompt: {prompt!r}"
+
+    def test_hairline_type_in_prompt(self):
+        """hairline_type must appear in the identity prompt."""
+        spec = _make_grace_spec(hairline_type="widows_peak")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "widows peak" in prompt.lower(), f"'widows peak' not found: {prompt!r}"
+        assert "hairline" in prompt.lower()
+
+    def test_facial_hair_stubble_in_prompt(self):
+        """facial_hair_type=stubble must appear in the identity prompt."""
+        spec = _make_grace_spec(facial_hair_type="stubble")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "stubble" in prompt.lower(), f"'stubble' not in prompt: {prompt!r}"
+
+    def test_facial_hair_none_not_injected(self):
+        """facial_hair_type=none must NOT add any text to the prompt."""
+        spec = _make_grace_spec(facial_hair_type="none")
+        prompt_with_none = compile_identity_prompt(spec, "anchor_front")
+        spec_no_fh = _make_grace_spec()
+        prompt_no_field = compile_identity_prompt(spec_no_fh, "anchor_front")
+        # 'none' as a facial hair value must not inject the word 'none' into prompt
+        # (prompts are identical since neither has meaningful facial hair)
+        assert "none" not in prompt_with_none.split("neutral")[0].lower()
+
+    def test_all_geometry_fields_within_cap(self):
+        """Full set of facial geometry fields must remain within 800-char cap."""
+        spec = _make_grace_spec(
+            face_shape="oval",
+            jaw_type="sharp",
+            cheekbone_type="high",
+            eye_shape="almond",
+            nose_type="straight",
+            lip_type="full",
+            hairline_type="widows_peak",
+            facial_hair_type="stubble",
+        )
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars — {prompt!r}"
+
+    def test_geometry_in_all_roles(self):
+        """Face geometry must appear in every pack role, not just anchor_front."""
+        spec = _make_grace_spec(face_shape="square", nose_type="broad")
+        for role in ("anchor_front", "anchor_three_quarter", "anchor_torso", "anchor_full_body"):
+            prompt = compile_identity_prompt(spec, role)
+            assert "square" in prompt.lower(), f"face_shape missing from role={role}"
+            assert "broad" in prompt.lower(), f"nose_type missing from role={role}"
+
+    def test_no_geometry_no_extra_text(self):
+        """When no B14 geometry fields are set, no geometry text is added to the prompt."""
+        spec = _make_grace_spec()  # no face_shape, jaw, nose, etc.
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        # None of these geometry labels should appear when fields are unset
+        assert "face shape" not in prompt.lower()
+        assert " jaw" not in prompt.lower()
+        assert "cheekbone" not in prompt.lower()
+        assert " nose" not in prompt.lower()
+        assert " lips" not in prompt.lower()
+        assert "hairline" not in prompt.lower()
+
+
+class TestFacialGeometryInLockString:
+    """B21: core face geometry fields appear in the identity lock string for scene consistency."""
+
+    def test_face_shape_in_lock_string(self):
+        spec = _make_grace_spec(face_shape="oval")
+        lock = compile_identity_lock_string(spec)
+        assert "oval" in lock.lower(), f"face_shape 'oval' not in lock: {lock!r}"
+        assert "face" in lock.lower()
+
+    def test_jaw_type_in_lock_string(self):
+        spec = _make_grace_spec(jaw_type="sharp")
+        lock = compile_identity_lock_string(spec)
+        assert "sharp" in lock.lower()
+        assert "jaw" in lock.lower()
+
+    def test_nose_type_in_lock_string(self):
+        spec = _make_grace_spec(nose_type="straight")
+        lock = compile_identity_lock_string(spec)
+        assert "straight" in lock.lower()
+        assert "nose" in lock.lower(), f"'nose' missing from lock: {lock!r}"
+
+    def test_lip_type_in_lock_string(self):
+        spec = _make_grace_spec(lip_type="full")
+        lock = compile_identity_lock_string(spec)
+        assert "full" in lock.lower()
+        assert "lip" in lock.lower(), f"'lips' missing from lock: {lock!r}"
+
+    def test_no_geometry_no_geometry_in_lock_string(self):
+        """When no face geometry is set, no geometry terms appear in the lock string."""
+        spec = _make_grace_spec()  # default Grace spec — no face_shape, jaw, etc.
+        lock = compile_identity_lock_string(spec)
+        assert "face shape" not in lock.lower()
+        assert " jaw" not in lock.lower()
+        assert " nose" not in lock.lower()
+        assert " lips" not in lock.lower()
+
+    def test_geometry_lock_string_stable(self):
+        """Lock strings with geometry fields must be deterministic."""
+        spec = _make_grace_spec(face_shape="oval", jaw_type="sharp", nose_type="straight")
+        lock1 = compile_identity_lock_string(spec)
+        lock2 = compile_identity_lock_string(spec)
+        assert lock1 == lock2
