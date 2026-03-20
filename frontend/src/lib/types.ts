@@ -31,6 +31,7 @@ export interface Character {
   tags?: string;
   visibility: 'public' | 'friends' | 'private';
   visual_locked?: boolean;
+  identity_anchor_json?: string | null;
   created_at: string;
   updated_at: string;
 }

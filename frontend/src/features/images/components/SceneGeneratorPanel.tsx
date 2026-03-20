@@ -12,6 +12,12 @@ interface Props {
   characterId: number;
   /** Whether the character's visual identity is locked. Required for include_character. */
   isCharacterLocked: boolean;
+  /**
+   * Whether the character has valid identity anchor data (identity_anchor_json with a
+   * front anchor URL). When false and include_character is checked, we block the request
+   * before it goes out — the backend would return 409 anyway (B19 anchor check).
+   */
+  hasIdentityAnchor?: boolean;
   onGenerated: (image: CharacterImageRead) => void;
   /** Called with true when a request starts, false when it settles. */
   onGeneratingChange?: (generating: boolean) => void;
@@ -20,6 +26,7 @@ interface Props {
 export default function SceneGeneratorPanel({
   characterId,
   isCharacterLocked,
+  hasIdentityAnchor,
   onGenerated,
   onGeneratingChange,
 }: Props) {
@@ -37,7 +44,10 @@ export default function SceneGeneratorPanel({
 
   // Guard: include_character requires a locked character
   const lockedGuardActive = includeCharacter && !isCharacterLocked;
-  const canGenerate = prompt.trim().length > 0 && !loading && !lockedGuardActive;
+  // Guard: include_character also requires valid anchor data (B19).
+  // Only blocks when hasIdentityAnchor is explicitly false (i.e. prop was passed).
+  const anchorGuardActive = includeCharacter && isCharacterLocked && hasIdentityAnchor === false;
+  const canGenerate = prompt.trim().length > 0 && !loading && !lockedGuardActive && !anchorGuardActive;
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
@@ -143,6 +153,13 @@ export default function SceneGeneratorPanel({
         </p>
       )}
 
+      {/* Anchor-data guard message (character is locked but identity_anchor_json is missing) */}
+      {anchorGuardActive && (
+        <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
+          Your character's identity anchor is missing. Please regenerate and accept the identity pack from the character page.
+        </p>
+      )}
+
       <div className="flex items-center justify-between">
         <span className={`text-xs ${prompt.length >= MAX_PROMPT_LENGTH ? 'text-red-400' : 'text-gray-500'}`}>
           {prompt.length} / {MAX_PROMPT_LENGTH}
@@ -167,7 +184,7 @@ export default function SceneGeneratorPanel({
       </div>
 
       {error && (
-        <p className="text-sm text-gray-400 bg-gray-800/60 rounded-lg px-4 py-2">
+        <p className="text-sm text-amber-400/90 bg-amber-400/10 border border-amber-800/30 rounded-lg px-4 py-2">
           {error}
         </p>
       )}

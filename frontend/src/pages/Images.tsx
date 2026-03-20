@@ -166,8 +166,25 @@ export default function Images() {
       .catch(() => {});
   }, []);
 
+  // Only show generated images in the gallery — anchor/face-ref images are internal and
+  // cannot be deleted, so displaying them confuses users and breaks delete/report actions.
+  const generatedCharImages = charImages.filter((img) => img.kind === 'generated');
+
+  // Derive whether the selected character has valid B19 anchor data.
+  // Mirrors _parse_anchor_json on the backend: needs anchors.front.url to be non-empty.
+  const hasIdentityAnchor = (() => {
+    const raw = myCharacter?.identity_anchor_json;
+    if (!raw) return false;
+    try {
+      const data = JSON.parse(raw);
+      return !!(data?.anchors?.front?.url);
+    } catch {
+      return false;
+    }
+  })();
+
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: 'characters', label: 'Characters', count: charImages.length },
+    { id: 'characters', label: 'Characters', count: generatedCharImages.length },
     { id: 'covers', label: 'Covers', count: coverImages.length },
   ];
 
@@ -212,6 +229,7 @@ export default function Images() {
               <SceneGeneratorPanel
                 characterId={myCharacter.id}
                 isCharacterLocked={myCharacter.visual_locked ?? false}
+                hasIdentityAnchor={hasIdentityAnchor}
                 onGenerated={(image) => {
                   setCharImages((prev) => [image as unknown as LibraryImage, ...prev]);
                   setQuota((q) =>
@@ -239,7 +257,7 @@ export default function Images() {
             )}
             {charLoading ? (
               <div className="flex items-center justify-center py-16 text-gray-400">Loading...</div>
-            ) : charImages.length === 0 ? (
+            ) : generatedCharImages.length === 0 ? (
               <EmptyState
                 message={
                   myCharacter
@@ -259,22 +277,23 @@ export default function Images() {
               />
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {charImages.map((img) => (
+                {generatedCharImages.map((img) => (
                   <button
                     key={img.id}
                     className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 hover:border-gray-600 transition-colors cursor-pointer text-left"
                     onClick={() => openLightbox(img.url, undefined, img)}
+                    title="Click to view, delete, or report"
                   >
                     <img
                       src={img.url}
-                      alt={img.prompt_summary || img.kind}
+                      alt={img.prompt_summary || 'Generated image'}
                       className="w-full aspect-[2/3] object-cover"
                     />
-                    <div className="px-2 py-1.5">
-                      <p className="text-xs text-gray-400 truncate">
-                        {img.kind.replace(/_/g, ' ')}
-                      </p>
-                    </div>
+                    {img.prompt_summary && (
+                      <div className="px-2 py-1.5">
+                        <p className="text-xs text-gray-400 truncate">{img.prompt_summary}</p>
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
