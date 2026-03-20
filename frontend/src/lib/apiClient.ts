@@ -299,7 +299,7 @@ class ApiClient {
   }
 
   // Image quota (B22)
-  async getImageQuota(): Promise<{ used: number; limit: number | null; remaining: number | null; unlimited: boolean; reset_in_seconds: number | null }> {
+  async getImageQuota(): Promise<{ used: number; limit: number | null; remaining: number | null; unlimited: boolean; reset_in_seconds: number | null; reset_at: string | null }> {
     return this.request('/images/quota');
   }
 

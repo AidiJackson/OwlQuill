@@ -23,8 +23,14 @@ export default function Images() {
   // The user's character for image generation
   const [myCharacter, setMyCharacter] = useState<Character | null>(null);
 
-  // Weekly image allowance (B22)
-  type QuotaStatus = { used: number; limit: number | null; remaining: number | null; unlimited: boolean };
+  // Weekly image allowance (B22/B23)
+  type QuotaStatus = {
+    used: number;
+    limit: number | null;
+    remaining: number | null;
+    unlimited: boolean;
+    reset_at?: string | null;
+  };
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
 
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -247,13 +253,24 @@ export default function Images() {
               />
             )}
 
-            {/* Weekly allowance (B22) */}
+            {/* Weekly allowance (B23) */}
             {quota && !quota.unlimited && (
-              <p className={`text-xs ${quota.remaining === 0 ? 'text-amber-400' : 'text-gray-500'}`}>
-                {quota.remaining === 0
-                  ? "You've used all your images for this week."
-                  : `${quota.remaining} of ${quota.limit} images remaining this week`}
-              </p>
+              quota.remaining === 0 ? (
+                <div className="space-y-0.5">
+                  <p className="text-xs text-amber-400">
+                    You've used all {quota.limit} images for this week.
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {quota.reset_at
+                      ? `Your allowance resets ${formatResetTime(quota.reset_at)}.`
+                      : 'Your allowance resets weekly.'}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  {quota.remaining} of {quota.limit} image{quota.limit !== 1 ? 's' : ''} remaining this week
+                </p>
+              )
             )}
 
             {charError && (
@@ -457,6 +474,20 @@ export default function Images() {
       </ErrorBoundary>
     </div>
   );
+}
+
+/** Human-readable label for when the weekly image allowance resets (B23). */
+function formatResetTime(resetAt: string): string {
+  const reset = new Date(resetAt);
+  const now = new Date();
+  const diffMs = reset.getTime() - now.getTime();
+  if (diffMs <= 0) return 'very soon';
+  const diffHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  if (diffHours <= 1) return 'in about an hour';
+  if (diffHours < 24) return `in about ${diffHours} hours`;
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 1) return 'tomorrow';
+  return `in ${diffDays} days`;
 }
 
 interface EmptyStateProps {

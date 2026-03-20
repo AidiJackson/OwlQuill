@@ -1,4 +1,4 @@
-"""Tests for B22: image generation weekly allowance.
+"""Tests for B22/B23: image generation weekly allowance.
 
 Covers:
   1. Quota service unit tests (get_quota_status, check_weekly_quota)
@@ -8,6 +8,9 @@ Covers:
   5. Admin bypass
   6. No deduction on controlled failure (503)
   7. Single deduction on success (not double-charged through retry)
+  B23:
+  8. reset_at/reset_in_seconds accuracy
+  9. reset_at is null when no images exist
 """
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -88,6 +91,26 @@ def _generate(client, token, cid, *, include_character=False):
     )
 
 
+def _make_mock_image(created_at: datetime) -> MagicMock:
+    """Return a mock CharacterImage with only created_at set."""
+    from app.models.character_image import CharacterImage
+    img = MagicMock(spec=CharacterImage)
+    img.created_at = created_at
+    return img
+
+
+def _db_with_images(images: list) -> MagicMock:
+    """Return a mock Session whose window query returns `images`."""
+    mock_db = MagicMock()
+    (
+        mock_db.query.return_value
+        .filter.return_value
+        .order_by.return_value
+        .all.return_value
+    ) = images
+    return mock_db
+
+
 # ── 1. Quota service unit tests ───────────────────────────────────────
 
 
@@ -96,10 +119,16 @@ def test_quota_service_returns_correct_fields():
     from app.services.image_quota import get_quota_status
     from app.models.user import User
 
+    now = datetime.utcnow()
     mock_user = MagicMock(spec=User)
     mock_user.email = "normal@example.com"
-    mock_db = MagicMock()
-    mock_db.query.return_value.filter.return_value.count.return_value = 3
+    # 3 images at various ages within the window
+    images = [
+        _make_mock_image(now - timedelta(hours=72)),
+        _make_mock_image(now - timedelta(hours=48)),
+        _make_mock_image(now - timedelta(hours=24)),
+    ]
+    mock_db = _db_with_images(images)
 
     from app.core.config import settings
     with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
@@ -110,7 +139,11 @@ def test_quota_service_returns_correct_fields():
     assert status["limit"] == 10
     assert status["remaining"] == 7
     assert status["unlimited"] is False
-    assert status["reset_in_seconds"] == 7 * 24 * 3600
+    # reset_in_seconds should be ~(7 days - 72 hours) = ~4 days, not hardcoded 7 days
+    assert status["reset_in_seconds"] is not None
+    assert 0 < status["reset_in_seconds"] < 7 * 24 * 3600
+    assert status["reset_at"] is not None
+    assert status["reset_at"].endswith("Z")
 
 
 def test_quota_service_remaining_never_negative():
@@ -118,10 +151,11 @@ def test_quota_service_remaining_never_negative():
     from app.services.image_quota import get_quota_status
     from app.models.user import User
 
+    now = datetime.utcnow()
     mock_user = MagicMock(spec=User)
     mock_user.email = "overused@example.com"
-    mock_db = MagicMock()
-    mock_db.query.return_value.filter.return_value.count.return_value = 15
+    images = [_make_mock_image(now - timedelta(hours=i)) for i in range(1, 16)]
+    mock_db = _db_with_images(images)
 
     from app.core.config import settings
     with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
@@ -147,6 +181,7 @@ def test_quota_service_admin_gets_unlimited():
     assert status["unlimited"] is True
     assert status["limit"] is None
     assert status["remaining"] is None
+    assert status["reset_at"] is None
     mock_db.query.assert_not_called()  # no DB hit for admin
 
 
@@ -155,10 +190,11 @@ def test_check_weekly_quota_returns_none_when_available():
     from app.services.image_quota import check_weekly_quota
     from app.models.user import User
 
+    now = datetime.utcnow()
     mock_user = MagicMock(spec=User)
     mock_user.email = "normal@example.com"
-    mock_db = MagicMock()
-    mock_db.query.return_value.filter.return_value.count.return_value = 5
+    images = [_make_mock_image(now - timedelta(hours=i)) for i in range(1, 6)]  # 5 images
+    mock_db = _db_with_images(images)
 
     from app.core.config import settings
     with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
@@ -173,10 +209,11 @@ def test_check_weekly_quota_returns_429_when_exhausted():
     from app.services.image_quota import check_weekly_quota
     from app.models.user import User
 
+    now = datetime.utcnow()
     mock_user = MagicMock(spec=User)
     mock_user.email = "exhausted@example.com"
-    mock_db = MagicMock()
-    mock_db.query.return_value.filter.return_value.count.return_value = 10
+    images = [_make_mock_image(now - timedelta(hours=i)) for i in range(1, 11)]  # 10 images
+    mock_db = _db_with_images(images)
 
     from app.core.config import settings
     with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
@@ -204,6 +241,82 @@ def test_check_weekly_quota_admin_bypass():
     mock_db.query.assert_not_called()
 
 
+# ── B23: reset_at accuracy ────────────────────────────────────────────
+
+
+def test_quota_reset_at_null_when_no_images():
+    """Fresh user with no images has reset_at=None (nothing to expire)."""
+    from app.services.image_quota import get_quota_status
+    from app.models.user import User
+
+    mock_user = MagicMock(spec=User)
+    mock_user.email = "fresh@example.com"
+    mock_db = _db_with_images([])  # no images in window
+
+    from app.core.config import settings
+    with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
+        with patch.object(settings, "ADMIN_EMAILS", ""):
+            status = get_quota_status(mock_user, mock_db)
+
+    assert status["reset_at"] is None
+    assert status["reset_in_seconds"] is None
+    assert status["used"] == 0
+    assert status["remaining"] == 10
+
+
+def test_quota_reset_in_seconds_reflects_oldest_image():
+    """reset_in_seconds = time until the oldest image in the window expires."""
+    from app.services.image_quota import get_quota_status
+    from app.models.user import User
+
+    now = datetime.utcnow()
+    # Oldest image is 5 days ago; it expires in exactly 2 days from now.
+    oldest = now - timedelta(days=5)
+    images = [
+        _make_mock_image(oldest),
+        _make_mock_image(now - timedelta(days=2)),
+        _make_mock_image(now - timedelta(days=1)),
+    ]
+    mock_user = MagicMock(spec=User)
+    mock_user.email = "resetcheck@example.com"
+    mock_db = _db_with_images(images)
+
+    from app.core.config import settings
+    with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
+        with patch.object(settings, "ADMIN_EMAILS", ""):
+            status = get_quota_status(mock_user, mock_db)
+
+    # reset_in_seconds should be ≈ 2 days (within a few seconds of test execution time)
+    expected_secs = int(timedelta(days=2).total_seconds())
+    assert status["reset_in_seconds"] is not None
+    assert abs(status["reset_in_seconds"] - expected_secs) < 5
+
+
+def test_quota_429_includes_reset_at():
+    """The 429 response body includes reset_at when quota is exhausted."""
+    from app.services.image_quota import check_weekly_quota
+    from app.models.user import User
+    import json
+
+    now = datetime.utcnow()
+    mock_user = MagicMock(spec=User)
+    mock_user.email = "exhausted2@example.com"
+    images = [_make_mock_image(now - timedelta(hours=i)) for i in range(1, 6)]
+    mock_db = _db_with_images(images)
+
+    from app.core.config import settings
+    with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 5):
+        with patch.object(settings, "ADMIN_EMAILS", ""):
+            result = check_weekly_quota(mock_user, mock_db)
+
+    assert result is not None
+    assert result.status_code == 429
+    body = json.loads(result.body)
+    assert "reset_at" in body
+    assert body["reset_at"] is not None
+    assert body["reset_at"].endswith("Z")
+
+
 # ── 2. /images/quota endpoint ─────────────────────────────────────────
 
 
@@ -217,10 +330,11 @@ def test_quota_endpoint_returns_status(client: TestClient):
     assert "limit" in data
     assert "remaining" in data
     assert "unlimited" in data
+    assert "reset_at" in data  # B23
 
 
 def test_quota_endpoint_initial_state(client: TestClient):
-    """Fresh user starts with used=0 and remaining==limit."""
+    """Fresh user starts with used=0 and remaining==limit; reset_at is null."""
     token = _register_and_login(client, "quota_fresh@example.com")
     resp = client.get("/images/quota", headers=auth_headers(token))
     assert resp.status_code == 200
@@ -228,6 +342,7 @@ def test_quota_endpoint_initial_state(client: TestClient):
     assert data["used"] == 0
     assert data["remaining"] == data["limit"]
     assert data["unlimited"] is False
+    assert data["reset_at"] is None  # B23: no images yet, nothing to expire
 
 
 # ── 3. Allowance available → generation proceeds ──────────────────────
@@ -262,6 +377,7 @@ def test_generation_increments_quota_used(client: TestClient, monkeypatch):
 
     assert quota_after["used"] == quota_before["used"] + 1
     assert quota_after["remaining"] == quota_before["remaining"] - 1
+    assert quota_after["reset_at"] is not None  # B23: now has an image in window
 
 
 # ── 4. Allowance exhausted → 429 ─────────────────────────────────────
@@ -291,6 +407,7 @@ def test_generation_blocked_when_quota_exhausted(client: TestClient, monkeypatch
     assert r3.status_code == 429
     data = r3.json()
     assert data["error"] == "quota_exceeded"
+    assert "reset_at" in data  # B23
 
 
 # ── 5. Admin bypass ───────────────────────────────────────────────────
