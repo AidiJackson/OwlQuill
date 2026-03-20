@@ -1,0 +1,403 @@
+"""Tests for B22: image generation weekly allowance.
+
+Covers:
+  1. Quota service unit tests (get_quota_status, check_weekly_quota)
+  2. /images/quota endpoint
+  3. Allowance available → generation proceeds
+  4. Allowance exhausted → 429 returned
+  5. Admin bypass
+  6. No deduction on controlled failure (503)
+  7. Single deduction on success (not double-charged through retry)
+"""
+from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from tests.conftest import get_auth_token, auth_headers
+
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+
+def _register_and_login(client: TestClient, email: str) -> str:
+    client.post(
+        "/auth/register",
+        json={"email": email, "username": email.split("@")[0].replace(".", "_"), "password": "testpass!123"},
+    )
+    resp = client.post("/auth/login", json={"email": email, "password": "testpass!123"})
+    return resp.json()["access_token"]
+
+
+def _create_character(client: TestClient, token: str) -> int:
+    resp = client.post(
+        "/characters/",
+        json={"name": "Quota Test Char", "species": "human"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+def _lock_character(client: TestClient, token: str, cid: int) -> None:
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/generate",
+        json={},
+        headers=auth_headers(token),
+    )
+    pack_id = resp.json()["pack_id"]
+    resp = client.post(
+        f"/characters/{cid}/identity-pack/accept",
+        json={"pack_id": pack_id},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def _stub_png_bytes() -> bytes:
+    from pathlib import Path
+    from app.services.stub_image_generator import generate_placeholder_png
+    fp = generate_placeholder_png(label="test", sublabel="stub")
+    return (Path(__file__).resolve().parent.parent / fp).read_bytes()
+
+
+def _mock_provider_succeeds() -> MagicMock:
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = MagicMock(return_value=_stub_png_bytes())
+    mock.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    mock.generate_image = MagicMock(return_value=_stub_png_bytes())
+    return mock
+
+
+def _mock_provider_fails() -> MagicMock:
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = MagicMock(side_effect=RuntimeError("provider fail"))
+    mock.generate_grounded_image = MagicMock(side_effect=RuntimeError("provider fail"))
+    mock.generate_image = MagicMock(side_effect=RuntimeError("provider fail"))
+    return mock
+
+
+def _generate(client, token, cid, *, include_character=False):
+    return client.post(
+        f"/characters/{cid}/image-generator/generate",
+        json={"prompt": "A test scene", "include_character": include_character, "provider_option": "option1"},
+        headers=auth_headers(token),
+    )
+
+
+# ── 1. Quota service unit tests ───────────────────────────────────────
+
+
+def test_quota_service_returns_correct_fields():
+    """get_quota_status returns the expected keys for a regular user."""
+    from app.services.image_quota import get_quota_status
+    from app.models.user import User
+
+    mock_user = MagicMock(spec=User)
+    mock_user.email = "normal@example.com"
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.count.return_value = 3
+
+    from app.core.config import settings
+    with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
+        with patch.object(settings, "ADMIN_EMAILS", ""):
+            status = get_quota_status(mock_user, mock_db)
+
+    assert status["used"] == 3
+    assert status["limit"] == 10
+    assert status["remaining"] == 7
+    assert status["unlimited"] is False
+    assert status["reset_in_seconds"] == 7 * 24 * 3600
+
+
+def test_quota_service_remaining_never_negative():
+    """remaining is clamped to 0 when used > limit."""
+    from app.services.image_quota import get_quota_status
+    from app.models.user import User
+
+    mock_user = MagicMock(spec=User)
+    mock_user.email = "overused@example.com"
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.count.return_value = 15
+
+    from app.core.config import settings
+    with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
+        with patch.object(settings, "ADMIN_EMAILS", ""):
+            status = get_quota_status(mock_user, mock_db)
+
+    assert status["remaining"] == 0
+
+
+def test_quota_service_admin_gets_unlimited():
+    """Admin users receive unlimited=True regardless of usage."""
+    from app.services.image_quota import get_quota_status
+    from app.models.user import User
+
+    mock_user = MagicMock(spec=User)
+    mock_user.email = "admin@ficshon.com"
+    mock_db = MagicMock()
+
+    from app.core.config import settings
+    with patch.object(settings, "ADMIN_EMAILS", "admin@ficshon.com"):
+        status = get_quota_status(mock_user, mock_db)
+
+    assert status["unlimited"] is True
+    assert status["limit"] is None
+    assert status["remaining"] is None
+    mock_db.query.assert_not_called()  # no DB hit for admin
+
+
+def test_check_weekly_quota_returns_none_when_available():
+    """check_weekly_quota returns None (proceed) when user is under limit."""
+    from app.services.image_quota import check_weekly_quota
+    from app.models.user import User
+
+    mock_user = MagicMock(spec=User)
+    mock_user.email = "normal@example.com"
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.count.return_value = 5
+
+    from app.core.config import settings
+    with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
+        with patch.object(settings, "ADMIN_EMAILS", ""):
+            result = check_weekly_quota(mock_user, mock_db)
+
+    assert result is None
+
+
+def test_check_weekly_quota_returns_429_when_exhausted():
+    """check_weekly_quota returns a 429 JSONResponse when limit is reached."""
+    from app.services.image_quota import check_weekly_quota
+    from app.models.user import User
+
+    mock_user = MagicMock(spec=User)
+    mock_user.email = "exhausted@example.com"
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.count.return_value = 10
+
+    from app.core.config import settings
+    with patch.object(settings, "IMAGE_WEEKLY_LIMIT", 10):
+        with patch.object(settings, "ADMIN_EMAILS", ""):
+            result = check_weekly_quota(mock_user, mock_db)
+
+    assert result is not None
+    assert result.status_code == 429
+
+
+def test_check_weekly_quota_admin_bypass():
+    """Admin bypass: check_weekly_quota returns None even at/over limit."""
+    from app.services.image_quota import check_weekly_quota
+    from app.models.user import User
+
+    mock_user = MagicMock(spec=User)
+    mock_user.email = "boss@ficshon.com"
+    mock_db = MagicMock()
+
+    from app.core.config import settings
+    with patch.object(settings, "ADMIN_EMAILS", "boss@ficshon.com"):
+        result = check_weekly_quota(mock_user, mock_db)
+
+    assert result is None
+    mock_db.query.assert_not_called()
+
+
+# ── 2. /images/quota endpoint ─────────────────────────────────────────
+
+
+def test_quota_endpoint_returns_status(client: TestClient):
+    """GET /images/quota returns quota fields for authenticated user."""
+    token = _register_and_login(client, "quota_ep@example.com")
+    resp = client.get("/images/quota", headers=auth_headers(token))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "used" in data
+    assert "limit" in data
+    assert "remaining" in data
+    assert "unlimited" in data
+
+
+def test_quota_endpoint_initial_state(client: TestClient):
+    """Fresh user starts with used=0 and remaining==limit."""
+    token = _register_and_login(client, "quota_fresh@example.com")
+    resp = client.get("/images/quota", headers=auth_headers(token))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["used"] == 0
+    assert data["remaining"] == data["limit"]
+    assert data["unlimited"] is False
+
+
+# ── 3. Allowance available → generation proceeds ──────────────────────
+
+
+def test_generation_allowed_when_quota_available(client: TestClient, monkeypatch):
+    """Generation succeeds when the user is within the weekly limit."""
+    token = _register_and_login(client, "quota_ok@example.com")
+    cid = _create_character(client, token)
+
+    monkeypatch.setattr(
+        "app.api.routes.image_generator.get_provider_for_option",
+        lambda _opt: _mock_provider_succeeds(),
+    )
+    resp = _generate(client, token, cid)
+    assert resp.status_code == 200
+
+
+def test_generation_increments_quota_used(client: TestClient, monkeypatch):
+    """Each successful generation increments the used count."""
+    token = _register_and_login(client, "quota_incr@example.com")
+    cid = _create_character(client, token)
+
+    monkeypatch.setattr(
+        "app.api.routes.image_generator.get_provider_for_option",
+        lambda _opt: _mock_provider_succeeds(),
+    )
+
+    quota_before = client.get("/images/quota", headers=auth_headers(token)).json()
+    _generate(client, token, cid)
+    quota_after = client.get("/images/quota", headers=auth_headers(token)).json()
+
+    assert quota_after["used"] == quota_before["used"] + 1
+    assert quota_after["remaining"] == quota_before["remaining"] - 1
+
+
+# ── 4. Allowance exhausted → 429 ─────────────────────────────────────
+
+
+def test_generation_blocked_when_quota_exhausted(client: TestClient, monkeypatch):
+    """Generation returns 429 when weekly limit is reached."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "IMAGE_WEEKLY_LIMIT", 2)
+
+    token = _register_and_login(client, "quota_block@example.com")
+    cid = _create_character(client, token)
+
+    monkeypatch.setattr(
+        "app.api.routes.image_generator.get_provider_for_option",
+        lambda _opt: _mock_provider_succeeds(),
+    )
+
+    # Use up the limit
+    r1 = _generate(client, token, cid)
+    r2 = _generate(client, token, cid)
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+
+    # Next request should be blocked
+    r3 = _generate(client, token, cid)
+    assert r3.status_code == 429
+    data = r3.json()
+    assert data["error"] == "quota_exceeded"
+
+
+# ── 5. Admin bypass ───────────────────────────────────────────────────
+
+
+def test_admin_bypass_ignores_quota(client: TestClient, monkeypatch):
+    """Admin users can generate past the weekly limit."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "IMAGE_WEEKLY_LIMIT", 1)
+
+    admin_email = "admin_bypass@ficshon.com"
+    monkeypatch.setattr(settings, "ADMIN_EMAILS", admin_email)
+
+    token = _register_and_login(client, admin_email)
+    cid = _create_character(client, token)
+
+    monkeypatch.setattr(
+        "app.api.routes.image_generator.get_provider_for_option",
+        lambda _opt: _mock_provider_succeeds(),
+    )
+
+    # Admin should be able to generate more than the limit
+    for _ in range(3):
+        resp = _generate(client, token, cid)
+        assert resp.status_code == 200, resp.text
+
+
+def test_admin_quota_endpoint_shows_unlimited(client: TestClient, monkeypatch):
+    """Admin user's quota endpoint returns unlimited=True."""
+    from app.core.config import settings
+    admin_email = "admin_quota_ep@ficshon.com"
+    monkeypatch.setattr(settings, "ADMIN_EMAILS", admin_email)
+
+    token = _register_and_login(client, admin_email)
+    resp = client.get("/images/quota", headers=auth_headers(token))
+    assert resp.status_code == 200
+    assert resp.json()["unlimited"] is True
+
+
+# ── 6. No deduction on controlled failure ─────────────────────────────
+
+
+def test_no_deduction_on_controlled_503(client: TestClient, monkeypatch):
+    """Quota is NOT consumed when strict-identity generation fails (503)."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "IMAGE_WEEKLY_LIMIT", 5)
+
+    token = _register_and_login(client, "quota_nodeduce@example.com")
+    cid = _create_character(client, token)
+    _lock_character(client, token, cid)
+
+    # Provider always fails — will produce a controlled 503
+    monkeypatch.setattr(
+        "app.api.routes.image_generator.get_provider_for_option",
+        lambda _opt: _mock_provider_fails(),
+    )
+
+    quota_before = client.get("/images/quota", headers=auth_headers(token)).json()
+
+    resp = _generate(client, token, cid, include_character=True)
+    assert resp.status_code == 503
+
+    quota_after = client.get("/images/quota", headers=auth_headers(token)).json()
+    # Quota must be unchanged — no image was saved
+    assert quota_after["used"] == quota_before["used"]
+    assert quota_after["remaining"] == quota_before["remaining"]
+
+
+# ── 7. Single deduction on success (retry path does not double-charge) ─
+
+
+def test_single_deduction_on_success_with_retry(client: TestClient, monkeypatch):
+    """A generation that succeeds on the retry attempt still only deducts once."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "IMAGE_WEEKLY_LIMIT", 5)
+
+    token = _register_and_login(client, "quota_retry@example.com")
+    cid = _create_character(client, token)
+    _lock_character(client, token, cid)
+
+    call_count = {"n": 0}
+
+    def _flaky_provider():
+        mock = MagicMock()
+        mock.supports_multi_image_input = True
+
+        def _anchor(*args, **kwargs):
+            call_count["n"] += 1
+            # Fail on attempt 1, succeed on attempt 2
+            if call_count["n"] == 1:
+                raise RuntimeError("first attempt fails")
+            return _stub_png_bytes()
+
+        mock.generate_with_anchors = MagicMock(side_effect=_anchor)
+        mock.generate_grounded_image = MagicMock(side_effect=RuntimeError("grounded fail"))
+        mock.generate_image = MagicMock(side_effect=RuntimeError("text fail"))
+        return mock
+
+    monkeypatch.setattr(
+        "app.api.routes.image_generator.get_provider_for_option",
+        lambda _opt: _flaky_provider(),
+    )
+
+    quota_before = client.get("/images/quota", headers=auth_headers(token)).json()
+    resp = _generate(client, token, cid, include_character=True)
+    assert resp.status_code == 200
+    quota_after = client.get("/images/quota", headers=auth_headers(token)).json()
+
+    # Exactly one image saved, regardless of internal retry
+    assert quota_after["used"] == quota_before["used"] + 1

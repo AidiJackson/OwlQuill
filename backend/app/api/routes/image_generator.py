@@ -29,6 +29,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.services.image_quota import check_weekly_quota
 from app.models.character import Character as CharacterModel
 from app.models.character_image import (
     CharacterImage,
@@ -221,7 +222,7 @@ def generate_image(
     body: ImageGenerateRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> CharacterImageRead:
+):
     """Generate a single image.
 
     When include_character=True, strict identity mode (B18) with anchor-image
@@ -247,6 +248,13 @@ def generate_image(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have permission to use this character.",
         )
+
+    # ── B22: Weekly allowance check ────────────────────────────────
+    # Checked before generation starts; deducted only on successful save.
+    # Admin users bypass this check entirely.
+    quota_error = check_weekly_quota(current_user, db)
+    if quota_error is not None:
+        return quota_error
 
     # ── Provider resolution ────────────────────────────────────────
     effective_option = body.provider_option if settings.IMAGE_GENERATOR_PROVIDER_TOGGLE else "option1"
@@ -557,6 +565,7 @@ def generate_image(
 
     img = CharacterImage(
         character_id=character_id,
+        user_id=current_user.id,  # B22: stamp for quota tracking
         kind=ImageKindEnum.GENERATED,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

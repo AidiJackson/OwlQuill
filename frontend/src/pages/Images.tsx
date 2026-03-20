@@ -23,6 +23,10 @@ export default function Images() {
   // The user's character for image generation
   const [myCharacter, setMyCharacter] = useState<Character | null>(null);
 
+  // Weekly image allowance (B22)
+  type QuotaStatus = { used: number; limit: number | null; remaining: number | null; unlimited: boolean };
+  const [quota, setQuota] = useState<QuotaStatus | null>(null);
+
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [lbVisible, setLbVisible] = useState(false);
   const [lightboxCoverId, setLightboxCoverId] = useState<number | null>(null);
@@ -154,6 +158,12 @@ export default function Images() {
         if (mountedRef.current) setMyCharacter(locked ?? null);
       })
       .catch(() => {});
+
+    // Fetch weekly image allowance (B22)
+    apiClient
+      .getImageQuota()
+      .then((q) => { if (mountedRef.current) setQuota(q); })
+      .catch(() => {});
   }, []);
 
   const tabs: { id: Tab; label: string; count: number }[] = [
@@ -204,8 +214,22 @@ export default function Images() {
                 isCharacterLocked={myCharacter.visual_locked ?? false}
                 onGenerated={(image) => {
                   setCharImages((prev) => [image as unknown as LibraryImage, ...prev]);
+                  setQuota((q) =>
+                    q && !q.unlimited && q.remaining !== null
+                      ? { ...q, used: q.used + 1, remaining: Math.max(0, q.remaining - 1) }
+                      : q
+                  );
                 }}
               />
+            )}
+
+            {/* Weekly allowance (B22) */}
+            {quota && !quota.unlimited && (
+              <p className={`text-xs ${quota.remaining === 0 ? 'text-amber-400' : 'text-gray-500'}`}>
+                {quota.remaining === 0
+                  ? "You've used all your images for this week."
+                  : `${quota.remaining} of ${quota.limit} images remaining this week`}
+              </p>
             )}
 
             {charError && (

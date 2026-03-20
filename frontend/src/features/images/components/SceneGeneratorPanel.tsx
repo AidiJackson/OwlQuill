@@ -54,9 +54,9 @@ export default function SceneGeneratorPanel({
       if (!mountedRef.current) return;
       onGenerated(image);
       setPrompt('');
-    } catch {
+    } catch (err) {
       if (!mountedRef.current) return;
-      setError("We couldn't generate the image right now. Try again.");
+      setError(err instanceof Error ? err.message : "We couldn't generate the image right now. Try again.");
     } finally {
       if (mountedRef.current) {
         setLoading(false);
