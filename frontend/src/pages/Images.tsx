@@ -20,8 +20,8 @@ export default function Images() {
   const [coverLoading, setCoverLoading] = useState(true);
   const [coverError, setCoverError] = useState('');
 
-  // The user's character for image generation
-  const [myCharacter, setMyCharacter] = useState<Character | null>(null);
+  // The user's characters for the generator selector
+  const [myCharacters, setMyCharacters] = useState<Character[]>([]);
 
   // Weekly image allowance (B22/B23)
   type QuotaStatus = {
@@ -156,13 +156,10 @@ export default function Images() {
       .catch((err) => setCoverError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setCoverLoading(false));
 
-    // Fetch the user's character for the generator panel
+    // Fetch all user characters for the generator selector
     apiClient
       .getCharacters()
-      .then((chars) => {
-        const locked = chars.find((c) => c.visual_locked) || chars[0] || null;
-        if (mountedRef.current) setMyCharacter(locked ?? null);
-      })
+      .then((chars) => { if (mountedRef.current) setMyCharacters(chars); })
       .catch(() => {});
 
     // Fetch weekly image allowance (B22)
@@ -175,25 +172,6 @@ export default function Images() {
   // Only show generated images in the gallery — anchor/face-ref images are internal and
   // cannot be deleted, so displaying them confuses users and breaks delete/report actions.
   const generatedCharImages = charImages.filter((img) => img.kind === 'generated');
-
-  // Derive whether the selected character has valid B19 anchor data.
-  // Mirrors _parse_anchor_json on the backend: needs anchors.front.url to be non-empty.
-  //
-  // Returns:
-  //   true      – JSON present and front anchor URL valid
-  //   false     – JSON present but malformed/missing front anchor
-  //   undefined – JSON absent (legacy character locked before anchor field existed;
-  //               let the backend try the DB-image fallback rather than blocking here)
-  const hasIdentityAnchor: boolean | undefined = (() => {
-    const raw = myCharacter?.identity_anchor_json;
-    if (!raw) return undefined;
-    try {
-      const data = JSON.parse(raw);
-      return !!(data?.anchors?.front?.url);
-    } catch {
-      return false;
-    }
-  })();
 
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: 'characters', label: 'Characters', count: generatedCharImages.length },
@@ -237,11 +215,9 @@ export default function Images() {
         {activeTab === 'characters' && (
           <>
             {/* Image generator */}
-            {myCharacter && (
+            {myCharacters.length > 0 && (
               <SceneGeneratorPanel
-                characterId={myCharacter.id}
-                isCharacterLocked={myCharacter.visual_locked ?? false}
-                hasIdentityAnchor={hasIdentityAnchor}
+                characters={myCharacters}
                 onGenerated={(image) => {
                   setCharImages((prev) => [image as unknown as LibraryImage, ...prev]);
                   setQuota((q) =>
@@ -283,17 +259,17 @@ export default function Images() {
             ) : generatedCharImages.length === 0 ? (
               <EmptyState
                 message={
-                  myCharacter
+                  myCharacters.length > 0
                     ? 'No images yet. Use the generator above to create your first image.'
                     : 'Create a character to generate images.'
                 }
                 primaryAction={
-                  !myCharacter
+                  myCharacters.length === 0
                     ? { label: 'Create character', onClick: () => navigate('/characters/new') }
                     : undefined
                 }
                 secondaryAction={
-                  !myCharacter
+                  myCharacters.length === 0
                     ? { label: 'Go to Characters', onClick: () => navigate('/characters') }
                     : undefined
                 }

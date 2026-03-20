@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ImageIcon, RefreshCw } from 'lucide-react';
 import { generateImage } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
+import type { Character } from '@/lib/types';
 
 const MAX_PROMPT_LENGTH = 800;
 
@@ -9,32 +10,34 @@ const MAX_PROMPT_LENGTH = 800;
 const SHOW_PROVIDER_TOGGLE = true;
 
 interface Props {
-  characterId: number;
-  /** Whether the character's visual identity is locked. Required for include_character. */
-  isCharacterLocked: boolean;
-  /**
-   * Whether the character has valid identity anchor data (identity_anchor_json with a
-   * front anchor URL). When false and include_character is checked, we block the request
-   * before it goes out — the backend would return 409 anyway (B19 anchor check).
-   */
-  hasIdentityAnchor?: boolean;
+  characters: Character[];
   onGenerated: (image: CharacterImageRead) => void;
   /** Called with true when a request starts, false when it settles. */
   onGeneratingChange?: (generating: boolean) => void;
 }
 
 export default function SceneGeneratorPanel({
-  characterId,
-  isCharacterLocked,
-  hasIdentityAnchor,
+  characters,
   onGenerated,
   onGeneratingChange,
 }: Props) {
   const [prompt, setPrompt] = useState('');
-  const [includeCharacter, setIncludeCharacter] = useState(false);
+  // null = "No character"; number = character id
+  const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const [providerOption, setProviderOption] = useState<'option1' | 'option2'>('option1');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Set default selection once when characters first load
+  const didInitRef = useRef(false);
+  useEffect(() => {
+    if (didInitRef.current || characters.length === 0) return;
+    didInitRef.current = true;
+    if (characters.length === 1) {
+      setSelectedCharacterId(characters[0].id);
+    }
+    // Multi-character: default to "No character" (null) — explicit selection required
+  }, [characters]);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -42,23 +45,41 @@ export default function SceneGeneratorPanel({
     return () => { mountedRef.current = false; };
   }, []);
 
-  // Guard: include_character requires a locked character
-  const lockedGuardActive = includeCharacter && !isCharacterLocked;
-  // Guard: include_character also requires valid anchor data (B19).
-  // Only blocks when hasIdentityAnchor is explicitly false (i.e. prop was passed).
-  const anchorGuardActive = includeCharacter && isCharacterLocked && hasIdentityAnchor === false;
+  // Derive lock/anchor state from the currently selected character
+  const selectedChar = characters.find((c) => c.id === selectedCharacterId) ?? null;
+  const isCharacterLocked = selectedChar?.visual_locked ?? false;
+
+  // Mirrors _parse_anchor_json on the backend: needs anchors.front.url to be non-empty.
+  // Returns true/false/undefined — undefined means JSON absent (legacy; let backend try DB fallback).
+  const hasIdentityAnchor: boolean | undefined = (() => {
+    const raw = selectedChar?.identity_anchor_json;
+    if (!raw) return undefined;
+    try {
+      const data = JSON.parse(raw);
+      return !!(data?.anchors?.front?.url);
+    } catch {
+      return false;
+    }
+  })();
+
+  // Guards only apply when a character is selected
+  const lockedGuardActive = selectedCharacterId !== null && !isCharacterLocked;
+  const anchorGuardActive = selectedCharacterId !== null && isCharacterLocked && hasIdentityAnchor === false;
   const canGenerate = prompt.trim().length > 0 && !loading && !lockedGuardActive && !anchorGuardActive;
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
+    // For "No character", route through the first character (ownership only; include_character=false)
+    const routeCharacterId = selectedCharacterId ?? characters[0]?.id;
+    if (!routeCharacterId) return;
     setLoading(true);
     setError('');
     onGeneratingChange?.(true);
     try {
       const image = await generateImage(
-        characterId,
+        routeCharacterId,
         prompt.trim(),
-        includeCharacter,
+        selectedCharacterId !== null, // include_character
         providerOption,
       );
       if (!mountedRef.current) return;
@@ -102,17 +123,25 @@ export default function SceneGeneratorPanel({
 
       {/* Controls row */}
       <div className="flex flex-wrap items-center gap-4">
-        {/* Include character checkbox */}
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            className="w-4 h-4 accent-emerald-500"
-            checked={includeCharacter}
-            onChange={(e) => setIncludeCharacter(e.target.checked)}
+        {/* Character selector */}
+        <div className="flex items-center gap-2 min-w-0">
+          <label className="text-sm text-gray-400 shrink-0">Character</label>
+          <select
+            className="bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-300 px-3 py-1.5 disabled:opacity-50 focus:outline-none focus:border-gray-600"
+            value={selectedCharacterId ?? 'none'}
+            onChange={(e) =>
+              setSelectedCharacterId(e.target.value === 'none' ? null : Number(e.target.value))
+            }
             disabled={loading}
-          />
-          <span className="text-sm text-gray-300">Include this character in the image</span>
-        </label>
+          >
+            <option value="none">No character</option>
+            {characters.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {/* Provider toggle (Option 1 / Option 2) — easy to remove for production */}
         {SHOW_PROVIDER_TOGGLE && (
