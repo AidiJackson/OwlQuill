@@ -172,9 +172,15 @@ export default function Images() {
 
   // Derive whether the selected character has valid B19 anchor data.
   // Mirrors _parse_anchor_json on the backend: needs anchors.front.url to be non-empty.
-  const hasIdentityAnchor = (() => {
+  //
+  // Returns:
+  //   true      – JSON present and front anchor URL valid
+  //   false     – JSON present but malformed/missing front anchor
+  //   undefined – JSON absent (legacy character locked before anchor field existed;
+  //               let the backend try the DB-image fallback rather than blocking here)
+  const hasIdentityAnchor: boolean | undefined = (() => {
     const raw = myCharacter?.identity_anchor_json;
-    if (!raw) return false;
+    if (!raw) return undefined;
     try {
       const data = JSON.parse(raw);
       return !!(data?.anchors?.front?.url);

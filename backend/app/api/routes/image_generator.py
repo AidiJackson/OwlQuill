@@ -109,6 +109,54 @@ def _parse_anchor_json(raw: str | None) -> dict | None:
     return data
 
 
+def _build_anchor_data_from_db(character_id: int, db: Session) -> dict | None:
+    """Legacy compatibility: rebuild anchor_data from active anchor image rows.
+
+    Characters locked before the identity_anchor_json field was introduced
+    (pre-Feb 2026) may have valid anchor images in the DB but a null
+    identity_anchor_json on the character record.  This helper reconstructs
+    the minimal dict expected by _load_anchor_images so generation can proceed
+    without requiring the user to re-lock their character.
+
+    Returns None when no ANCHOR_FRONT image is found — that means the character
+    genuinely has no usable anchors and must regenerate the identity pack.
+    """
+    kind_to_key = {
+        ImageKindEnum.ANCHOR_FRONT: "front",
+        ImageKindEnum.ANCHOR_THREE_QUARTER: "three_quarter",
+        ImageKindEnum.ANCHOR_TORSO: "torso",
+        ImageKindEnum.ANCHOR_FULL_BODY: "full_body",
+    }
+
+    rows = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.character_id == character_id,
+            CharacterImage.kind.in_(list(kind_to_key.keys())),
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .all()
+    )
+
+    if not rows:
+        return None
+
+    anchors_dict: dict[str, dict] = {}
+    for img in rows:
+        key = kind_to_key.get(img.kind)
+        if key is None:
+            continue
+        path = img.file_path.lstrip("/")
+        url = f"/{path}" if path.startswith("static/") else f"/static/{path}"
+        anchors_dict[key] = {"id": img.id, "url": url}
+
+    # Must have at least the front anchor to be usable for identity conditioning.
+    if "front" not in anchors_dict:
+        return None
+
+    return {"version": 1, "anchors": anchors_dict}
+
+
 def _load_anchor_images(
     anchor_data: dict,
     character_id: int,
@@ -278,13 +326,27 @@ def generate_image(
 
         anchor_data = _parse_anchor_json(character.identity_anchor_json)
         if anchor_data is None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Character identity anchor not found. "
-                    "Please regenerate and accept the identity pack."
-                ),
-            )
+            # Legacy compatibility: character was locked before identity_anchor_json was
+            # introduced (pre-Feb 2026).  Attempt to rebuild from active anchor rows.
+            anchor_data = _build_anchor_data_from_db(character_id, db)
+            if anchor_data is not None:
+                # Persist the rebuilt snapshot so future requests use it directly.
+                logger.info(
+                    "anchor_json_repaired_from_db character_id=%s anchor_count=%d",
+                    character_id,
+                    len(anchor_data.get("anchors", {})),
+                )
+                character.identity_anchor_json = _json.dumps(anchor_data)
+                db.commit()
+                db.refresh(character)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Character identity anchor not found. "
+                        "Please regenerate and accept the identity pack."
+                    ),
+                )
 
         identity_hash = anchor_data.get("identity_prompt_hash")
 
