@@ -1,19 +1,27 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/apiClient';
-import type { Comment } from '@/lib/types';
+import type { Comment, Character } from '@/lib/types';
 
 interface CommentSectionProps {
   postId: number;
+  characters?: Character[];
   defaultExpanded?: boolean;
 }
 
-export default function CommentSection({ postId, defaultExpanded = false }: CommentSectionProps) {
+export default function CommentSection({ postId, characters = [], defaultExpanded = false }: CommentSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(false);
   const [content, setContent] = useState('');
   const [contentType, setContentType] = useState<'ic' | 'ooc' | 'narration'>('ooc');
+  const [composerCharId, setComposerCharId] = useState<number | null>(null);
+  const [commentError, setCommentError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Auto-select when exactly one character exists; leave null for multi-char (requires explicit pick).
+  useEffect(() => {
+    if (characters.length === 1) setComposerCharId(characters[0].id);
+  }, [characters]);
 
   useEffect(() => {
     if (expanded) {
@@ -28,12 +36,18 @@ export default function CommentSection({ postId, defaultExpanded = false }: Comm
 
   const handleSubmit = async () => {
     if (!content.trim() || submitting) return;
-
+    // Require an explicit character selection when the user has characters
+    if (characters.length > 0 && !composerCharId) {
+      setCommentError('Select a character to reply as.');
+      return;
+    }
+    setCommentError(null);
     setSubmitting(true);
     try {
       await apiClient.createComment(postId, {
         content: content.trim(),
         content_type: contentType,
+        ...(composerCharId ? { character_id: composerCharId } : {}),
       });
       setContent('');
       const updated = await apiClient.getPostComments(postId);
@@ -117,6 +131,39 @@ export default function CommentSection({ postId, defaultExpanded = false }: Comm
 
           {/* Comment composer */}
           <div className="space-y-2">
+            {/* Replying identity */}
+            {characters.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 flex-shrink-0">Replying as</span>
+                {characters.length === 1 ? (
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-800/60 border border-gray-700 text-xs select-none">
+                    {characters[0].avatar_url ? (
+                      <img
+                        src={characters[0].avatar_url}
+                        alt={characters[0].name}
+                        className="w-4 h-4 rounded object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-4 h-4 rounded bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[8px] font-semibold text-emerald-400 flex-shrink-0">
+                        {characters[0].name.charAt(0)}
+                      </div>
+                    )}
+                    <span className="text-emerald-400 font-medium">{characters[0].name}</span>
+                  </div>
+                ) : (
+                  <select
+                    value={composerCharId ?? ''}
+                    onChange={(e) => setComposerCharId(e.target.value ? Number(e.target.value) : null)}
+                    className="input text-xs py-1 w-auto"
+                  >
+                    <option value="" disabled>— select character —</option>
+                    {characters.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -124,6 +171,9 @@ export default function CommentSection({ postId, defaultExpanded = false }: Comm
               className="textarea text-sm"
               rows={2}
             />
+            {commentError && (
+              <p className="text-red-400 text-xs">{commentError}</p>
+            )}
             <div className="flex items-center gap-2">
               <select
                 value={contentType}

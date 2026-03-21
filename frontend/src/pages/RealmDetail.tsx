@@ -676,7 +676,7 @@ export default function RealmDetail() {
                   )}
 
                   <ReactionBar postId={post.id} />
-                  <CommentSection postId={post.id} defaultExpanded={joinSent[post.id]} />
+                  <CommentSection postId={post.id} characters={characters} defaultExpanded={joinSent[post.id]} />
                 </div>
               );
             })}
