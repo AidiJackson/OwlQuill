@@ -26,6 +26,7 @@ export default function Home() {
   const [quickContent, setQuickContent] = useState('');
   const [quickContentType, setQuickContentType] = useState<'ooc' | 'ic' | 'narration'>('ooc');
   const [quickPostKind, setQuickPostKind] = useState<'general' | 'open_starter' | 'finished_piece'>('general');
+  const [composerCharId, setComposerCharId] = useState<number | null>(null);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [showPostSuccessNudge, setShowPostSuccessNudge] = useState(false);
@@ -68,6 +69,11 @@ export default function Home() {
   const [joinSent, setJoinSent] = useState<Record<number, boolean>>({});
   const [joinError, setJoinError] = useState<Record<number, string>>({});
 
+  // Auto-select posting character when exactly one exists; leave null for multi-char (requires explicit pick).
+  useEffect(() => {
+    if (characters.length === 1) setComposerCharId(characters[0].id);
+  }, [characters]);
+
   // Clean up the auto-hide timer if the component unmounts mid-countdown.
   useEffect(() => () => { if (postSuccessTimerRef.current) clearTimeout(postSuccessTimerRef.current); }, []);
 
@@ -99,6 +105,11 @@ export default function Home() {
 
   const handleQuickPost = async () => {
     if (!commonsRealm || !quickContent.trim()) return;
+    // Require an explicit character selection when the user has characters
+    if (characters.length > 0 && !composerCharId) {
+      setPostError('Select a character to post as.');
+      return;
+    }
     setPosting(true);
     setPostError(null);
     try {
@@ -106,6 +117,7 @@ export default function Home() {
         content: quickContent.trim(),
         content_type: quickContentType,
         post_kind: quickPostKind,
+        ...(composerCharId ? { character_id: composerCharId } : {}),
         ...(attachedImage ? { image_url: attachedImage.url } : {}),
       });
       setPosts(prev => [created, ...prev]);
@@ -266,6 +278,43 @@ export default function Home() {
               </button>
             </div>
           )}
+
+          {/* Posting identity */}
+          {characters.length > 0 && (
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-gray-500 flex-shrink-0">Posting as</span>
+              {characters.length === 1 ? (
+                // Single character — display-only, clearly visible
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-800/60 border border-gray-700 text-sm select-none">
+                  {characters[0].avatar_url ? (
+                    <img
+                      src={characters[0].avatar_url}
+                      alt={characters[0].name}
+                      className="w-5 h-5 rounded object-cover flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[9px] font-semibold text-emerald-400 flex-shrink-0">
+                      {characters[0].name.charAt(0)}
+                    </div>
+                  )}
+                  <span className="text-emerald-400 font-medium">{characters[0].name}</span>
+                </div>
+              ) : (
+                // Multi-character — explicit dropdown, no silent default
+                <select
+                  value={composerCharId ?? ''}
+                  onChange={(e) => setComposerCharId(e.target.value ? Number(e.target.value) : null)}
+                  className="input text-sm py-1 w-auto"
+                >
+                  <option value="" disabled>— select character —</option>
+                  {characters.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
           <textarea
             ref={composerRef}
             value={quickContent}

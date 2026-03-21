@@ -46,6 +46,7 @@ export default function RealmDetail() {
     post_kind: 'general' as 'general' | 'open_starter' | 'finished_piece',
     character_id: undefined as number | undefined,
   });
+  const [postCreateError, setPostCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -72,6 +73,13 @@ export default function RealmDetail() {
     loadData();
   }, [realmId]);
 
+  // Auto-select posting character when exactly one exists; leave undefined for multi-char.
+  useEffect(() => {
+    if (characters.length === 1) {
+      setNewPost(prev => ({ ...prev, character_id: characters[0].id }));
+    }
+  }, [characters]);
+
   const handleJoinRealm = async () => {
     if (!realmId) return;
 
@@ -87,6 +95,12 @@ export default function RealmDetail() {
 
   const handleCreatePost = async () => {
     if (!realmId || !newPost.content.trim()) return;
+    // Require an explicit character selection when the user has characters
+    if (characters.length > 0 && !newPost.character_id) {
+      setPostCreateError('Select a character to post as.');
+      return;
+    }
+    setPostCreateError(null);
 
     try {
       const createdPost = await apiClient.createPost(Number(realmId), {
@@ -99,13 +113,13 @@ export default function RealmDetail() {
         content: '',
         content_type: 'ic',
         post_kind: 'general',
-        character_id: undefined,
+        character_id: characters.length === 1 ? characters[0].id : undefined,
       });
       setAttachedImage(null);
       setShowPostForm(false);
     } catch (error) {
       console.error('Failed to create post:', error);
-      alert('Failed to create post. Make sure you are a member of this realm.');
+      setPostCreateError('Failed to create post. Make sure you are a member of this realm.');
     }
   };
 
@@ -466,26 +480,45 @@ export default function RealmDetail() {
                 </div>
               </div>
 
-              {!realm.is_commons && (
+              {characters.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium mb-2">Character (optional)</label>
-                  <select
-                    value={newPost.character_id || ''}
-                    onChange={(e) =>
-                      setNewPost({
-                        ...newPost,
-                        character_id: e.target.value ? Number(e.target.value) : undefined,
-                      })
-                    }
-                    className="input"
-                  >
-                    <option value="">None</option>
-                    {characters.map((char) => (
-                      <option key={char.id} value={char.id}>
-                        {char.name}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="block text-sm font-medium mb-2">Posting as</label>
+                  {characters.length === 1 ? (
+                    // Single character — display-only, clearly selected
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800/60 border border-gray-700 text-sm select-none w-fit">
+                      {characters[0].avatar_url ? (
+                        <img
+                          src={characters[0].avatar_url}
+                          alt={characters[0].name}
+                          className="w-5 h-5 rounded object-cover flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-5 h-5 rounded bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[9px] font-semibold text-emerald-400 flex-shrink-0">
+                          {characters[0].name.charAt(0)}
+                        </div>
+                      )}
+                      <span className="text-emerald-400 font-medium">{characters[0].name}</span>
+                    </div>
+                  ) : (
+                    // Multi-character — explicit dropdown required
+                    <select
+                      value={newPost.character_id ?? ''}
+                      onChange={(e) =>
+                        setNewPost({
+                          ...newPost,
+                          character_id: e.target.value ? Number(e.target.value) : undefined,
+                        })
+                      }
+                      className="input"
+                    >
+                      <option value="" disabled>— select character —</option>
+                      {characters.map((char) => (
+                        <option key={char.id} value={char.id}>
+                          {char.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               )}
 
@@ -509,6 +542,10 @@ export default function RealmDetail() {
                 </div>
               )}
 
+              {postCreateError && (
+                <p className="text-red-400 text-sm">{postCreateError}</p>
+              )}
+
               <div className="flex gap-4">
                 <button onClick={handleCreatePost} className="btn btn-primary">
                   Post
@@ -525,12 +562,13 @@ export default function RealmDetail() {
                   onClick={() => {
                     setShowPostForm(false);
                     setAttachedImage(null);
+                    setPostCreateError(null);
                     setNewPost({
                       title: '',
                       content: '',
                       content_type: 'ic',
                       post_kind: 'general',
-                      character_id: undefined,
+                      character_id: characters.length === 1 ? characters[0].id : undefined,
                     });
                   }}
                   className="btn btn-secondary"
