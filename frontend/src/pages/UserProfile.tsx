@@ -15,6 +15,8 @@ import {
   UserPlus,
   Sparkles,
   RefreshCw,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import AvatarPickerModal from '@/components/AvatarPickerModal';
 
@@ -49,6 +51,10 @@ export default function UserProfile() {
   // Avatar picker
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
 
+  // Profile character selector (view-only, no global effect)
+  const [selectedCharId, setSelectedCharId] = useState<number | null>(null);
+  const [showCharSelector, setShowCharSelector] = useState(false);
+
   const coverPresets = [
     { id: 'enchanted_library', label: 'Enchanted Library' },
     { id: 'midnight_citadel', label: 'Midnight Citadel' },
@@ -68,6 +74,11 @@ export default function UserProfile() {
       setCoverGenLoading(false);
     }
   };
+
+  useEffect(() => {
+    setSelectedCharId(null);
+    setShowCharSelector(false);
+  }, [username]);
 
   useEffect(() => {
     if (!username) return;
@@ -111,6 +122,13 @@ export default function UserProfile() {
   }
 
   const displayName = profile.display_name || profile.username;
+
+  // Character-first profile surface (profile-view only, no global effect)
+  const activeChar = characters.find((c) => c.id === selectedCharId) ?? null;
+  const heroDisplayName = activeChar ? activeChar.name : displayName;
+  const heroAvatarUrl = activeChar?.avatar_url ?? profile.avatar_url ?? null;
+  const heroBio = activeChar ? (activeChar.short_bio ?? null) : (profile.bio ?? null);
+
   const joinDate = new Date(profile.created_at).toLocaleDateString('en-US', {
     month: 'long',
     year: 'numeric',
@@ -209,10 +227,10 @@ export default function UserProfile() {
           <div className="relative">
             <div className="w-28 h-28 sm:w-36 sm:h-36 md:w-44 md:h-44 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-1 sm:p-1.5 shadow-2xl shadow-emerald-700/40">
               <div className="w-full h-full rounded-xl overflow-hidden ring-4 ring-[#1A1D23]/40 bg-[#2D3139]">
-                {profile.avatar_url ? (
+                {heroAvatarUrl ? (
                   <img
-                    src={profile.avatar_url}
-                    alt={`${displayName}'s avatar`}
+                    src={heroAvatarUrl}
+                    alt={`${heroDisplayName}'s avatar`}
                     className="w-full h-full object-cover"
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
@@ -255,7 +273,7 @@ export default function UserProfile() {
                 <div className="flex-1 min-w-0 pr-36 sm:pr-48 md:pr-56">
                   <div className="mb-3 sm:mb-4">
                     <h1 className="text-xl sm:text-2xl md:text-[32px] font-bold text-white tracking-tight truncate">
-                      {displayName}
+                      {heroDisplayName}
                     </h1>
                     <p className="text-[#E8ECEF]/60 text-sm sm:text-base md:text-lg mt-0.5">
                       @{profile.username}
@@ -327,11 +345,103 @@ export default function UserProfile() {
       {/* === CONTENT AREA === */}
       <div className="bg-[#0F1419]">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-8 py-8 sm:py-12">
+          {/* Character Selector — shown for profiles with multiple characters */}
+          {characters.length > 1 && (
+            <div className="flex items-center gap-3 mb-6">
+              <span className="text-xs text-[#E8ECEF]/40 uppercase tracking-wider font-medium flex-shrink-0">
+                Viewing as
+              </span>
+              <div className="relative">
+                <button
+                  onClick={() => setShowCharSelector((v) => !v)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1A1D23]/60 border border-[#2D3139] hover:border-[#E8ECEF]/20 transition-all text-sm"
+                >
+                  {activeChar ? (
+                    <>
+                      {activeChar.avatar_url ? (
+                        <img src={activeChar.avatar_url} alt="" className="w-5 h-5 rounded-md object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-md bg-emerald-600/30 flex items-center justify-center text-[10px] text-emerald-400 font-medium flex-shrink-0">
+                          {activeChar.name.charAt(0)}
+                        </div>
+                      )}
+                      <span className="text-[#E8ECEF]/90 font-medium">{activeChar.name}</span>
+                    </>
+                  ) : (
+                    <>
+                      {profile.avatar_url ? (
+                        <img src={profile.avatar_url} alt="" className="w-5 h-5 rounded-md object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-md bg-[#2D3139] flex items-center justify-center text-[10px] text-[#E8ECEF]/50 font-medium flex-shrink-0">
+                          {profile.username.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="text-[#E8ECEF]/60">Profile</span>
+                    </>
+                  )}
+                  <ChevronDown className="w-3.5 h-3.5 text-[#E8ECEF]/40 flex-shrink-0" />
+                </button>
+
+                {showCharSelector && (
+                  <>
+                    {/* Backdrop */}
+                    <div className="fixed inset-0 z-40" onClick={() => setShowCharSelector(false)} />
+                    {/* Popover */}
+                    <div className="absolute left-0 top-full mt-1.5 z-50 bg-[#1A1D23] border border-[#2D3139] rounded-xl shadow-2xl shadow-black/60 py-1.5 min-w-[220px]">
+                      {/* User profile option */}
+                      <button
+                        onClick={() => { setSelectedCharId(null); setShowCharSelector(false); }}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-[#252930] transition-colors text-left ${!activeChar ? 'text-emerald-400' : 'text-[#E8ECEF]/80'}`}
+                      >
+                        {profile.avatar_url ? (
+                          <img src={profile.avatar_url} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-[#2D3139] border border-[#3D4149] flex items-center justify-center text-sm font-medium text-[#E8ECEF]/50 flex-shrink-0">
+                            {profile.username.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{displayName}</p>
+                          <p className="text-xs text-[#E8ECEF]/40">User profile</p>
+                        </div>
+                        {!activeChar && <Check className="w-4 h-4 flex-shrink-0" />}
+                      </button>
+
+                      <div className="h-px bg-[#2D3139] mx-3 my-1" />
+
+                      {/* Character options */}
+                      {characters.map((ch) => (
+                        <button
+                          key={ch.id}
+                          onClick={() => { setSelectedCharId(ch.id); setShowCharSelector(false); }}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-[#252930] transition-colors text-left ${activeChar?.id === ch.id ? 'text-emerald-400' : 'text-[#E8ECEF]/80'}`}
+                        >
+                          {ch.avatar_url ? (
+                            <img src={ch.avatar_url} alt={ch.name} className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-sm font-medium text-emerald-400 flex-shrink-0">
+                              {ch.name.charAt(0)}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{ch.name}</p>
+                            {ch.species && <p className="text-xs text-[#E8ECEF]/40 truncate">{ch.species}</p>}
+                          </div>
+                          {activeChar?.id === ch.id && <Check className="w-4 h-4 flex-shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Bio Section */}
           <div className="mb-8 max-w-3xl">
-            {profile.bio && (
+            {heroBio && (
               <p className="text-[#E8ECEF]/90 text-base sm:text-lg leading-relaxed mb-6">
-                {profile.bio}
+                {heroBio}
               </p>
             )}
 
