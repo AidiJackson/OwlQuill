@@ -81,7 +81,10 @@ export interface Comment {
   id: number;
   post_id: number;
   author_user_id: number;
+  author_username?: string;
   character_id?: number;
+  character_name?: string;
+  character_avatar_url?: string;
   content: string;
   content_type?: 'ic' | 'ooc' | 'narration';
   created_at: string;

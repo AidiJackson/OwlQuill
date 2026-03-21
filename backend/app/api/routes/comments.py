@@ -1,7 +1,7 @@
 """Comment routes."""
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_user_optional
@@ -55,4 +55,7 @@ def list_post_comments(
         if blocked:
             comments_q = comments_q.filter(CommentModel.author_user_id.notin_(blocked))
 
-    return comments_q.order_by(CommentModel.created_at.asc()).all()
+    return comments_q.options(
+        selectinload(CommentModel.author_user),
+        selectinload(CommentModel.character),
+    ).order_by(CommentModel.created_at.asc()).all()

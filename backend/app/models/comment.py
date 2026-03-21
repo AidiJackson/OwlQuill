@@ -23,3 +23,21 @@ class Comment(Base):
     post = relationship("Post", back_populates="comments")
     author_user = relationship("User", back_populates="comments")
     character = relationship("Character", back_populates="comments")
+
+    @property
+    def author_username(self) -> str | None:
+        if self.author_user:
+            return self.author_user.username
+        return None
+
+    @property
+    def character_name(self) -> str | None:
+        if self.character:
+            return self.character.name
+        return None
+
+    @property
+    def character_avatar_url(self) -> str | None:
+        if self.character:
+            return self.character.avatar_url
+        return None

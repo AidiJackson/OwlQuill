@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/apiClient';
-import type { Comment, Character } from '@/lib/types';
+import type { Comment } from '@/lib/types';
 
 interface CommentSectionProps {
   postId: number;
-  characters: Character[];
   defaultExpanded?: boolean;
 }
 
-export default function CommentSection({ postId, characters, defaultExpanded = false }: CommentSectionProps) {
+export default function CommentSection({ postId, defaultExpanded = false }: CommentSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,12 +45,6 @@ export default function CommentSection({ postId, characters, defaultExpanded = f
     }
   };
 
-  const getCharacterName = (characterId?: number): string | null => {
-    if (!characterId) return null;
-    const character = characters.find((c) => c.id === characterId);
-    return character?.name || null;
-  };
-
   const getTypeBadge = (type?: string) => {
     if (!type) return null;
     const badges: Record<string, { label: string; className: string }> = {
@@ -83,23 +76,40 @@ export default function CommentSection({ postId, characters, defaultExpanded = f
             <p className="text-sm text-gray-500">Loading comments...</p>
           ) : comments.length > 0 ? (
             <div className="space-y-3 mb-4">
-              {comments.map((comment) => {
-                const charName = getCharacterName(comment.character_id);
-                return (
-                  <div key={comment.id} className="pl-3 border-l-2 border-gray-700">
-                    <div className="flex items-center gap-2 mb-1">
-                      {getTypeBadge(comment.content_type)}
-                      {charName && (
-                        <span className="text-sm font-medium text-emerald-400">{charName}</span>
-                      )}
-                      <span className="text-xs text-gray-500">
-                        {new Date(comment.created_at).toLocaleDateString()}
+              {comments.map((comment) => (
+                <div key={comment.id} className="pl-3 border-l-2 border-gray-700">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    {/* Character-first identity, username fallback */}
+                    {comment.character_name ? (
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {comment.character_avatar_url ? (
+                          <img
+                            src={comment.character_avatar_url}
+                            alt={comment.character_name}
+                            className="w-5 h-5 rounded object-cover border border-gray-700"
+                          />
+                        ) : (
+                          <div className="w-5 h-5 rounded bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[9px] font-semibold text-emerald-400 flex-shrink-0">
+                            {comment.character_name.charAt(0)}
+                          </div>
+                        )}
+                        <span className="text-sm font-medium text-emerald-400">
+                          {comment.character_name}
+                        </span>
+                      </div>
+                    ) : comment.author_username ? (
+                      <span className="text-sm text-gray-400 flex-shrink-0">
+                        @{comment.author_username}
                       </span>
-                    </div>
-                    <p className="text-sm text-gray-300 whitespace-pre-wrap">{comment.content}</p>
+                    ) : null}
+                    {getTypeBadge(comment.content_type)}
+                    <span className="text-xs text-gray-500">
+                      {new Date(comment.created_at).toLocaleDateString()}
+                    </span>
                   </div>
-                );
-              })}
+                  <p className="text-sm text-gray-300 whitespace-pre-wrap">{comment.content}</p>
+                </div>
+              ))}
             </div>
           ) : (
             <p className="text-sm text-gray-500 mb-4">No comments yet.</p>
