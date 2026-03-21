@@ -673,26 +673,37 @@ function TimelineItemCard({
     content?: string;
     title?: string;
     content_type?: string;
+    character_name?: string;
+    character_avatar_url?: string;
   };
+
+  // Character-first identity: use character if available, fall back to user profile
+  const postAuthorName = post.character_name || displayName;
+  const postAuthorAvatar = post.character_avatar_url ?? profile.avatar_url ?? null;
+  const isCharacterPost = !!post.character_name;
 
   return (
     <div className="glass-strong rounded-2xl p-6">
       <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-full bg-gray-800 overflow-hidden flex-shrink-0">
-          {profile.avatar_url ? (
-            <img
-              src={profile.avatar_url}
-              alt={displayName}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-sm font-medium text-gray-400">
-              {profile.username.charAt(0).toUpperCase()}
-            </div>
-          )}
-        </div>
-        <div>
-          <p className="font-medium text-white">{displayName}</p>
+        <Link to={`/u/${encodeURIComponent(profile.username)}`} className="flex-shrink-0">
+          <div className={`w-10 h-10 overflow-hidden flex-shrink-0 ${isCharacterPost ? 'rounded-xl' : 'rounded-full'} bg-gray-800`}>
+            {postAuthorAvatar ? (
+              <img
+                src={postAuthorAvatar}
+                alt={postAuthorName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className={`w-full h-full flex items-center justify-center text-sm font-medium ${isCharacterPost ? 'text-emerald-400 bg-emerald-600/20' : 'text-gray-400'}`}>
+                {postAuthorName.charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
+        </Link>
+        <div className="min-w-0 flex-1">
+          <p className={`font-medium truncate ${isCharacterPost ? 'text-emerald-400' : 'text-white'}`}>
+            {postAuthorName}
+          </p>
           <p className="text-sm text-white/50">
             {new Date(item.created_at).toLocaleDateString('en-US', {
               month: 'short',
@@ -701,7 +712,7 @@ function TimelineItemCard({
           </p>
         </div>
         {item.realm_name && (
-          <span className="ml-auto text-sm text-emerald-400 bg-emerald-600/20 px-3 py-1 rounded-full">
+          <span className="ml-auto text-sm text-emerald-400 bg-emerald-600/20 px-3 py-1 rounded-full flex-shrink-0">
             {item.realm_name}
           </span>
         )}

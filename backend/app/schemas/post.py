@@ -34,6 +34,8 @@ class Post(PostBase):
     realm_id: Optional[int] = None
     author_user_id: int
     author_username: Optional[str] = None
+    character_name: Optional[str] = None
+    character_avatar_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

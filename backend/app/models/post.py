@@ -51,3 +51,17 @@ class Post(Base):
         if self.author_user:
             return self.author_user.username
         return None
+
+    @property
+    def character_name(self) -> str | None:
+        """Return the associated character's name, if any."""
+        if self.character:
+            return self.character.name
+        return None
+
+    @property
+    def character_avatar_url(self) -> str | None:
+        """Return the associated character's avatar URL, if any."""
+        if self.character:
+            return self.character.avatar_url
+        return None

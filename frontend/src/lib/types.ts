@@ -66,6 +66,8 @@ export interface Post {
   author_user_id: number;
   author_username?: string;
   character_id?: number;
+  character_name?: string;
+  character_avatar_url?: string;
   title?: string;
   content: string;
   content_type: 'ic' | 'ooc' | 'narration';

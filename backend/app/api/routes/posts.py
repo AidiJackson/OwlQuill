@@ -37,9 +37,10 @@ def get_feed(
     if not realm_ids:
         return []
 
-    # Get posts from those realms, eager-load author for username
+    # Get posts from those realms, eager-load author and character identity
     posts_q = db.query(PostModel).options(
-        selectinload(PostModel.author_user)
+        selectinload(PostModel.author_user),
+        selectinload(PostModel.character),
     ).filter(
         PostModel.realm_id.in_(realm_ids)
     )
@@ -93,7 +94,8 @@ def list_realm_posts(
 ) -> List[Post]:
     """List posts in a realm."""
     posts = db.query(PostModel).options(
-        selectinload(PostModel.author_user)
+        selectinload(PostModel.author_user),
+        selectinload(PostModel.character),
     ).filter(
         PostModel.realm_id == realm_id
     ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
@@ -107,7 +109,8 @@ def get_post(
 ) -> Post:
     """Get a single post."""
     post = db.query(PostModel).options(
-        selectinload(PostModel.author_user)
+        selectinload(PostModel.author_user),
+        selectinload(PostModel.character),
     ).filter(PostModel.id == post_id).first()
     if not post:
         raise HTTPException(

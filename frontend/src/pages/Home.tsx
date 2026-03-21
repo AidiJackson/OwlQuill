@@ -156,12 +156,6 @@ export default function Home() {
     return realm?.name || 'Unknown Realm';
   };
 
-  const getCharacterName = (characterId?: number): string | null => {
-    if (!characterId) return null;
-    const character = characters.find(c => c.id === characterId);
-    return character?.name || null;
-  };
-
   const getPostTypeBadge = (contentType: string) => {
     const badges = {
       ic: { label: 'IC', className: 'bg-emerald-600 text-white' },
@@ -424,30 +418,51 @@ export default function Home() {
       ) : (
         <div className="space-y-4">
           {posts.map((post) => {
-            const characterName = getCharacterName(post.character_id);
             const realmName = getRealmName(post.realm_id);
-
             const realm = realms.find(r => r.id === post.realm_id);
             const isCommons = realm?.is_commons;
+            const profileHref = post.author_username ? `/u/${encodeURIComponent(post.author_username)}` : '#';
 
             return (
               <div key={post.id} className="card">
-                {/* Post header with metadata */}
+                {/* Post header: character-first identity */}
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    {/* Author identity — character takes priority, username is fallback */}
+                    {post.character_name ? (
+                      <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 flex-shrink-0">
+                        {post.character_avatar_url ? (
+                          <img
+                            src={post.character_avatar_url}
+                            alt={post.character_name}
+                            className="w-7 h-7 rounded-md object-cover border border-gray-700 group-hover:border-emerald-500/50 transition-colors"
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded-md bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[11px] font-semibold text-emerald-400 flex-shrink-0">
+                            {post.character_name.charAt(0)}
+                          </div>
+                        )}
+                        <span className="text-sm font-medium text-emerald-400 group-hover:text-emerald-300 transition-colors">
+                          {post.character_name}
+                        </span>
+                      </Link>
+                    ) : post.author_username ? (
+                      <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 flex-shrink-0">
+                        <div className="w-7 h-7 rounded-md bg-gray-700 border border-gray-600 flex items-center justify-center text-[11px] font-medium text-gray-400 flex-shrink-0">
+                          {post.author_username.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-sm text-gray-400 group-hover:text-emerald-300 transition-colors">
+                          @{post.author_username}
+                        </span>
+                      </Link>
+                    ) : null}
                     {getPostTypeBadge(post.content_type)}
                     {getPostKindBadge(post.post_kind)}
-                    <span className="text-sm text-gray-400">
-                      {characterName ? (
-                        <span className="font-medium text-emerald-400">{characterName}</span>
-                      ) : post.author_username ? (
-                        <Link to={`/u/${encodeURIComponent(post.author_username)}`} className="text-gray-400 hover:text-emerald-300 hover:underline transition-colors">@{post.author_username}</Link>
-                      ) : null}
-                      {(characterName || post.author_username) && ' in '}
-                      <span className={isCommons ? 'text-emerald-400 font-semibold' : 'text-emerald-300'}>{realmName}</span>
+                    <span className="text-xs text-gray-500">
+                      in <span className={isCommons ? 'text-emerald-400 font-semibold' : 'text-emerald-300'}>{realmName}</span>
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     <span className="text-xs text-gray-500">
                       {new Date(post.created_at).toLocaleDateString()}
                     </span>
