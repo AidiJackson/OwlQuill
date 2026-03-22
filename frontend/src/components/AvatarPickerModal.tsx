@@ -13,9 +13,11 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onSaved: (avatarUrl: string) => void;
+  /** When set, the chosen image is saved as this character's avatar instead of the user avatar. */
+  characterId?: number;
 }
 
-export default function AvatarPickerModal({ open, onClose, onSaved }: Props) {
+export default function AvatarPickerModal({ open, onClose, onSaved, characterId }: Props) {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -65,7 +67,9 @@ export default function AvatarPickerModal({ open, onClose, onSaved }: Props) {
     setSaving(true);
     setSaveError('');
     try {
-      const result = await apiClient.setAvatar(picked.type, picked.id);
+      const result = characterId != null
+        ? await apiClient.setCharacterAvatar(characterId, picked.type, picked.id)
+        : await apiClient.setAvatar(picked.type, picked.id);
       onSaved(result.avatar_url);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to set avatar');
@@ -79,7 +83,9 @@ export default function AvatarPickerModal({ open, onClose, onSaved }: Props) {
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 max-w-md w-full shadow-xl max-h-[80vh] flex flex-col">
-          <h3 className="text-lg font-semibold text-gray-200 mb-3">Choose Avatar</h3>
+          <h3 className="text-lg font-semibold text-gray-200 mb-3">
+            {characterId != null ? 'Choose Character Avatar' : 'Choose Avatar'}
+          </h3>
 
           {loading ? (
             <p className="text-sm text-gray-400 py-8 text-center">Loading images...</p>

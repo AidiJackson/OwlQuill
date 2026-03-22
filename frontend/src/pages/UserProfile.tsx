@@ -598,10 +598,19 @@ export default function UserProfile() {
 
       <AvatarPickerModal
         open={showAvatarPicker}
+        characterId={activeChar?.id}
         onClose={() => setShowAvatarPicker(false)}
         onSaved={(avatarUrl) => {
-          setProfile((prev) => prev ? { ...prev, avatar_url: avatarUrl } : prev);
-          if (authUser) setUser({ ...authUser, avatar_url: avatarUrl });
+          if (activeChar) {
+            // Update just this character's avatar in local state
+            setCharacters((prev) =>
+              prev.map((c) => c.id === activeChar.id ? { ...c, avatar_url: avatarUrl } : c)
+            );
+          } else {
+            // No character selected — update the user profile avatar
+            setProfile((prev) => prev ? { ...prev, avatar_url: avatarUrl } : prev);
+            if (authUser) setUser({ ...authUser, avatar_url: avatarUrl });
+          }
           setShowAvatarPicker(false);
         }}
       />

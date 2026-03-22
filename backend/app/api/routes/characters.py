@@ -1,8 +1,13 @@
 """Character routes."""
+import io
 import logging
+import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from PIL import Image as PILImage
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -11,7 +16,43 @@ from app.core.dependencies import get_current_user
 from app.core.config import settings
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
+from app.models.character_image import CharacterImage, ImageStatusEnum
+from app.models.user_image import UserImage
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult
+
+_GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
+_AVATAR_SIZE = (512, 512)
+
+
+def _save_avatar_png(png_bytes: bytes) -> str:
+    """Write avatar PNG bytes to static/generated/<uuid>.png. Return relative file_path."""
+    _GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.png"
+    (_GENERATED_DIR / filename).write_bytes(png_bytes)
+    return f"static/generated/{filename}"
+
+
+def _crop_to_square(png_bytes: bytes) -> bytes:
+    """Center-crop and resize PNG bytes to 512×512 square avatar."""
+    img = PILImage.open(io.BytesIO(png_bytes))
+    w, h = img.size
+    side = min(w, h)
+    left = (w - side) // 2
+    top = (h - side) // 2
+    img = img.crop((left, top, left + side, top + side))
+    img = img.resize(_AVATAR_SIZE, PILImage.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class SetCharacterAvatarRequest(BaseModel):
+    image_type: str = Field(..., pattern=r"^(character|user)$")
+    image_id: int
+
+
+class SetCharacterAvatarResponse(BaseModel):
+    avatar_url: str
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -170,6 +211,57 @@ def update_character(
     db.commit()
     db.refresh(character)
     return character
+
+
+@router.post("/{character_id}/avatar", response_model=SetCharacterAvatarResponse)
+def set_character_avatar(
+    character_id: int,
+    req: SetCharacterAvatarRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SetCharacterAvatarResponse:
+    """Set a character's avatar from an existing character image or user image."""
+    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+    if character.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    if req.image_type == "character":
+        img = db.query(CharacterImage).filter(CharacterImage.id == req.image_id).first()
+        if not img:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+        src_char = db.query(CharacterModel).filter(CharacterModel.id == img.character_id).first()
+        if not src_char or src_char.owner_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your image")
+        if img.status != ImageStatusEnum.ACTIVE:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image is not active")
+        if (img.metadata_json or {}).get("is_temp", False):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
+    else:
+        img = db.query(UserImage).filter(UserImage.id == req.image_id).first()
+        if not img:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+        if img.user_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your image")
+        if img.status != "active":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image is not active")
+        if (img.metadata_json or {}).get("is_temp", False):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
+
+    source_path = Path(__file__).resolve().parent.parent.parent.parent / img.file_path.lstrip("/")
+    if not source_path.exists():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Source image file not found on disk")
+
+    raw_bytes = source_path.read_bytes()
+    avatar_bytes = _crop_to_square(raw_bytes)
+    file_path = _save_avatar_png(avatar_bytes)
+    avatar_url = f"/{file_path}"
+
+    character.avatar_url = avatar_url
+    db.commit()
+
+    return SetCharacterAvatarResponse(avatar_url=avatar_url)
 
 
 @router.delete("/{character_id}", status_code=status.HTTP_204_NO_CONTENT)
