@@ -143,7 +143,7 @@ export default function SceneGeneratorPanel({
           </select>
         </div>
 
-        {/* Provider toggle (Option 1 / Option 2) — easy to remove for production */}
+        {/* Mode toggle (Studio / Cinematic) — easy to remove for production */}
         {SHOW_PROVIDER_TOGGLE && (
           <div className="flex items-center gap-1 rounded-md border border-gray-700 overflow-hidden text-xs">
             <button
@@ -156,7 +156,7 @@ export default function SceneGeneratorPanel({
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
               }`}
             >
-              Option 1
+              Studio
             </button>
             <button
               type="button"
@@ -168,7 +168,7 @@ export default function SceneGeneratorPanel({
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
               }`}
             >
-              Option 2
+              Cinematic
             </button>
           </div>
         )}
