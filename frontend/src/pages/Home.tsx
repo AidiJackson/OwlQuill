@@ -484,10 +484,10 @@ export default function Home() {
                           <img
                             src={post.character_avatar_url}
                             alt={post.character_name}
-                            className="w-7 h-7 rounded-md object-cover border border-gray-700 group-hover:border-emerald-500/50 transition-colors"
+                            className="w-8 h-8 rounded-md object-cover border border-gray-700 group-hover:border-emerald-500/50 transition-colors"
                           />
                         ) : (
-                          <div className="w-7 h-7 rounded-md bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[11px] font-semibold text-emerald-400 flex-shrink-0">
+                          <div className="w-8 h-8 rounded-md bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[11px] font-semibold text-emerald-400 flex-shrink-0">
                             {post.character_name.charAt(0)}
                           </div>
                         )}
