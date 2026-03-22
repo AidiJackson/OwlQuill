@@ -53,6 +53,16 @@ _OPTION_PROVIDER_NAMES: dict[str, str] = {
     "option2": "google",
 }
 
+# ── Cover generation prompt prefix (B33) ─────────────────────────────
+# Prepended when generate_cover=True to guide toward a wide cinematic
+# banner composition suitable for profile cover headers.
+
+_COVER_PROMPT_PREFIX = (
+    "Cinematic wide banner, landscape orientation, "
+    "subject placed in left or centre third, "
+    "dramatic depth and atmosphere. "
+)
+
 # ── B18/B19 strict identity prompt constants ──────────────────────────
 # Shorter, punchier wording — actual images carry the visual identity;
 # the text wrapper confirms the requirement without bloat.
@@ -83,6 +93,7 @@ class ImageGenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=800)
     include_character: bool = False
     provider_option: Literal["option1", "option2"] = "option1"
+    generate_cover: bool = False  # B33: save as kind="cover" with wide-banner prompt prefix
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -313,6 +324,8 @@ def generate_image(
     face_ref_bytes: bytes | None = None
     identity_hash: str | None = None
     base_prompt = body.prompt.strip()
+    if body.generate_cover:
+        base_prompt = _COVER_PROMPT_PREFIX + base_prompt
 
     if body.include_character:
         if not character.visual_locked:
@@ -615,6 +628,7 @@ def generate_image(
         "character_id": character_id if body.include_character else None,
         "prompt": body.prompt,
         "strict_identity_mode": body.include_character,
+        "generate_cover": body.generate_cover,
     }
     if body.include_character:
         metadata["used_face_ref"] = used_face_ref
@@ -628,7 +642,7 @@ def generate_image(
     img = CharacterImage(
         character_id=character_id,
         user_id=current_user.id,  # B22: stamp for quota tracking
-        kind=ImageKindEnum.GENERATED,
+        kind=ImageKindEnum.COVER if body.generate_cover else ImageKindEnum.GENERATED,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
         provider=actual_provider_name,

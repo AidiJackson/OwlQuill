@@ -14,12 +14,15 @@ interface Props {
   onGenerated: (image: CharacterImageRead) => void;
   /** Called with true when a request starts, false when it settles. */
   onGeneratingChange?: (generating: boolean) => void;
+  /** When true, generates a wide banner cover image (kind="cover") instead of a character image. */
+  generateCover?: boolean;
 }
 
 export default function SceneGeneratorPanel({
   characters,
   onGenerated,
   onGeneratingChange,
+  generateCover = false,
 }: Props) {
   const [prompt, setPrompt] = useState('');
   // null = "No character"; number = character id
@@ -81,6 +84,7 @@ export default function SceneGeneratorPanel({
         prompt.trim(),
         selectedCharacterId !== null, // include_character
         providerOption,
+        generateCover,
       );
       if (!mountedRef.current) return;
       onGenerated(image);

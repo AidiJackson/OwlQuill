@@ -17,6 +17,7 @@ class CharacterBase(BaseModel):
     short_bio: Optional[str] = None
     long_bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    cover_url: Optional[str] = None
     portrait_url: Optional[str] = None
     tags: Optional[str] = None
     visibility: VisibilityEnum = VisibilityEnum.PUBLIC
@@ -38,6 +39,7 @@ class CharacterUpdate(BaseModel):
     short_bio: Optional[str] = None
     long_bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    cover_url: Optional[str] = None
     portrait_url: Optional[str] = None
     tags: Optional[str] = None
     visibility: Optional[VisibilityEnum] = None
@@ -61,6 +63,7 @@ class CharacterSearchResult(BaseModel):
     id: int
     name: str
     avatar_url: Optional[str] = None
+    cover_url: Optional[str] = None
     short_bio: Optional[str] = None
     species: Optional[str] = None
     visibility: VisibilityEnum = VisibilityEnum.PUBLIC

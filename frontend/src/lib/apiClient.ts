@@ -294,6 +294,13 @@ class ApiClient {
     });
   }
 
+  async setCharacterCover(characterId: number, imageType: 'character' | 'user', imageId: number): Promise<{ cover_url: string }> {
+    return this.request<{ cover_url: string }>(`/characters/${characterId}/cover`, {
+      method: 'POST',
+      body: JSON.stringify({ image_type: imageType, image_id: imageId }),
+    });
+  }
+
   async setMyProfileCover(imageId: number): Promise<{ cover_url: string; image_id: number }> {
     return this.request<{ cover_url: string; image_id: number }>(`/users/me/images/${imageId}/set-cover`, {
       method: 'POST',
