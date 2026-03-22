@@ -19,6 +19,7 @@ import {
   Check,
 } from 'lucide-react';
 import AvatarPickerModal from '@/components/AvatarPickerModal';
+import CoverPickerModal from '@/components/CoverPickerModal';
 
 type Tab = 'timeline' | 'characters' | 'stories' | 'media' | 'mentions';
 
@@ -50,6 +51,9 @@ export default function UserProfile() {
 
   // Avatar picker
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+
+  // Cover picker (character-scoped)
+  const [showCoverPicker, setShowCoverPicker] = useState(false);
 
   // Profile character selector (view-only, no global effect)
   const [selectedCharId, setSelectedCharId] = useState<number | null>(null);
@@ -127,6 +131,7 @@ export default function UserProfile() {
   const activeChar = characters.find((c) => c.id === selectedCharId) ?? null;
   const heroDisplayName = activeChar ? activeChar.name : displayName;
   const heroAvatarUrl = activeChar?.avatar_url ?? profile.avatar_url ?? null;
+  const heroCoverUrl = activeChar?.cover_url ?? profile.cover_url ?? null;
   const heroBio = activeChar ? (activeChar.short_bio ?? null) : (profile.bio ?? null);
 
   const joinDate = new Date(profile.created_at).toLocaleDateString('en-US', {
@@ -153,10 +158,10 @@ export default function UserProfile() {
     <div className="min-h-screen bg-[#0F1419]">
       {/* === HERO SECTION — cover fills behind the fixed nav === */}
       <div className="relative h-[380px] sm:h-[440px] md:h-[500px] w-full overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500">
-        {/* Cover image (if set) */}
-        {profile.cover_url && (
+        {/* Cover image (character-scoped, falls back to user cover) */}
+        {heroCoverUrl && (
           <img
-            src={profile.cover_url}
+            src={heroCoverUrl}
             alt="Profile cover"
             className="absolute inset-0 w-full h-full object-cover"
           />
@@ -166,7 +171,7 @@ export default function UserProfile() {
         <div className="absolute inset-0 bg-gradient-to-b from-[#1A1D23]/30 via-transparent to-[#1A1D23]/90" />
 
         {/* Subtle Pattern Overlay (only when no cover image) */}
-        {!profile.cover_url && (
+        {!heroCoverUrl && (
           <div
             className="absolute inset-0 opacity-[0.03]"
             style={{
@@ -177,7 +182,18 @@ export default function UserProfile() {
 
         {/* Hero Right: Avatar with Edit Cover above / Edit Profile below */}
         <div className="absolute right-4 sm:right-8 md:right-12 top-1/2 -translate-y-1/2 pt-[36px] z-20 flex flex-col items-center gap-3 sm:gap-4">
-          {isOwnProfile && isAdmin && (
+          {isOwnProfile && activeChar && (
+            /* Character is active — pick cover from generated library */
+            <button
+              onClick={() => setShowCoverPicker(true)}
+              className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
+            >
+              <Camera className="w-4 h-4" />
+              <span className="hidden sm:inline">Edit Cover</span>
+            </button>
+          )}
+          {isOwnProfile && !activeChar && isAdmin && (
+            /* No character selected, admin — generate user cover */
             <button
               onClick={() => setShowCoverGen((v) => !v)}
               className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
@@ -186,7 +202,8 @@ export default function UserProfile() {
               <span className="hidden sm:inline">Edit Cover</span>
             </button>
           )}
-          {isOwnProfile && !isAdmin && (
+          {isOwnProfile && !activeChar && !isAdmin && (
+            /* No character selected, non-admin — cover gen coming soon */
             <div className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm shadow-xl opacity-50 cursor-not-allowed">
               <Camera className="w-4 h-4 text-[#E8ECEF]/40" />
               <span className="hidden sm:inline text-[#E8ECEF]/40">Edit Cover</span>
@@ -602,18 +619,30 @@ export default function UserProfile() {
         onClose={() => setShowAvatarPicker(false)}
         onSaved={(avatarUrl) => {
           if (activeChar) {
-            // Update just this character's avatar in local state
             setCharacters((prev) =>
               prev.map((c) => c.id === activeChar.id ? { ...c, avatar_url: avatarUrl } : c)
             );
           } else {
-            // No character selected — update the user profile avatar
             setProfile((prev) => prev ? { ...prev, avatar_url: avatarUrl } : prev);
             if (authUser) setUser({ ...authUser, avatar_url: avatarUrl });
           }
           setShowAvatarPicker(false);
         }}
       />
+
+      {activeChar && (
+        <CoverPickerModal
+          open={showCoverPicker}
+          characterId={activeChar.id}
+          onClose={() => setShowCoverPicker(false)}
+          onSaved={(coverUrl) => {
+            setCharacters((prev) =>
+              prev.map((c) => c.id === activeChar.id ? { ...c, cover_url: coverUrl } : c)
+            );
+            setShowCoverPicker(false);
+          }}
+        />
+      )}
     </div>
   );
 }
