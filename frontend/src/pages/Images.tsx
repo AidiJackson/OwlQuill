@@ -40,6 +40,7 @@ export default function Images() {
   const [deleteError, setDeleteError] = useState('');
 
   // Set-as-cover state (for kind="cover" images in lightbox)
+  const [coverTargetCharId, setCoverTargetCharId] = useState<number | null>(null);
   const [applyingCharCover, setApplyingCharCover] = useState(false);
   const [applyCharCoverDone, setApplyCharCoverDone] = useState(false);
   const [applyCharCoverErr, setApplyCharCoverErr] = useState('');
@@ -66,6 +67,8 @@ export default function Images() {
   const openLightbox = (url: string, charImage: LibraryImage) => {
     setLightboxUrl(url);
     setLightboxCharImage(charImage);
+    // Pre-select the only character for single-char accounts; clear for multi-char
+    setCoverTargetCharId(myCharacters.length === 1 ? myCharacters[0].id : null);
     setApplyCharCoverDone(false);
     setApplyCharCoverErr('');
     setDeleteError('');
@@ -80,6 +83,7 @@ export default function Images() {
       if (!mountedRef.current) return;
       setLightboxUrl(null);
       setLightboxCharImage(null);
+      setCoverTargetCharId(null);
       setApplyCharCoverDone(false);
       setApplyCharCoverErr('');
       setDeleteError('');
@@ -90,11 +94,11 @@ export default function Images() {
   };
 
   const handleSetCharacterCover = async () => {
-    if (!lightboxCharImage) return;
+    if (!lightboxCharImage || !coverTargetCharId) return;
     setApplyingCharCover(true);
     setApplyCharCoverErr('');
     try {
-      await apiClient.setCharacterCover(lightboxCharImage.character_id, 'character', lightboxCharImage.id);
+      await apiClient.setCharacterCover(coverTargetCharId, 'character', lightboxCharImage.id);
       if (!mountedRef.current) return;
       setApplyCharCoverDone(true);
       setTimeout(() => { if (mountedRef.current) setApplyCharCoverDone(false); }, 2000);
@@ -400,25 +404,39 @@ export default function Images() {
               <div className="mt-2 space-y-2">
                 {/* Set as character cover — only for cover-kind images */}
                 {lightboxCharImage.kind === 'cover' && (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      {applyCharCoverErr && (
-                        <p className="text-xs text-red-400">{applyCharCoverErr}</p>
+                  <div className="space-y-1.5">
+                    {applyCharCoverErr && (
+                      <p className="text-xs text-red-400">{applyCharCoverErr}</p>
+                    )}
+                    <div className="flex items-center justify-between gap-3">
+                      {/* Multi-character: require explicit selection */}
+                      {myCharacters.length > 1 && (
+                        <select
+                          className="bg-gray-800 border border-gray-700 rounded-md text-xs text-gray-300 px-2 py-1.5 focus:outline-none focus:border-gray-600 disabled:opacity-50 flex-1 min-w-0"
+                          value={coverTargetCharId ?? ''}
+                          onChange={(e) => setCoverTargetCharId(e.target.value ? Number(e.target.value) : null)}
+                          disabled={applyingCharCover}
+                        >
+                          <option value="">Apply to character…</option>
+                          {myCharacters.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
                       )}
+                      <button
+                        className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                        disabled={applyingCharCover || !coverTargetCharId}
+                        onClick={handleSetCharacterCover}
+                      >
+                        {applyCharCoverDone ? (
+                          <><Check className="w-3 h-3" />Cover set</>
+                        ) : applyingCharCover ? (
+                          'Setting…'
+                        ) : (
+                          'Set as cover'
+                        )}
+                      </button>
                     </div>
-                    <button
-                      className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                      disabled={applyingCharCover}
-                      onClick={handleSetCharacterCover}
-                    >
-                      {applyCharCoverDone ? (
-                        <><Check className="w-3 h-3" />Cover set</>
-                      ) : applyingCharCover ? (
-                        'Setting…'
-                      ) : (
-                        'Set as character cover'
-                      )}
-                    </button>
                   </div>
                 )}
 
