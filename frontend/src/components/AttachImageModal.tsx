@@ -22,8 +22,8 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
     setLoading(true);
     setError('');
     apiClient
-      .listLibraryImages()
-      .then(setImages)
+      .listMyCharacterImages()
+      .then((imgs) => setImages(imgs.filter((img) => img.kind === 'generated')))
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false));
   }, [open, selectedId]);
@@ -39,7 +39,7 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 max-w-md w-full shadow-xl max-h-[80vh] flex flex-col">
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 max-w-lg w-full shadow-xl max-h-[85vh] flex flex-col">
           <h3 className="text-lg font-semibold text-gray-200 mb-3">Attach a Ficshon image</h3>
 
           {loading ? (

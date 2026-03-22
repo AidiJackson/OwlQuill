@@ -7,10 +7,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Ficshon brand accent (emerald)
+        // Ficshon brand tokens
         fic: {
           accent:    'rgb(var(--fic-accent) / <alpha-value>)',
           accent600: 'rgb(var(--fic-accent-600) / <alpha-value>)',
+          purple:    'rgb(var(--fic-purple) / <alpha-value>)',
+          purple600: 'rgb(var(--fic-purple-600) / <alpha-value>)',
         },
       },
     },

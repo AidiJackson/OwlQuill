@@ -30,7 +30,7 @@ export default function Layout() {
   // Returns premium nav link classes based on active state
   function navCls(active: boolean) {
     return active
-      ? 'flex items-center gap-2 h-10 px-4 rounded-xl bg-gray-900/60 text-gray-100 border border-emerald-500/20 transition-colors'
+      ? 'flex items-center gap-2 h-10 px-4 rounded-xl bg-gray-900/60 text-gray-100 border border-purple-500/25 shadow-[0_0_10px_rgba(168,85,247,0.08)] transition-colors'
       : 'flex items-center gap-2 h-10 px-4 rounded-xl text-gray-300 hover:bg-gray-900/40 hover:text-gray-100 transition-colors';
   }
 

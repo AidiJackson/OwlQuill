@@ -164,8 +164,8 @@ export default function SceneGeneratorPanel({
               disabled={loading}
               className={`px-3 py-1 transition-colors ${
                 providerOption === 'option2'
-                  ? 'bg-emerald-700 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  ? 'bg-purple-700 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-purple-900/40 hover:text-purple-300'
               }`}
             >
               Cinematic

@@ -342,11 +342,12 @@ export default function Images() {
       <ErrorBoundary>
       {lightboxUrl && (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
+          className={`fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
           onClick={closeLightbox}
         >
+          <div className="flex min-h-full items-center justify-center p-4">
           <div
-            className={`relative max-w-3xl w-full mx-4 transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+            className={`relative max-w-3xl w-full transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -358,7 +359,7 @@ export default function Images() {
             <img
               src={lightboxUrl}
               alt="Full size"
-              className="w-full rounded-lg"
+              className="w-full rounded-lg max-h-[80vh] object-contain"
             />
 
             {/* Cover image actions */}
@@ -444,6 +445,7 @@ export default function Images() {
                 )}
               </div>
             )}
+          </div>
           </div>
         </div>
       )}
