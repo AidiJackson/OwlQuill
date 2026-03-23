@@ -127,6 +127,7 @@ export default function UserProfile() {
   const activeChar = characters.find((c) => c.id === selectedCharId) ?? null;
   const heroDisplayName = activeChar ? activeChar.name : displayName;
   const heroAvatarUrl = activeChar?.avatar_url ?? profile.avatar_url ?? null;
+  const heroCoverUrl = activeChar?.cover_url ?? profile.cover_url ?? null;
   const heroBio = activeChar ? (activeChar.short_bio ?? null) : (profile.bio ?? null);
 
   const joinDate = new Date(profile.created_at).toLocaleDateString('en-US', {
@@ -154,9 +155,9 @@ export default function UserProfile() {
       {/* === HERO SECTION — cover fills behind the fixed nav === */}
       <div className="relative h-[380px] sm:h-[440px] md:h-[500px] w-full overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500">
         {/* Cover image (if set) */}
-        {profile.cover_url && (
+        {heroCoverUrl && (
           <img
-            src={profile.cover_url}
+            src={heroCoverUrl}
             alt="Profile cover"
             className="absolute inset-0 w-full h-full object-cover"
           />
@@ -166,7 +167,7 @@ export default function UserProfile() {
         <div className="absolute inset-0 bg-gradient-to-b from-[#1A1D23]/30 via-transparent to-[#1A1D23]/90" />
 
         {/* Subtle Pattern Overlay (only when no cover image) */}
-        {!profile.cover_url && (
+        {!heroCoverUrl && (
           <div
             className="absolute inset-0 opacity-[0.03]"
             style={{

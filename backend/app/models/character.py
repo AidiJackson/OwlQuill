@@ -30,6 +30,7 @@ class Character(Base):
     short_bio = Column(Text, nullable=True)
     long_bio = Column(Text, nullable=True)
     avatar_url = Column(String, nullable=True)
+    cover_url = Column(String, nullable=True)       # Character cover/banner image
     portrait_url = Column(String, nullable=True)  # Character portrait for RP sheets
     tags = Column(String, nullable=True)  # Stored as comma-separated for MVP
     visibility = Column(SQLEnum(VisibilityEnum), default=VisibilityEnum.PUBLIC, nullable=False)

@@ -110,9 +110,11 @@ export default function CharacterDetail() {
   };
 
   const handleSetAsCover = async (image: CharacterImageRead) => {
+    if (!character) return;
     try {
-      await apiClient.setMyProfileCover(image.id);
+      const result = await apiClient.setCharacterCover(character.id, 'character', image.id);
       if (!mountedRef.current) return;
+      setCharacter({ ...character, cover_url: result.cover_url });
       setCoverToast('Cover image updated');
       setTimeout(() => { if (mountedRef.current) setCoverToast(''); }, 3000);
     } catch {
