@@ -73,14 +73,41 @@ _STRICT_IDENTITY_RETRY_PREFIX = (
 # Preferred anchor load order: widest-identity coverage first
 _ANCHOR_LOAD_ORDER = ("front", "three_quarter", "torso", "full_body")
 
-# Prepended to cover prompts to guide wide-banner composition.
-# Kept short (~195 chars) to leave ~605 chars for the user's scene description.
+# ── Cover-generation prompt directives ────────────────────────────────
+#
+# _COVER_BANNER_PREFIX   — always prepended when is_cover=True (~225 chars).
+# _COVER_CHARACTER_FRAMING — appended additionally when is_cover=True AND
+#                            include_character=True (~140 chars).
+#
+# Combined budget: up to ~365 chars of cover instructions, leaving ~435 chars
+# for the user's scene description inside the 800-char provider_prompt cap.
+# When include_character=True, _build_strict_identity_prompt wraps the result
+# and hard-caps the final combined output at 800 chars; cover instructions
+# travel at the tail of that prompt where image models weight them well.
+
 _COVER_BANNER_PREFIX = (
-    "Cinematic profile banner, ultra-wide 2.84:1 ratio. "
-    "Subject face fully visible, not cropped. "
-    "Rule-of-thirds composition: subject placed in left or right third, "
-    "opposite third open for profile UI overlay. "
-    "Intentional banner layout, not a portrait crop. "
+    "PROFILE HEADER BANNER — ultra-wide 2.84:1 panoramic ratio. Not a portrait, not centered. "
+    "COMPOSITION: subject in LEFT THIRD only. "
+    "RIGHT two-thirds: open background, sky, or environment — no subject there. "
+    "Full face and head completely visible. No head or face cropping. "
+    "Intentional website profile banner layout. "
+)
+
+# Applied additionally when the character is included in the cover image.
+# Enforces medium-shot framing so the face is reliably visible at banner scale.
+_COVER_CHARACTER_FRAMING = (
+    "CHARACTER: chest-up or waist-up framing. Full face clearly visible. No full-body shot. "
+)
+
+# Used for the single deterministic retry issued when a character-inclusive
+# cover is generated. The retry escalates framing language and re-anchors
+# the composition rule to give the model a second chance at banner layout.
+# Kept to ~230 chars so it fits comfortably inside _build_strict_identity_prompt.
+_COVER_RETRY_PROMPT = (
+    "COVER RETRY — PROFILE HEADER BANNER, ultra-wide 2.84:1. "
+    "Subject in LEFT THIRD, chest-up or waist-up ONLY, full face visible. "
+    "Right two-thirds: open background — no subject. "
+    "No full-body shot. No face crop. Intentional banner layout. "
 )
 
 
@@ -326,8 +353,14 @@ def generate_image(
     base_prompt = body.prompt.strip()
 
     # Cover mode: prepend banner-composition directives before the user's prompt.
+    # Character framing is added additionally when include_character=True so the
+    # medium-shot instruction travels with the scene description inside the
+    # strict-identity wrapper.
     if body.is_cover:
-        base_prompt = _COVER_BANNER_PREFIX + base_prompt
+        cover_block = _COVER_BANNER_PREFIX
+        if body.include_character:
+            cover_block += _COVER_CHARACTER_FRAMING
+        base_prompt = cover_block + base_prompt
 
     if body.include_character:
         if not character.visual_locked:
@@ -621,6 +654,55 @@ def generate_image(
             )
             actual_provider_name = "stub"
 
+    # ── Cover composition retry (character-inclusive covers only) ─────────
+    # No image-content heuristic can detect poor banner composition without
+    # vision infrastructure. We apply one deterministic retry with an
+    # escalated prompt whenever a character is included in a cover image.
+    # The retry result supersedes the first-pass result; if it fails the
+    # first-pass image is kept and committed as normal.
+    cover_retry_attempted = False
+    cover_retry_succeeded = False
+    if body.is_cover and body.include_character and png_bytes is not None:
+        cover_retry_attempted = True
+        retry_base = _COVER_RETRY_PROMPT + body.prompt.strip()
+        cover_retry_str_prompt = _build_strict_identity_prompt(
+            base_prompt=retry_base[:800],
+            anchor_data=anchor_data,  # type: ignore[arg-type]
+            character_name=character.name,
+            retry=False,
+        )
+        cover_retry_png: bytes | None = None
+        if provider_supports_multi and anchor_images:
+            try:
+                cover_retry_png = provider.generate_with_anchors(
+                    prompt=cover_retry_str_prompt,
+                    anchor_images=anchor_images,
+                )
+            except (ValueError, RuntimeError, NotImplementedError):
+                pass
+        if cover_retry_png is None and face_ref_bytes is not None:
+            try:
+                cover_retry_png = provider.generate_grounded_image(
+                    prompt=cover_retry_str_prompt,
+                    reference_image_bytes=face_ref_bytes,
+                )
+            except (ValueError, RuntimeError, NotImplementedError):
+                pass
+        if cover_retry_png is None:
+            try:
+                cover_retry_png = provider.generate_image(prompt=cover_retry_str_prompt)
+            except (ValueError, RuntimeError):
+                pass
+        if cover_retry_png is not None:
+            file_path = _save_png_bytes(cover_retry_png)
+            png_bytes = cover_retry_png
+            cover_retry_succeeded = True
+            logger.info("cover_retry_succeeded character_id=%s", character_id)
+        else:
+            logger.info(
+                "cover_retry_failed_using_first_pass character_id=%s", character_id
+            )
+
     # ── Persist image record ──────────────────────────────────────
     metadata: dict = {
         "image_generator": True,
@@ -640,6 +722,8 @@ def generate_image(
         metadata["anchor_types"] = anchor_types
         metadata["multi_image_used"] = multi_image_used
         metadata["face_anchor_boosted"] = _face_anchor_boosted  # B21
+        metadata["cover_retry_attempted"] = cover_retry_attempted
+        metadata["cover_retry_succeeded"] = cover_retry_succeeded
 
     img = CharacterImage(
         character_id=character_id,
