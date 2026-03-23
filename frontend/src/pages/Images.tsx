@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Image, X, Check, Trash2, Flag } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage, Character } from '@/lib/types';
@@ -10,7 +10,10 @@ type Tab = 'characters' | 'covers';
 
 export default function Images() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<Tab>('characters');
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<Tab>(
+    searchParams.get('tab') === 'covers' ? 'covers' : 'characters'
+  );
 
   const [charImages, setCharImages] = useState<LibraryImage[]>([]);
   const [charLoading, setCharLoading] = useState(true);
@@ -427,11 +430,24 @@ export default function Images() {
             >
               <X className="w-4 h-4" />
             </button>
-            <img
-              src={lightboxUrl}
-              alt="Full size"
-              className="w-full rounded-lg max-h-[80vh] object-contain"
-            />
+            {lightboxCoverCharImage ? (
+              <div className="relative w-full rounded-lg overflow-hidden aspect-[2048/720]">
+                <img
+                  src={lightboxUrl}
+                  alt="Banner preview"
+                  className="w-full h-full object-cover"
+                />
+                <span className="absolute bottom-2 left-2 text-[10px] text-white/60 bg-black/50 px-1.5 py-0.5 rounded">
+                  Banner crop preview
+                </span>
+              </div>
+            ) : (
+              <img
+                src={lightboxUrl}
+                alt="Full size"
+                className="w-full rounded-lg max-h-[80vh] object-contain"
+              />
+            )}
 
             {/* Cover image actions */}
             {lightboxCoverId !== null && (
@@ -478,7 +494,12 @@ export default function Images() {
                 {assignCoverErr && (
                   <p className="text-xs text-red-400">{assignCoverErr}</p>
                 )}
-                <div className="flex items-center justify-end">
+                <div className="flex items-center justify-between gap-2">
+                  {myCharacters.length > 1 && assignCharId === null ? (
+                    <p className="text-xs text-gray-500">← Choose a character to apply</p>
+                  ) : (
+                    <span />
+                  )}
                   <button
                     className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
                     disabled={assigningCover || assignCharId === null}

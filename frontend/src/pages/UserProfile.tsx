@@ -188,11 +188,13 @@ export default function UserProfile() {
             </button>
           )}
           {isOwnProfile && !isAdmin && (
-            <div className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm shadow-xl opacity-50 cursor-not-allowed">
-              <Camera className="w-4 h-4 text-[#E8ECEF]/40" />
-              <span className="hidden sm:inline text-[#E8ECEF]/40">Edit Cover</span>
-              <span className="text-[10px] text-[#E8ECEF]/30 hidden sm:inline">— coming soon</span>
-            </div>
+            <Link
+              to="/images?tab=covers"
+              className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
+            >
+              <Camera className="w-4 h-4" />
+              <span className="hidden sm:inline">Edit Cover</span>
+            </Link>
           )}
 
           {/* Cover generation panel (admin-only beta) */}
