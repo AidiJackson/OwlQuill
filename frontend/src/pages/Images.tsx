@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Image, X, Check, Trash2, Flag } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { LibraryImage, UserImageRead, Character } from '@/lib/types';
+import type { LibraryImage, Character } from '@/lib/types';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
 
@@ -16,9 +16,12 @@ export default function Images() {
   const [charLoading, setCharLoading] = useState(true);
   const [charError, setCharError] = useState('');
 
-  const [coverImages, setCoverImages] = useState<UserImageRead[]>([]);
-  const [coverLoading, setCoverLoading] = useState(true);
-  const [coverError, setCoverError] = useState('');
+  // Character cover assignment state (Covers tab lightbox)
+  const [lightboxCoverCharImage, setLightboxCoverCharImage] = useState<LibraryImage | null>(null);
+  const [assignCharId, setAssignCharId] = useState<number | null>(null);
+  const [assigningCover, setAssigningCover] = useState(false);
+  const [assignCoverDone, setAssignCoverDone] = useState(false);
+  const [assignCoverErr, setAssignCoverErr] = useState('');
 
   // The user's characters for the generator selector
   const [myCharacters, setMyCharacters] = useState<Character[]>([]);
@@ -65,12 +68,16 @@ export default function Images() {
     return () => cancelAnimationFrame(id);
   }, [lightboxUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openLightbox = (url: string, coverId?: number, charImage?: LibraryImage) => {
+  const openLightbox = (url: string, coverId?: number, charImage?: LibraryImage, coverCharImage?: LibraryImage) => {
     setLightboxUrl(url);
     setLightboxCoverId(coverId ?? null);
     setLightboxCharImage(charImage ?? null);
+    setLightboxCoverCharImage(coverCharImage ?? null);
+    setAssignCharId(myCharacters.length === 1 ? myCharacters[0].id : null);
     setApplyCoverDone(false);
     setApplyCoverErr('');
+    setAssignCoverDone(false);
+    setAssignCoverErr('');
     setDeleteError('');
     setReportStep('idle');
     setReportReason('');
@@ -84,8 +91,12 @@ export default function Images() {
       setLightboxUrl(null);
       setLightboxCoverId(null);
       setLightboxCharImage(null);
+      setLightboxCoverCharImage(null);
+      setAssignCharId(null);
       setApplyCoverDone(false);
       setApplyCoverErr('');
+      setAssignCoverDone(false);
+      setAssignCoverErr('');
       setDeleteError('');
       setReportStep('idle');
       setReportReason('');
@@ -107,6 +118,23 @@ export default function Images() {
       setApplyCoverErr(err instanceof Error ? err.message : 'Failed to set cover.');
     } finally {
       if (mountedRef.current) setApplyingCover(false);
+    }
+  };
+
+  const handleAssignCover = async () => {
+    if (!lightboxCoverCharImage || assignCharId === null) return;
+    setAssigningCover(true);
+    setAssignCoverErr('');
+    try {
+      await apiClient.setCharacterCover(assignCharId, 'character', lightboxCoverCharImage.id);
+      if (!mountedRef.current) return;
+      setAssignCoverDone(true);
+      setTimeout(() => { if (mountedRef.current) setAssignCoverDone(false); }, 2000);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setAssignCoverErr(err instanceof Error ? err.message : 'Failed to set cover.');
+    } finally {
+      if (mountedRef.current) setAssigningCover(false);
     }
   };
 
@@ -150,12 +178,6 @@ export default function Images() {
       .catch((err) => setCharError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setCharLoading(false));
 
-    apiClient
-      .listMyUserImages('profile_cover')
-      .then(setCoverImages)
-      .catch((err) => setCoverError(err instanceof Error ? err.message : 'Failed to load'))
-      .finally(() => setCoverLoading(false));
-
     // Fetch all user characters for the generator selector
     apiClient
       .getCharacters()
@@ -172,10 +194,12 @@ export default function Images() {
   // Only show generated images in the gallery — anchor/face-ref images are internal and
   // cannot be deleted, so displaying them confuses users and breaks delete/report actions.
   const generatedCharImages = charImages.filter((img) => img.kind === 'generated');
+  // Cover images (banner-style, kind=cover) displayed in the Covers tab
+  const coverCharImages = charImages.filter((img) => img.kind === 'cover');
 
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: 'characters', label: 'Characters', count: generatedCharImages.length },
-    { id: 'covers', label: 'Covers', count: coverImages.length },
+    { id: 'covers', label: 'Covers', count: coverCharImages.length },
   ];
 
   return (
@@ -204,7 +228,7 @@ export default function Images() {
               }`}
             >
               {tab.label}
-              {!charLoading && !coverLoading && (
+              {!charLoading && (
                 <span className="ml-1.5 text-xs text-gray-600">{tab.count}</span>
               )}
             </button>
@@ -303,33 +327,80 @@ export default function Images() {
         {/* Covers tab */}
         {activeTab === 'covers' && (
           <>
-            {coverError && (
+            {/* Cover generator */}
+            {myCharacters.length > 0 && (
+              <SceneGeneratorPanel
+                characters={myCharacters}
+                isCover
+                onGenerated={(image) => {
+                  setCharImages((prev) => [image as unknown as LibraryImage, ...prev]);
+                  setQuota((q) =>
+                    q && !q.unlimited && q.remaining !== null
+                      ? { ...q, used: q.used + 1, remaining: Math.max(0, q.remaining - 1) }
+                      : q
+                  );
+                }}
+              />
+            )}
+
+            {/* Weekly allowance */}
+            {quota && !quota.unlimited && (
+              quota.remaining === 0 ? (
+                <div className="space-y-0.5">
+                  <p className="text-xs text-amber-400">
+                    You've used all {quota.limit} images for this week.
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {quota.reset_at
+                      ? `Your allowance resets ${formatResetTime(quota.reset_at)}.`
+                      : 'Your allowance resets weekly.'}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  {quota.remaining} of {quota.limit} image{quota.limit !== 1 ? 's' : ''} remaining this week
+                </p>
+              )
+            )}
+
+            {charError && (
               <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2">
-                {coverError}
+                {charError}
               </p>
             )}
-            {coverLoading ? (
+            {charLoading ? (
               <div className="flex items-center justify-center py-16 text-gray-400">Loading...</div>
-            ) : coverImages.length === 0 ? (
-              <EmptyState message="No cover images yet. Generate a profile cover from your profile page." />
+            ) : coverCharImages.length === 0 ? (
+              <EmptyState
+                message={
+                  myCharacters.length > 0
+                    ? 'No cover images yet. Use the generator above to create your first banner.'
+                    : 'Create a character to generate cover images.'
+                }
+                primaryAction={
+                  myCharacters.length === 0
+                    ? { label: 'Create character', onClick: () => navigate('/characters/new') }
+                    : undefined
+                }
+              />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {coverImages.map((img) => (
+                {coverCharImages.map((img) => (
                   <button
                     key={img.id}
                     className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 hover:border-gray-600 transition-colors cursor-pointer text-left"
-                    onClick={() => openLightbox(img.url, img.id)}
+                    onClick={() => openLightbox(img.url, undefined, undefined, img)}
                   >
                     <img
                       src={img.url}
-                      alt={img.prompt_summary || 'Profile cover'}
+                      alt={img.prompt_summary || 'Cover image'}
                       className="w-full aspect-[2048/720] object-cover"
                     />
-                    <div className="px-2 py-1.5">
-                      <p className="text-xs text-gray-400 truncate">
-                        {img.prompt_summary?.replace('preset:', '') || 'Cover'}
-                      </p>
-                    </div>
+                    {img.prompt_summary && (
+                      <div className="px-2 py-1.5">
+                        <p className="text-xs text-gray-400 truncate">{img.prompt_summary}</p>
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
@@ -383,6 +454,47 @@ export default function Images() {
                     'Set as profile cover'
                   )}
                 </button>
+              </div>
+            )}
+
+            {/* Cover image actions: assign to character */}
+            {lightboxCoverCharImage && (
+              <div className="mt-2 space-y-2">
+                {myCharacters.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-400 shrink-0">Assign to</label>
+                    <select
+                      className="bg-gray-800 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1 focus:outline-none focus:border-gray-600"
+                      value={assignCharId ?? ''}
+                      onChange={(e) => setAssignCharId(e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">Choose character…</option>
+                      {myCharacters.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {assignCoverErr && (
+                  <p className="text-xs text-red-400">{assignCoverErr}</p>
+                )}
+                <div className="flex items-center justify-end">
+                  <button
+                    className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    disabled={assigningCover || assignCharId === null}
+                    onClick={handleAssignCover}
+                  >
+                    {assignCoverDone ? (
+                      <><Check className="w-3 h-3" />Cover set</>
+                    ) : assigningCover ? (
+                      'Setting…'
+                    ) : myCharacters.length === 1 ? (
+                      `Set as ${myCharacters[0].name}'s cover`
+                    ) : (
+                      'Set as cover'
+                    )}
+                  </button>
+                </div>
               </div>
             )}
 

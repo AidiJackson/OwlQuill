@@ -14,12 +14,15 @@ interface Props {
   onGenerated: (image: CharacterImageRead) => void;
   /** Called with true when a request starts, false when it settles. */
   onGeneratingChange?: (generating: boolean) => void;
+  /** When true, generates wide-banner cover images (kind=cover) instead of standard images. */
+  isCover?: boolean;
 }
 
 export default function SceneGeneratorPanel({
   characters,
   onGenerated,
   onGeneratingChange,
+  isCover = false,
 }: Props) {
   const [prompt, setPrompt] = useState('');
   // null = "No character"; number = character id
@@ -81,6 +84,7 @@ export default function SceneGeneratorPanel({
         prompt.trim(),
         selectedCharacterId !== null, // include_character
         providerOption,
+        isCover,
       );
       if (!mountedRef.current) return;
       onGenerated(image);
@@ -107,14 +111,23 @@ export default function SceneGeneratorPanel({
     <div className="border border-gray-800 rounded-lg bg-gray-900/50 p-4 space-y-3">
       <div className="flex items-center gap-2">
         <ImageIcon className="w-4 h-4 text-emerald-400" />
-        <h3 className="text-sm font-medium text-gray-300">Image Generator</h3>
+        <h3 className="text-sm font-medium text-gray-300">
+          {isCover ? 'Cover Generator' : 'Image Generator'}
+        </h3>
+        {isCover && (
+          <span className="text-xs text-gray-500 ml-1">— wide banner format</span>
+        )}
       </div>
 
       <textarea
         className="textarea w-full"
         rows={3}
         maxLength={MAX_PROMPT_LENGTH}
-        placeholder="Describe the image you want to generate…"
+        placeholder={
+          isCover
+            ? 'Describe a wide, cinematic scene for your profile banner…'
+            : 'Describe the image you want to generate…'
+        }
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -206,7 +219,7 @@ export default function SceneGeneratorPanel({
           ) : (
             <>
               <ImageIcon className="w-3.5 h-3.5" />
-              Generate Image
+              {isCover ? 'Generate Cover' : 'Generate Image'}
             </>
           )}
         </button>

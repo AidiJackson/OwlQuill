@@ -83,6 +83,7 @@ class ImageGenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=800)
     include_character: bool = False
     provider_option: Literal["option1", "option2"] = "option1"
+    is_cover: bool = False  # When True, saves with kind=COVER for use as a character cover banner
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -615,6 +616,7 @@ def generate_image(
         "character_id": character_id if body.include_character else None,
         "prompt": body.prompt,
         "strict_identity_mode": body.include_character,
+        "is_cover": body.is_cover,
     }
     if body.include_character:
         metadata["used_face_ref"] = used_face_ref
@@ -628,7 +630,7 @@ def generate_image(
     img = CharacterImage(
         character_id=character_id,
         user_id=current_user.id,  # B22: stamp for quota tracking
-        kind=ImageKindEnum.GENERATED,
+        kind=ImageKindEnum.COVER if body.is_cover else ImageKindEnum.GENERATED,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
         provider=actual_provider_name,

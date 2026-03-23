@@ -146,6 +146,7 @@ export async function generateImage(
   prompt: string,
   includeCharacter: boolean,
   providerOption: 'option1' | 'option2',
+  isCover = false,
 ): Promise<CharacterImageRead> {
   return request(`/characters/${characterId}/image-generator/generate`, {
     method: 'POST',
@@ -153,6 +154,7 @@ export async function generateImage(
       prompt,
       include_character: includeCharacter,
       provider_option: providerOption,
+      is_cover: isCover,
     }),
   });
 }
