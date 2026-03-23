@@ -73,6 +73,16 @@ _STRICT_IDENTITY_RETRY_PREFIX = (
 # Preferred anchor load order: widest-identity coverage first
 _ANCHOR_LOAD_ORDER = ("front", "three_quarter", "torso", "full_body")
 
+# Prepended to cover prompts to guide wide-banner composition.
+# Kept short (~195 chars) to leave ~605 chars for the user's scene description.
+_COVER_BANNER_PREFIX = (
+    "Cinematic profile banner, ultra-wide 2.84:1 ratio. "
+    "Subject face fully visible, not cropped. "
+    "Rule-of-thirds composition: subject placed in left or right third, "
+    "opposite third open for profile UI overlay. "
+    "Intentional banner layout, not a portrait crop. "
+)
+
 
 # ── Request schema ────────────────────────────────────────────────────
 
@@ -314,6 +324,10 @@ def generate_image(
     face_ref_bytes: bytes | None = None
     identity_hash: str | None = None
     base_prompt = body.prompt.strip()
+
+    # Cover mode: prepend banner-composition directives before the user's prompt.
+    if body.is_cover:
+        base_prompt = _COVER_BANNER_PREFIX + base_prompt
 
     if body.include_character:
         if not character.visual_locked:

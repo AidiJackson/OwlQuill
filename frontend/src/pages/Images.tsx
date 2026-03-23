@@ -437,8 +437,14 @@ export default function Images() {
                   alt="Banner preview"
                   className="w-full h-full object-cover"
                 />
-                <span className="absolute bottom-2 left-2 text-[10px] text-white/60 bg-black/50 px-1.5 py-0.5 rounded">
-                  Banner crop preview
+                {/* Safe-zone overlay: avatar group sits over the right ~22% of the banner */}
+                <div className="absolute inset-y-0 right-0 w-[22%] border-l border-white/10 bg-black/20 flex items-center justify-center pointer-events-none">
+                  <span className="text-[9px] text-white/40 [writing-mode:vertical-rl] tracking-widest uppercase select-none">
+                    Avatar area
+                  </span>
+                </div>
+                <span className="absolute bottom-2 left-2 text-[10px] text-white/50 bg-black/50 px-1.5 py-0.5 rounded select-none">
+                  Profile banner preview
                 </span>
               </div>
             ) : (
@@ -475,47 +481,57 @@ export default function Images() {
 
             {/* Cover image actions: assign to character */}
             {lightboxCoverCharImage && (
-              <div className="mt-2 space-y-2">
-                {myCharacters.length > 1 && (
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-gray-400 shrink-0">Assign to</label>
-                    <select
-                      className="bg-gray-800 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1 focus:outline-none focus:border-gray-600"
-                      value={assignCharId ?? ''}
-                      onChange={(e) => setAssignCharId(e.target.value ? Number(e.target.value) : null)}
+              <div className="mt-3 border-t border-gray-700 pt-3 space-y-2">
+                {myCharacters.length > 1 ? (
+                  <>
+                    <p className="text-xs font-medium text-gray-300">Apply cover to character</p>
+                    <div className="flex items-center gap-2">
+                      <select
+                        className={`flex-1 bg-gray-800 rounded-md text-sm px-3 py-2 focus:outline-none transition-colors ${
+                          assignCharId === null
+                            ? 'border border-amber-700/70 text-gray-400'
+                            : 'border border-gray-600 text-gray-200'
+                        }`}
+                        value={assignCharId ?? ''}
+                        onChange={(e) => setAssignCharId(e.target.value ? Number(e.target.value) : null)}
+                      >
+                        <option value="">Select character…</option>
+                        {myCharacters.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        className="text-xs px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0"
+                        disabled={assigningCover || assignCharId === null}
+                        onClick={handleAssignCover}
+                      >
+                        {assignCoverDone ? (
+                          <><Check className="w-3 h-3" />Done</>
+                        ) : assigningCover ? 'Saving…' : 'Apply'}
+                      </button>
+                    </div>
+                    {assignCharId === null && (
+                      <p className="text-xs text-amber-500/70">Select a character above to apply this cover</p>
+                    )}
+                    {assignCoverErr && <p className="text-xs text-red-400">{assignCoverErr}</p>}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    {assignCoverErr
+                      ? <p className="text-xs text-red-400">{assignCoverErr}</p>
+                      : <span />
+                    }
+                    <button
+                      className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                      disabled={assigningCover || assignCharId === null}
+                      onClick={handleAssignCover}
                     >
-                      <option value="">Choose character…</option>
-                      {myCharacters.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
+                      {assignCoverDone ? (
+                        <><Check className="w-3 h-3" />Cover set</>
+                      ) : assigningCover ? 'Saving…' : `Set as ${myCharacters[0]?.name}'s cover`}
+                    </button>
                   </div>
                 )}
-                {assignCoverErr && (
-                  <p className="text-xs text-red-400">{assignCoverErr}</p>
-                )}
-                <div className="flex items-center justify-between gap-2">
-                  {myCharacters.length > 1 && assignCharId === null ? (
-                    <p className="text-xs text-gray-500">← Choose a character to apply</p>
-                  ) : (
-                    <span />
-                  )}
-                  <button
-                    className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                    disabled={assigningCover || assignCharId === null}
-                    onClick={handleAssignCover}
-                  >
-                    {assignCoverDone ? (
-                      <><Check className="w-3 h-3" />Cover set</>
-                    ) : assigningCover ? (
-                      'Setting…'
-                    ) : myCharacters.length === 1 ? (
-                      `Set as ${myCharacters[0].name}'s cover`
-                    ) : (
-                      'Set as cover'
-                    )}
-                  </button>
-                </div>
               </div>
             )}
 
