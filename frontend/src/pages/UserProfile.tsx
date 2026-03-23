@@ -683,6 +683,7 @@ function TimelineItemCard({
     content?: string;
     title?: string;
     content_type?: string;
+    image_url?: string;
     character_name?: string;
     character_avatar_url?: string;
   };
@@ -735,6 +736,14 @@ function TimelineItemCard({
       <p className="text-white/90 whitespace-pre-wrap leading-relaxed">
         {post.content}
       </p>
+
+      {post.image_url && (
+        <img
+          src={post.image_url}
+          alt={post.title || 'Post image'}
+          className="mt-3 rounded-lg max-h-96 object-contain"
+        />
+      )}
 
       <div className="flex items-center gap-6 mt-4 pt-4 border-t border-white/10">
         <button className="flex items-center gap-2 text-white/50 hover:text-emerald-400 transition-colors">
