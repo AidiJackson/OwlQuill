@@ -34,18 +34,32 @@ def _save_avatar_png(png_bytes: bytes) -> str:
 
 
 def _crop_to_banner(png_bytes: bytes) -> bytes:
-    """Center-crop and resize PNG bytes to 2048×720 cover banner."""
+    """Upper-biased crop and resize PNG bytes to 2048×720 cover banner.
+
+    Faces and subjects appear in the upper portion of most generated images.
+    We bias the vertical crop toward the top (15% down from the top of the
+    excess) so faces are captured reliably.  Horizontal crops (wide images)
+    are always centre-cropped — no horizontal bias is needed because the
+    prompt instructs left-third subject placement at generation time.
+    """
     img = PILImage.open(io.BytesIO(png_bytes))
     w, h = img.size
     target_ratio = _COVER_SIZE[0] / _COVER_SIZE[1]  # ~2.844
+
     if w / h > target_ratio:
+        # Image is wider than target — crop horizontally (centre).
         new_w = int(h * target_ratio)
         left = (w - new_w) // 2
         img = img.crop((left, 0, left + new_w, h))
     else:
+        # Image is taller than target — crop vertically with upper bias.
         new_h = int(w / target_ratio)
-        top = (h - new_h) // 2
+        excess = h - new_h
+        # Upper-biased at 15%: captures face/subject near top of frame.
+        # When excess is 0 or negative, top=0 (no crop needed).
+        top = max(0, min(int(excess * 0.15), excess))
         img = img.crop((0, top, w, top + new_h))
+
     img = img.resize(_COVER_SIZE, PILImage.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -78,10 +92,12 @@ class SetCharacterAvatarResponse(BaseModel):
 class SetCharacterCoverRequest(BaseModel):
     image_type: str = Field(..., pattern=r"^(character|user)$")
     image_id: int
+    cover_position_y: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class SetCharacterCoverResponse(BaseModel):
     cover_url: str
+    cover_position_y: float
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -340,9 +356,10 @@ def set_character_cover(
     cover_url = f"/{file_path}"
 
     character.cover_url = cover_url
+    character.cover_position_y = req.cover_position_y
     db.commit()
 
-    return SetCharacterCoverResponse(cover_url=cover_url)
+    return SetCharacterCoverResponse(cover_url=cover_url, cover_position_y=req.cover_position_y)
 
 
 @router.delete("/{character_id}", status_code=status.HTTP_204_NO_CONTENT)

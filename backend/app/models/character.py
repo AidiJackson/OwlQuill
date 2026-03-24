@@ -1,6 +1,6 @@
 """Character model."""
 from datetime import datetime
-from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Boolean, Column, Float, Integer, String, Text, DateTime, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 import enum
 
@@ -31,6 +31,7 @@ class Character(Base):
     long_bio = Column(Text, nullable=True)
     avatar_url = Column(String, nullable=True)
     cover_url = Column(String, nullable=True)       # Character cover/banner image
+    cover_position_y = Column(Float, nullable=True, default=0.5)  # 0.0=top, 0.5=center, 1.0=bottom
     portrait_url = Column(String, nullable=True)  # Character portrait for RP sheets
     tags = Column(String, nullable=True)  # Stored as comma-separated for MVP
     visibility = Column(SQLEnum(VisibilityEnum), default=VisibilityEnum.PUBLIC, nullable=False)

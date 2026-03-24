@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Image, X, Check, Trash2, Flag } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
@@ -25,6 +25,11 @@ export default function Images() {
   const [assigningCover, setAssigningCover] = useState(false);
   const [assignCoverDone, setAssignCoverDone] = useState(false);
   const [assignCoverErr, setAssignCoverErr] = useState('');
+
+  // Cover position drag state
+  const [coverPositionY, setCoverPositionY] = useState(0.5);
+  const dragStateRef = useRef<{ startY: number; startPositionY: number } | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement | null>(null);
 
   // The user's characters for the generator selector
   const [myCharacters, setMyCharacters] = useState<Character[]>([]);
@@ -77,6 +82,7 @@ export default function Images() {
     setLightboxCharImage(charImage ?? null);
     setLightboxCoverCharImage(coverCharImage ?? null);
     setAssignCharId(myCharacters.length === 1 ? myCharacters[0].id : null);
+    setCoverPositionY(0.5);
     setApplyCoverDone(false);
     setApplyCoverErr('');
     setAssignCoverDone(false);
@@ -107,6 +113,30 @@ export default function Images() {
     }, 200);
   };
 
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragStateRef.current = { startY: e.clientY, startPositionY: coverPositionY };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragStateRef.current || !previewContainerRef.current) return;
+      const containerH = previewContainerRef.current.offsetHeight;
+      const overflowH = containerH * 0.2; // image is 120% tall → 20% overflow
+      const delta = ev.clientY - dragStateRef.current.startY;
+      // Drag down → image moves down → reveal top → position decreases
+      const next = dragStateRef.current.startPositionY - delta / overflowH;
+      setCoverPositionY(Math.min(1, Math.max(0, next)));
+    };
+
+    const onUp = () => {
+      dragStateRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [coverPositionY]);
+
   const handleSetCover = async () => {
     if (!lightboxCoverId) return;
     setApplyingCover(true);
@@ -129,7 +159,7 @@ export default function Images() {
     setAssigningCover(true);
     setAssignCoverErr('');
     try {
-      await apiClient.setCharacterCover(assignCharId, 'character', lightboxCoverCharImage.id);
+      await apiClient.setCharacterCover(assignCharId, 'character', lightboxCoverCharImage.id, coverPositionY);
       if (!mountedRef.current) return;
       setAssignCoverDone(true);
       setTimeout(() => { if (mountedRef.current) setAssignCoverDone(false); }, 2000);
@@ -431,11 +461,18 @@ export default function Images() {
               <X className="w-4 h-4" />
             </button>
             {lightboxCoverCharImage ? (
-              <div className="relative w-full rounded-lg overflow-hidden aspect-[2048/720]">
+              <div
+                ref={previewContainerRef}
+                className="relative w-full rounded-lg overflow-hidden aspect-[2048/720] select-none"
+                style={{ cursor: dragStateRef.current ? 'grabbing' : 'grab' }}
+                onMouseDown={handleDragStart}
+              >
                 <img
                   src={lightboxUrl}
                   alt="Banner preview"
-                  className="w-full h-full object-cover"
+                  className="absolute w-full h-[120%] object-cover pointer-events-none"
+                  style={{ top: `${-coverPositionY * 20}%` }}
+                  draggable={false}
                 />
                 {/* Safe-zone overlay: avatar group sits over the right ~22% of the banner */}
                 <div className="absolute inset-y-0 right-0 w-[22%] border-l border-white/10 bg-black/20 flex items-center justify-center pointer-events-none">
@@ -444,7 +481,7 @@ export default function Images() {
                   </span>
                 </div>
                 <span className="absolute bottom-2 left-2 text-[10px] text-white/50 bg-black/50 px-1.5 py-0.5 rounded select-none">
-                  Profile banner preview
+                  Drag to reposition
                 </span>
               </div>
             ) : (

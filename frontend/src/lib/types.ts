@@ -28,6 +28,7 @@ export interface Character {
   long_bio?: string;
   avatar_url?: string;
   cover_url?: string;
+  cover_position_y?: number;
   portrait_url?: string;
   tags?: string;
   visibility: 'public' | 'friends' | 'private';
@@ -42,6 +43,7 @@ export interface CharacterSearchResult {
   name: string;
   avatar_url?: string;
   cover_url?: string;
+  cover_position_y?: number;
   short_bio?: string;
   species?: string;
   visibility?: 'public' | 'friends' | 'private';
