@@ -28,7 +28,6 @@ export default function Images() {
 
   // Cover position drag state
   const [coverPositionY, setCoverPositionY] = useState(0.5);
-  const [isDragging, setIsDragging] = useState(false);
   const dragStateRef = useRef<{ startY: number; startPositionY: number } | null>(null);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -117,12 +116,11 @@ export default function Images() {
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     dragStateRef.current = { startY: e.clientY, startPositionY: coverPositionY };
-    setIsDragging(true);
 
     const onMove = (ev: MouseEvent) => {
       if (!dragStateRef.current || !previewContainerRef.current) return;
       const containerH = previewContainerRef.current.offsetHeight;
-      const overflowH = containerH * 0.5; // image is 150% tall → 50% overflow
+      const overflowH = containerH * 0.2; // image is 120% tall → 20% overflow
       const delta = ev.clientY - dragStateRef.current.startY;
       // Drag down → image moves down → reveal top → position decreases
       const next = dragStateRef.current.startPositionY - delta / overflowH;
@@ -131,7 +129,6 @@ export default function Images() {
 
     const onUp = () => {
       dragStateRef.current = null;
-      setIsDragging(false);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
@@ -467,14 +464,14 @@ export default function Images() {
               <div
                 ref={previewContainerRef}
                 className="relative w-full rounded-lg overflow-hidden aspect-[2048/720] select-none"
-                style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+                style={{ cursor: dragStateRef.current ? 'grabbing' : 'grab' }}
                 onMouseDown={handleDragStart}
               >
                 <img
                   src={lightboxUrl}
                   alt="Banner preview"
-                  className="absolute w-full h-[150%] object-cover pointer-events-none"
-                  style={{ top: `${-coverPositionY * 50}%` }}
+                  className="absolute w-full h-[120%] object-cover pointer-events-none"
+                  style={{ top: `${-coverPositionY * 20}%` }}
                   draggable={false}
                 />
                 {/* Safe-zone overlay: avatar group sits over the right ~22% of the banner */}
