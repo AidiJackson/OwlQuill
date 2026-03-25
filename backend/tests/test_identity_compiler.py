@@ -852,3 +852,178 @@ class TestFacialGeometryInLockString:
         lock1 = compile_identity_lock_string(spec)
         lock2 = compile_identity_lock_string(spec)
         assert lock1 == lock2
+
+
+# ── B34: Hair fidelity hardening ─────────────────────────────────────
+
+
+class TestB34HairFidelity:
+    """B34: curl/coily textures and long hair lengths produce anti-drift enforcement."""
+
+    def test_curl_lock_in_consistency_anchor(self):
+        """curly hair_texture must inject curl lock into the identity consistency anchor."""
+        spec = _make_grace_spec(hair_texture="curly")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "curl pattern locked" in prompt.lower(), f"curl lock missing: {prompt!r}"
+        assert "do not soften into waves" in prompt.lower()
+
+    def test_coily_lock_in_consistency_anchor(self):
+        """coily hair_texture must also inject curl lock."""
+        spec = _make_grace_spec(hair_texture="coily")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "curl pattern locked" in prompt.lower()
+        assert "do not alter curl definition" in prompt.lower()
+
+    def test_wavy_does_not_inject_curl_lock(self):
+        """wavy hair must NOT inject curl lock (only curly/coily drift)."""
+        spec = _make_grace_spec(hair_texture="wavy")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "curl pattern locked" not in prompt.lower()
+
+    def test_straight_does_not_inject_curl_lock(self):
+        """straight hair must NOT inject curl lock."""
+        spec = _make_grace_spec(hair_texture="straight")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "curl pattern locked" not in prompt.lower()
+
+    def test_long_hair_length_lock_in_anchor(self):
+        """hair_length='long' must inject a length lock into the consistency anchor."""
+        spec = _make_grace_spec()  # Grace has hair_length="long"
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "do not shorten" in prompt.lower(), f"length lock missing: {prompt!r}"
+
+    def test_waist_hair_length_lock_in_anchor(self):
+        """hair_length containing 'waist' must inject length lock."""
+        spec = _make_grace_spec(
+            identity=IdentityCore(
+                hair_color="brunette",
+                hair_length="waist-length",
+                eye_color="hazel",
+                skin_tone="tan",
+            )
+        )
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "do not shorten" in prompt.lower()
+
+    def test_short_hair_no_length_lock(self):
+        """Short hair must NOT inject a length lock."""
+        spec = _make_grace_spec(
+            identity=IdentityCore(
+                hair_color="brunette",
+                hair_length="bob",
+                eye_color="hazel",
+                skin_tone="tan",
+            )
+        )
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "do not shorten" not in prompt.lower()
+
+    def test_curl_repeated_in_identity_section(self):
+        """curly texture must produce 'maintain curl definition' in identity parts."""
+        spec = _make_grace_spec(hair_texture="curly")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "maintain curl definition" in prompt.lower()
+
+    def test_coily_repeated_in_identity_section(self):
+        """coily texture must produce 'maintain curl definition' in identity parts."""
+        spec = _make_grace_spec(hair_texture="coily")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "maintain curl definition" in prompt.lower()
+
+    def test_no_curl_no_maintain_in_identity(self):
+        """Without curly/coily texture, 'maintain curl definition' must not appear."""
+        spec = _make_grace_spec(hair_texture="wavy")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert "maintain curl definition" not in prompt.lower()
+
+    def test_curl_in_lock_string(self):
+        """curly hair_texture must appear in the identity lock string."""
+        spec = _make_grace_spec(hair_texture="curly")
+        lock = compile_identity_lock_string(spec)
+        assert "curly" in lock.lower(), f"curl texture missing from lock: {lock!r}"
+
+    def test_coily_in_lock_string(self):
+        """coily hair_texture must appear in the identity lock string."""
+        spec = _make_grace_spec(hair_texture="coily")
+        lock = compile_identity_lock_string(spec)
+        assert "coily" in lock.lower()
+
+    def test_no_texture_lock_string_unchanged(self):
+        """Without hair_texture, lock string still produces correct 'long brunette hair'."""
+        spec = _make_grace_spec()  # no hair_texture
+        lock = compile_identity_lock_string(spec)
+        assert "long brunette hair" in lock.lower()
+
+    def test_b34_hair_within_cap(self):
+        """Prompt with curly texture and long hair must remain within 800-char cap."""
+        spec = _make_grace_spec(hair_texture="curly")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"
+
+
+# ── B34: Stature / build fidelity hardening ──────────────────────────
+
+
+class TestB34StatureFidelity:
+    """B34: petite detection and short stature anti-drift enforcement."""
+
+    def test_petite_descriptor_when_short_and_slim(self):
+        """body_height=short + body_build=slim must produce petite frame descriptor."""
+        spec = _make_morphology_spec(body_height="short", body_build="slim")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "petite frame" in prompt.lower(), f"petite descriptor missing: {prompt!r}"
+        assert "short stature" in prompt.lower()
+        assert "narrow shoulders" in prompt.lower()
+
+    def test_petite_anti_drift_text(self):
+        """Petite descriptor must include explicit anti-drift language."""
+        spec = _make_morphology_spec(body_height="short", body_build="slim")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "do not render as average height" in prompt.lower()
+        assert "do not render" in prompt.lower()
+
+    def test_short_only_has_anti_drift(self):
+        """body_height=short alone must add 'do not render as average height'."""
+        spec = _make_morphology_spec(body_height="short")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "short stature" in prompt
+        assert "do not render as average height" in prompt.lower()
+
+    def test_short_only_no_petite_label(self):
+        """body_height=short without slim must NOT use petite descriptor."""
+        spec = _make_morphology_spec(body_height="short")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "petite frame" not in prompt.lower()
+
+    def test_slim_only_no_petite_label(self):
+        """body_build=slim alone must NOT use petite descriptor."""
+        spec = _make_morphology_spec(body_build="slim")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "petite frame" not in prompt.lower()
+        assert "slim build, narrow shoulders, lean frame" in prompt
+
+    def test_medium_height_no_anti_drift(self):
+        """body_height=medium must NOT add anti-drift text."""
+        spec = _make_morphology_spec(body_height="medium")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert "do not render" not in prompt.lower()
+
+    def test_petite_in_lock_string(self):
+        """short + slim must produce petite descriptor in lock string."""
+        spec = _make_morphology_spec(body_height="short", body_build="slim")
+        lock = compile_identity_lock_string(spec)
+        assert "petite frame" in lock.lower(), f"petite missing from lock: {lock!r}"
+        assert "short stature" in lock.lower()
+
+    def test_petite_lock_string_no_separate_height_build(self):
+        """Lock string for petite must not separately list 'short stature' and 'slim build'."""
+        spec = _make_morphology_spec(body_height="short", body_build="slim")
+        lock = compile_identity_lock_string(spec)
+        # petite path combines both — slim build descriptor should not appear separately
+        assert "slim build, narrow shoulders, lean frame" not in lock
+
+    def test_b34_petite_within_cap(self):
+        """Petite prompt must remain within 800-char cap."""
+        spec = _make_morphology_spec(body_height="short", body_build="slim")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"

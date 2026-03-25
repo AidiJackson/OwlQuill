@@ -61,6 +61,16 @@ _BUILD_MORPHOLOGY: dict[str, str] = {
     "heavy": "large heavy build, broad torso, thick powerful frame",
 }
 
+# ── B34: Hair + stature fidelity constants ────────────────────────────
+
+# Curl textures that are prone to softening drift under model resampling
+_CURL_TEXTURES = frozenset({"curly", "coily"})
+
+# Hair length keywords that signal long hair needing explicit length lock
+_LONG_HAIR_KEYWORDS = frozenset({
+    "long", "waist", "hip", "hips", "mid-back", "mid back", "waist-length",
+})
+
 # ── Role shot descriptions ───────────────────────────────────────────
 
 ROLE_SHOT_DESCRIPTION: dict[str, str] = {
@@ -132,10 +142,19 @@ def compile_identity_prompt(
     sections.append(style_token)
 
     # 2. Identity consistency anchor — canonical singular appearance lock
-    sections.append(
+    # B34: conditionally extend with hair texture/length locks to prevent drift
+    _anchor = (
         "Same person across all shots. Identical face, hair, skin, and overall appearance. "
         "No variation in hair length, facial hair, or facial structure between angles."
     )
+    _htex = getattr(spec, "hair_texture", None)
+    if _htex in _CURL_TEXTURES:
+        _anchor += " Curl pattern locked — do not soften into waves, do not alter curl definition."
+    if spec.identity and spec.identity.hair_length:
+        _hl = spec.identity.hair_length.lower()
+        if any(kw in _hl for kw in _LONG_HAIR_KEYWORDS):
+            _anchor += f" Hair length is {_hl} — do not shorten."
+    sections.append(_anchor)
 
     # 3. Identity anchor: gender + style + age band + identity core
     gender_noun = _GENDER_NOUN.get(spec.gender, spec.gender)
@@ -164,6 +183,9 @@ def compile_identity_prompt(
         if _hair_parts:
             _hair_parts.append("hair")
             identity_parts.append(" ".join(_hair_parts))
+            # B34: curl enforcement clause — repeated in identity section as anchor
+            if spec.hair_texture in _CURL_TEXTURES:
+                identity_parts.append("maintain curl definition")
         elif id_.hair_color:
             identity_parts.append(f"{id_.hair_color} hair")
 
@@ -217,19 +239,31 @@ def compile_identity_prompt(
     if shot_desc:
         sections.append(shot_desc)
 
-    # 6. Body morphology (B16) + legacy build + marks/accessories
+    # 6. Body morphology (B16 / B34) + legacy build + marks/accessories
     build_parts: list[str] = []
-    # B16: structured height/build take priority over legacy free-text fields
     _body_height = getattr(spec, "body_height", None)
     _body_build = getattr(spec, "body_build", None)
-    if _body_height and _body_height in _HEIGHT_MORPHOLOGY:
-        build_parts.append(_HEIGHT_MORPHOLOGY[_body_height])
-    elif spec.build and spec.build.height_band:
-        build_parts.append(spec.build.height_band)
-    if _body_build and _body_build in _BUILD_MORPHOLOGY:
-        build_parts.append(_BUILD_MORPHOLOGY[_body_build])
-    elif spec.build and spec.build.body_type:
-        build_parts.append(f"{spec.build.body_type} build")
+    # B34: petite detection — short + slim together map to a unified petite descriptor
+    # with explicit anti-drift to prevent model defaulting to average proportions
+    if _body_height == "short" and _body_build == "slim":
+        build_parts.append(
+            "petite frame, short stature, small frame, narrow shoulders, lighter proportions"
+        )
+        build_parts.append("do not render as average height or medium build")
+    else:
+        # B16: structured height/build take priority over legacy free-text fields
+        if _body_height and _body_height in _HEIGHT_MORPHOLOGY:
+            _h_desc = _HEIGHT_MORPHOLOGY[_body_height]
+            # B34: short stature anti-drift — models default to average height
+            if _body_height == "short":
+                _h_desc += ", do not render as average height"
+            build_parts.append(_h_desc)
+        elif spec.build and spec.build.height_band:
+            build_parts.append(spec.build.height_band)
+        if _body_build and _body_build in _BUILD_MORPHOLOGY:
+            build_parts.append(_BUILD_MORPHOLOGY[_body_build])
+        elif spec.build and spec.build.body_type:
+            build_parts.append(f"{spec.build.body_type} build")
     if spec.marks_accessories and spec.marks_accessories.items:
         build_parts.extend(spec.marks_accessories.items)
     if build_parts:
@@ -288,10 +322,15 @@ def compile_identity_lock_string(spec: CharacterIdentitySpec) -> str:
     if spec.identity:
         id_ = spec.identity
         if id_.hair_color:
-            hair = id_.hair_color
+            # B34: include texture in lock string so scene prompts carry curl identity
+            _lock_hair: list[str] = []
             if id_.hair_length:
-                hair = f"{id_.hair_length} {hair}"
-            parts.append(f"{hair} hair")
+                _lock_hair.append(id_.hair_length)
+            _ltex = getattr(spec, "hair_texture", None)
+            if _ltex:
+                _lock_hair.append(_ltex)
+            _lock_hair.append(id_.hair_color)
+            parts.append(" ".join(_lock_hair) + " hair")
         if id_.eye_color:
             parts.append(f"{id_.eye_color} eyes")
         if id_.skin_tone:
@@ -319,13 +358,17 @@ def compile_identity_lock_string(spec: CharacterIdentitySpec) -> str:
     if spec.lip_type:
         parts.append(f"{spec.lip_type.replace('_', ' ')} lips")
 
-    # B16: body morphology — include in lock string so scene prompts stay consistent
+    # B16 / B34: body morphology — include in lock string so scene prompts stay consistent
     _body_height = getattr(spec, "body_height", None)
     _body_build = getattr(spec, "body_build", None)
-    if _body_height and _body_height in _HEIGHT_MORPHOLOGY:
-        parts.append(_HEIGHT_MORPHOLOGY[_body_height])
-    if _body_build and _body_build in _BUILD_MORPHOLOGY:
-        parts.append(_BUILD_MORPHOLOGY[_body_build])
+    if _body_height == "short" and _body_build == "slim":
+        # B34: petite unified descriptor in lock string
+        parts.append("petite frame, short stature")
+    else:
+        if _body_height and _body_height in _HEIGHT_MORPHOLOGY:
+            parts.append(_HEIGHT_MORPHOLOGY[_body_height])
+        if _body_build and _body_build in _BUILD_MORPHOLOGY:
+            parts.append(_BUILD_MORPHOLOGY[_body_build])
 
     return ", ".join(parts)
 
