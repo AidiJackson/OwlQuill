@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
@@ -51,6 +51,21 @@ export default function UserProfile() {
   // Avatar picker
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
 
+  // Inline cover repositioning
+  const [coverEditMode, setCoverEditMode] = useState(false);
+  const [editPosX, setEditPosX] = useState(0.5);
+  const [editPosY, setEditPosY] = useState(0.5);
+  const [coverSaving, setCoverSaving] = useState(false);
+  const [coverSaveError, setCoverSaveError] = useState('');
+  const editPosXRef = useRef(0.5);
+  const editPosYRef = useRef(0.5);
+  const editDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
+  const editDragCleanup = useRef<(() => void) | null>(null);
+  const coverHeroRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { editPosXRef.current = editPosX; }, [editPosX]);
+  useEffect(() => { editPosYRef.current = editPosY; }, [editPosY]);
+  useEffect(() => () => { editDragCleanup.current?.(); }, []);
+
   // Profile character selector (view-only, no global effect)
   const [selectedCharId, setSelectedCharId] = useState<number | null>(null);
   const [showCharSelector, setShowCharSelector] = useState(false);
@@ -74,6 +89,72 @@ export default function UserProfile() {
       setCoverGenLoading(false);
     }
   };
+
+  const enterCoverEdit = (char: { id: number; cover_url?: string | null; cover_position_x?: number | null; cover_position_y?: number | null }) => {
+    setEditPosX(char.cover_position_x ?? 0.5);
+    setEditPosY(char.cover_position_y ?? 0.5);
+    setCoverSaveError('');
+    setCoverEditMode(true);
+  };
+
+  const cancelCoverEdit = () => {
+    editDragCleanup.current?.();
+    setCoverEditMode(false);
+  };
+
+  const saveCoverEdit = async (charId: number) => {
+    setCoverSaving(true);
+    setCoverSaveError('');
+    try {
+      await apiClient.updateCharacter(charId, {
+        cover_position_x: editPosX,
+        cover_position_y: editPosY,
+      });
+      setCharacters((prev) =>
+        prev.map((c) =>
+          c.id === charId ? { ...c, cover_position_x: editPosX, cover_position_y: editPosY } : c
+        )
+      );
+      setCoverEditMode(false);
+    } catch (err) {
+      setCoverSaveError(err instanceof Error ? err.message : 'Failed to save.');
+    } finally {
+      setCoverSaving(false);
+    }
+  };
+
+  const startCoverDrag = useCallback((clientX: number, clientY: number) => {
+    editDragCleanup.current?.();
+    editDragRef.current = {
+      startX: clientX,
+      startY: clientY,
+      startPosX: editPosXRef.current,
+      startPosY: editPosYRef.current,
+    };
+    const applyMove = (x: number, y: number) => {
+      if (!editDragRef.current || !coverHeroRef.current) return;
+      const { offsetWidth: w, offsetHeight: h } = coverHeroRef.current;
+      const dx = (x - editDragRef.current.startX) / w;
+      const dy = (y - editDragRef.current.startY) / h;
+      setEditPosX(Math.min(1, Math.max(0, editDragRef.current.startPosX - dx)));
+      setEditPosY(Math.min(1, Math.max(0, editDragRef.current.startPosY - dy)));
+    };
+    const onMouseMove = (ev: MouseEvent) => applyMove(ev.clientX, ev.clientY);
+    const onTouchMove = (ev: TouchEvent) => { ev.preventDefault(); applyMove(ev.touches[0].clientX, ev.touches[0].clientY); };
+    const onEnd = () => {
+      editDragRef.current = null;
+      editDragCleanup.current = null;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onEnd);
+    };
+    editDragCleanup.current = onEnd;
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+  }, []);
 
   useEffect(() => {
     setSelectedCharId(null);
@@ -130,8 +211,17 @@ export default function UserProfile() {
   const heroCoverUrl = activeChar?.cover_url ?? profile.cover_url ?? null;
   const heroCoverPositionY = activeChar?.cover_position_y ?? 0.5;
   const isMobile = window.innerWidth < 768;
-  const heroCoverPositionX = activeChar?.cover_position_x ?? (isMobile ? 0.35 : 0.5);
+  const heroCoverPositionX = activeChar?.cover_position_x ?? (isMobile ? 0.2 : 0.5);
   const heroBio = activeChar ? (activeChar.short_bio ?? null) : (profile.bio ?? null);
+
+  // Character whose cover can be repositioned inline (own profile only)
+  const editableChar = activeChar ?? (characters.length === 1 && characters[0].cover_url ? characters[0] : null);
+  const canEditCoverInline = isOwnProfile && !!editableChar;
+
+  // What the hero actually renders — switches to edit-mode values while dragging
+  const displayCoverUrl = coverEditMode ? (editableChar?.cover_url ?? null) : heroCoverUrl;
+  const displayPosX = coverEditMode ? editPosX : heroCoverPositionX;
+  const displayPosY = coverEditMode ? editPosY : heroCoverPositionY;
 
   const joinDate = new Date(profile.created_at).toLocaleDateString('en-US', {
     month: 'long',
@@ -156,14 +246,45 @@ export default function UserProfile() {
   return (
     <div className="min-h-screen bg-[#0F1419]">
       {/* === HERO SECTION — cover fills behind the fixed nav === */}
-      <div className="relative h-[380px] sm:h-[440px] md:h-[500px] w-full overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500">
+      <div
+        ref={coverHeroRef}
+        className="relative h-[380px] sm:h-[440px] md:h-[500px] w-full overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500"
+        style={coverEditMode ? { cursor: 'grab', touchAction: 'none', userSelect: 'none' } : undefined}
+        onMouseDown={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.clientX, e.clientY); } : undefined}
+        onTouchStart={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.touches[0].clientX, e.touches[0].clientY); } : undefined}
+      >
+        {/* Edit-mode top bar: drag hint + save/cancel */}
+        {coverEditMode && (
+          <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3 bg-[#0F1419]/75 backdrop-blur-sm pointer-events-none">
+            <span className="text-sm text-white/70 select-none">Drag to reposition</span>
+            <div className="flex items-center gap-2 pointer-events-auto">
+              {coverSaveError && <span className="text-xs text-red-400">{coverSaveError}</span>}
+              <button
+                onClick={cancelCoverEdit}
+                disabled={coverSaving}
+                className="px-3 py-1.5 text-sm text-white/70 hover:text-white transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => editableChar && saveCoverEdit(editableChar.id)}
+                disabled={coverSaving}
+                className="px-4 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors disabled:opacity-50 font-medium"
+              >
+                {coverSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Cover image (if set) */}
-        {heroCoverUrl && (
+        {displayCoverUrl && (
           <img
-            src={heroCoverUrl}
+            src={displayCoverUrl}
             alt="Profile cover"
-            className="absolute inset-0 w-full h-full object-cover"
-            style={{ objectPosition: `${heroCoverPositionX * 100}% ${heroCoverPositionY * 100}%` }}
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+            style={{ objectPosition: `${displayPosX * 100}% ${displayPosY * 100}%` }}
+            draggable={false}
           />
         )}
 
@@ -182,7 +303,7 @@ export default function UserProfile() {
 
         {/* Hero Right: Avatar with Edit Cover above / Edit Profile below */}
         <div className="absolute right-4 sm:right-8 md:right-12 top-1/2 -translate-y-1/2 pt-[36px] z-20 flex flex-col items-center gap-3 sm:gap-4">
-          {isOwnProfile && isAdmin && (
+          {isOwnProfile && isAdmin && !coverEditMode && (
             <button
               onClick={() => setShowCoverGen((v) => !v)}
               className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
@@ -191,14 +312,25 @@ export default function UserProfile() {
               <span className="hidden sm:inline">Edit Cover</span>
             </button>
           )}
-          {isOwnProfile && !isAdmin && (
-            <Link
-              to="/images?tab=covers"
-              className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
-            >
-              <Camera className="w-4 h-4" />
-              <span className="hidden sm:inline">Edit Cover</span>
-            </Link>
+          {isOwnProfile && !isAdmin && !coverEditMode && (
+            canEditCoverInline ? (
+              <button
+                onClick={() => enterCoverEdit(editableChar!)}
+                className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
+              >
+                <Camera className="w-4 h-4" />
+                <span className="hidden sm:inline">Reposition Cover</span>
+                <span className="sm:hidden">Reposition</span>
+              </button>
+            ) : (
+              <Link
+                to="/images?tab=covers"
+                className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
+              >
+                <Camera className="w-4 h-4" />
+                <span className="hidden sm:inline">Edit Cover</span>
+              </Link>
+            )
           )}
 
           {/* Cover generation panel (admin-only beta) */}
