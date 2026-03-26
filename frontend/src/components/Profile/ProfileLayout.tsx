@@ -23,7 +23,7 @@ export default function ProfileLayout() {
   return (
     <div className="min-h-screen bg-[#0F1419] relative">
       {/* Nav bar: absolutely positioned so it overlays the hero cover and scrolls with the page */}
-      <header className="absolute top-0 left-0 right-0 z-50 bg-[#1A1D23]/60 backdrop-blur-xl border-b border-white/[0.06]">
+      <header className="absolute top-0 left-0 right-0 z-50 bg-[#1A1D23]/90 md:bg-[#1A1D23]/60 md:backdrop-blur-xl border-b border-white/[0.06]">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4 sm:gap-8">

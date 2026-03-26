@@ -78,7 +78,14 @@ button:focus {
   }
 
   .glass-strong {
-    @apply bg-gray-900/90 backdrop-blur-xl;
+    /* backdrop-blur-xl is GPU-expensive; restrict to desktop to prevent mobile crashes */
+    @apply bg-gray-900/90;
+  }
+
+  @media (min-width: 768px) {
+    .glass-strong {
+      @apply backdrop-blur-xl;
+    }
   }
 
   /* Gradients */

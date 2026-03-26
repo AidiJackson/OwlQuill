@@ -28,7 +28,10 @@ export default function Images() {
 
   // Cover position drag state
   const [coverPositionY, setCoverPositionY] = useState(0.5);
+  const coverPositionYRef = useRef(0.5);
+  useEffect(() => { coverPositionYRef.current = coverPositionY; }, [coverPositionY]);
   const dragStateRef = useRef<{ startY: number; startPositionY: number } | null>(null);
+  const activeDragCleanup = useRef<(() => void) | null>(null);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
 
   // The user's characters for the generator selector
@@ -113,11 +116,16 @@ export default function Images() {
     }, 200);
   };
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    dragStateRef.current = { startY: e.clientY, startPositionY: coverPositionY };
+  // Clean up any active drag listeners when the component unmounts
+  useEffect(() => () => { activeDragCleanup.current?.(); }, []);
 
-    const onMove = (ev: MouseEvent) => {
+  const startDrag = useCallback((clientY: number) => {
+    // Remove any lingering listeners from a prior interrupted drag
+    activeDragCleanup.current?.();
+
+    dragStateRef.current = { startY: clientY, startPositionY: coverPositionYRef.current };
+
+    const onMouseMove = (ev: MouseEvent) => {
       if (!dragStateRef.current || !previewContainerRef.current) return;
       const containerH = previewContainerRef.current.offsetHeight;
       const overflowH = containerH * 0.2; // image is 120% tall → 20% overflow
@@ -127,15 +135,31 @@ export default function Images() {
       setCoverPositionY(Math.min(1, Math.max(0, next)));
     };
 
-    const onUp = () => {
-      dragStateRef.current = null;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+    const onTouchMove = (ev: TouchEvent) => {
+      ev.preventDefault(); // prevent scroll during cover drag
+      if (!dragStateRef.current || !previewContainerRef.current) return;
+      const containerH = previewContainerRef.current.offsetHeight;
+      const overflowH = containerH * 0.2;
+      const delta = ev.touches[0].clientY - dragStateRef.current.startY;
+      const next = dragStateRef.current.startPositionY - delta / overflowH;
+      setCoverPositionY(Math.min(1, Math.max(0, next)));
     };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }, [coverPositionY]);
+    const onEnd = () => {
+      dragStateRef.current = null;
+      activeDragCleanup.current = null;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onEnd);
+    };
+
+    activeDragCleanup.current = onEnd;
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+  }, []); // no dependency on coverPositionY — reads via ref
 
   const handleSetCover = async () => {
     if (!lightboxCoverId) return;
@@ -465,7 +489,8 @@ export default function Images() {
                 ref={previewContainerRef}
                 className="relative w-full rounded-lg overflow-hidden aspect-[2048/720] select-none"
                 style={{ cursor: dragStateRef.current ? 'grabbing' : 'grab' }}
-                onMouseDown={handleDragStart}
+                onMouseDown={(e) => { e.preventDefault(); startDrag(e.clientY); }}
+                onTouchStart={(e) => { e.preventDefault(); startDrag(e.touches[0].clientY); }}
               >
                 <img
                   src={lightboxUrl}
