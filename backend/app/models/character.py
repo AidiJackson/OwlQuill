@@ -32,6 +32,7 @@ class Character(Base):
     avatar_url = Column(String, nullable=True)
     cover_url = Column(String, nullable=True)       # Character cover/banner image
     cover_position_y = Column(Float, nullable=True, default=0.5)  # 0.0=top, 0.5=center, 1.0=bottom
+    cover_position_x = Column(Float, nullable=True, default=0.5)  # 0.0=left, 0.5=center, 1.0=right
     portrait_url = Column(String, nullable=True)  # Character portrait for RP sheets
     tags = Column(String, nullable=True)  # Stored as comma-separated for MVP
     visibility = Column(SQLEnum(VisibilityEnum), default=VisibilityEnum.PUBLIC, nullable=False)

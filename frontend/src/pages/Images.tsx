@@ -30,7 +30,10 @@ export default function Images() {
   const [coverPositionY, setCoverPositionY] = useState(0.5);
   const coverPositionYRef = useRef(0.5);
   useEffect(() => { coverPositionYRef.current = coverPositionY; }, [coverPositionY]);
-  const dragStateRef = useRef<{ startY: number; startPositionY: number } | null>(null);
+  const [coverPositionX, setCoverPositionX] = useState(0.5);
+  const coverPositionXRef = useRef(0.5);
+  useEffect(() => { coverPositionXRef.current = coverPositionX; }, [coverPositionX]);
+  const dragStateRef = useRef<{ startX: number; startY: number; startPositionX: number; startPositionY: number } | null>(null);
   const activeDragCleanup = useRef<(() => void) | null>(null);
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -86,6 +89,7 @@ export default function Images() {
     setLightboxCoverCharImage(coverCharImage ?? null);
     setAssignCharId(myCharacters.length === 1 ? myCharacters[0].id : null);
     setCoverPositionY(0.5);
+    setCoverPositionX(0.5);
     setApplyCoverDone(false);
     setApplyCoverErr('');
     setAssignCoverDone(false);
@@ -119,30 +123,31 @@ export default function Images() {
   // Clean up any active drag listeners when the component unmounts
   useEffect(() => () => { activeDragCleanup.current?.(); }, []);
 
-  const startDrag = useCallback((clientY: number) => {
+  const startDrag = useCallback((clientX: number, clientY: number) => {
     // Remove any lingering listeners from a prior interrupted drag
     activeDragCleanup.current?.();
 
-    dragStateRef.current = { startY: clientY, startPositionY: coverPositionYRef.current };
-
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!dragStateRef.current || !previewContainerRef.current) return;
-      const containerH = previewContainerRef.current.offsetHeight;
-      const overflowH = containerH * 0.2; // image is 120% tall → 20% overflow
-      const delta = ev.clientY - dragStateRef.current.startY;
-      // Drag down → image moves down → reveal top → position decreases
-      const next = dragStateRef.current.startPositionY - delta / overflowH;
-      setCoverPositionY(Math.min(1, Math.max(0, next)));
+    dragStateRef.current = {
+      startX: clientX,
+      startY: clientY,
+      startPositionX: coverPositionXRef.current,
+      startPositionY: coverPositionYRef.current,
     };
+
+    const applyMove = (x: number, y: number) => {
+      if (!dragStateRef.current || !previewContainerRef.current) return;
+      const { offsetWidth: containerW, offsetHeight: containerH } = previewContainerRef.current;
+      const deltaX = (x - dragStateRef.current.startX) / containerW;
+      const deltaY = (y - dragStateRef.current.startY) / containerH;
+      setCoverPositionX(Math.min(1, Math.max(0, dragStateRef.current.startPositionX - deltaX)));
+      setCoverPositionY(Math.min(1, Math.max(0, dragStateRef.current.startPositionY - deltaY)));
+    };
+
+    const onMouseMove = (ev: MouseEvent) => applyMove(ev.clientX, ev.clientY);
 
     const onTouchMove = (ev: TouchEvent) => {
       ev.preventDefault(); // prevent scroll during cover drag
-      if (!dragStateRef.current || !previewContainerRef.current) return;
-      const containerH = previewContainerRef.current.offsetHeight;
-      const overflowH = containerH * 0.2;
-      const delta = ev.touches[0].clientY - dragStateRef.current.startY;
-      const next = dragStateRef.current.startPositionY - delta / overflowH;
-      setCoverPositionY(Math.min(1, Math.max(0, next)));
+      applyMove(ev.touches[0].clientX, ev.touches[0].clientY);
     };
 
     const onEnd = () => {
@@ -159,7 +164,7 @@ export default function Images() {
     window.addEventListener('mouseup', onEnd);
     window.addEventListener('touchmove', onTouchMove, { passive: false });
     window.addEventListener('touchend', onEnd);
-  }, []); // no dependency on coverPositionY — reads via ref
+  }, []); // no dependency on position state — reads via refs
 
   const handleSetCover = async () => {
     if (!lightboxCoverId) return;
@@ -183,7 +188,7 @@ export default function Images() {
     setAssigningCover(true);
     setAssignCoverErr('');
     try {
-      await apiClient.setCharacterCover(assignCharId, 'character', lightboxCoverCharImage.id, coverPositionY);
+      await apiClient.setCharacterCover(assignCharId, 'character', lightboxCoverCharImage.id, coverPositionY, coverPositionX);
       if (!mountedRef.current) return;
       setAssignCoverDone(true);
       setTimeout(() => { if (mountedRef.current) setAssignCoverDone(false); }, 2000);
@@ -489,14 +494,21 @@ export default function Images() {
                 ref={previewContainerRef}
                 className="relative w-full rounded-lg overflow-hidden aspect-[2048/720] select-none"
                 style={{ cursor: dragStateRef.current ? 'grabbing' : 'grab' }}
-                onMouseDown={(e) => { e.preventDefault(); startDrag(e.clientY); }}
-                onTouchStart={(e) => { e.preventDefault(); startDrag(e.touches[0].clientY); }}
+                onMouseDown={(e) => { e.preventDefault(); startDrag(e.clientX, e.clientY); }}
+                onTouchStart={(e) => { e.preventDefault(); startDrag(e.touches[0].clientX, e.touches[0].clientY); }}
               >
                 <img
                   src={lightboxUrl}
                   alt="Banner preview"
-                  className="absolute w-full h-[120%] object-cover pointer-events-none"
-                  style={{ top: `${-coverPositionY * 20}%` }}
+                  className="absolute pointer-events-none"
+                  style={{
+                    width: '150%',
+                    height: '150%',
+                    objectFit: 'cover',
+                    top: '50%',
+                    left: '50%',
+                    transform: `translate(calc(-50% + ${(0.5 - coverPositionX) * 100}%), calc(-50% + ${(0.5 - coverPositionY) * 100}%))`,
+                  }}
                   draggable={false}
                 />
                 {/* Safe-zone overlay: avatar group sits over the right ~22% of the banner */}

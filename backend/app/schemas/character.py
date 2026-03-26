@@ -19,6 +19,7 @@ class CharacterBase(BaseModel):
     avatar_url: Optional[str] = None
     cover_url: Optional[str] = None
     cover_position_y: Optional[float] = 0.5
+    cover_position_x: Optional[float] = 0.5
     portrait_url: Optional[str] = None
     tags: Optional[str] = None
     visibility: VisibilityEnum = VisibilityEnum.PUBLIC
@@ -42,6 +43,7 @@ class CharacterUpdate(BaseModel):
     avatar_url: Optional[str] = None
     cover_url: Optional[str] = None
     cover_position_y: Optional[float] = None
+    cover_position_x: Optional[float] = None
     portrait_url: Optional[str] = None
     tags: Optional[str] = None
     visibility: Optional[VisibilityEnum] = None
@@ -67,6 +69,7 @@ class CharacterSearchResult(BaseModel):
     avatar_url: Optional[str] = None
     cover_url: Optional[str] = None
     cover_position_y: Optional[float] = 0.5
+    cover_position_x: Optional[float] = 0.5
     short_bio: Optional[str] = None
     species: Optional[str] = None
     visibility: VisibilityEnum = VisibilityEnum.PUBLIC

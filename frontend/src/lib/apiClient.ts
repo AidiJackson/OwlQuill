@@ -294,10 +294,10 @@ class ApiClient {
     });
   }
 
-  async setCharacterCover(characterId: number, imageType: 'character' | 'user', imageId: number, coverPositionY = 0.5): Promise<{ cover_url: string; cover_position_y: number }> {
-    return this.request<{ cover_url: string; cover_position_y: number }>(`/characters/${characterId}/cover`, {
+  async setCharacterCover(characterId: number, imageType: 'character' | 'user', imageId: number, coverPositionY = 0.5, coverPositionX = 0.5): Promise<{ cover_url: string; cover_position_y: number; cover_position_x: number }> {
+    return this.request<{ cover_url: string; cover_position_y: number; cover_position_x: number }>(`/characters/${characterId}/cover`, {
       method: 'POST',
-      body: JSON.stringify({ image_type: imageType, image_id: imageId, cover_position_y: coverPositionY }),
+      body: JSON.stringify({ image_type: imageType, image_id: imageId, cover_position_y: coverPositionY, cover_position_x: coverPositionX }),
     });
   }
 

@@ -93,11 +93,13 @@ class SetCharacterCoverRequest(BaseModel):
     image_type: str = Field(..., pattern=r"^(character|user)$")
     image_id: int
     cover_position_y: float = Field(default=0.5, ge=0.0, le=1.0)
+    cover_position_x: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class SetCharacterCoverResponse(BaseModel):
     cover_url: str
     cover_position_y: float
+    cover_position_x: float
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -357,9 +359,14 @@ def set_character_cover(
 
     character.cover_url = cover_url
     character.cover_position_y = req.cover_position_y
+    character.cover_position_x = req.cover_position_x
     db.commit()
 
-    return SetCharacterCoverResponse(cover_url=cover_url, cover_position_y=req.cover_position_y)
+    return SetCharacterCoverResponse(
+        cover_url=cover_url,
+        cover_position_y=req.cover_position_y,
+        cover_position_x=req.cover_position_x,
+    )
 
 
 @router.delete("/{character_id}", status_code=status.HTTP_204_NO_CONTENT)

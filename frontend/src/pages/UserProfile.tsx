@@ -129,6 +129,8 @@ export default function UserProfile() {
   const heroAvatarUrl = activeChar?.avatar_url ?? profile.avatar_url ?? null;
   const heroCoverUrl = activeChar?.cover_url ?? profile.cover_url ?? null;
   const heroCoverPositionY = activeChar?.cover_position_y ?? 0.5;
+  const isMobile = window.innerWidth < 768;
+  const heroCoverPositionX = activeChar?.cover_position_x ?? (isMobile ? 0.35 : 0.5);
   const heroBio = activeChar ? (activeChar.short_bio ?? null) : (profile.bio ?? null);
 
   const joinDate = new Date(profile.created_at).toLocaleDateString('en-US', {
@@ -161,7 +163,7 @@ export default function UserProfile() {
             src={heroCoverUrl}
             alt="Profile cover"
             className="absolute inset-0 w-full h-full object-cover"
-            style={{ objectPosition: `center ${heroCoverPositionY * 100}%` }}
+            style={{ objectPosition: `${heroCoverPositionX * 100}% ${heroCoverPositionY * 100}%` }}
           />
         )}
 
