@@ -17,6 +17,8 @@ import {
   RefreshCw,
   ChevronDown,
   Check,
+  Move,
+  Trash2,
 } from 'lucide-react';
 import AvatarPickerModal from '@/components/AvatarPickerModal';
 
@@ -50,6 +52,9 @@ export default function UserProfile() {
 
   // Avatar picker
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+
+  // Cover action menu
+  const [showCoverMenu, setShowCoverMenu] = useState(false);
 
   // Inline cover repositioning
   const [coverEditMode, setCoverEditMode] = useState(false);
@@ -245,97 +250,125 @@ export default function UserProfile() {
 
   return (
     <div className="min-h-screen bg-[#0F1419]">
-      {/* === HERO SECTION — cover fills behind the fixed nav === */}
-      <div
-        ref={coverHeroRef}
-        className="relative h-[380px] sm:h-[440px] md:h-[500px] w-full overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500"
-        style={coverEditMode ? { cursor: 'grab', touchAction: 'none', userSelect: 'none' } : undefined}
-        onMouseDown={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.clientX, e.clientY); } : undefined}
-        onTouchStart={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.touches[0].clientX, e.touches[0].clientY); } : undefined}
-      >
-        {/* Edit-mode top bar: drag hint + save/cancel */}
-        {coverEditMode && (
-          <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3 bg-[#0F1419]/75 backdrop-blur-sm pointer-events-none">
-            <span className="text-sm text-white/70 select-none">Drag to reposition</span>
-            <div className="flex items-center gap-2 pointer-events-auto">
-              {coverSaveError && <span className="text-xs text-red-400">{coverSaveError}</span>}
-              <button
-                onClick={cancelCoverEdit}
-                disabled={coverSaving}
-                className="px-3 py-1.5 text-sm text-white/70 hover:text-white transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => editableChar && saveCoverEdit(editableChar.id)}
-                disabled={coverSaving}
-                className="px-4 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors disabled:opacity-50 font-medium"
-              >
-                {coverSaving ? 'Saving…' : 'Save'}
-              </button>
+      {/* === HERO SECTION — constrained width, Facebook-style === */}
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-8 pt-4 sm:pt-6">
+
+        {/* Cover band — rounded, not full-bleed */}
+        <div
+          ref={coverHeroRef}
+          className="relative h-[200px] sm:h-[240px] md:h-[280px] rounded-2xl overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500"
+          style={coverEditMode ? { cursor: 'grab', touchAction: 'none', userSelect: 'none' } : undefined}
+          onMouseDown={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.clientX, e.clientY); } : undefined}
+          onTouchStart={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.touches[0].clientX, e.touches[0].clientY); } : undefined}
+        >
+          {/* Edit-mode top bar: drag hint + save/cancel */}
+          {coverEditMode && (
+            <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3 bg-[#0F1419]/75 backdrop-blur-sm pointer-events-none">
+              <span className="text-sm text-white/70 select-none">Drag to reposition</span>
+              <div className="flex items-center gap-2 pointer-events-auto">
+                {coverSaveError && <span className="text-xs text-red-400">{coverSaveError}</span>}
+                <button
+                  onClick={cancelCoverEdit}
+                  disabled={coverSaving}
+                  className="px-3 py-1.5 text-sm text-white/70 hover:text-white transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => editableChar && saveCoverEdit(editableChar.id)}
+                  disabled={coverSaving}
+                  className="px-4 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors disabled:opacity-50 font-medium"
+                >
+                  {coverSaving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-
-        {/* Cover image (if set) */}
-        {displayCoverUrl && (
-          <img
-            src={displayCoverUrl}
-            alt="Profile cover"
-            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-            style={{ objectPosition: `${displayPosX * 100}% ${displayPosY * 100}%` }}
-            draggable={false}
-          />
-        )}
-
-        {/* Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-[#1A1D23]/30 via-transparent to-[#1A1D23]/90" />
-
-        {/* Subtle Pattern Overlay (only when no cover image) */}
-        {!heroCoverUrl && (
-          <div
-            className="absolute inset-0 opacity-[0.03]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-            }}
-          />
-        )}
-
-        {/* Hero Right: Avatar with Edit Cover above / Edit Profile below */}
-        <div className="absolute right-4 sm:right-8 md:right-12 top-1/2 -translate-y-1/2 pt-[36px] z-20 flex flex-col items-center gap-3 sm:gap-4">
-          {isOwnProfile && isAdmin && !coverEditMode && (
-            <button
-              onClick={() => setShowCoverGen((v) => !v)}
-              className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
-            >
-              <Camera className="w-4 h-4" />
-              <span className="hidden sm:inline">Edit Cover</span>
-            </button>
           )}
-          {isOwnProfile && !isAdmin && !coverEditMode && (
-            canEditCoverInline ? (
+
+          {/* Cover image (if set) */}
+          {displayCoverUrl && (
+            <img
+              src={displayCoverUrl}
+              alt="Profile cover"
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              style={{ objectPosition: `${displayPosX * 100}% ${displayPosY * 100}%` }}
+              draggable={false}
+            />
+          )}
+
+          {/* Gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-b from-[#1A1D23]/20 via-transparent to-[#1A1D23]/40" />
+
+          {/* Subtle pattern (no cover image) */}
+          {!heroCoverUrl && (
+            <div
+              className="absolute inset-0 opacity-[0.03]"
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+              }}
+            />
+          )}
+
+          {/* Cover action menu — own profile, not in reposition mode */}
+          {isOwnProfile && !coverEditMode && (
+            <div className="absolute bottom-3 right-3 z-20">
               <button
-                onClick={() => enterCoverEdit(editableChar!)}
-                className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
+                onClick={() => setShowCoverMenu((v) => !v)}
+                className="bg-[#0F1419]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#1A1D23]/80 hover:border-[#E8ECEF]/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs sm:text-sm transition-all shadow-lg"
               >
-                <Camera className="w-4 h-4" />
-                <span className="hidden sm:inline">Reposition Cover</span>
-                <span className="sm:hidden">Reposition</span>
+                <Camera className="w-3.5 h-3.5" />
+                <span>Cover</span>
+                <ChevronDown className="w-3 h-3 text-white/60" />
               </button>
-            ) : (
-              <Link
-                to="/images?tab=covers"
-                className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
-              >
-                <Camera className="w-4 h-4" />
-                <span className="hidden sm:inline">Edit Cover</span>
-              </Link>
-            )
+
+              {showCoverMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowCoverMenu(false)} />
+                  <div className="absolute bottom-full right-0 mb-2 z-50 bg-[#1A1D23] border border-[#2D3139] rounded-xl shadow-2xl shadow-black/60 py-1.5 min-w-[180px]">
+                    <Link
+                      to="/images?tab=covers"
+                      onClick={() => setShowCoverMenu(false)}
+                      className="flex items-center gap-3 px-4 py-2.5 text-sm text-[#E8ECEF]/80 hover:text-white hover:bg-[#252930] transition-colors"
+                    >
+                      <Camera className="w-4 h-4 flex-shrink-0" />
+                      Choose cover
+                    </Link>
+                    {canEditCoverInline && (
+                      <button
+                        onClick={() => { enterCoverEdit(editableChar!); setShowCoverMenu(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-[#E8ECEF]/80 hover:text-white hover:bg-[#252930] transition-colors text-left"
+                      >
+                        <Move className="w-4 h-4 flex-shrink-0" />
+                        Reposition
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button
+                        onClick={() => { setShowCoverGen((v) => !v); setShowCoverMenu(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-[#E8ECEF]/80 hover:text-white hover:bg-[#252930] transition-colors text-left"
+                      >
+                        <Sparkles className="w-4 h-4 flex-shrink-0" />
+                        Generate cover
+                      </button>
+                    )}
+                    <div className="h-px bg-[#2D3139] mx-3 my-1" />
+                    <button
+                      disabled
+                      title="Cover removal is not yet supported"
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-[#E8ECEF]/30 cursor-not-allowed text-left"
+                    >
+                      <Trash2 className="w-4 h-4 flex-shrink-0" />
+                      Remove cover
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
-          {/* Cover generation panel (admin-only beta) */}
+          {/* Admin: cover generation panel */}
           {showCoverGen && isAdmin && (
-            <div className="bg-[#1A1D23]/90 backdrop-blur-md border border-[#E8ECEF]/10 rounded-lg p-3 shadow-xl space-y-2 min-w-[200px]">
+            <div className="absolute bottom-14 right-3 z-30 bg-[#1A1D23]/90 backdrop-blur-md border border-[#E8ECEF]/10 rounded-lg p-3 shadow-xl space-y-2 min-w-[200px]">
               <p className="text-xs text-[#E8ECEF]/50 flex items-center gap-1">
                 <Sparkles className="w-3 h-3" />
                 Generate Cover (Beta)
@@ -361,22 +394,24 @@ export default function UserProfile() {
               )}
             </div>
           )}
+        </div>
 
-          {/* Avatar with premium frame */}
-          <div className="relative">
-            <div className="w-28 h-28 sm:w-36 sm:h-36 md:w-44 md:h-44 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-1 sm:p-1.5 shadow-2xl shadow-emerald-700/40">
-              <div className="w-full h-full rounded-xl overflow-hidden ring-4 ring-[#1A1D23]/40 bg-[#2D3139]">
+        {/* Identity row — avatar overlaps the cover's lower edge */}
+        <div className="flex items-start gap-4 sm:gap-5 -mt-12 sm:-mt-14 md:-mt-16 relative z-10">
+
+          {/* Avatar — pulled up to straddle the cover bottom edge */}
+          <div className="relative flex-shrink-0">
+            <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-1 sm:p-1.5 shadow-2xl shadow-emerald-700/40 ring-[3px] ring-[#0F1419]">
+              <div className="w-full h-full rounded-xl overflow-hidden bg-[#2D3139]">
                 {heroAvatarUrl ? (
                   <img
                     src={heroAvatarUrl}
                     alt={`${heroDisplayName}'s avatar`}
                     className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-3xl sm:text-4xl md:text-5xl font-bold text-white/80 bg-gradient-to-br from-emerald-500 to-emerald-700">
+                  <div className="w-full h-full flex items-center justify-center text-2xl sm:text-3xl md:text-4xl font-bold text-white/80 bg-gradient-to-br from-emerald-500 to-emerald-700">
                     {profile.username.charAt(0).toUpperCase()}
                   </div>
                 )}
@@ -385,99 +420,90 @@ export default function UserProfile() {
             {isOwnProfile && (
               <button
                 onClick={() => setShowAvatarPicker(true)}
-                className="absolute -bottom-1 -right-1 sm:bottom-1 sm:right-1 w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/30 flex items-center justify-center transition-all border border-white/10"
+                className="absolute -bottom-1 -right-1 w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/30 flex items-center justify-center transition-all border border-white/10"
               >
-                <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
+                <Camera className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" />
               </button>
             )}
           </div>
 
-          {isOwnProfile && (
-            <button
-              onClick={() => navigate('/profile')}
-              className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-xl"
-            >
-              <span className="hidden sm:inline">Edit Profile</span>
-              <span className="sm:hidden">Edit</span>
-            </button>
-          )}
-        </div>
-
-        {/* Profile Info Bar — anchored to bottom of cover */}
-        <div className="absolute bottom-0 left-0 right-0 z-10">
-          <div className="max-w-[1400px] mx-auto px-4 sm:px-8">
-            <div className="pb-6 sm:pb-8">
-              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 sm:gap-8">
-                {/* Left: Name, Stats, Tabs — right padding reserves space for the avatar group */}
-                <div className="flex-1 min-w-0 pr-36 sm:pr-48 md:pr-56">
-                  <div className="mb-3 sm:mb-4">
-                    <h1 className="text-xl sm:text-2xl md:text-[32px] font-bold text-white tracking-tight truncate">
-                      {heroDisplayName}
-                    </h1>
-                    <p className="text-[#E8ECEF]/60 text-sm sm:text-base md:text-lg mt-0.5">
-                      @{profile.username}
-                    </p>
-                  </div>
-
-                  {/* Stats Row */}
-                  <div className="flex flex-wrap items-center gap-4 sm:gap-6 md:gap-8 mb-3 sm:mb-6">
-                    {[
-                      { label: 'Posts', value: stats.posts },
-                      { label: 'Characters', value: stats.characters },
-                      { label: 'Realms', value: stats.realms },
-                      { label: 'Followers', value: stats.followers },
-                    ].map((stat) => (
-                      <button
-                        key={stat.label}
-                        className="flex items-baseline gap-1 sm:gap-2 hover:opacity-80 transition-opacity"
-                      >
-                        <span className="text-base sm:text-lg md:text-xl font-semibold text-white tracking-tight">
-                          {stat.value.toLocaleString()}
-                        </span>
-                        <span className="text-[#E8ECEF]/60 text-xs sm:text-sm">
-                          {stat.label}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Tabs */}
-                  <div className="flex items-center gap-1">
-                    {tabs.map((tab) => (
-                      <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
-                          activeTab === tab.id
-                            ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
-                            : 'text-[#E8ECEF]/70 hover:text-white hover:bg-[#2D3139]/40'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
+          {/* Name, username, stats, action buttons */}
+          <div className="flex-1 min-w-0 pt-14 sm:pt-16 md:pt-[68px]">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-xl sm:text-2xl md:text-[28px] font-bold text-white tracking-tight truncate">
+                  {heroDisplayName}
+                </h1>
+                <p className="text-[#E8ECEF]/60 text-sm sm:text-base mt-0.5">
+                  @{profile.username}
+                </p>
+                {/* Stats inline below username */}
+                <div className="flex flex-wrap items-center gap-3 sm:gap-5 md:gap-7 mt-2 sm:mt-3">
+                  {[
+                    { label: 'Posts', value: stats.posts },
+                    { label: 'Characters', value: stats.characters },
+                    { label: 'Realms', value: stats.realms },
+                    { label: 'Followers', value: stats.followers },
+                  ].map((stat) => (
+                    <button
+                      key={stat.label}
+                      className="flex items-baseline gap-1 hover:opacity-80 transition-opacity"
+                    >
+                      <span className="text-sm sm:text-base font-semibold text-white tracking-tight">
+                        {stat.value.toLocaleString()}
+                      </span>
+                      <span className="text-[#E8ECEF]/60 text-xs sm:text-sm">{stat.label}</span>
+                    </button>
+                  ))}
                 </div>
+              </div>
 
-                {/* Right: Action Buttons (non-own profile only) */}
+              {/* Action buttons */}
+              <div className="flex items-center gap-2 flex-shrink-0 pt-1">
+                {isOwnProfile && (
+                  <button
+                    onClick={() => navigate('/profile')}
+                    className="bg-[#1A1D23] border border-[#2D3139] hover:border-[#E8ECEF]/20 text-[#E8ECEF]/80 hover:text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg flex items-center gap-2 text-sm transition-all"
+                  >
+                    <span className="hidden sm:inline">Edit Profile</span>
+                    <span className="sm:hidden">Edit</span>
+                  </button>
+                )}
                 {!isOwnProfile && (
-                  <div className="flex items-center gap-2 sm:gap-3 pb-0 sm:pb-2 flex-shrink-0">
-                    <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg">
+                  <>
+                    <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg">
                       <MessageCircle className="w-4 h-4" />
                       <span className="hidden sm:inline">Message</span>
                     </button>
-                    <button className="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white hover:from-emerald-400 hover:to-emerald-500 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-emerald-500/30 border border-white/10">
+                    <button className="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white hover:from-emerald-400 hover:to-emerald-500 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-emerald-500/30 border border-white/10">
                       <UserPlus className="w-4 h-4" />
                       Follow
                     </button>
-                    <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 p-2 sm:p-2.5 rounded-lg transition-all shadow-lg">
+                    <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 p-2 rounded-lg transition-all shadow-lg">
                       <Share2 className="w-4 h-4" />
                     </button>
-                  </div>
+                  </>
                 )}
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center gap-1 mt-5 sm:mt-6">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
+                activeTab === tab.id
+                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                  : 'text-[#E8ECEF]/70 hover:text-white hover:bg-[#2D3139]/40'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
