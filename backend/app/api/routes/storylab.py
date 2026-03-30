@@ -253,6 +253,7 @@ def _get_or_create_state(story_id: str, db: Session) -> StoryState:
 def get_state(
     story_id: str = Query(..., description="Story workspace identifier"),
     db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ) -> StoryLabStateResponse:
     """Return the current story state, creating a default row if none exists."""
     row = _get_or_create_state(story_id, db)
@@ -268,6 +269,7 @@ def get_state(
 def generate(
     req: StoryLabGenerateRequest,
     db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ) -> StoryLabGenerateResponse:
     """Generate a story continuation and persist updated state."""
     # ── input validation ──────────────────────────────────────────────────────
@@ -471,6 +473,7 @@ def _update_story_summary(
 def list_chapters(
     story_id: str = Query(..., description="Story workspace identifier"),
     db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ) -> list[ChapterListItem]:
     """Return all chapters for a story, ordered by chapter_number."""
     rows = (
@@ -487,6 +490,7 @@ def get_chapter(
     chapter_number: int,
     story_id: str = Query(..., description="Story workspace identifier"),
     db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ) -> ChapterDetail:
     """Return a specific chapter with suggestions derived from current state."""
     ch = (
@@ -582,6 +586,7 @@ def delete_chapter(
     chapter_number: int,
     story_id: str = Query(..., description="Story workspace identifier"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> None:
     """Delete a chapter. Gaps in chapter_number are preserved (no renumbering)."""
     ch = (
@@ -594,6 +599,11 @@ def delete_chapter(
     )
     if ch is None:
         raise HTTPException(status_code=404, detail="Chapter not found")
+    # Ownership check: only the chapter author or an admin may delete.
+    # ch.user_id may be empty for legacy rows (pre-auth); those are deletable by any authed user.
+    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    if ch.user_id and ch.user_id != str(current_user.id) and not is_admin:
+        raise HTTPException(status_code=403, detail="Not your chapter")
     db.delete(ch)
     db.commit()
 
