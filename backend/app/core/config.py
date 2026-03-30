@@ -121,6 +121,15 @@ class Settings(BaseSettings):
     # Set to False to collapse to Option 1 (OpenAI) only for production.
     IMAGE_GENERATOR_PROVIDER_TOGGLE: bool = True
 
+    # Closed-beta invite gate (B46)
+    # BETA_INVITE_REQUIRED: set True to require an invite code at registration.
+    #   Set False to open registration (e.g. after public launch).
+    # BETA_INVITE_CODES: comma-separated list of codes to seed at startup.
+    #   Each entry is either "CODE" (unlimited uses) or "CODE:N" (N max uses).
+    #   Existing codes are never modified; only missing ones are created.
+    #   Example: BETA_INVITE_CODES="FICBETA-LAUNCH:50,FICBETA-PRESS:10,FICBETA-DEV"
+    BETA_INVITE_REQUIRED: bool = True
+    BETA_INVITE_CODES: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -6,6 +6,7 @@ export default function Register() {
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
   const register = useAuthStore((state) => state.register);
   const navigate = useNavigate();
@@ -15,7 +16,7 @@ export default function Register() {
     setError('');
 
     try {
-      await register(email, username, password);
+      await register(email, username, password, inviteCode.trim().toUpperCase());
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
@@ -28,7 +29,7 @@ export default function Register() {
         <div className="flex flex-col items-center gap-4 mb-6">
           <img src="/brand/ficshon-mark-v1.png" alt="Ficshon" className="h-12 w-12 rounded-xl object-contain" />
           <h1 className="text-3xl font-semibold tracking-tight">Ficshon</h1>
-          <p className="text-gray-400">Join the roleplay community</p>
+          <p className="text-gray-400">Closed beta — invite required</p>
         </div>
 
         <div className="card">
@@ -41,6 +42,20 @@ export default function Register() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Invite Code</label>
+              <input
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                className="input font-mono tracking-widest uppercase"
+                placeholder="FICBETA-XXXX"
+                required
+                maxLength={100}
+                autoComplete="off"
+              />
+            </div>
+
             <div>
               <label className="block text-sm font-medium mb-2">Email</label>
               <input
@@ -77,7 +92,7 @@ export default function Register() {
             </div>
 
             <button type="submit" className="btn btn-primary w-full">
-              Register
+              Create Account
             </button>
           </form>
 

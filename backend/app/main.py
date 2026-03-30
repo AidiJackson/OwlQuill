@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
+from app.core.invite_seed import seed_invite_codes
 from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics
 
 
@@ -43,6 +44,10 @@ async def lifespan(app: FastAPI):
     ensure_commons_realm()
     try:
         ensure_starter_realms_and_posts()
+    except Exception:
+        pass  # logged inside; never crash startup
+    try:
+        seed_invite_codes()
     except Exception:
         pass  # logged inside; never crash startup
     yield

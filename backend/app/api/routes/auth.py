@@ -15,6 +15,7 @@ from app.core.dependencies import get_current_user
 from app.core.admin_seed import auto_join_commons
 from app.models.user import User as UserModel
 from app.models.password_reset_token import PasswordResetToken
+from app.models.invite_code import InviteCode
 from app.schemas.user import (
     UserCreate, User, Token, LoginRequest,
     ForgotPasswordRequest, ForgotPasswordResponse, ResetPasswordRequest,
@@ -35,8 +36,38 @@ def _hash_token(token: str) -> str:
 @router.post("/register", response_model=User, status_code=status.HTTP_201_CREATED)
 @limiter.limit(settings.RATE_LIMIT_AUTH)
 def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)) -> User:
-    """Register a new user."""
-    # Check if email exists
+    """Register a new user.
+
+    When BETA_INVITE_REQUIRED=True a valid, enabled, non-exhausted invite code
+    must be supplied.  The code's use_count is incremented atomically with the
+    user INSERT so no two registrations can consume the same last slot.
+    """
+    # ── Invite code gate ──────────────────────────────────────────────────────
+    invite: InviteCode | None = None
+    if settings.BETA_INVITE_REQUIRED:
+        raw_code = (user_data.invite_code or "").strip().upper()
+        if not raw_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An invite code is required to create an account during closed beta.",
+            )
+        invite = (
+            db.query(InviteCode)
+            .filter(InviteCode.code == raw_code, InviteCode.is_enabled.is_(True))
+            .first()
+        )
+        if invite is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired invite code.",
+            )
+        if invite.max_uses is not None and invite.use_count >= invite.max_uses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This invite code has reached its maximum number of uses.",
+            )
+
+    # ── Duplicate checks ──────────────────────────────────────────────────────
     existing_user = db.query(UserModel).filter(UserModel.email == user_data.email).first()
     if existing_user:
         raise HTTPException(
@@ -44,7 +75,6 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
             detail="Email already registered"
         )
 
-    # Check if username exists
     existing_user = db.query(UserModel).filter(UserModel.username == user_data.username).first()
     if existing_user:
         raise HTTPException(
@@ -52,7 +82,7 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
             detail="Username already taken"
         )
 
-    # Create new user
+    # ── Create user (+ increment invite use_count in same transaction) ────────
     db_user = UserModel(
         email=user_data.email,
         username=user_data.username,
@@ -60,6 +90,11 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
         display_name=user_data.display_name or user_data.username
     )
     db.add(db_user)
+
+    if invite is not None:
+        invite.use_count += 1
+        db.add(invite)
+
     db.commit()
     db.refresh(db_user)
 

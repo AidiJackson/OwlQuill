@@ -14,6 +14,7 @@ class UserCreate(UserBase):
     """User creation schema."""
     password: str = Field(..., min_length=8)
     display_name: Optional[str] = None
+    invite_code: Optional[str] = Field(default=None, max_length=100)
 
 
 class UserUpdate(BaseModel):
