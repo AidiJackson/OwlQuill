@@ -33,6 +33,10 @@ class Character(Base):
     cover_url = Column(String, nullable=True)       # Character cover/banner image
     cover_position_y = Column(Float, nullable=True, default=0.5)  # 0.0=top, 0.5=center, 1.0=bottom
     cover_position_x = Column(Float, nullable=True, default=0.5)  # 0.0=left, 0.5=center, 1.0=right
+    cover_scale = Column(Float, nullable=True, default=1.0)     # zoom factor, 1.0=no zoom
+    avatar_position_x = Column(Float, nullable=True, default=0.5)  # 0.0=left, 0.5=center, 1.0=right
+    avatar_position_y = Column(Float, nullable=True, default=0.5)  # 0.0=top, 0.5=center, 1.0=bottom
+    avatar_scale = Column(Float, nullable=True, default=1.0)     # zoom factor, 1.0=no zoom
     portrait_url = Column(String, nullable=True)  # Character portrait for RP sheets
     tags = Column(String, nullable=True)  # Stored as comma-separated for MVP
     visibility = Column(SQLEnum(VisibilityEnum), default=VisibilityEnum.PUBLIC, nullable=False)

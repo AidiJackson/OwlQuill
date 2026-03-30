@@ -30,6 +30,10 @@ export interface Character {
   cover_url?: string;
   cover_position_y?: number;
   cover_position_x?: number;
+  cover_scale?: number;
+  avatar_position_x?: number;
+  avatar_position_y?: number;
+  avatar_scale?: number;
   portrait_url?: string;
   tags?: string;
   visibility: 'public' | 'friends' | 'private';
@@ -46,6 +50,10 @@ export interface CharacterSearchResult {
   cover_url?: string;
   cover_position_y?: number;
   cover_position_x?: number;
+  cover_scale?: number;
+  avatar_position_x?: number;
+  avatar_position_y?: number;
+  avatar_scale?: number;
   short_bio?: string;
   species?: string;
   visibility?: 'public' | 'friends' | 'private';

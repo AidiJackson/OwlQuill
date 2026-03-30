@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { ficDebug } from '@/lib/ficDebug';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { PublicUserProfile, ProfileTimelineItem, CharacterSearchResult } from '@/lib/types';
@@ -69,7 +70,32 @@ export default function UserProfile() {
   const coverHeroRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { editPosXRef.current = editPosX; }, [editPosX]);
   useEffect(() => { editPosYRef.current = editPosY; }, [editPosY]);
-  useEffect(() => () => { editDragCleanup.current?.(); }, []);
+
+
+  // Avatar edit mode
+  const [avatarEditMode, setAvatarEditMode] = useState(false);
+  const [editAvatarX, setEditAvatarX] = useState(0.5);
+  const [editAvatarY, setEditAvatarY] = useState(0.5);
+  const [editAvatarScale, setEditAvatarScale] = useState(1.0);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarSaveError, setAvatarSaveError] = useState('');
+  const editAvatarXRef = useRef(0.5);
+  const editAvatarYRef = useRef(0.5);
+  const editAvatarScaleRef = useRef(1.0);
+  const avatarFrameRef = useRef<HTMLDivElement | null>(null);
+  const avatarDragCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => { editAvatarXRef.current = editAvatarX; }, [editAvatarX]);
+  useEffect(() => { editAvatarYRef.current = editAvatarY; }, [editAvatarY]);
+  useEffect(() => { editAvatarScaleRef.current = editAvatarScale; }, [editAvatarScale]);
+
+  useEffect(() => {
+    ficDebug.mount('UserProfile');
+    return () => {
+      editDragCleanup.current?.();
+      avatarDragCleanup.current?.();
+      ficDebug.unmount('UserProfile');
+    };
+  }, []);
 
   // Profile character selector (view-only, no global effect)
   const [selectedCharId, setSelectedCharId] = useState<number | null>(null);
@@ -95,7 +121,8 @@ export default function UserProfile() {
     }
   };
 
-  const enterCoverEdit = (char: { id: number; cover_url?: string | null; cover_position_x?: number | null; cover_position_y?: number | null }) => {
+  const enterCoverEdit = (char: { id: number; cover_url?: string | null; cover_position_x?: number | null; cover_position_y?: number | null; cover_scale?: number | null }) => {
+    ficDebug.modalOpen('UserProfile:coverEdit');
     setEditPosX(char.cover_position_x ?? 0.5);
     setEditPosY(char.cover_position_y ?? 0.5);
     setCoverSaveError('');
@@ -103,8 +130,49 @@ export default function UserProfile() {
   };
 
   const cancelCoverEdit = () => {
+    ficDebug.modalClose('UserProfile:coverEdit');
     editDragCleanup.current?.();
     setCoverEditMode(false);
+  };
+
+  const enterAvatarEdit = () => {
+    const char = editableChar;
+    if (!char) return;
+    setEditAvatarX(char.avatar_position_x ?? 0.5);
+    setEditAvatarY(char.avatar_position_y ?? 0.5);
+    setEditAvatarScale(char.avatar_scale ?? 1.0);
+    setAvatarSaveError('');
+    setAvatarEditMode(true);
+  };
+
+  const cancelAvatarEdit = () => {
+    avatarDragCleanup.current?.();
+    setAvatarEditMode(false);
+  };
+
+  const saveAvatarEdit = async () => {
+    if (!editableChar) return;
+    setAvatarSaving(true);
+    setAvatarSaveError('');
+    try {
+      await apiClient.updateCharacter(editableChar.id, {
+        avatar_position_x: editAvatarXRef.current,
+        avatar_position_y: editAvatarYRef.current,
+        avatar_scale: editAvatarScaleRef.current,
+      });
+      setCharacters((prev) =>
+        prev.map((c) =>
+          c.id === editableChar.id
+            ? { ...c, avatar_position_x: editAvatarXRef.current, avatar_position_y: editAvatarYRef.current, avatar_scale: editAvatarScaleRef.current }
+            : c
+        )
+      );
+      setAvatarEditMode(false);
+    } catch (err) {
+      setAvatarSaveError(err instanceof Error ? err.message : 'Failed to save.');
+    } finally {
+      setAvatarSaving(false);
+    }
   };
 
   const saveCoverEdit = async (charId: number) => {
@@ -112,14 +180,16 @@ export default function UserProfile() {
     setCoverSaveError('');
     try {
       await apiClient.updateCharacter(charId, {
-        cover_position_x: editPosX,
-        cover_position_y: editPosY,
+        cover_position_x: editPosXRef.current,
+        cover_position_y: editPosYRef.current,
+        cover_scale: 1.0,
       });
       setCharacters((prev) =>
         prev.map((c) =>
-          c.id === charId ? { ...c, cover_position_x: editPosX, cover_position_y: editPosY } : c
+          c.id === charId ? { ...c, cover_position_x: editPosXRef.current, cover_position_y: editPosYRef.current, cover_scale: 1.0 } : c
         )
       );
+      ficDebug.modalClose('UserProfile:coverEdit');
       setCoverEditMode(false);
     } catch (err) {
       setCoverSaveError(err instanceof Error ? err.message : 'Failed to save.');
@@ -130,12 +200,14 @@ export default function UserProfile() {
 
   const startCoverDrag = useCallback((clientX: number, clientY: number) => {
     editDragCleanup.current?.();
+    ficDebug.dragStart('UserProfile:coverDrag');
     editDragRef.current = {
       startX: clientX,
       startY: clientY,
       startPosX: editPosXRef.current,
       startPosY: editPosYRef.current,
     };
+    // object-position approach: drag right reveals left side of image (posX decreases)
     const applyMove = (x: number, y: number) => {
       if (!editDragRef.current || !coverHeroRef.current) return;
       const { offsetWidth: w, offsetHeight: h } = coverHeroRef.current;
@@ -147,19 +219,72 @@ export default function UserProfile() {
     const onMouseMove = (ev: MouseEvent) => applyMove(ev.clientX, ev.clientY);
     const onTouchMove = (ev: TouchEvent) => { ev.preventDefault(); applyMove(ev.touches[0].clientX, ev.touches[0].clientY); };
     const onEnd = () => {
+      ficDebug.dragEnd('UserProfile:coverDrag');
       editDragRef.current = null;
       editDragCleanup.current = null;
+      ficDebug.listenerRemove('UserProfile:mousemove');
+      ficDebug.listenerRemove('UserProfile:mouseup');
+      ficDebug.listenerRemove('UserProfile:touchmove');
+      ficDebug.listenerRemove('UserProfile:touchend');
+      ficDebug.listenerRemove('UserProfile:touchcancel');
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onEnd);
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onEnd);
+      window.removeEventListener('touchcancel', onEnd);
     };
     editDragCleanup.current = onEnd;
+    ficDebug.listenerAttach('UserProfile:mousemove');
+    ficDebug.listenerAttach('UserProfile:mouseup');
+    ficDebug.listenerAttach('UserProfile:touchmove');
+    ficDebug.listenerAttach('UserProfile:touchend');
+    ficDebug.listenerAttach('UserProfile:touchcancel');
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onEnd);
     window.addEventListener('touchmove', onTouchMove, { passive: false });
     window.addEventListener('touchend', onEnd);
+    window.addEventListener('touchcancel', onEnd);
   }, []);
+
+  const startAvatarDrag = useCallback((clientX: number, clientY: number) => {
+    avatarDragCleanup.current?.();
+    const currentScale = editAvatarScaleRef.current;
+    if (currentScale <= 1.001) return;
+    const startState = { startX: clientX, startY: clientY, startPosX: editAvatarXRef.current, startPosY: editAvatarYRef.current };
+    const applyMove = (x: number, y: number) => {
+      if (!avatarFrameRef.current) return;
+      const { offsetWidth: w, offsetHeight: h } = avatarFrameRef.current;
+      const s = editAvatarScaleRef.current;
+      if (s <= 1.001) return;
+      const dx = (x - startState.startX) / w;
+      const dy = (y - startState.startY) / h;
+      const dposX = -dx * s / (s - 1);
+      const dposY = -dy * s / (s - 1);
+      setEditAvatarX(Math.min(1, Math.max(0, startState.startPosX + dposX)));
+      setEditAvatarY(Math.min(1, Math.max(0, startState.startPosY + dposY)));
+    };
+    const onMouseMove = (ev: MouseEvent) => applyMove(ev.clientX, ev.clientY);
+    const onTouchMove = (ev: TouchEvent) => { ev.preventDefault(); applyMove(ev.touches[0].clientX, ev.touches[0].clientY); };
+    const onEnd = () => {
+      avatarDragCleanup.current = null;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onEnd);
+      window.removeEventListener('touchcancel', onEnd);
+    };
+    avatarDragCleanup.current = onEnd;
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+    window.addEventListener('touchcancel', onEnd);
+  }, []);
+
+  useEffect(() => {
+    if (showAvatarPicker) ficDebug.modalOpen('UserProfile:avatarPicker');
+    else ficDebug.modalClose('UserProfile:avatarPicker');
+  }, [showAvatarPicker]);
 
   useEffect(() => {
     setSelectedCharId(null);
@@ -213,18 +338,23 @@ export default function UserProfile() {
   const activeChar = characters.find((c) => c.id === selectedCharId) ?? null;
   const heroDisplayName = activeChar ? activeChar.name : displayName;
   const heroAvatarUrl = activeChar?.avatar_url ?? profile.avatar_url ?? null;
-  const heroCoverUrl = activeChar?.cover_url ?? profile.cover_url ?? null;
-  const heroCoverPositionY = activeChar?.cover_position_y ?? 0.5;
-  const isMobile = window.innerWidth < 768;
-  const heroCoverPositionX = activeChar?.cover_position_x ?? (isMobile ? 0.2 : 0.5);
-  const heroBio = activeChar ? (activeChar.short_bio ?? null) : (profile.bio ?? null);
 
   // Character whose cover can be repositioned inline (own profile only)
+  // Must be declared before heroCover* so position falls through correctly
   const editableChar = activeChar ?? (characters.length === 1 && characters[0].cover_url ? characters[0] : null);
   const canEditCoverInline = isOwnProfile && !!editableChar;
 
-  // What the hero actually renders — switches to edit-mode values while dragging
-  const displayCoverUrl = coverEditMode ? (editableChar?.cover_url ?? null) : heroCoverUrl;
+  // Use editableChar as the cover source when no explicit character is selected,
+  // so position reads/writes are consistent with what the reposition feature saves.
+  const heroCoverChar = activeChar ?? editableChar;
+  const heroCoverUrl = heroCoverChar?.cover_url ?? profile.cover_url ?? null;
+  const heroCoverPositionY = heroCoverChar?.cover_position_y ?? 0.5;
+  const isMobile = window.innerWidth < 768;
+  const heroCoverPositionX = heroCoverChar?.cover_position_x ?? (isMobile ? 0.2 : 0.5);
+  const heroBio = activeChar ? (activeChar.short_bio ?? null) : (profile.bio ?? null);
+
+  // What the hero actually renders — stays on same cover URL in/out of edit mode
+  const displayCoverUrl = heroCoverUrl;
   const displayPosX = coverEditMode ? editPosX : heroCoverPositionX;
   const displayPosY = coverEditMode ? editPosY : heroCoverPositionY;
 
@@ -251,41 +381,27 @@ export default function UserProfile() {
   return (
     <div className="min-h-screen bg-[#0F1419]">
       {/* === HERO SECTION — constrained width, Facebook-style === */}
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-8 pt-4 sm:pt-6">
+      <div className="max-w-[1000px] mx-auto px-4 sm:px-8 pt-4 sm:pt-6">
 
         {/* Cover band — rounded, not full-bleed */}
         <div
           ref={coverHeroRef}
-          className="relative h-[200px] sm:h-[240px] md:h-[280px] rounded-2xl overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500"
+          className="relative h-[260px] sm:h-[320px] md:h-[360px] rounded-2xl overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500"
           style={coverEditMode ? { cursor: 'grab', touchAction: 'none', userSelect: 'none' } : undefined}
           onMouseDown={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.clientX, e.clientY); } : undefined}
           onTouchStart={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.touches[0].clientX, e.touches[0].clientY); } : undefined}
         >
-          {/* Edit-mode top bar: drag hint + save/cancel */}
+          {/* Edit-mode overlay: drag hint only */}
           {coverEditMode && (
-            <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3 bg-[#0F1419]/75 backdrop-blur-sm pointer-events-none">
-              <span className="text-sm text-white/70 select-none">Drag to reposition</span>
-              <div className="flex items-center gap-2 pointer-events-auto">
-                {coverSaveError && <span className="text-xs text-red-400">{coverSaveError}</span>}
-                <button
-                  onClick={cancelCoverEdit}
-                  disabled={coverSaving}
-                  className="px-3 py-1.5 text-sm text-white/70 hover:text-white transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => editableChar && saveCoverEdit(editableChar.id)}
-                  disabled={coverSaving}
-                  className="px-4 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors disabled:opacity-50 font-medium"
-                >
-                  {coverSaving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
+            <div className="absolute inset-0 z-20 pointer-events-none flex items-start justify-center pt-3">
+              <span className="text-sm text-white/70 select-none font-medium bg-[#0F1419]/60 backdrop-blur-sm rounded-xl px-4 py-2">
+                Drag to reposition
+              </span>
             </div>
           )}
 
-          {/* Cover image (if set) */}
+          {/* Cover image (if set) — scale+translate transform pans within the container.
+               At scale=1 this is identity. At scale>1, translate ranges guarantee no empty edges. */}
           {displayCoverUrl && (
             <img
               src={displayCoverUrl}
@@ -314,7 +430,7 @@ export default function UserProfile() {
             <div className="absolute bottom-3 right-3 z-20">
               <button
                 onClick={() => setShowCoverMenu((v) => !v)}
-                className="bg-[#0F1419]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#1A1D23]/80 hover:border-[#E8ECEF]/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs sm:text-sm transition-all shadow-lg"
+                className="bg-[#0F1419]/80 md:bg-[#0F1419]/60 md:backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#1A1D23]/80 hover:border-[#E8ECEF]/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs sm:text-sm transition-all shadow-lg"
               >
                 <Camera className="w-3.5 h-3.5" />
                 <span>Cover</span>
@@ -326,7 +442,7 @@ export default function UserProfile() {
                   <div className="fixed inset-0 z-40" onClick={() => setShowCoverMenu(false)} />
                   <div className="absolute bottom-full right-0 mb-2 z-50 bg-[#1A1D23] border border-[#2D3139] rounded-xl shadow-2xl shadow-black/60 py-1.5 min-w-[180px]">
                     <Link
-                      to="/images?tab=covers"
+                      to="/images"
                       onClick={() => setShowCoverMenu(false)}
                       className="flex items-center gap-3 px-4 py-2.5 text-sm text-[#E8ECEF]/80 hover:text-white hover:bg-[#252930] transition-colors"
                     >
@@ -397,17 +513,32 @@ export default function UserProfile() {
         </div>
 
         {/* Identity row — avatar overlaps the cover's lower edge */}
-        <div className="flex items-start gap-4 sm:gap-5 -mt-12 sm:-mt-14 md:-mt-16 relative z-10">
+        <div className="flex items-start gap-4 sm:gap-5 -mt-4 sm:-mt-5 md:-mt-6 relative z-10">
 
           {/* Avatar — pulled up to straddle the cover bottom edge */}
           <div className="relative flex-shrink-0">
-            <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-1 sm:p-1.5 shadow-2xl shadow-emerald-700/40 ring-[3px] ring-[#0F1419]">
-              <div className="w-full h-full rounded-xl overflow-hidden bg-[#2D3139]">
+            <div
+              ref={avatarFrameRef}
+              className="w-32 h-32 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-1 sm:p-1.5 shadow-2xl shadow-emerald-700/40 ring-[3px] ring-[#0F1419]"
+              style={avatarEditMode ? { cursor: 'grab', touchAction: 'none', userSelect: 'none' } : undefined}
+              onMouseDown={avatarEditMode ? (e) => { e.preventDefault(); startAvatarDrag(e.clientX, e.clientY); } : undefined}
+              onTouchStart={avatarEditMode ? (e) => { e.preventDefault(); startAvatarDrag(e.touches[0].clientX, e.touches[0].clientY); } : undefined}
+            >
+              <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#2D3139]">
                 {heroAvatarUrl ? (
                   <img
                     src={heroAvatarUrl}
                     alt={`${heroDisplayName}'s avatar`}
-                    className="w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                    style={{
+                      transformOrigin: 'center center',
+                      transform: (() => {
+                        const s = avatarEditMode ? editAvatarScale : (heroCoverChar?.avatar_scale ?? 1.0);
+                        const px = avatarEditMode ? editAvatarX : (heroCoverChar?.avatar_position_x ?? 0.5);
+                        const py = avatarEditMode ? editAvatarY : (heroCoverChar?.avatar_position_y ?? 0.5);
+                        return `scale(${s}) translate(${(0.5 - px) * (s - 1) / s * 100}%, ${(0.5 - py) * (s - 1) / s * 100}%)`;
+                      })(),
+                    }}
                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                   />
                 ) : (
@@ -417,18 +548,27 @@ export default function UserProfile() {
                 )}
               </div>
             </div>
-            {isOwnProfile && (
+            {isOwnProfile && !avatarEditMode && (
               <button
                 onClick={() => setShowAvatarPicker(true)}
-                className="absolute -bottom-1 -right-1 w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/30 flex items-center justify-center transition-all border border-white/10"
+                className="absolute -bottom-1 -right-1 w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-500 hover:bg-emerald-400 shadow-lg shadow-emerald-500/30 flex items-center justify-center transition-all border border-white/10"
               >
-                <Camera className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white" />
+                <Camera className="w-3.5 h-3.5 text-white" />
+              </button>
+            )}
+            {isOwnProfile && heroAvatarUrl && !avatarEditMode && (
+              <button
+                onClick={enterAvatarEdit}
+                title="Reposition avatar"
+                className="absolute -bottom-1 -left-1 w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#1A1D23] hover:bg-[#252930] border border-[#2D3139] hover:border-emerald-500/40 shadow-lg flex items-center justify-center transition-all"
+              >
+                <Move className="w-3.5 h-3.5 text-[#E8ECEF]/60" />
               </button>
             )}
           </div>
 
           {/* Name, username, stats, action buttons */}
-          <div className="flex-1 min-w-0 pt-14 sm:pt-16 md:pt-[68px]">
+          <div className="flex-1 min-w-0 pt-12 sm:pt-14 md:pt-16">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0 flex-1">
                 <h1 className="text-xl sm:text-2xl md:text-[28px] font-bold text-white tracking-tight truncate">
@@ -471,7 +611,7 @@ export default function UserProfile() {
                 )}
                 {!isOwnProfile && (
                   <>
-                    <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg">
+                    <button className="bg-[#1A1D23]/80 md:bg-[#1A1D23]/60 md:backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg">
                       <MessageCircle className="w-4 h-4" />
                       <span className="hidden sm:inline">Message</span>
                     </button>
@@ -479,7 +619,7 @@ export default function UserProfile() {
                       <UserPlus className="w-4 h-4" />
                       Follow
                     </button>
-                    <button className="bg-[#1A1D23]/60 backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 p-2 rounded-lg transition-all shadow-lg">
+                    <button className="bg-[#1A1D23]/80 md:bg-[#1A1D23]/60 md:backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 p-2 rounded-lg transition-all shadow-lg">
                       <Share2 className="w-4 h-4" />
                     </button>
                   </>
@@ -509,7 +649,7 @@ export default function UserProfile() {
 
       {/* === CONTENT AREA === */}
       <div className="bg-[#0F1419]">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-8 py-8 sm:py-12">
+        <div className="max-w-[1000px] mx-auto px-4 sm:px-8 py-8 sm:py-12">
           {/* Character Selector — shown for profiles with multiple characters */}
           {characters.length > 1 && (
             <div className="flex items-center gap-3 mb-6">
@@ -695,6 +835,8 @@ export default function UserProfile() {
                               src={ch.avatar_url}
                               alt={ch.name}
                               className="w-14 h-14 rounded-xl object-cover border border-[#2D3139] flex-shrink-0 group-hover:border-emerald-500/30 transition-colors"
+                              loading="lazy"
+                              decoding="async"
                             />
                           ) : (
                             <div className="w-14 h-14 rounded-xl bg-[#2D3139] border border-[#3D4149] flex items-center justify-center flex-shrink-0">
@@ -760,6 +902,65 @@ export default function UserProfile() {
           </div>
         </div>
       </div>
+
+      {/* Fixed reposition bar — renders outside the cover div so it's always visible regardless of scroll */}
+      {coverEditMode && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0F1419]/95 backdrop-blur-md border-t border-[#2D3139] px-4 py-3 flex items-center justify-between">
+          <span className="text-sm text-[#E8ECEF]/60 hidden sm:block">Cover reposition</span>
+          <div className="flex items-center gap-2 ml-auto">
+            {coverSaveError && <span className="text-xs text-red-400 mr-1">{coverSaveError}</span>}
+            <button
+              onClick={cancelCoverEdit}
+              disabled={coverSaving}
+              className="px-4 py-2 text-sm text-[#E8ECEF]/70 hover:text-white border border-[#2D3139] hover:border-[#E8ECEF]/20 rounded-lg transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => editableChar && saveCoverEdit(editableChar.id)}
+              disabled={coverSaving || !editableChar}
+              className="px-5 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors disabled:opacity-50 font-medium"
+            >
+              {coverSaving ? 'Saving…' : 'Save position'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fixed avatar reposition bar */}
+      {avatarEditMode && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0F1419]/95 backdrop-blur-md border-t border-[#2D3139] px-4 py-3">
+          <div className="flex items-center justify-between max-w-[1000px] mx-auto">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-[#E8ECEF]/60 hidden sm:block">Avatar reposition</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[#E8ECEF]/50">Zoom</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="3"
+                  step="0.01"
+                  value={editAvatarScale}
+                  onChange={(e) => setEditAvatarScale(parseFloat(e.target.value))}
+                  className="w-28 sm:w-36 accent-emerald-500"
+                />
+                <span className="text-xs text-[#E8ECEF]/50 w-8">{editAvatarScale.toFixed(1)}×</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {avatarSaveError && <span className="text-xs text-red-400 mr-1">{avatarSaveError}</span>}
+              <button onClick={cancelAvatarEdit} disabled={avatarSaving}
+                className="px-4 py-2 text-sm text-[#E8ECEF]/70 hover:text-white border border-[#2D3139] hover:border-[#E8ECEF]/20 rounded-lg transition-colors disabled:opacity-50">
+                Cancel
+              </button>
+              <button onClick={saveAvatarEdit} disabled={avatarSaving}
+                className="px-5 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors disabled:opacity-50 font-medium">
+                {avatarSaving ? 'Saving…' : 'Save position'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <AvatarPickerModal
         open={showAvatarPicker}
@@ -906,6 +1107,8 @@ function TimelineItemCard({
           src={post.image_url}
           alt={post.title || 'Post image'}
           className="mt-3 rounded-lg max-h-96 object-contain"
+          loading="lazy"
+          decoding="async"
         />
       )}
 

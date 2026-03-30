@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage } from '@/lib/types';
+import { ficDebug } from '@/lib/ficDebug';
 
 interface Props {
   open: boolean;
@@ -17,7 +18,13 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
   const [picked, setPicked] = useState<number | undefined>(selectedId);
 
   useEffect(() => {
+    if (open) ficDebug.modalOpen('AttachImageModal');
+    else ficDebug.modalClose('AttachImageModal');
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
+    ficDebug.log('AttachImageModal: fetching images');
     setPicked(selectedId);
     setLoading(true);
     setError('');

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { ficDebug } from '@/lib/ficDebug';
 import { Image, X } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
@@ -32,6 +33,10 @@ export default function Home() {
   const [showPostSuccessNudge, setShowPostSuccessNudge] = useState(false);
 
   const [showImageModal, setShowImageModal] = useState(false);
+  useEffect(() => {
+    if (showImageModal) ficDebug.modalOpen('Home:attachImageModal');
+    else ficDebug.modalClose('Home:attachImageModal');
+  }, [showImageModal]);
   const [attachedImage, setAttachedImage] = useState<LibraryImage | null>(null);
 
   // Workspace paste hint — read synchronously to avoid flicker
@@ -73,6 +78,12 @@ export default function Home() {
   useEffect(() => {
     if (characters.length === 1) setComposerCharId(characters[0].id);
   }, [characters]);
+
+  // Dev diagnostics: mount/unmount tracking.
+  useEffect(() => {
+    ficDebug.mount('Home');
+    return () => ficDebug.unmount('Home');
+  }, []);
 
   // Clean up the auto-hide timer if the component unmounts mid-countdown.
   useEffect(() => () => { if (postSuccessTimerRef.current) clearTimeout(postSuccessTimerRef.current); }, []);
@@ -532,6 +543,8 @@ export default function Home() {
                     src={post.image_url}
                     alt={post.title || 'Post image'}
                     className="mt-3 rounded-lg max-h-96 object-contain"
+                    loading="lazy"
+                    decoding="async"
                   />
                 )}
 

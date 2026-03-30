@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage, UserImageRead } from '@/lib/types';
+import { ficDebug } from '@/lib/ficDebug';
 
 type ImageItem = {
   id: number;
@@ -26,7 +27,13 @@ export default function AvatarPickerModal({ open, onClose, onSaved, characterId 
   const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
+    if (open) ficDebug.modalOpen('AvatarPickerModal');
+    else ficDebug.modalClose('AvatarPickerModal');
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
+    ficDebug.log('AvatarPickerModal: fetching images');
     setPicked(null);
     setSaveError('');
     setLoading(true);

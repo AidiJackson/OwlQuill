@@ -1,46 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Image, X, Check, Trash2, Flag } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage, Character } from '@/lib/types';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
+import { ficDebug } from '@/lib/ficDebug';
 
-type Tab = 'characters' | 'covers';
+type LbMode = 'view' | 'coverEdit' | 'avatarEdit';
 
 export default function Images() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<Tab>(
-    searchParams.get('tab') === 'covers' ? 'covers' : 'characters'
-  );
 
-  const [charImages, setCharImages] = useState<LibraryImage[]>([]);
-  const [charLoading, setCharLoading] = useState(true);
-  const [charError, setCharError] = useState('');
-
-  // Character cover assignment state (Covers tab lightbox)
-  const [lightboxCoverCharImage, setLightboxCoverCharImage] = useState<LibraryImage | null>(null);
-  const [assignCharId, setAssignCharId] = useState<number | null>(null);
-  const [assigningCover, setAssigningCover] = useState(false);
-  const [assignCoverDone, setAssignCoverDone] = useState(false);
-  const [assignCoverErr, setAssignCoverErr] = useState('');
-
-  // Cover position drag state
-  const [coverPositionY, setCoverPositionY] = useState(0.5);
-  const coverPositionYRef = useRef(0.5);
-  useEffect(() => { coverPositionYRef.current = coverPositionY; }, [coverPositionY]);
-  const [coverPositionX, setCoverPositionX] = useState(0.5);
-  const coverPositionXRef = useRef(0.5);
-  useEffect(() => { coverPositionXRef.current = coverPositionX; }, [coverPositionX]);
-  const dragStateRef = useRef<{ startX: number; startY: number; startPositionX: number; startPositionY: number } | null>(null);
-  const activeDragCleanup = useRef<(() => void) | null>(null);
-  const previewContainerRef = useRef<HTMLDivElement | null>(null);
-
-  // The user's characters for the generator selector
+  // Library
+  const [images, setImages] = useState<LibraryImage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [myCharacters, setMyCharacters] = useState<Character[]>([]);
 
-  // Weekly image allowance (B22/B23)
   type QuotaStatus = {
     used: number;
     limit: number | null;
@@ -50,14 +27,38 @@ export default function Images() {
   };
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
 
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  // Lightbox
+  const [lightboxImage, setLightboxImage] = useState<LibraryImage | null>(null);
   const [lbVisible, setLbVisible] = useState(false);
-  const [lightboxCoverId, setLightboxCoverId] = useState<number | null>(null);
-  // Full image object when a character image is opened in the lightbox
-  const [lightboxCharImage, setLightboxCharImage] = useState<LibraryImage | null>(null);
-  const [applyingCover, setApplyingCover] = useState(false);
-  const [applyCoverDone, setApplyCoverDone] = useState(false);
-  const [applyCoverErr, setApplyCoverErr] = useState('');
+  const [lbMode, setLbMode] = useState<LbMode>('view');
+
+  // Character assignment selector
+  const [assignCharId, setAssignCharId] = useState<number | null>(null);
+
+  // Cover editor (drag-to-position only, no zoom)
+  const [coverPosX, setCoverPosX] = useState(0.5);
+  const [coverPosY, setCoverPosY] = useState(0.5);
+  const coverPosXRef = useRef(0.5);
+  const coverPosYRef = useRef(0.5);
+  useEffect(() => { coverPosXRef.current = coverPosX; }, [coverPosX]);
+  useEffect(() => { coverPosYRef.current = coverPosY; }, [coverPosY]);
+  const [coverSaving, setCoverSaving] = useState(false);
+  const [coverSaveErr, setCoverSaveErr] = useState('');
+  const [coverSaveDone, setCoverSaveDone] = useState(false);
+
+  // Avatar editor (drag + zoom)
+  const [avatarPosX, setAvatarPosX] = useState(0.5);
+  const [avatarPosY, setAvatarPosY] = useState(0.5);
+  const [avatarScale, setAvatarScale] = useState(1.0);
+  const avatarPosXRef = useRef(0.5);
+  const avatarPosYRef = useRef(0.5);
+  const avatarScaleRef = useRef(1.0);
+  useEffect(() => { avatarPosXRef.current = avatarPosX; }, [avatarPosX]);
+  useEffect(() => { avatarPosYRef.current = avatarPosY; }, [avatarPosY]);
+  useEffect(() => { avatarScaleRef.current = avatarScale; }, [avatarScale]);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarSaveErr, setAvatarSaveErr] = useState('');
+  const [avatarSaveDone, setAvatarSaveDone] = useState(false);
 
   // Delete state
   const [deletingImage, setDeletingImage] = useState(false);
@@ -69,31 +70,44 @@ export default function Images() {
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState('');
 
+  // Refs
   const mountedRef = useRef(true);
+  const lbCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragStateRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
+  const activeDragCleanup = useRef<(() => void) | null>(null);
+  const coverFrameRef = useRef<HTMLDivElement | null>(null);
+  const avatarFrameRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    ficDebug.mount('Images');
+    return () => {
+      mountedRef.current = false;
+      activeDragCleanup.current?.();
+      if (lbCloseTimerRef.current) {
+        clearTimeout(lbCloseTimerRef.current);
+        lbCloseTimerRef.current = null;
+      }
+      ficDebug.unmount('Images');
+    };
   }, []);
 
-  // Drives enter/exit transitions for the lightbox.
+  // Lightbox visibility transition
   useEffect(() => {
-    if (!lightboxUrl) { setLbVisible(false); return; }
+    if (!lightboxImage) { setLbVisible(false); return; }
     const id = requestAnimationFrame(() => { if (mountedRef.current) setLbVisible(true); });
     return () => cancelAnimationFrame(id);
-  }, [lightboxUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lightboxImage]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openLightbox = (url: string, coverId?: number, charImage?: LibraryImage, coverCharImage?: LibraryImage) => {
-    setLightboxUrl(url);
-    setLightboxCoverId(coverId ?? null);
-    setLightboxCharImage(charImage ?? null);
-    setLightboxCoverCharImage(coverCharImage ?? null);
-    setAssignCharId(myCharacters.length === 1 ? myCharacters[0].id : null);
-    setCoverPositionY(0.5);
-    setCoverPositionX(0.5);
-    setApplyCoverDone(false);
-    setApplyCoverErr('');
-    setAssignCoverDone(false);
-    setAssignCoverErr('');
+  const openLightbox = (image: LibraryImage) => {
+    if (lbCloseTimerRef.current) {
+      clearTimeout(lbCloseTimerRef.current);
+      lbCloseTimerRef.current = null;
+      ficDebug.log('Images:lightbox — cancelled stale close timer on re-open');
+    }
+    ficDebug.modalOpen('Images:lightbox');
+    setLightboxImage(image);
+    setLbMode('view');
     setDeleteError('');
     setReportStep('idle');
     setReportReason('');
@@ -101,18 +115,20 @@ export default function Images() {
   };
 
   const closeLightbox = () => {
+    ficDebug.modalClose('Images:lightbox');
+    activeDragCleanup.current?.();
     setLbVisible(false);
-    setTimeout(() => {
+    if (lbCloseTimerRef.current) clearTimeout(lbCloseTimerRef.current);
+    lbCloseTimerRef.current = setTimeout(() => {
+      lbCloseTimerRef.current = null;
       if (!mountedRef.current) return;
-      setLightboxUrl(null);
-      setLightboxCoverId(null);
-      setLightboxCharImage(null);
-      setLightboxCoverCharImage(null);
+      setLightboxImage(null);
+      setLbMode('view');
       setAssignCharId(null);
-      setApplyCoverDone(false);
-      setApplyCoverErr('');
-      setAssignCoverDone(false);
-      setAssignCoverErr('');
+      setCoverSaveErr('');
+      setCoverSaveDone(false);
+      setAvatarSaveErr('');
+      setAvatarSaveDone(false);
       setDeleteError('');
       setReportStep('idle');
       setReportReason('');
@@ -120,36 +136,95 @@ export default function Images() {
     }, 200);
   };
 
-  // Clean up any active drag listeners when the component unmounts
-  useEffect(() => () => { activeDragCleanup.current?.(); }, []);
+  const enterCoverEdit = () => {
+    const charId = lightboxImage?.character_id != null
+      ? lightboxImage.character_id
+      : (myCharacters[0]?.id ?? null);
+    setAssignCharId(charId);
+    setCoverPosX(0.5);
+    setCoverPosY(0.5);
+    setCoverSaveErr('');
+    setCoverSaveDone(false);
+    setLbMode('coverEdit');
+  };
 
-  const startDrag = useCallback((clientX: number, clientY: number) => {
-    // Remove any lingering listeners from a prior interrupted drag
+  const enterAvatarEdit = () => {
+    const charId = lightboxImage?.character_id != null
+      ? lightboxImage.character_id
+      : (myCharacters[0]?.id ?? null);
+    setAssignCharId(charId);
+    setAvatarPosX(0.5);
+    setAvatarPosY(0.5);
+    setAvatarScale(1.0);
+    setAvatarSaveErr('');
+    setAvatarSaveDone(false);
+    setLbMode('avatarEdit');
+  };
+
+  // Cover drag — object-position approach, works at scale=1 (no zoom)
+  const startCoverDrag = useCallback((clientX: number, clientY: number) => {
     activeDragCleanup.current?.();
-
+    ficDebug.dragStart('Images:coverDrag');
     dragStateRef.current = {
       startX: clientX,
       startY: clientY,
-      startPositionX: coverPositionXRef.current,
-      startPositionY: coverPositionYRef.current,
+      startPosX: coverPosXRef.current,
+      startPosY: coverPosYRef.current,
     };
-
     const applyMove = (x: number, y: number) => {
-      if (!dragStateRef.current || !previewContainerRef.current) return;
-      const { offsetWidth: containerW, offsetHeight: containerH } = previewContainerRef.current;
-      const deltaX = (x - dragStateRef.current.startX) / containerW;
-      const deltaY = (y - dragStateRef.current.startY) / containerH;
-      setCoverPositionX(Math.min(1, Math.max(0, dragStateRef.current.startPositionX - deltaX)));
-      setCoverPositionY(Math.min(1, Math.max(0, dragStateRef.current.startPositionY - deltaY)));
+      const container = coverFrameRef.current;
+      if (!dragStateRef.current || !container) return;
+      const dx = (x - dragStateRef.current.startX) / container.offsetWidth;
+      const dy = (y - dragStateRef.current.startY) / container.offsetHeight;
+      setCoverPosX(Math.min(1, Math.max(0, dragStateRef.current.startPosX - dx)));
+      setCoverPosY(Math.min(1, Math.max(0, dragStateRef.current.startPosY - dy)));
     };
-
     const onMouseMove = (ev: MouseEvent) => applyMove(ev.clientX, ev.clientY);
-
-    const onTouchMove = (ev: TouchEvent) => {
-      ev.preventDefault(); // prevent scroll during cover drag
-      applyMove(ev.touches[0].clientX, ev.touches[0].clientY);
+    const onTouchMove = (ev: TouchEvent) => { ev.preventDefault(); applyMove(ev.touches[0].clientX, ev.touches[0].clientY); };
+    const onEnd = () => {
+      ficDebug.dragEnd('Images:coverDrag');
+      dragStateRef.current = null;
+      activeDragCleanup.current = null;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onEnd);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onEnd);
+      window.removeEventListener('touchcancel', onEnd);
     };
+    activeDragCleanup.current = onEnd;
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+    window.addEventListener('touchcancel', onEnd);
+  }, []);
 
+  // Avatar drag — scale+translate approach, requires zoom > 1 to pan
+  const startAvatarDrag = useCallback((clientX: number, clientY: number) => {
+    activeDragCleanup.current?.();
+    const s = avatarScaleRef.current;
+    if (s <= 1.001) return;
+    dragStateRef.current = {
+      startX: clientX,
+      startY: clientY,
+      startPosX: avatarPosXRef.current,
+      startPosY: avatarPosYRef.current,
+    };
+    const applyMove = (x: number, y: number) => {
+      const container = avatarFrameRef.current;
+      if (!dragStateRef.current || !container) return;
+      const sc = avatarScaleRef.current;
+      if (sc <= 1.001) return;
+      const { offsetWidth: w, offsetHeight: h } = container;
+      const dx = (x - dragStateRef.current.startX) / w;
+      const dy = (y - dragStateRef.current.startY) / h;
+      const dposX = -dx * sc / (sc - 1);
+      const dposY = -dy * sc / (sc - 1);
+      setAvatarPosX(Math.min(1, Math.max(0, dragStateRef.current.startPosX + dposX)));
+      setAvatarPosY(Math.min(1, Math.max(0, dragStateRef.current.startPosY + dposY)));
+    };
+    const onMouseMove = (ev: MouseEvent) => applyMove(ev.clientX, ev.clientY);
+    const onTouchMove = (ev: TouchEvent) => { ev.preventDefault(); applyMove(ev.touches[0].clientX, ev.touches[0].clientY); };
     const onEnd = () => {
       dragStateRef.current = null;
       activeDragCleanup.current = null;
@@ -157,57 +232,64 @@ export default function Images() {
       window.removeEventListener('mouseup', onEnd);
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onEnd);
+      window.removeEventListener('touchcancel', onEnd);
     };
-
     activeDragCleanup.current = onEnd;
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onEnd);
     window.addEventListener('touchmove', onTouchMove, { passive: false });
     window.addEventListener('touchend', onEnd);
-  }, []); // no dependency on position state — reads via refs
+    window.addEventListener('touchcancel', onEnd);
+  }, []);
 
-  const handleSetCover = async () => {
-    if (!lightboxCoverId) return;
-    setApplyingCover(true);
-    setApplyCoverErr('');
+  const handleSaveCover = async () => {
+    if (!lightboxImage || assignCharId === null) return;
+    setCoverSaving(true);
+    setCoverSaveErr('');
     try {
-      await apiClient.setMyProfileCover(lightboxCoverId);
+      await apiClient.setCharacterCover(assignCharId, 'character', lightboxImage.id, coverPosYRef.current, coverPosXRef.current);
+      await apiClient.updateCharacter(assignCharId, { cover_scale: 1.0 });
       if (!mountedRef.current) return;
-      setApplyCoverDone(true);
-      setTimeout(() => { if (mountedRef.current) setApplyCoverDone(false); }, 2000);
+      setCoverSaveDone(true);
+      setTimeout(() => { if (mountedRef.current) closeLightbox(); }, 1200);
     } catch (err) {
       if (!mountedRef.current) return;
-      setApplyCoverErr(err instanceof Error ? err.message : 'Failed to set cover.');
+      setCoverSaveErr(err instanceof Error ? err.message : 'Failed to set cover.');
     } finally {
-      if (mountedRef.current) setApplyingCover(false);
+      if (mountedRef.current) setCoverSaving(false);
     }
   };
 
-  const handleAssignCover = async () => {
-    if (!lightboxCoverCharImage || assignCharId === null) return;
-    setAssigningCover(true);
-    setAssignCoverErr('');
+  const handleSaveAvatar = async () => {
+    if (!lightboxImage || assignCharId === null) return;
+    setAvatarSaving(true);
+    setAvatarSaveErr('');
     try {
-      await apiClient.setCharacterCover(assignCharId, 'character', lightboxCoverCharImage.id, coverPositionY, coverPositionX);
+      await apiClient.setCharacterAvatar(assignCharId, 'character', lightboxImage.id);
+      await apiClient.updateCharacter(assignCharId, {
+        avatar_position_x: avatarPosXRef.current,
+        avatar_position_y: avatarPosYRef.current,
+        avatar_scale: avatarScaleRef.current,
+      });
       if (!mountedRef.current) return;
-      setAssignCoverDone(true);
-      setTimeout(() => { if (mountedRef.current) setAssignCoverDone(false); }, 2000);
+      setAvatarSaveDone(true);
+      setTimeout(() => { if (mountedRef.current) closeLightbox(); }, 1200);
     } catch (err) {
       if (!mountedRef.current) return;
-      setAssignCoverErr(err instanceof Error ? err.message : 'Failed to set cover.');
+      setAvatarSaveErr(err instanceof Error ? err.message : 'Failed to set avatar.');
     } finally {
-      if (mountedRef.current) setAssigningCover(false);
+      if (mountedRef.current) setAvatarSaving(false);
     }
   };
 
   const handleDeleteImage = async () => {
-    if (!lightboxCharImage) return;
+    if (!lightboxImage) return;
     setDeletingImage(true);
     setDeleteError('');
     try {
-      await apiClient.deleteCharacterImage(lightboxCharImage.character_id, lightboxCharImage.id);
+      await apiClient.deleteCharacterImage(lightboxImage.character_id, lightboxImage.id);
       if (!mountedRef.current) return;
-      setCharImages((prev) => prev.filter((img) => img.id !== lightboxCharImage.id));
+      setImages((prev) => prev.filter((img) => img.id !== lightboxImage.id));
       closeLightbox();
     } catch (err) {
       if (!mountedRef.current) return;
@@ -218,11 +300,11 @@ export default function Images() {
   };
 
   const handleSubmitReport = async () => {
-    if (!lightboxCharImage || !reportReason.trim()) return;
+    if (!lightboxImage || !reportReason.trim()) return;
     setReportSubmitting(true);
     setReportError('');
     try {
-      await apiClient.submitReport('image', String(lightboxCharImage.id), reportReason.trim());
+      await apiClient.submitReport('image', String(lightboxImage.id), reportReason.trim());
       if (!mountedRef.current) return;
       setReportStep('done');
     } catch (err) {
@@ -236,33 +318,25 @@ export default function Images() {
   useEffect(() => {
     apiClient
       .listMyCharacterImages()
-      .then((imgs) => setCharImages(imgs as unknown as LibraryImage[]))
-      .catch((err) => setCharError(err instanceof Error ? err.message : 'Failed to load'))
-      .finally(() => setCharLoading(false));
+      .then((imgs) => {
+        if (mountedRef.current)
+          // Include both generated images and legacy cover images (kind='cover') from before the unified flow.
+          // Exclude internal kinds (anchor, face-ref) which cannot be deleted or shared.
+          setImages((imgs as unknown as LibraryImage[]).filter((img) => img.kind === 'generated' || img.kind === 'cover'));
+      })
+      .catch((err) => setLoadError(err instanceof Error ? err.message : 'Failed to load'))
+      .finally(() => setLoading(false));
 
-    // Fetch all user characters for the generator selector
     apiClient
       .getCharacters()
       .then((chars) => { if (mountedRef.current) setMyCharacters(chars); })
       .catch(() => {});
 
-    // Fetch weekly image allowance (B22)
     apiClient
       .getImageQuota()
       .then((q) => { if (mountedRef.current) setQuota(q); })
       .catch(() => {});
   }, []);
-
-  // Only show generated images in the gallery — anchor/face-ref images are internal and
-  // cannot be deleted, so displaying them confuses users and breaks delete/report actions.
-  const generatedCharImages = charImages.filter((img) => img.kind === 'generated');
-  // Cover images (banner-style, kind=cover) displayed in the Covers tab
-  const coverCharImages = charImages.filter((img) => img.kind === 'cover');
-
-  const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: 'characters', label: 'Characters', count: generatedCharImages.length },
-    { id: 'covers', label: 'Covers', count: coverCharImages.length },
-  ];
 
   return (
     <div className="min-h-screen">
@@ -277,407 +351,376 @@ export default function Images() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {/* Tabs */}
-        <div className="flex items-center gap-1 border-b border-gray-800">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                activeTab === tab.id
-                  ? 'border-emerald-500 text-emerald-300'
-                  : 'border-transparent text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {tab.label}
-              {!charLoading && (
-                <span className="ml-1.5 text-xs text-gray-600">{tab.count}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Characters tab */}
-        {activeTab === 'characters' && (
-          <>
-            {/* Image generator */}
-            {myCharacters.length > 0 && (
-              <SceneGeneratorPanel
-                characters={myCharacters}
-                onGenerated={(image) => {
-                  setCharImages((prev) => [image as unknown as LibraryImage, ...prev]);
-                  setQuota((q) =>
-                    q && !q.unlimited && q.remaining !== null
-                      ? { ...q, used: q.used + 1, remaining: Math.max(0, q.remaining - 1) }
-                      : q
-                  );
-                }}
-              />
-            )}
-
-            {/* Weekly allowance (B23) */}
-            {quota && !quota.unlimited && (
-              quota.remaining === 0 ? (
-                <div className="space-y-0.5">
-                  <p className="text-xs text-amber-400">
-                    You've used all {quota.limit} images for this week.
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {quota.reset_at
-                      ? `Your allowance resets ${formatResetTime(quota.reset_at)}.`
-                      : 'Your allowance resets weekly.'}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-xs text-gray-500">
-                  {quota.remaining} of {quota.limit} image{quota.limit !== 1 ? 's' : ''} remaining this week
-                </p>
-              )
-            )}
-
-            {charError && (
-              <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2">
-                {charError}
-              </p>
-            )}
-            {charLoading ? (
-              <div className="flex items-center justify-center py-16 text-gray-400">Loading...</div>
-            ) : generatedCharImages.length === 0 ? (
-              <EmptyState
-                message={
-                  myCharacters.length > 0
-                    ? 'No images yet. Use the generator above to create your first image.'
-                    : 'Create a character to generate images.'
-                }
-                primaryAction={
-                  myCharacters.length === 0
-                    ? { label: 'Create character', onClick: () => navigate('/characters/new') }
-                    : undefined
-                }
-                secondaryAction={
-                  myCharacters.length === 0
-                    ? { label: 'Go to Characters', onClick: () => navigate('/characters') }
-                    : undefined
-                }
-              />
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {generatedCharImages.map((img) => (
-                  <button
-                    key={img.id}
-                    className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 hover:border-gray-600 transition-colors cursor-pointer text-left"
-                    onClick={() => openLightbox(img.url, undefined, img)}
-                    title="Click to view, delete, or report"
-                  >
-                    <img
-                      src={img.url}
-                      alt={img.prompt_summary || 'Generated image'}
-                      className="w-full aspect-[2/3] object-cover"
-                    />
-                    {img.prompt_summary && (
-                      <div className="px-2 py-1.5">
-                        <p className="text-xs text-gray-400 truncate">{img.prompt_summary}</p>
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
+        {/* Image generator */}
+        {myCharacters.length > 0 && (
+          <SceneGeneratorPanel
+            characters={myCharacters}
+            onGenerated={(image) => {
+              setImages((prev) => [image as unknown as LibraryImage, ...prev]);
+              setQuota((q) =>
+                q && !q.unlimited && q.remaining !== null
+                  ? { ...q, used: q.used + 1, remaining: Math.max(0, q.remaining - 1) }
+                  : q
+              );
+            }}
+          />
         )}
 
-        {/* Covers tab */}
-        {activeTab === 'covers' && (
-          <>
-            {/* Cover generator */}
-            {myCharacters.length > 0 && (
-              <SceneGeneratorPanel
-                characters={myCharacters}
-                isCover
-                onGenerated={(image) => {
-                  setCharImages((prev) => [image as unknown as LibraryImage, ...prev]);
-                  setQuota((q) =>
-                    q && !q.unlimited && q.remaining !== null
-                      ? { ...q, used: q.used + 1, remaining: Math.max(0, q.remaining - 1) }
-                      : q
-                  );
-                }}
-              />
-            )}
-
-            {/* Weekly allowance */}
-            {quota && !quota.unlimited && (
-              quota.remaining === 0 ? (
-                <div className="space-y-0.5">
-                  <p className="text-xs text-amber-400">
-                    You've used all {quota.limit} images for this week.
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {quota.reset_at
-                      ? `Your allowance resets ${formatResetTime(quota.reset_at)}.`
-                      : 'Your allowance resets weekly.'}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-xs text-gray-500">
-                  {quota.remaining} of {quota.limit} image{quota.limit !== 1 ? 's' : ''} remaining this week
-                </p>
-              )
-            )}
-
-            {charError && (
-              <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2">
-                {charError}
+        {/* Weekly allowance */}
+        {quota && !quota.unlimited && (
+          quota.remaining === 0 ? (
+            <div className="space-y-0.5">
+              <p className="text-xs text-amber-400">
+                You've used all {quota.limit} images for this week.
               </p>
-            )}
-            {charLoading ? (
-              <div className="flex items-center justify-center py-16 text-gray-400">Loading...</div>
-            ) : coverCharImages.length === 0 ? (
-              <EmptyState
-                message={
-                  myCharacters.length > 0
-                    ? 'No cover images yet. Use the generator above to create your first banner.'
-                    : 'Create a character to generate cover images.'
-                }
-                primaryAction={
-                  myCharacters.length === 0
-                    ? { label: 'Create character', onClick: () => navigate('/characters/new') }
-                    : undefined
-                }
-              />
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {coverCharImages.map((img) => (
-                  <button
-                    key={img.id}
-                    className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 hover:border-gray-600 transition-colors cursor-pointer text-left"
-                    onClick={() => openLightbox(img.url, undefined, undefined, img)}
-                  >
-                    <img
-                      src={img.url}
-                      alt={img.prompt_summary || 'Cover image'}
-                      className="w-full aspect-[2048/720] object-cover"
-                    />
-                    {img.prompt_summary && (
-                      <div className="px-2 py-1.5">
-                        <p className="text-xs text-gray-400 truncate">{img.prompt_summary}</p>
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
+              <p className="text-xs text-gray-500">
+                {quota.reset_at
+                  ? `Your allowance resets ${formatResetTime(quota.reset_at)}.`
+                  : 'Your allowance resets weekly.'}
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500">
+              {quota.remaining} of {quota.limit} image{quota.limit !== 1 ? 's' : ''} remaining this week
+            </p>
+          )
+        )}
+
+        {loadError && (
+          <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2">
+            {loadError}
+          </p>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-gray-400">Loading...</div>
+        ) : images.length === 0 ? (
+          <EmptyState
+            message={
+              myCharacters.length > 0
+                ? 'No images yet. Use the generator above to create your first image.'
+                : 'Create a character to generate images.'
+            }
+            primaryAction={
+              myCharacters.length === 0
+                ? { label: 'Create character', onClick: () => navigate('/characters/new') }
+                : undefined
+            }
+            secondaryAction={
+              myCharacters.length === 0
+                ? { label: 'Go to Characters', onClick: () => navigate('/characters') }
+                : undefined
+            }
+          />
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {images.map((img) => (
+              <button
+                key={img.id}
+                className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 hover:border-gray-600 transition-colors cursor-pointer text-left"
+                onClick={() => openLightbox(img)}
+                title="Click to view or use this image"
+              >
+                <img
+                  src={img.url}
+                  alt={img.prompt_summary || 'Generated image'}
+                  className="w-full aspect-[2/3] object-cover"
+                  loading="lazy"
+                  decoding="async"
+                />
+                {img.prompt_summary && (
+                  <div className="px-2 py-1.5">
+                    <p className="text-xs text-gray-400 truncate">{img.prompt_summary}</p>
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Lightbox */}
+      {/* Lightbox — view + avatar modes only (cover editor is a separate overlay below) */}
       <ErrorBoundary>
-      {lightboxUrl && (
-        <div
-          className={`fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
-          onClick={closeLightbox}
-        >
-          <div className="flex min-h-full items-center justify-center p-4">
+        {lightboxImage && lbMode !== 'coverEdit' && (
           <div
-            className={`relative max-w-3xl w-full transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
-            onClick={(e) => e.stopPropagation()}
+            className={`fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
+            onClick={closeLightbox}
           >
-            <button
-              className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 z-10"
-              onClick={closeLightbox}
-            >
-              <X className="w-4 h-4" />
-            </button>
-            {lightboxCoverCharImage ? (
+            <div className="flex min-h-full items-center justify-center p-4">
               <div
-                ref={previewContainerRef}
-                className="relative w-full rounded-lg overflow-hidden aspect-[2048/720] select-none"
-                style={{ cursor: dragStateRef.current ? 'grabbing' : 'grab' }}
-                onMouseDown={(e) => { e.preventDefault(); startDrag(e.clientX, e.clientY); }}
-                onTouchStart={(e) => { e.preventDefault(); startDrag(e.touches[0].clientX, e.touches[0].clientY); }}
+                className={`relative max-w-2xl w-full transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+                onClick={(e) => e.stopPropagation()}
               >
-                <img
-                  src={lightboxUrl}
-                  alt="Banner preview"
-                  className="absolute pointer-events-none"
-                  style={{
-                    width: '150%',
-                    height: '150%',
-                    objectFit: 'cover',
-                    top: '50%',
-                    left: '50%',
-                    transform: `translate(calc(-50% + ${(0.5 - coverPositionX) * 100}%), calc(-50% + ${(0.5 - coverPositionY) * 100}%))`,
-                  }}
-                  draggable={false}
-                />
-                {/* Safe-zone overlay: avatar group sits over the right ~22% of the banner */}
-                <div className="absolute inset-y-0 right-0 w-[22%] border-l border-white/10 bg-black/20 flex items-center justify-center pointer-events-none">
-                  <span className="text-[9px] text-white/40 [writing-mode:vertical-rl] tracking-widest uppercase select-none">
-                    Avatar area
-                  </span>
-                </div>
-                <span className="absolute bottom-2 left-2 text-[10px] text-white/50 bg-black/50 px-1.5 py-0.5 rounded select-none">
-                  Drag to reposition
-                </span>
-              </div>
-            ) : (
-              <img
-                src={lightboxUrl}
-                alt="Full size"
-                className="w-full rounded-lg max-h-[80vh] object-contain"
-              />
-            )}
-
-            {/* Cover image actions */}
-            {lightboxCoverId !== null && (
-              <div className="flex items-center justify-between mt-2">
-                <div>
-                  {applyCoverErr && (
-                    <p className="text-xs text-red-400">{applyCoverErr}</p>
-                  )}
-                </div>
+                {/* Close button */}
                 <button
-                  className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                  disabled={applyingCover}
-                  onClick={handleSetCover}
+                  className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 z-10"
+                  onClick={closeLightbox}
                 >
-                  {applyCoverDone ? (
-                    <><Check className="w-3 h-3" />Cover set</>
-                  ) : applyingCover ? (
-                    'Setting...'
-                  ) : (
-                    'Set as profile cover'
-                  )}
+                  <X className="w-4 h-4" />
                 </button>
-              </div>
-            )}
 
-            {/* Cover image actions: assign to character */}
-            {lightboxCoverCharImage && (
-              <div className="mt-3 border-t border-gray-700 pt-3 space-y-2">
-                {myCharacters.length > 1 ? (
-                  <>
-                    <p className="text-xs font-medium text-gray-300">Apply cover to character</p>
-                    <div className="flex items-center gap-2">
-                      <select
-                        className={`flex-1 bg-gray-800 rounded-md text-sm px-3 py-2 focus:outline-none transition-colors ${
-                          assignCharId === null
-                            ? 'border border-amber-700/70 text-gray-400'
-                            : 'border border-gray-600 text-gray-200'
-                        }`}
-                        value={assignCharId ?? ''}
-                        onChange={(e) => setAssignCharId(e.target.value ? Number(e.target.value) : null)}
-                      >
-                        <option value="">Select character…</option>
-                        {myCharacters.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
-                      <button
-                        className="text-xs px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0"
-                        disabled={assigningCover || assignCharId === null}
-                        onClick={handleAssignCover}
-                      >
-                        {assignCoverDone ? (
-                          <><Check className="w-3 h-3" />Done</>
-                        ) : assigningCover ? 'Saving…' : 'Apply'}
-                      </button>
-                    </div>
-                    {assignCharId === null && (
-                      <p className="text-xs text-amber-500/70">Select a character above to apply this cover</p>
+                {/* ── VIEW MODE ── */}
+                {lbMode === 'view' && (
+                  <div>
+                    <img
+                      src={lightboxImage.url}
+                      alt="Full size"
+                      className="w-full rounded-lg max-h-[70vh] object-contain"
+                    />
+
+                    {/* Primary actions */}
+                    {myCharacters.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                          onClick={enterCoverEdit}
+                        >
+                          Set as cover
+                        </button>
+                        <button
+                          className="text-xs px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+                          onClick={enterAvatarEdit}
+                        >
+                          Set as profile picture
+                        </button>
+                      </div>
                     )}
-                    {assignCoverErr && <p className="text-xs text-red-400">{assignCoverErr}</p>}
-                  </>
-                ) : (
-                  <div className="flex items-center justify-between gap-2">
-                    {assignCoverErr
-                      ? <p className="text-xs text-red-400">{assignCoverErr}</p>
-                      : <span />
-                    }
-                    <button
-                      className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                      disabled={assigningCover || assignCharId === null}
-                      onClick={handleAssignCover}
-                    >
-                      {assignCoverDone ? (
-                        <><Check className="w-3 h-3" />Cover set</>
-                      ) : assigningCover ? 'Saving…' : `Set as ${myCharacters[0]?.name}'s cover`}
-                    </button>
+
+                    {/* Delete / Report */}
+                    <div className="mt-2 space-y-2">
+                      {deleteError && (
+                        <p className="text-xs text-red-400">{deleteError}</p>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <button
+                          className="text-xs text-gray-400 hover:text-gray-200 transition-colors flex items-center gap-1"
+                          onClick={() => setReportStep(reportStep === 'form' ? 'idle' : 'form')}
+                        >
+                          <Flag className="w-3 h-3" />
+                          Report issue
+                        </button>
+                        <button
+                          className="text-xs px-3 py-1.5 rounded bg-red-900/60 hover:bg-red-800 text-red-300 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                          disabled={deletingImage}
+                          onClick={handleDeleteImage}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          {deletingImage ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+
+                      {reportStep === 'form' && (
+                        <div className="border border-gray-700 rounded-lg p-3 space-y-2 bg-gray-900">
+                          <p className="text-xs font-medium text-gray-300">Report this image</p>
+                          <textarea
+                            className="textarea w-full text-sm"
+                            rows={2}
+                            maxLength={200}
+                            placeholder="Describe the issue…"
+                            value={reportReason}
+                            onChange={(e) => setReportReason(e.target.value)}
+                          />
+                          {reportError && <p className="text-xs text-red-400">{reportError}</p>}
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                              onClick={() => setReportStep('idle')}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-white transition-colors disabled:opacity-50"
+                              disabled={reportSubmitting || !reportReason.trim()}
+                              onClick={handleSubmitReport}
+                            >
+                              {reportSubmitting ? 'Submitting…' : 'Submit'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {reportStep === 'done' && (
+                        <p className="text-xs text-emerald-400">Report submitted. Thank you.</p>
+                      )}
+                    </div>
                   </div>
                 )}
-              </div>
-            )}
 
-            {/* Character image actions: delete + report */}
-            {lightboxCharImage && (
-              <div className="mt-2 space-y-2">
-                {deleteError && (
-                  <p className="text-xs text-red-400">{deleteError}</p>
-                )}
-                <div className="flex items-center justify-between">
-                  <button
-                    className="text-xs text-gray-400 hover:text-gray-200 transition-colors flex items-center gap-1"
-                    onClick={() => setReportStep(reportStep === 'form' ? 'idle' : 'form')}
-                  >
-                    <Flag className="w-3 h-3" />
-                    Report issue
-                  </button>
-                  <button
-                    className="text-xs px-3 py-1.5 rounded bg-red-900/60 hover:bg-red-800 text-red-300 transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                    disabled={deletingImage}
-                    onClick={handleDeleteImage}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    {deletingImage ? 'Deleting…' : 'Delete'}
-                  </button>
-                </div>
+                {/* ── AVATAR EDIT MODE ── drag + zoom */}
+                {lbMode === 'avatarEdit' && (
+                  <div className="space-y-3 bg-gray-900 rounded-lg p-4">
+                    <p className="text-sm font-medium text-gray-200">Set as profile picture</p>
 
-                {reportStep === 'form' && (
-                  <div className="border border-gray-700 rounded-lg p-3 space-y-2 bg-gray-900">
-                    <p className="text-xs font-medium text-gray-300">Report this image</p>
-                    <textarea
-                      className="textarea w-full text-sm"
-                      rows={2}
-                      maxLength={200}
-                      placeholder="Describe the issue…"
-                      value={reportReason}
-                      onChange={(e) => setReportReason(e.target.value)}
-                    />
-                    {reportError && <p className="text-xs text-red-400">{reportError}</p>}
-                    <div className="flex gap-2 justify-end">
+                    {/* Character selector */}
+                    {myCharacters.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-gray-400 shrink-0">For character</label>
+                        <select
+                          className="flex-1 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 px-3 py-1.5 focus:outline-none"
+                          value={assignCharId ?? ''}
+                          onChange={(e) => setAssignCharId(e.target.value ? Number(e.target.value) : null)}
+                        >
+                          <option value="">Select character…</option>
+                          {myCharacters.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Avatar frame preview */}
+                    <div className="flex flex-col items-center gap-3">
+                      <div
+                        ref={avatarFrameRef}
+                        className="relative w-40 h-40 rounded-full overflow-hidden border-2 border-gray-600 select-none"
+                        style={{ cursor: avatarScale > 1.001 ? 'grab' : 'default', touchAction: 'none' }}
+                        onMouseDown={(e) => { e.preventDefault(); startAvatarDrag(e.clientX, e.clientY); }}
+                        onTouchStart={(e) => { e.preventDefault(); startAvatarDrag(e.touches[0].clientX, e.touches[0].clientY); }}
+                      >
+                        <img
+                          src={lightboxImage.url}
+                          alt="Avatar preview"
+                          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                          style={{
+                            transformOrigin: 'center center',
+                            transform: `scale(${avatarScale}) translate(${(0.5 - avatarPosX) * (avatarScale - 1) / avatarScale * 100}%, ${(0.5 - avatarPosY) * (avatarScale - 1) / avatarScale * 100}%)`,
+                          }}
+                          draggable={false}
+                        />
+                      </div>
+
+                      {/* Zoom slider — avatar only */}
+                      <div className="flex items-center gap-2 w-48">
+                        <span className="text-xs text-gray-400 shrink-0">Zoom</span>
+                        <input
+                          type="range"
+                          min="1"
+                          max="3"
+                          step="0.01"
+                          value={avatarScale}
+                          onChange={(e) => setAvatarScale(parseFloat(e.target.value))}
+                          className="flex-1 accent-emerald-500"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                        />
+                        <span className="text-xs text-gray-400 w-7 shrink-0">{avatarScale.toFixed(1)}×</span>
+                      </div>
+                    </div>
+
+                    {avatarSaveErr && <p className="text-xs text-red-400">{avatarSaveErr}</p>}
+
+                    <div className="flex items-center gap-2 justify-end">
                       <button
-                        className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
-                        onClick={() => setReportStep('idle')}
+                        className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-white transition-colors disabled:opacity-50"
+                        onClick={() => setLbMode('view')}
+                        disabled={avatarSaving}
                       >
                         Cancel
                       </button>
                       <button
-                        className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-white transition-colors disabled:opacity-50"
-                        disabled={reportSubmitting || !reportReason.trim()}
-                        onClick={handleSubmitReport}
+                        className="text-xs px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                        disabled={avatarSaving || assignCharId === null}
+                        onClick={handleSaveAvatar}
                       >
-                        {reportSubmitting ? 'Submitting…' : 'Submit'}
+                        {avatarSaveDone
+                          ? <><Check className="w-3 h-3" />Saved</>
+                          : avatarSaving ? 'Saving…' : 'Save avatar'}
                       </button>
                     </div>
                   </div>
                 )}
-
-                {reportStep === 'done' && (
-                  <p className="text-xs text-emerald-400">Report submitted. Thank you.</p>
-                )}
               </div>
-            )}
+            </div>
           </div>
+        )}
+
+        {/* ── COVER EDIT OVERLAY ──
+            Rendered outside the max-w-2xl lightbox so its frame matches the profile
+            banner geometry exactly: max-w-[1000px] + px-4/sm:px-8 = same usable width. */}
+        {lightboxImage && lbMode === 'coverEdit' && (
+          <div
+            className={`fixed inset-0 z-50 overflow-y-auto bg-[#0F1419]/95 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
+          >
+            <div className="max-w-[1000px] mx-auto px-4 sm:px-8 py-6 space-y-4">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-gray-200">Set as cover</p>
+                <button
+                  className="p-1.5 rounded-full bg-black/40 text-white hover:bg-black/60"
+                  onClick={() => setLbMode('view')}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Character selector */}
+              {myCharacters.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-400 shrink-0">For character</label>
+                  <select
+                    className="flex-1 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 px-3 py-1.5 focus:outline-none"
+                    value={assignCharId ?? ''}
+                    onChange={(e) => setAssignCharId(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">Select character…</option>
+                    {myCharacters.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Banner preview — same dimensions as profile banner (WYSIWYG) */}
+              <div
+                ref={coverFrameRef}
+                className="relative w-full h-[260px] sm:h-[320px] md:h-[360px] rounded-2xl overflow-hidden select-none"
+                style={{ cursor: 'grab', touchAction: 'none' }}
+                onMouseDown={(e) => { e.preventDefault(); startCoverDrag(e.clientX, e.clientY); }}
+                onTouchStart={(e) => { e.preventDefault(); startCoverDrag(e.touches[0].clientX, e.touches[0].clientY); }}
+              >
+                <img
+                  src={lightboxImage.url}
+                  alt="Cover preview"
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                  style={{ objectPosition: `${coverPosX * 100}% ${coverPosY * 100}%` }}
+                  draggable={false}
+                />
+                <div className="absolute inset-0 flex items-start justify-center pt-2 pointer-events-none">
+                  <span className="text-[10px] text-white/60 bg-black/50 px-2 py-0.5 rounded select-none">
+                    Drag to reposition
+                  </span>
+                </div>
+              </div>
+
+              {coverSaveErr && <p className="text-xs text-red-400">{coverSaveErr}</p>}
+
+              <div className="flex items-center gap-2 justify-end">
+                <button
+                  className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-white transition-colors disabled:opacity-50"
+                  onClick={() => setLbMode('view')}
+                  disabled={coverSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  disabled={coverSaving || assignCharId === null}
+                  onClick={handleSaveCover}
+                >
+                  {coverSaveDone
+                    ? <><Check className="w-3 h-3" />Saved</>
+                    : coverSaving ? 'Saving…' : 'Save cover'}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
       </ErrorBoundary>
     </div>
   );
 }
 
-/** Human-readable label for when the weekly image allowance resets (B23). */
+/** Human-readable label for when the weekly image allowance resets. */
 function formatResetTime(resetAt: string): string {
   const reset = new Date(resetAt);
   const now = new Date();

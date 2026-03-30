@@ -57,7 +57,12 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     debug=settings.DEBUG,
-    lifespan=lifespan
+    lifespan=lifespan,
+    # Disable interactive API docs in production (DEBUG=False).
+    # They are re-enabled automatically when DEBUG=True (dev mode).
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
 )
 
 # Add rate limiter state and exception handler
@@ -135,8 +140,7 @@ def health_check() -> dict:
 @app.get("/")
 def root() -> dict:
     """Root endpoint."""
-    return {
-        "service": "Ficshon API",
-        "version": settings.APP_VERSION,
-        "docs": "/docs"
-    }
+    resp: dict = {"service": "Ficshon API", "version": settings.APP_VERSION}
+    if settings.DEBUG:
+        resp["docs"] = "/docs"
+    return resp
