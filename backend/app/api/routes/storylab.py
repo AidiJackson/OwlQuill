@@ -13,7 +13,9 @@ POST /storylab/chapters/{chapter_number}/regenerate?story_id=... Overwrite chapt
 Generation is delegated to app.services.storylab_generator which routes to
 the configured provider (stub / openrouter) with automatic stub fallback.
 """
+import json
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -24,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.models.character import Character as CharacterModel
 from app.models.storylab import GenerationLog, StoryChapter, StoryState
 from app.models.user import User
 from app.schemas.storylab import (
@@ -467,6 +470,228 @@ def _update_story_summary(
         logger.warning("Story summary update failed for %s: %s", story_id, exc)
 
 
+# ── character memory helpers ───────────────────────────────────────────────────
+
+# Capitalized tokens that should never be treated as character names.
+_NAME_BLOCKLIST: frozenset[str] = frozenset({
+    "I", "He", "She", "It", "They", "We", "You", "Me", "Him", "Her", "Us",
+    "My", "His", "Its", "Our", "Your", "Their", "This", "That", "These",
+    "Those", "Which", "Who", "What", "Where", "When", "Why", "How",
+    "The", "A", "An", "And", "But", "Or", "Nor", "So", "Yet", "For",
+    "As", "If", "Then", "Else", "Than", "Though", "Although", "Not", "No",
+    "Yes", "At", "In", "On", "To", "Up", "Of", "By", "From", "With",
+    "About", "Into", "Through", "Over", "Under", "After", "Before",
+    "Between", "During", "Chapter", "Story", "Scene", "Said", "Asked",
+    "Told", "Looked", "Walked", "Turned", "There", "Here", "Still",
+    "Even", "Just", "Like", "Well", "Back", "Down", "Out", "Away",
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+    "January", "February", "March", "April", "May", "June", "July", "August",
+    "September", "October", "November", "December",
+})
+
+# Minimum times a capitalized token must appear to be treated as a character name.
+_STORY_ONLY_MIN_COUNT = 3
+
+
+def _extract_story_only_names(
+    corpus: str,
+    matched_name_lowers: set[str],
+) -> list[str]:
+    """Return a short list of likely character names not already matched to user characters.
+
+    Uses a simple frequency heuristic on capitalized tokens.  False positives
+    are possible but kept low by the blocklist and minimum appearance count.
+    Returns at most 8 candidates.
+    """
+    # Match single capitalised words (2–22 chars).
+    pattern = re.compile(r'\b([A-Z][a-z]{1,21})\b')
+    counts: dict[str, int] = {}
+    for m in pattern.finditer(corpus):
+        token = m.group(1)
+        counts[token] = counts.get(token, 0) + 1
+
+    candidates: list[tuple[int, str]] = []
+    for token, count in counts.items():
+        if count < _STORY_ONLY_MIN_COUNT:
+            continue
+        if token in _NAME_BLOCKLIST:
+            continue
+        if token.lower() in matched_name_lowers:
+            continue
+        candidates.append((count, token))
+
+    candidates.sort(key=lambda x: -x[0])
+    return [name for _, name in candidates[:8]]
+
+
+def _build_relationship_entries(
+    char_entries: list[dict[str, Any]],
+    chapter_rows: list[tuple[str, int]],
+) -> list[dict[str, Any]]:
+    """Return co-presence relationship entries for matched user character pairs.
+
+    Two matched characters form a relationship entry when they both appear in
+    the text of at least one chapter.  Only operates on matched_user_character
+    entries to keep noise low.
+    """
+    matched = [e for e in char_entries if e.get("source") == "matched_user_character"]
+    if len(matched) < 2:
+        return []
+
+    rels: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+
+    for i in range(len(matched)):
+        for j in range(i + 1, len(matched)):
+            name_a = matched[i]["name"]
+            name_b = matched[j]["name"]
+            pair_key = (min(name_a, name_b), max(name_a, name_b))
+            if pair_key in seen_pairs:
+                continue
+            a_lower = name_a.lower()
+            b_lower = name_b.lower()
+            for ch_text, _ in chapter_rows:
+                text_lower = (ch_text or "").lower()
+                if a_lower in text_lower and b_lower in text_lower:
+                    seen_pairs.add(pair_key)
+                    rels.append({
+                        "pair": [name_a, name_b],
+                        "type": "co-present",
+                        "status": "active",
+                        "summary": "",
+                    })
+                    break
+
+    return rels
+
+
+def _update_character_memory(
+    story_id: str,
+    user_id: str,
+    state_row: StoryState,
+    db: Session,
+) -> None:
+    """Rebuild character and relationship memory from all committed chapters.
+
+    Rewrites state_json["characters"] and state_json["relationships"] from
+    scratch using the current chapter corpus — safe for both generate and
+    regenerate paths (the DB is always up-to-date at call time).
+
+    Non-fatal: any exception is logged and silently swallowed so the
+    chapter response is never affected.
+    """
+    try:
+        chapter_rows: list[tuple[str, int]] = (
+            db.query(StoryChapter.generated_text, StoryChapter.chapter_number)
+            .filter(StoryChapter.story_id == story_id)
+            .order_by(StoryChapter.chapter_number)
+            .all()
+        )
+        if not chapter_rows:
+            return
+
+        corpus = "\n\n".join(t for t, _ in chapter_rows if t)
+        corpus_lower = corpus.lower()
+
+        # ── Fetch user's character roster ────────────────────────────────────
+        try:
+            owner_id = int(user_id)
+        except (TypeError, ValueError):
+            owner_id = None
+
+        user_chars = (
+            db.query(CharacterModel)
+            .filter(CharacterModel.owner_id == owner_id)
+            .all()
+        ) if owner_id is not None else []
+
+        # ── Matched user characters ───────────────────────────────────────────
+        char_entries: list[dict[str, Any]] = []
+        matched_name_lowers: set[str] = set()
+
+        for char in user_chars:
+            name = (char.name or "").strip()
+            alias = (char.alias or "").strip()
+            name_hit = bool(name) and name.lower() in corpus_lower
+            alias_hit = bool(alias) and alias.lower() in corpus_lower
+            if not (name_hit or alias_hit):
+                continue
+
+            display_name = name if name_hit else alias
+            matched_name_lowers.add(display_name.lower())
+
+            # Last chapter where this character appears
+            last_seen = 0
+            for ch_text, ch_num in reversed(chapter_rows):
+                if display_name.lower() in (ch_text or "").lower():
+                    last_seen = ch_num
+                    break
+
+            # Traits from identity_spec_json (best-effort)
+            traits: list[str] = []
+            if char.identity_spec_json:
+                try:
+                    spec = (
+                        json.loads(char.identity_spec_json)
+                        if isinstance(char.identity_spec_json, str)
+                        else char.identity_spec_json
+                    )
+                    for field in ("traits", "personality_traits", "personality"):
+                        val = spec.get(field)
+                        if isinstance(val, list):
+                            traits = [str(t).strip() for t in val[:4] if str(t).strip()]
+                            break
+                        if isinstance(val, str) and val.strip():
+                            traits = [v.strip() for v in val.split(",")[:4] if v.strip()]
+                            break
+                except Exception:  # noqa: BLE001
+                    pass
+
+            char_entries.append({
+                "name": display_name,
+                "source": "matched_user_character",
+                "character_id": char.id,
+                "role": char.role or "",
+                "traits": traits,
+                "current_state": "active",
+                "summary": "",
+                "last_seen_in_chapter": last_seen,
+            })
+
+        # ── Story-only characters (frequency heuristic) ───────────────────────
+        for sname in _extract_story_only_names(corpus, matched_name_lowers):
+            last_seen = 0
+            for ch_text, ch_num in reversed(chapter_rows):
+                if sname.lower() in (ch_text or "").lower():
+                    last_seen = ch_num
+                    break
+            char_entries.append({
+                "name": sname,
+                "source": "story_only",
+                "character_id": None,
+                "role": "",
+                "traits": [],
+                "current_state": "active",
+                "summary": "",
+                "last_seen_in_chapter": last_seen,
+            })
+
+        # ── Relationships ─────────────────────────────────────────────────────
+        rel_entries = _build_relationship_entries(char_entries, chapter_rows)
+
+        # ── Persist ───────────────────────────────────────────────────────────
+        current = dict(state_row.state_json or {})
+        current["characters"] = char_entries
+        current["relationships"] = rel_entries
+        state_row.state_json = current
+        state_row.updated_at = datetime.utcnow()
+        db.add(state_row)
+        db.commit()
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Character memory update failed for %s: %s", story_id, exc)
+
+
 # ── chapter routes ─────────────────────────────────────────────────────────────
 
 @router.get("/chapters", response_model=list[ChapterListItem])
@@ -568,9 +793,11 @@ def generate_chapter_endpoint(
     db.commit()
     db.refresh(ch)
 
-    # Update story summary (non-fatal; chapter already committed)
+    # Update story summary + character memory (both non-fatal; chapter already committed)
     state_row = _get_or_create_state(story_id, db)
     _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
+    state_row = _get_or_create_state(story_id, db)  # re-fetch after summary commit
+    _update_character_memory(story_id, user_key, state_row, db)
 
     return ChapterGenerateResponse(
         chapter_number=chapter_number,
@@ -668,9 +895,11 @@ def regenerate_chapter(
     db.add(ch)
     db.commit()
 
-    # Update story summary (non-fatal; chapter already committed)
+    # Update story summary + character memory (both non-fatal; chapter already committed)
     state_row = _get_or_create_state(story_id, db)
     _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
+    state_row = _get_or_create_state(story_id, db)  # re-fetch after summary commit
+    _update_character_memory(story_id, user_key, state_row, db)
 
     return ChapterGenerateResponse(
         chapter_number=chapter_number,
