@@ -136,7 +136,7 @@ export default function UserProfile() {
   };
 
   const enterAvatarEdit = () => {
-    const char = editableChar;
+    const char = editableAvatarChar;
     if (!char) return;
     setEditAvatarX(char.avatar_position_x ?? 0.5);
     setEditAvatarY(char.avatar_position_y ?? 0.5);
@@ -151,18 +151,18 @@ export default function UserProfile() {
   };
 
   const saveAvatarEdit = async () => {
-    if (!editableChar) return;
+    if (!editableAvatarChar) return;
     setAvatarSaving(true);
     setAvatarSaveError('');
     try {
-      await apiClient.updateCharacter(editableChar.id, {
+      await apiClient.updateCharacter(editableAvatarChar.id, {
         avatar_position_x: editAvatarXRef.current,
         avatar_position_y: editAvatarYRef.current,
         avatar_scale: editAvatarScaleRef.current,
       });
       setCharacters((prev) =>
         prev.map((c) =>
-          c.id === editableChar.id
+          c.id === editableAvatarChar.id
             ? { ...c, avatar_position_x: editAvatarXRef.current, avatar_position_y: editAvatarYRef.current, avatar_scale: editAvatarScaleRef.current }
             : c
         )
@@ -343,6 +343,11 @@ export default function UserProfile() {
   // Must be declared before heroCover* so position falls through correctly
   const editableChar = activeChar ?? (characters.length === 1 && characters[0].cover_url ? characters[0] : null);
   const canEditCoverInline = isOwnProfile && !!editableChar;
+
+  // Character whose avatar can be repositioned — does NOT require cover_url.
+  // editableChar gates on cover_url which silently blocks avatar edit for users
+  // who have a character but no cover image yet.
+  const editableAvatarChar = activeChar ?? (characters.length === 1 ? characters[0] : null);
 
   // Use editableChar as the cover source when no explicit character is selected,
   // so position reads/writes are consistent with what the reposition feature saves.
@@ -530,15 +535,16 @@ export default function UserProfile() {
                     src={heroAvatarUrl}
                     alt={`${heroDisplayName}'s avatar`}
                     className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                    style={{
-                      transformOrigin: 'center center',
-                      transform: (() => {
-                        const s = avatarEditMode ? editAvatarScale : (heroCoverChar?.avatar_scale ?? 1.0);
-                        const px = avatarEditMode ? editAvatarX : (heroCoverChar?.avatar_position_x ?? 0.5);
-                        const py = avatarEditMode ? editAvatarY : (heroCoverChar?.avatar_position_y ?? 0.5);
-                        return `scale(${s}) translate(${(0.5 - px) * (s - 1) / s * 100}%, ${(0.5 - py) * (s - 1) / s * 100}%)`;
-                      })(),
-                    }}
+                    style={(() => {
+                      const s = avatarEditMode ? editAvatarScale : (editableAvatarChar?.avatar_scale ?? 1.0);
+                      if (!avatarEditMode && s <= 1.001) return {};
+                      const px = avatarEditMode ? editAvatarX : (editableAvatarChar?.avatar_position_x ?? 0.5);
+                      const py = avatarEditMode ? editAvatarY : (editableAvatarChar?.avatar_position_y ?? 0.5);
+                      return {
+                        transformOrigin: 'center center',
+                        transform: `scale(${s}) translate(${(0.5 - px) * (s - 1) / s * 100}%, ${(0.5 - py) * (s - 1) / s * 100}%)`,
+                      };
+                    })()}
                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                   />
                 ) : (
@@ -929,7 +935,7 @@ export default function UserProfile() {
 
       {/* Fixed avatar reposition bar */}
       {avatarEditMode && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0F1419]/95 backdrop-blur-md border-t border-[#2D3139] px-4 py-3">
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0F1419]/95 border-t border-[#2D3139] px-4 py-3">
           <div className="flex items-center justify-between max-w-[1000px] mx-auto">
             <div className="flex items-center gap-3">
               <span className="text-sm text-[#E8ECEF]/60 hidden sm:block">Avatar reposition</span>
@@ -938,7 +944,7 @@ export default function UserProfile() {
                 <input
                   type="range"
                   min="1"
-                  max="3"
+                  max="2"
                   step="0.01"
                   value={editAvatarScale}
                   onChange={(e) => setEditAvatarScale(parseFloat(e.target.value))}

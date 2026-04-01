@@ -443,7 +443,7 @@ export default function Images() {
       <ErrorBoundary>
         {lightboxImage && lbMode !== 'coverEdit' && (
           <div
-            className={`fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
+            className={`fixed inset-0 z-50 overflow-y-auto bg-black/80 sm:backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
             onClick={closeLightbox}
           >
             <div className="flex min-h-full items-center justify-center p-4">
@@ -639,7 +639,7 @@ export default function Images() {
             banner geometry exactly: max-w-[1000px] + px-4/sm:px-8 = same usable width. */}
         {lightboxImage && lbMode === 'coverEdit' && (
           <div
-            className={`fixed inset-0 z-50 overflow-y-auto bg-[#0F1419]/95 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
+            className={`fixed inset-0 z-50 overflow-y-auto bg-[#0F1419]/95 sm:backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
           >
             <div className="max-w-[1000px] mx-auto px-4 sm:px-8 py-6 space-y-4">
               {/* Header */}
