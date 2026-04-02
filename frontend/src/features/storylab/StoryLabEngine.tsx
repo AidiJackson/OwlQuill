@@ -9,6 +9,21 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 
+// ── Authenticated fetch helper ────────────────────────────────────────────────
+// Attaches the JWT token stored by apiClient so StoryLab requests are
+// authenticated the same way as every other part of the app.
+
+function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const token = localStorage.getItem('token');
+  const headers: Record<string, string> = {
+    ...(init.headers as Record<string, string>),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return fetch(input, { ...init, headers, credentials: 'include' });
+}
+
 // ── localStorage keys ─────────────────────────────────────────────────────────
 
 const LS_CURRENT = 'ficshon_storylab_current_story_id';
@@ -145,10 +160,26 @@ export default function StoryLabEngine() {
     setIsLoadingChapters(true);
     setError('');
     try {
-      const resp = await fetch(
+      const resp = await authFetch(
         `/api/storylab/chapters?story_id=${encodeURIComponent(storyId)}`,
         { signal: abortRef.current?.signal },
       );
+      if (resp.status === 401) {
+        // Token expired or missing — surface a clear message, do not show "Not authenticated"
+        setError('Your session has expired. Please log in again.');
+        return;
+      }
+      if (resp.status === 403) {
+        // Stale or forbidden story_id (e.g. from a previous session/device).
+        // Recover silently by creating a fresh story rather than surfacing an error.
+        const freshId = makeStoryId();
+        localStorage.setItem(LS_CURRENT, freshId);
+        setCurrentStoryId(freshId);
+        setRecentIds((prev) => addToRecents(freshId, prev));
+        setChapters([]);
+        setCurrentChapter(null);
+        return;
+      }
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json() as ChapterListItem[];
       setChapters(data);
@@ -172,7 +203,7 @@ export default function StoryLabEngine() {
     setPromptRevealOpen(false);
     setConfirmAction(null);
     try {
-      const resp = await fetch(
+      const resp = await authFetch(
         `/api/storylab/chapters/${chapterNum}?story_id=${encodeURIComponent(storyId)}`,
         { signal: abortRef.current?.signal },
       );
@@ -190,7 +221,7 @@ export default function StoryLabEngine() {
   async function fetchStoryState(storyId: string) {
     setIsLoadingState(true);
     try {
-      const resp = await fetch(
+      const resp = await authFetch(
         `/api/storylab/state?story_id=${encodeURIComponent(storyId)}`,
         { signal: abortRef.current?.signal },
       );
@@ -216,7 +247,7 @@ export default function StoryLabEngine() {
         mode,
         controls: slControls,
       };
-      const resp = await fetch(
+      const resp = await authFetch(
         `/api/storylab/chapters/generate?story_id=${encodeURIComponent(currentStoryId)}`,
         {
           method: 'POST',
@@ -271,7 +302,7 @@ export default function StoryLabEngine() {
     if (!currentChapter) return;
     setConfirmAction(null);
     try {
-      const resp = await fetch(
+      const resp = await authFetch(
         `/api/storylab/chapters/${currentChapter.chapter_number}?story_id=${encodeURIComponent(currentStoryId)}`,
         { method: 'DELETE', signal: abortRef.current?.signal },
       );
@@ -301,7 +332,7 @@ export default function StoryLabEngine() {
         mode,
         controls: slControls,
       };
-      const resp = await fetch(
+      const resp = await authFetch(
         `/api/storylab/chapters/${currentChapter.chapter_number}/regenerate?story_id=${encodeURIComponent(currentStoryId)}`,
         {
           method: 'POST',
