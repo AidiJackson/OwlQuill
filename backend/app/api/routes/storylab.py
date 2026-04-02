@@ -499,40 +499,147 @@ def _extract_story_only_names(
 ) -> list[str]:
     """Return a short list of likely character names not already matched to user characters.
 
-    Uses a simple frequency heuristic on capitalized tokens.  False positives
-    are possible but kept low by the blocklist and minimum appearance count.
+    Improved over V1:
+    - Captures multi-word capitalized names (e.g. "Lord Blackwood", "Lady Anne")
+    - Boosts score for tokens appearing in dialogue attribution patterns
+      ("said X", "X said", "asked X", etc.) which are strong name signals
+    - Still falls back to single-token frequency with blocklist filtering
     Returns at most 8 candidates.
     """
-    # Match single capitalised words (2–22 chars).
-    pattern = re.compile(r'\b([A-Z][a-z]{1,21})\b')
-    counts: dict[str, int] = {}
-    for m in pattern.finditer(corpus):
+    # ── Step 1: score single capitalized tokens ───────────────────────────────
+    single_pat = re.compile(r'\b([A-Z][a-z]{1,21})\b')
+    token_counts: dict[str, int] = {}
+    for m in single_pat.finditer(corpus):
         token = m.group(1)
-        counts[token] = counts.get(token, 0) + 1
+        token_counts[token] = token_counts.get(token, 0) + 1
 
-    candidates: list[tuple[int, str]] = []
-    for token, count in counts.items():
-        if count < _STORY_ONLY_MIN_COUNT:
-            continue
+    # ── Step 2: dialogue-attribution boost (strong name signal) ───────────────
+    # Patterns: "said Name", "Name said", "asked Name", "Name asked", etc.
+    attr_pat = re.compile(
+        r'\b(?:said|asked|told|replied|whispered|shouted|called|cried|muttered|answered)\s+([A-Z][a-z]{1,21})\b'
+        r'|'
+        r'\b([A-Z][a-z]{1,21})\s+(?:said|asked|told|replied|whispered|shouted|called|cried|muttered|answered)\b'
+    )
+    attribution_bonus: dict[str, int] = {}
+    for m in attr_pat.finditer(corpus):
+        token = m.group(1) or m.group(2)
+        if token and token not in _NAME_BLOCKLIST:
+            attribution_bonus[token] = attribution_bonus.get(token, 0) + 2  # 2× weight
+
+    # ── Step 3: multi-word capitalized names ─────────────────────────────────
+    # Capture patterns like "Lord Blackwood", "Lady Anne", "Dr. Morgan"
+    multi_pat = re.compile(
+        r'\b((?:Lord|Lady|Sir|Dr|Doctor|Professor|Captain|King|Queen|Prince|Princess|Count|Father|Mother|Master|Sergeant|Officer)\s+[A-Z][a-z]{1,21})\b'
+    )
+    multi_counts: dict[str, int] = {}
+    for m in multi_pat.finditer(corpus):
+        phrase = m.group(1)
+        multi_counts[phrase] = multi_counts.get(phrase, 0) + 1
+
+    # ── Step 4: build candidates ──────────────────────────────────────────────
+    # Compute effective score: raw count + attribution bonus
+    effective: dict[str, int] = {}
+    for token, count in token_counts.items():
         if token in _NAME_BLOCKLIST:
             continue
         if token.lower() in matched_name_lowers:
             continue
-        candidates.append((count, token))
+        score = count + attribution_bonus.get(token, 0)
+        if score < _STORY_ONLY_MIN_COUNT:
+            continue
+        effective[token] = score
 
-    candidates.sort(key=lambda x: -x[0])
-    return [name for _, name in candidates[:8]]
+    # Add multi-word names (lower threshold since they're higher signal)
+    for phrase, count in multi_counts.items():
+        phrase_lower = phrase.lower()
+        if phrase_lower in matched_name_lowers:
+            continue
+        # Deduplicate: if the last word of phrase is already a candidate, prefer phrase
+        last_word = phrase.split()[-1]
+        if count >= 2:  # slightly lower threshold for titled names
+            effective[phrase] = effective.get(phrase, 0) + count * 2
+            # Remove bare single-word duplicate if phrase is more specific
+            effective.pop(last_word, None)
+
+    candidates = sorted(effective.items(), key=lambda x: -x[1])
+    return [name for name, _ in candidates[:8]]
+
+
+# Relationship signal keyword maps (ordered highest-signal first)
+_REL_KEYWORDS: list[tuple[str, list[str]]] = [
+    ("conflict", [
+        "attacked", "struck", "hit", "fought", "stabbed", "killed", "murdered",
+        "threatened", "choked", "punched", "wrestled", "battled",
+    ]),
+    ("attraction", [
+        "kissed", "embraced", "held", "caressed", "longed for", "loved",
+        "desired", "attracted", "romantic", "infatuated", "adored",
+        "heart raced", "heart skipped", "couldn't stop thinking about",
+    ]),
+    ("tension", [
+        "argued", "shouted", "yelled", "snapped", "glared", "confronted",
+        "accused", "hostile", "anger", "furious", "resentment", "bitter",
+        "clashed",
+    ]),
+    ("distrust", [
+        "lied", "deceived", "betrayed", "suspicious", "doubted", "didn't trust",
+        "couldn't trust", "manipulated", "hidden from", "concealed from",
+    ]),
+    ("rivalry", [
+        "competed", "rival", "jealous", "envied", "outdo", "beat", "bested",
+        "one-upped", "outdone",
+    ]),
+    ("alliance", [
+        "helped", "protected", "saved", "trusted", "together", "ally", "allies",
+        "relied on", "counted on", "worked together", "side by side", "joined forces",
+        "supported",
+    ]),
+]
+
+
+def _infer_relationship_type(shared_sentences: list[str]) -> str:
+    """Infer the strongest relationship signal from sentences where both names appear.
+
+    Scores each relationship type by keyword hits across all shared sentences.
+    Falls back to 'co-present' when no signal meets the minimum threshold.
+    """
+    scores: dict[str, int] = {}
+    combined = " ".join(shared_sentences).lower()
+    for rel_type, keywords in _REL_KEYWORDS:
+        hits = sum(1 for kw in keywords if kw in combined)
+        if hits:
+            scores[rel_type] = hits
+
+    if not scores:
+        return "co-present"
+
+    # Return the type with highest score
+    return max(scores, key=lambda k: scores[k])
+
+
+def _extract_shared_sentences(text: str, a_lower: str, b_lower: str) -> list[str]:
+    """Return sentences (or sentence-like spans) containing both character names."""
+    # Split on sentence boundaries
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    shared = []
+    for sent in sentences:
+        sl = sent.lower()
+        if a_lower in sl and b_lower in sl:
+            shared.append(sent)
+    return shared
 
 
 def _build_relationship_entries(
     char_entries: list[dict[str, Any]],
     chapter_rows: list[tuple[str, int]],
 ) -> list[dict[str, Any]]:
-    """Return co-presence relationship entries for matched user character pairs.
+    """Return relationship entries for matched user character pairs.
 
-    Two matched characters form a relationship entry when they both appear in
-    the text of at least one chapter.  Only operates on matched_user_character
-    entries to keep noise low.
+    Improved over V1:
+    - Infers relationship type from keyword signals in shared sentences
+      (conflict, attraction, tension, distrust, rivalry, alliance)
+    - Falls back to 'co-present' only when no stronger signal is found
+    - Collects shared sentences across all chapters for better signal coverage
     """
     matched = [e for e in char_entries if e.get("source") == "matched_user_character"]
     if len(matched) < 2:
@@ -550,19 +657,160 @@ def _build_relationship_entries(
                 continue
             a_lower = name_a.lower()
             b_lower = name_b.lower()
+
+            shared_sentences: list[str] = []
+            appears_together = False
             for ch_text, _ in chapter_rows:
-                text_lower = (ch_text or "").lower()
+                text = ch_text or ""
+                text_lower = text.lower()
                 if a_lower in text_lower and b_lower in text_lower:
-                    seen_pairs.add(pair_key)
-                    rels.append({
-                        "pair": [name_a, name_b],
-                        "type": "co-present",
-                        "status": "active",
-                        "summary": "",
-                    })
-                    break
+                    appears_together = True
+                    shared_sentences.extend(_extract_shared_sentences(text, a_lower, b_lower))
+
+            if not appears_together:
+                continue
+
+            seen_pairs.add(pair_key)
+            rel_type = _infer_relationship_type(shared_sentences)
+            rels.append({
+                "pair": [name_a, name_b],
+                "type": rel_type,
+                "status": "active",
+                "summary": "",
+            })
 
     return rels
+
+
+# State signals: words near a character name that suggest a non-active state.
+_DECEASED_SIGNALS = frozenset({
+    "died", "dead", "killed", "murdered", "slain", "perished", "lifeless",
+    "body", "corpse", "grave", "buried", "funeral", "death",
+})
+_ABSENT_SIGNALS = frozenset({
+    "vanished", "disappeared", "left", "gone", "fled", "ran away",
+    "missing", "escaped", "never returned", "never came back",
+})
+
+# Common role-indicator words that may precede a character name in prose
+_ROLE_TITLES = frozenset({
+    "detective", "doctor", "dr", "nurse", "teacher", "professor", "captain",
+    "sergeant", "officer", "guard", "servant", "butler", "maid", "lord",
+    "lady", "sir", "count", "king", "queen", "prince", "princess",
+    "priest", "bishop", "monk", "general", "colonel", "mayor",
+})
+
+
+def _sentences_with_name(name_lower: str, text: str) -> list[str]:
+    """Return all sentences in text that contain name_lower."""
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    return [s for s in sentences if name_lower in s.lower()]
+
+
+def _extract_character_summary(
+    name_lower: str,
+    chapter_rows: list[tuple[str, int]],
+) -> str:
+    """Extract a short story-derived summary for a character.
+
+    Finds the most recent chapter containing the character and returns up to
+    two sentences that mention them.  Returns empty string when nothing found.
+    """
+    for ch_text, _ in reversed(chapter_rows):
+        if not ch_text or name_lower not in ch_text.lower():
+            continue
+        hits = _sentences_with_name(name_lower, ch_text)
+        if not hits:
+            continue
+        # Prefer sentences ≥ 30 chars (substantive), cap each at 200 chars
+        substantive = [s.strip()[:200] for s in hits if len(s.strip()) >= 30]
+        selected = substantive[:2] if substantive else [hits[0].strip()[:200]]
+        return " ".join(selected)
+    return ""
+
+
+def _infer_current_state(
+    name_lower: str,
+    chapter_rows: list[tuple[str, int]],
+) -> str:
+    """Infer whether a character is active, deceased, or absent.
+
+    Scans the most recent chapter where the character appears, looking for
+    death/absence signal words in sentences that mention them.
+    Falls back to 'active' when no strong signal found.
+    """
+    for ch_text, _ in reversed(chapter_rows):
+        if not ch_text or name_lower not in ch_text.lower():
+            continue
+        hits = _sentences_with_name(name_lower, ch_text)
+        combined = " ".join(hits).lower()
+        if any(sig in combined for sig in _DECEASED_SIGNALS):
+            return "deceased"
+        if any(sig in combined for sig in _ABSENT_SIGNALS):
+            return "absent"
+        return "active"
+    return "active"
+
+
+def _infer_story_only_role(name: str, corpus: str) -> str:
+    """Infer a story-only character's role from title words near the name.
+
+    Checks for patterns like "the detective [Name]", "[Name] the guard", etc.
+    Returns the title as role string, or empty string if none found.
+    """
+    name_lower = name.lower()
+    # Pattern: title word within 3 words before or after the name
+    titles_pat = '|'.join(re.escape(t) for t in _ROLE_TITLES)
+    title_before = re.compile(
+        r'\b(' + titles_pat + r')\.?\s+' + re.escape(name),
+        re.IGNORECASE,
+    )
+    title_after = re.compile(
+        re.escape(name) + r'\s*,?\s+(?:the\s+)?(' + titles_pat + r')\b',
+        re.IGNORECASE,
+    )
+    m = title_before.search(corpus) or title_after.search(corpus)
+    if m:
+        return m.group(1).lower()
+    return ""
+
+
+def _infer_story_only_traits(name: str, corpus: str) -> list[str]:
+    """Infer up to 3 traits for a story-only character from descriptive patterns.
+
+    Looks for patterns like:
+    - "the [adj] [Name]"  — descriptive noun phrase (adj must not be a role title)
+    - "[Name] was/is/seemed [adj]"  — predicative single adjective
+    Returns deduplicated lowercase trait list, capped at 3.
+    """
+    name_esc = re.escape(name)
+    # "the [adj] [Name]" — single-word adjective before name (not a role/title word)
+    desc_before = re.compile(
+        r'\bthe\s+([a-z]{4,20})\s+' + name_esc,
+        re.IGNORECASE,
+    )
+    # "[Name] was/is/seemed/looked [adj]" — single word only (stop at conjunction/punct)
+    pred_after = re.compile(
+        name_esc + r'\s+(?:was|is|seemed|looked|felt|appeared|became)\s+([a-z]{4,20})\b',
+        re.IGNORECASE,
+    )
+    found: list[str] = []
+    for pat in (desc_before, pred_after):
+        for m in pat.finditer(corpus):
+            trait = m.group(1).lower().strip()
+            # Skip role titles, blocklist words, and duplicates
+            if (
+                trait not in _ROLE_TITLES
+                and trait not in _NAME_BLOCKLIST
+                and trait not in found
+                and len(trait) >= 4
+            ):
+                found.append(trait)
+            if len(found) >= 3:
+                break
+        if len(found) >= 3:
+            break
+    return found[:3]
 
 
 def _update_character_memory(
@@ -647,32 +895,41 @@ def _update_character_memory(
                 except Exception:  # noqa: BLE001
                     pass
 
+            name_lower = display_name.lower()
+            summary = _extract_character_summary(name_lower, chapter_rows)
+            current_state = _infer_current_state(name_lower, chapter_rows)
+
             char_entries.append({
                 "name": display_name,
                 "source": "matched_user_character",
                 "character_id": char.id,
                 "role": char.role or "",
                 "traits": traits,
-                "current_state": "active",
-                "summary": "",
+                "current_state": current_state,
+                "summary": summary,
                 "last_seen_in_chapter": last_seen,
             })
 
         # ── Story-only characters (frequency heuristic) ───────────────────────
         for sname in _extract_story_only_names(corpus, matched_name_lowers):
+            sname_lower = sname.lower()
             last_seen = 0
             for ch_text, ch_num in reversed(chapter_rows):
-                if sname.lower() in (ch_text or "").lower():
+                if sname_lower in (ch_text or "").lower():
                     last_seen = ch_num
                     break
+            story_only_summary = _extract_character_summary(sname_lower, chapter_rows)
+            story_only_state = _infer_current_state(sname_lower, chapter_rows)
+            story_only_role = _infer_story_only_role(sname, corpus)
+            story_only_traits = _infer_story_only_traits(sname, corpus)
             char_entries.append({
                 "name": sname,
                 "source": "story_only",
                 "character_id": None,
-                "role": "",
-                "traits": [],
-                "current_state": "active",
-                "summary": "",
+                "role": story_only_role,
+                "traits": story_only_traits,
+                "current_state": story_only_state,
+                "summary": story_only_summary,
                 "last_seen_in_chapter": last_seen,
             })
 
