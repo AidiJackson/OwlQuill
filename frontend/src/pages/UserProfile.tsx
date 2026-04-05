@@ -398,13 +398,13 @@ export default function UserProfile() {
     <div className="min-h-screen bg-[#0F1419]">
       {/* === HERO SECTION — constrained width, Facebook-style === */}
       {/* Atmospheric hero wrapper: full-bleed radial wash with Ficshon tones */}
-      <div className="relative" style={{background: 'radial-gradient(ellipse 58% 80% at 0% 28%, rgba(130,100,215,0.11) 0%, transparent 70%), radial-gradient(ellipse 58% 80% at 100% 28%, rgba(16,185,129,0.11) 0%, transparent 70%), radial-gradient(ellipse 75% 38% at 50% 0%, rgba(16,185,129,0.05) 0%, transparent 60%), #0F1419'}}>
-      <div className="max-w-[1000px] mx-auto px-4 sm:px-8 pt-0 pb-8 sm:pb-10">
+      <div className="relative" style={{background: 'radial-gradient(ellipse 62% 92% at 0% 24%, rgba(130,100,215,0.15) 0%, transparent 75%), radial-gradient(ellipse 62% 92% at 100% 24%, rgba(16,185,129,0.14) 0%, transparent 75%), radial-gradient(ellipse 70% 34% at 50% 0%, rgba(16,185,129,0.06) 0%, transparent 60%), #0F1419'}}>
+      <div className="max-w-[1000px] mx-auto px-4 sm:px-8 pt-0 pb-20 sm:pb-28 md:pb-36">
 
         {/* Cover band — rounded, not full-bleed */}
         <div
           ref={coverHeroRef}
-          className="relative h-[260px] sm:h-[320px] md:h-[360px] rounded-2xl overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500"
+          className="relative h-[290px] sm:h-[380px] md:h-[460px] rounded-2xl overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500"
           style={coverEditMode ? { cursor: 'grab', touchAction: 'none', userSelect: 'none' } : undefined}
           onMouseDown={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.clientX, e.clientY); } : undefined}
           onTouchStart={coverEditMode ? (e) => { e.preventDefault(); startCoverDrag(e.touches[0].clientX, e.touches[0].clientY); } : undefined}
@@ -430,8 +430,8 @@ export default function UserProfile() {
             />
           )}
 
-          {/* Gradient overlay — atmospheric multi-tone: dark vignette + emerald tint + neon purple whisper */}
-          <div className="absolute inset-0" style={{background: 'linear-gradient(to bottom, rgba(26,29,35,0.30) 0%, transparent 38%, rgba(26,29,35,0.60) 100%), linear-gradient(to bottom right, rgba(16,185,129,0.06) 0%, transparent 55%), linear-gradient(to bottom left, rgba(168,85,247,0.05) 0%, transparent 45%)'}} />
+          {/* Gradient overlay — richer vignette: strong top/bottom darkening + side tints */}
+          <div className="absolute inset-0" style={{background: 'linear-gradient(to bottom, rgba(15,20,25,0.50) 0%, rgba(15,20,25,0.08) 35%, rgba(15,20,25,0.78) 100%), linear-gradient(to bottom right, rgba(16,185,129,0.10) 0%, transparent 50%), linear-gradient(to bottom left, rgba(168,85,247,0.08) 0%, transparent 42%)'}} />
 
           {/* Subtle pattern (no cover image) */}
           {!heroCoverUrl && (
@@ -670,7 +670,7 @@ export default function UserProfile() {
       <div className="h-px mx-auto max-w-[1000px] px-8">
         <div className="h-px bg-gradient-to-r from-transparent via-white/[0.07] to-transparent" />
       </div>
-      <div className="h-12 bg-gradient-to-b from-[#1A1D23]/50 to-transparent pointer-events-none" />
+      <div className="h-20 bg-gradient-to-b from-[#1A1D23]/65 to-transparent pointer-events-none" />
       </div>{/* end atmospheric hero wrapper */}
 
       {/* === CONTENT AREA === */}
