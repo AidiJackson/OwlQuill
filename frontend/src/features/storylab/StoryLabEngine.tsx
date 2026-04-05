@@ -871,8 +871,8 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
       <div className="flex flex-col md:flex-row min-h-0 flex-1">
 
         {/* ── Reading column ────────────────────────────────────────────── */}
-        <div className={`flex-1 min-h-0 overflow-y-auto transition-colors duration-200 ${surfaceMode === 'paper' ? 'bg-[#F5F0E8]' : ''}`}>
-          <div className="max-w-[680px] mx-auto px-6 md:px-12 py-8">
+        <div className={`flex-1 min-h-0 overflow-y-auto transition-colors duration-200 ${surfaceMode === 'paper' ? 'bg-[#F5F0E8] shadow-[0_8px_30px_rgba(0,0,0,0.05)]' : ''}`}>
+          <div className="max-w-[720px] mx-auto px-6 md:px-12 py-12 prose-p:my-5">
 
             {/* Chapter header */}
             {currentChapter ? (
@@ -936,7 +936,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 </div>
               </div>
             ) : currentChapter ? (
-              <p className={`text-[16px] leading-[1.9] whitespace-pre-wrap font-normal tracking-[0.01em] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-100'}`}>
+              <p className={`text-[16px] leading-[1.9] whitespace-pre-wrap font-normal tracking-[0.01em] transition-colors duration-200 animate-[fadeIn_0.25s_ease] ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-100'}`}>
                 {currentChapter.generated_text}
               </p>
             ) : (
@@ -950,7 +950,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
             {/* ── Beat System / CTA — below text ─────────────────────────── */}
             {!isLoadingChapters && (
-              <div className="mt-12 pt-8 border-t border-gray-800/30 space-y-4">
+              <div className="mt-16 pt-10 border-t border-gray-700/20 space-y-4">
 
                 {chapters.length > 0 ? (
                   <>
