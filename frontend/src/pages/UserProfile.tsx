@@ -398,8 +398,8 @@ export default function UserProfile() {
     <div className="min-h-screen bg-[#0F1419]">
       {/* === HERO SECTION — constrained width, Facebook-style === */}
       {/* Atmospheric hero wrapper: full-bleed radial wash with Ficshon tones */}
-      <div className="relative" style={{background: 'radial-gradient(ellipse 90% 55% at 50% 0%, rgba(16,185,129,0.07) 0%, transparent 65%), radial-gradient(ellipse 60% 40% at 82% 0%, rgba(168,85,247,0.05) 0%, transparent 55%), #0F1419'}}>
-      <div className="max-w-[1000px] mx-auto px-4 sm:px-8 pt-0">
+      <div className="relative" style={{background: 'radial-gradient(ellipse 58% 80% at 0% 28%, rgba(130,100,215,0.11) 0%, transparent 70%), radial-gradient(ellipse 58% 80% at 100% 28%, rgba(16,185,129,0.11) 0%, transparent 70%), radial-gradient(ellipse 75% 38% at 50% 0%, rgba(16,185,129,0.05) 0%, transparent 60%), #0F1419'}}>
+      <div className="max-w-[1000px] mx-auto px-4 sm:px-8 pt-0 pb-8 sm:pb-10">
 
         {/* Cover band — rounded, not full-bleed */}
         <div
@@ -670,7 +670,7 @@ export default function UserProfile() {
       <div className="h-px mx-auto max-w-[1000px] px-8">
         <div className="h-px bg-gradient-to-r from-transparent via-white/[0.07] to-transparent" />
       </div>
-      <div className="h-8 bg-gradient-to-b from-[#1A1D23]/30 to-transparent pointer-events-none" />
+      <div className="h-12 bg-gradient-to-b from-[#1A1D23]/50 to-transparent pointer-events-none" />
       </div>{/* end atmospheric hero wrapper */}
 
       {/* === CONTENT AREA === */}
