@@ -220,19 +220,31 @@ export default function CharacterDetail() {
 
         {/* Header */}
         <div className="flex gap-5 items-start">
-          {character.avatar_url ? (
-            <img
-              src={character.avatar_url}
-              alt={character.name}
-              className="w-28 h-28 rounded-lg object-cover border border-gray-800 flex-shrink-0"
-            />
-          ) : (
-            <div className="w-28 h-28 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center flex-shrink-0">
-              <Feather className="w-8 h-8 text-gray-600" />
-            </div>
-          )}
+          <Link
+            to={`/characters/${character.id}`}
+            className="flex-shrink-0 group"
+          >
+            {character.avatar_url ? (
+              <img
+                src={character.avatar_url}
+                alt={character.name}
+                className="w-28 h-28 rounded-lg object-cover border border-gray-800 group-hover:border-gray-600 transition-colors"
+              />
+            ) : (
+              <div className="w-28 h-28 rounded-lg bg-gray-800 border border-gray-700 group-hover:border-gray-600 flex items-center justify-center transition-colors">
+                <Feather className="w-8 h-8 text-gray-600" />
+              </div>
+            )}
+          </Link>
           <div className="min-w-0 space-y-1.5">
-            <h1 className="text-2xl font-bold text-gray-100 truncate">{character.name}</h1>
+            <h1 className="text-2xl font-bold text-gray-100 truncate">
+              <Link
+                to={`/characters/${character.id}`}
+                className="hover:text-emerald-300 transition-colors"
+              >
+                {character.name}
+              </Link>
+            </h1>
             {(character.species || character.role || character.era) && (
               <p className="text-sm text-gray-400">
                 {[character.species, character.role, character.era].filter(Boolean).join(' · ')}
@@ -345,7 +357,7 @@ export default function CharacterDetail() {
               <ImageGrid
                 images={galleryImages}
                 onImageClick={(idx) => setLightboxIdx(idx)}
-                onUseInPost={currentUser ? handleUseInPost : undefined}
+                onUseInPost={currentUser && character.owner_id === currentUser.id ? handleUseInPost : undefined}
                 onSetAsCover={currentUser && character.owner_id === currentUser.id ? handleSetAsCover : undefined}
               />
             </ErrorBoundary>

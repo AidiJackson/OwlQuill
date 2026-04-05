@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -340,6 +340,25 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ target_type: targetType, target_id: targetId, reason, detail }),
     });
+  }
+
+  // StoryLab stories
+  async createStory(data: {
+    title: string;
+    genre?: string;
+    premise?: string;
+    realm_id?: number | null;
+    character_ids?: number[];
+    cover_color?: string;
+  }): Promise<StoryRecord> {
+    return this.request<StoryRecord>('/storylab/stories', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getStory(storyId: string): Promise<StoryRecord> {
+    return this.request<StoryRecord>(`/storylab/stories/${encodeURIComponent(storyId)}`);
   }
 }
 

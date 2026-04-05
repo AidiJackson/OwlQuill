@@ -23,6 +23,7 @@ import Images from '@/pages/Images';
 import ImageNew from '@/pages/ImageNew';
 import Workspace from '@/pages/Workspace';
 import StoryLab from '@/pages/StoryLab';
+import StoryLabSession from '@/pages/StoryLabSession';
 
 function RouteLogger() {
   const location = useLocation();
@@ -77,6 +78,7 @@ function App() {
           <Route path="/characters" element={<Characters />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/storylab" element={<StoryLab />} />
+          <Route path="/storylab/:storyId" element={<StoryLabSession />} />
           <Route path="/scenes/:sceneId" element={<SceneDetail />} />
           <Route path="/profile" element={<Profile />} />
         </Route>

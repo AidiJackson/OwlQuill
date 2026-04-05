@@ -305,6 +305,17 @@ export default function UserProfile() {
         setProfile(profileData);
         setTimeline(timelineData);
         setCharacters(charsData);
+        // Restore the owner's saved default presentation from localStorage.
+        // Only applies when viewing your own profile; visitors always start fresh.
+        if (authUser?.username === username) {
+          const saved = localStorage.getItem(`fic_profile_default_view_${username}`);
+          if (saved && saved !== 'user') {
+            const savedCharId = parseInt(saved, 10);
+            if (!isNaN(savedCharId) && charsData.some((c: CharacterSearchResult) => c.id === savedCharId)) {
+              setSelectedCharId(savedCharId);
+            }
+          }
+        }
       })
       .catch(() => setError('User not found'))
       .finally(() => setLoading(false));
@@ -656,8 +667,8 @@ export default function UserProfile() {
       {/* === CONTENT AREA === */}
       <div className="bg-[#0F1419]">
         <div className="max-w-[1000px] mx-auto px-4 sm:px-8 py-8 sm:py-12">
-          {/* Character Selector — shown for profiles with multiple characters */}
-          {characters.length > 1 && (
+          {/* Character Selector — owner sees it with 1+ characters; visitors need 2+ */}
+          {(isOwnProfile ? characters.length >= 1 : characters.length > 1) && (
             <div className="flex items-center gap-3 mb-6">
               <span className="text-xs text-[#E8ECEF]/40 uppercase tracking-wider font-medium flex-shrink-0">
                 Viewing as
@@ -701,7 +712,13 @@ export default function UserProfile() {
                     <div className="absolute left-0 top-full mt-1.5 z-50 bg-[#1A1D23] border border-[#2D3139] rounded-xl shadow-2xl shadow-black/60 py-1.5 min-w-[220px]">
                       {/* User profile option */}
                       <button
-                        onClick={() => { setSelectedCharId(null); setShowCharSelector(false); }}
+                        onClick={() => {
+                          setSelectedCharId(null);
+                          setShowCharSelector(false);
+                          if (isOwnProfile && username) {
+                            localStorage.setItem(`fic_profile_default_view_${username}`, 'user');
+                          }
+                        }}
                         className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-[#252930] transition-colors text-left ${!activeChar ? 'text-emerald-400' : 'text-[#E8ECEF]/80'}`}
                       >
                         {profile.avatar_url ? (
@@ -724,7 +741,13 @@ export default function UserProfile() {
                       {characters.map((ch) => (
                         <button
                           key={ch.id}
-                          onClick={() => { setSelectedCharId(ch.id); setShowCharSelector(false); }}
+                          onClick={() => {
+                            setSelectedCharId(ch.id);
+                            setShowCharSelector(false);
+                            if (isOwnProfile && username) {
+                              localStorage.setItem(`fic_profile_default_view_${username}`, String(ch.id));
+                            }
+                          }}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-[#252930] transition-colors text-left ${activeChar?.id === ch.id ? 'text-emerald-400' : 'text-[#E8ECEF]/80'}`}
                         >
                           {ch.avatar_url ? (

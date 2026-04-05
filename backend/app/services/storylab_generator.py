@@ -44,7 +44,30 @@ from app.schemas.storylab import (
 
 logger = logging.getLogger(__name__)
 
-_REQUEST_TIMEOUT = 25.0  # seconds for LLM calls
+# Model slugs that OpenRouter routes exclusively to Amazon Bedrock, which rejects
+# them with HTTP 400 "The provided model identifier is invalid."  If STORYLAB_MODEL
+# is set to one of these, every generation attempt silently falls back to stub.
+# These are known-broken regardless of what the env var is set to.
+_OPENROUTER_BEDROCK_BROKEN_SLUGS: dict[str, str] = {
+    # old slug → working replacement
+    "anthropic/claude-3.5-sonnet": "anthropic/claude-3.7-sonnet",
+}
+
+# Resolved at import time so every call uses the corrected slug
+_EFFECTIVE_STORYLAB_MODEL: str = settings.STORYLAB_MODEL
+if settings.STORYLAB_MODEL in _OPENROUTER_BEDROCK_BROKEN_SLUGS:
+    _EFFECTIVE_STORYLAB_MODEL = _OPENROUTER_BEDROCK_BROKEN_SLUGS[settings.STORYLAB_MODEL]
+    logger.warning(
+        "[SL-DIAG] STORYLAB_MODEL=%r routes to Amazon Bedrock and will fail with "
+        "HTTP 400. Auto-correcting to %r. Update the STORYLAB_MODEL env var to "
+        "suppress this warning.",
+        settings.STORYLAB_MODEL,
+        _EFFECTIVE_STORYLAB_MODEL,
+    )
+else:
+    logger.info("[SL-DIAG] STORYLAB_MODEL=%r (effective, no correction needed)", _EFFECTIVE_STORYLAB_MODEL)
+
+_REQUEST_TIMEOUT = 90.0  # seconds for LLM calls
 
 # ── length → (target_words, hard_cap_words) ──────────────────────────────────
 
@@ -68,68 +91,77 @@ def _length_cap(length: Any) -> int:
 # ── direction-specific narrative instructions ─────────────────────────────────
 
 def direction_instructions(direction: str) -> str:
-    """Return craft-focused narrative guidance for the requested direction."""
+    """Return beat-specific narrative instruction block for the requested direction."""
     _map: dict[str, str] = {
-        Direction.advance_plot: (
-            "Introduce a complication, revelation, or decision that shifts what is possible. "
-            "Let consequences ripple forward from the last beat rather than introducing "
-            "something entirely new. The forward movement should feel inevitable in retrospect."
-        ),
-        Direction.add_dialogue: (
-            "Let characters speak in their own distinct voices — what they say should "
-            "reveal what they want, fear, or are hiding from each other. "
-            "Ground every line in a specific want. Avoid dialogue that exists only to "
-            "exchange information; let subtext carry half the meaning."
-        ),
-        Direction.sad_moment: (
-            "Render grief or loss through the body and the physical environment — "
-            "not through declarations of feeling. Avoid the word 'sad'. "
-            "Resist premature resolution; let the weight sit. "
-            "Specific detail (a particular object, a sound, the quality of light) "
-            "carries more emotional force than general statements."
-        ),
-        Direction.argument_begins: (
-            "Root the conflict in something each character genuinely wants or believes. "
-            "Avoid clichéd argument starters. Not every grievance is stated directly — "
-            "let subtext, deflection, and misdirection do work. "
-            "The argument should reveal character, not just advance a dispute."
-        ),
-        Direction.romantic_moment: (
-            "Lean into proximity, noticing, and restraint. "
-            "Describe what the character observes about the other person — specific, "
-            "sensory detail rather than abstract attraction. "
-            "The moment should feel earned by what preceded it. "
-            "Silence and small gestures carry more weight than declarations."
-        ),
-        Direction.sensual_scene: (
-            "Build through sensation and implication. "
-            "Focus on textures, warmth, breath, and the small precise gestures "
-            "that register before anything is named. Mood over mechanics. "
-            "The charge comes from anticipation and from what is noticed, not described."
-        ),
-        Direction.intimate_scene: (
-            "Write emotional and physical closeness together — vulnerability as carefully "
-            "as anything physical. The scene should feel private and specific to these "
-            "characters, not generic. Interior experience has equal weight to action."
-        ),
-        Direction.twist_event: (
-            "Plant the consequences before the twist lands fully — let something feel "
-            "slightly wrong in the sentence before the reveal. "
-            "The surprise should make the reader reconsider what came before. "
-            "Resist the urge to over-explain; trust the reader to catch up."
-        ),
-        Direction.quiet_reflection: (
-            "Interior space: a character sifts through what they know, feel, or suspect. "
-            "Revelations should arrive tentatively, not declaratively — "
-            "as questions or half-formed recognitions, not conclusions. "
-            "The environment should mirror or complicate the interior state."
-        ),
-        Direction.action_sequence: (
-            "Propulsive short sentences. Compress time ruthlessly. "
-            "Track orientation — who is where relative to whom, what is at stake "
-            "at every beat. Use sensory specifics to ground the chaos. "
-            "Stakes must be legible; confusion should feel deliberate, not accidental."
-        ),
+        Direction.advance_plot: """\
+BEAT: CONTINUE THE SCENE
+- Progress the situation — something must change from where it was.
+- Introduce a complication, decision, or shift in what a character wants or knows.
+- Let consequences ripple forward from the last beat. No repetition of what is established.
+- The forward movement should feel inevitable in retrospect.""",
+
+        Direction.add_dialogue: """\
+BEAT: SHIFT THE CONVERSATION
+- Push the dialogue in a new direction — not where it was already heading.
+- Every line must carry subtext: what is said versus what is meant.
+- Avoid exchanges that only transfer information. Conversation must do two things at once.
+- At least one line should misfire, deflect, or land at the wrong angle.""",
+
+        Direction.sad_moment: """\
+BEAT: WEIGHT
+- Render loss or grief through the body and the specific physical environment.
+- No declarations of feeling. Never "she was sad" or "he felt the weight of it".
+- A particular object, sound, or physical detail carries more than any emotional summary.
+- Resist resolution. Let the weight sit without being explained or named.""",
+
+        Direction.argument_begins: """\
+BEAT: INTRODUCE FRICTION
+- Add tension or conflict rooted in what each character genuinely wants.
+- Shift the power dynamic — even a small tilt is enough.
+- The conflict need not be verbal. A silence, a refusal, a wrong assumption qualifies.
+- Do not resolve it. Leave the friction active at the end of the beat.""",
+
+        Direction.romantic_moment: """\
+BEAT: PROXIMITY
+- Build through noticing, restraint, and specific physical detail.
+- What does the character observe about the other person — precisely, not abstractly?
+- Silence and small gestures carry more than declarations.
+- The charge comes from what is withheld or almost said, not what is stated.""",
+
+        Direction.sensual_scene: """\
+BEAT: SENSATION
+- Build through texture, warmth, breath, and implication.
+- Focus on what the body registers before anything is named or declared.
+- Mood over mechanics. Anticipation over description.
+- What is not said or shown carries as much charge as what is.""",
+
+        Direction.intimate_scene: """\
+BEAT: CLOSENESS
+- Emotional and physical vulnerability together, in equal measure.
+- Interior experience has equal weight to physical action.
+- The scene must feel private and specific to these characters — not interchangeable.
+- Tenderness and risk must coexist in the same beat.""",
+
+        Direction.twist_event: """\
+BEAT: REVEAL INFORMATION
+- Introduce meaningful new information that changes how prior events are read.
+- Plant the consequence before the twist fully lands — let something feel slightly off first.
+- The reveal must make the reader reconsider what came before.
+- Do not over-explain. Trust the reader to catch up without being guided.""",
+
+        Direction.quiet_reflection: """\
+BEAT: INTERIOR MOMENT
+- A character sifts through what they know, feel, or suspect.
+- No vague introspection. Thoughts must arrive as specific observations or half-formed recognitions.
+- The environment should complicate or mirror the interior state — not decorate it.
+- Revelations arrive tentatively, as questions or incomplete thoughts — not conclusions.""",
+
+        Direction.action_sequence: """\
+BEAT: MOVEMENT
+- Propulsive short sentences. Compress time ruthlessly — a paragraph covers seconds.
+- Track orientation at every beat: who is where, what is immediately at stake.
+- One precise sensory detail per beat grounds the chaos.
+- Stakes must be legible. Confusion should feel deliberate, never accidental.""",
     }
     return _map.get(direction, _map[Direction.advance_plot])
 
@@ -407,6 +439,127 @@ def build_character_behaviour_anchors(
     return result
 
 
+
+# ── protagonist anchor helper (public) ───────────────────────────────────────
+
+def build_protagonist_anchor(character: dict[str, Any]) -> str:
+    """Build a rich protagonist identity block placed first in the chapter prompt.
+
+    Gathers all available identity fields into a structured block that anchors
+    the model's narration in a specific character before any other context.
+    Returns empty string when no usable data is present beyond name alone.
+    """
+    name = (character.get("name") or "Unknown").strip()
+    lines: list[str] = []
+
+    # Identity descriptor: role, age, species/era
+    identity_frags: list[str] = []
+    for field in ("role", "age", "species", "era"):
+        val = str(character.get(field) or "").strip()
+        if val:
+            identity_frags.append(val)
+    header = f"**{name}**"
+    if identity_frags:
+        header += f" — {', '.join(identity_frags)}"
+    lines.append(header)
+
+    # Short bio / backstory (cap at 350 chars — enough to establish identity)
+    short_bio = str(character.get("short_bio") or "").strip()
+    if short_bio:
+        lines.append(short_bio[:350])
+
+    # Personality / worldview
+    personality = str(character.get("personality") or "").strip()
+    if personality:
+        lines.append(f"Personality: {personality[:200]}")
+
+    # Traits — from `traits` field (spec JSON) or `tags` (DB column, comma-separated)
+    traits_raw = character.get("traits") or character.get("tags") or ""
+    if isinstance(traits_raw, list):
+        traits_raw = ", ".join(str(t).strip() for t in traits_raw if str(t).strip())
+    traits = str(traits_raw).strip()
+    if traits:
+        lines.append(f"Traits: {traits[:180]}")
+
+    # Voice / speech register
+    voice = str(character.get("voice") or character.get("speech_style") or "").strip()
+    if voice:
+        lines.append(f"Voice: {voice[:150]}")
+
+    # Tone
+    char_tone = str(character.get("tone") or "").strip()
+    if char_tone:
+        lines.append(f"Tone: {char_tone[:120]}")
+
+    # Motivation / what drives them
+    motivation = str(character.get("motivation") or "").strip()
+    if motivation:
+        lines.append(f"Drives: {motivation[:160]}")
+
+    # Emotional pacing
+    ep = str(character.get("emotional_pacing") or "").strip()
+    if ep:
+        lines.append(f"Emotional pacing: {ep[:130]}")
+
+    # Would-never constraints (first 2 items only — keep tight)
+    never_raw = character.get("never") or character.get("boundaries") or ""
+    if isinstance(never_raw, list):
+        never_raw = "; ".join(str(v).strip() for v in never_raw[:2] if str(v).strip())
+    never = str(never_raw).strip()
+    if never:
+        lines.append(f"Would never: {never[:130]}")
+
+    # Only the header line means no real data — skip the block
+    if len(lines) <= 1:
+        return ""
+
+    block = "\n".join(lines)
+    return (
+        "## Protagonist\n"
+        + block
+        + "\n\nWrite through this character's specific sensory experience, emotional register, "
+        "and worldview. Every scene opens from their vantage point — not a generic narrator's."
+    )
+
+
+# ── narrative state → prose hints helper (private) ───────────────────────────
+
+def _narrative_state_hints(ss: dict[str, Any]) -> str:
+    """Translate numeric narrative state into brief actionable prose hints.
+
+    Replaces raw float dumps (tension: 0.45) with qualitative craft guidance
+    the model can apply directly to scene construction.
+    """
+    tension = float(ss.get("tension", 0.2))
+    emotional_weight = float(ss.get("emotional_weight", 0.1))
+    stakes = float(ss.get("stakes", 0.2))
+    intimacy = float(ss.get("intimacy_level", 0))
+
+    hints: list[str] = []
+
+    if tension >= 0.65:
+        hints.append("High tension — active threat or unresolved conflict; keep sentences tighter.")
+    elif tension >= 0.35:
+        hints.append("Moderate tension — friction or unease beneath the surface.")
+    else:
+        hints.append("Low tension — space for quieter observation, character detail, or slow build.")
+
+    if emotional_weight >= 0.65:
+        hints.append("Significant emotional weight — what is unsaid carries as much as what is spoken.")
+    elif emotional_weight >= 0.35:
+        hints.append("Noticeable emotional weight — characters are managing something beneath the surface.")
+
+    if stakes >= 0.65:
+        hints.append("High stakes — consequences matter; decisions should feel irreversible.")
+    elif stakes >= 0.35:
+        hints.append("Stakes are building — the scene should move something forward, not hold steady.")
+
+    if intimacy >= 0.5:
+        hints.append("Meaningful closeness is established between characters.")
+
+    return "\n".join(f"- {h}" for h in hints) if hints else "- Neutral — open scene, establish the ground."
+
+
 # ── anti-generic style rules ──────────────────────────────────────────────────
 
 _STYLE_RULES = """\
@@ -422,6 +575,8 @@ difficult through the beat.
 emotions ("she felt sad", "he was angry").
 - Vary sentence openings — do not start successive sentences or paragraphs with the same \
 word, pronoun, or syntactic construction.
+- Vary sentence rhythm with intention: short declarative cuts, long coiling sentences, \
+fragments. Uniform pacing is a failure mode — break it deliberately.
 - Do not over-use internal monologue. Anchor emotional states in physical detail, action, \
 or dialogue rather than interior narration.
 - Avoid stock AI phrasing: "a mix of", "something shifted", "she found herself", \
@@ -431,7 +586,107 @@ or dialogue rather than interior narration.
 physical detail, or an action that invites a response. No melodramatic cliffhangers \
 ("little did they know", "everything was about to change", "but then —"). \
 Do not resolve the scene completely. Each ending must differ in structure and closing \
-image from the previous one.\
+image from the previous one.
+
+Anti-patterns (forbidden):
+- Do NOT open with ambient scene-setting that delays character presence: \
+"The city hummed with life", "Rain fell softly outside", "It was a quiet afternoon" — \
+these are banned openers. Start where the character already is, already feeling, already \
+in motion.
+- Do NOT write flat descriptive paragraphs that establish place without a character lens. \
+Every setting detail must be filtered through a specific character's state of mind at \
+this exact moment — not a neutral camera.
+- Do NOT produce evenly balanced, well-behaved prose (action paragraph, reaction \
+paragraph, dialogue, repeat). Interrupt the pattern. A single-sentence paragraph. \
+A long thought cut off mid-clause. Dialogue that arrives without setup.
+- Do NOT front-load exposition. If background is needed, embed it inside action or \
+dialogue — never pause the scene for a history lesson or context dump.
+- Do NOT write characters who always say the right thing in the right register. \
+Allow a line to misfire, overshoot, or miss entirely — that is where character lives.
+- Do NOT keep emotional tone at a uniform level. A scene that maintains consistent \
+subtle intensity throughout has failed. Vary the weight: mostly quiet, one spike; \
+or mounting, then an unexpected deflation.\
+"""
+
+
+# ── scene intensity rules (public, shared across both prompts) ────────────────
+
+_SCENE_INTENSITY_RULES = """\
+## Scene intensity (enforce strictly)
+
+**Opening:**
+- The first sentence must be specific to THIS character in THIS moment. \
+If it could open any story, rewrite it.
+- Banned opening moves: weather, ambient environment without character, a character \
+"waking up", a character "noticing" something generic, scene-setting narration \
+with no tension or point of view.
+- Required opening moves (choose one): an action already in progress; a specific \
+physical or sensory detail that implies emotional state; a line of dialogue or thought \
+that arrives mid-current; a charged observation only THIS character would make.
+
+**Immersion:**
+- Include at least two non-visual sensory details per scene: temperature, texture, \
+smell, sound, proprioception, the body's response to stress or proximity.
+- Internal experience must reflect THIS character's specific psychology — not generic \
+interiority ("she felt nervous") but the particular shape their fear, desire, or \
+unease takes given who they are.
+- Ground every abstract emotion in a concrete physical correlate. "Grief" is not a \
+word; it is what the hands do, what the eye catches, what the body cannot make itself do.
+
+**Subtext:**
+- Dialogue should do at least two things at once: say something literal and imply \
+something unspoken.
+- Every exchange should contain a small imbalance — a withheld truth, a deflection, \
+an answer that doesn't quite fit the question.
+- What characters do NOT say carries equal weight to what they say. A silence, \
+a subject change, a wrong answer — these are all character revealed.
+
+**Micro-conflict:**
+- Even quiet or domestic scenes must contain friction: unequal desire, a want that \
+is not fully acknowledged, an implication neither character names, a kindness that \
+lands at an angle.
+- Conflict does not require confrontation. A character choosing not to speak is \
+conflict. A gesture misread is conflict. A correct assumption made for the wrong \
+reason is conflict.
+- Do not resolve tension before the scene ends. Hold it open.
+
+**Controlled imperfection:**
+- Not every thought completes itself. A character can interrupt their own interior \
+reasoning, trail off, circle back, or contradict what they just decided.
+- Not every sentence should arrive cleanly. Fragments, run-ons, abrupt stops mid-idea \
+are permitted — even encouraged at moments of stress, distraction, or feeling.
+- At points of tension, break smooth paragraph flow deliberately: a one-word line, \
+a sentence that ends too early, white space that forces the reader to stop.
+
+**Emotional sharpness:**
+- Do not keep all emotion evenly restrained. Some moments should let feeling \
+leak through a character's control — a word that comes out wrong, a longer pause \
+before answering, a physical action that reveals more than intended.
+- The goal is not melodrama. The goal is a specific crack in composure, once, \
+at the right moment. Not a flood. A leak.
+- Uneven emotional distribution is correct: a scene can be mostly flat and land \
+one sharp beat. That asymmetry is more human than consistent intensity.
+
+**Dialogue unpredictability:**
+- Characters do not always say the right thing. They can deflect when honesty \
+was expected, overshare when silence was called for, or answer a different \
+question than was asked.
+- Dialogue can misfire: a joke that lands wrong, a comfort that stings, \
+a serious statement that gets an absurd response.
+- Avoid "clean" dialogue — exchanges where every line lands with exactly the \
+intended weight and the other character responds appropriately. \
+Real conversation is frequently off-pitch.
+
+Additional anti-patterns (forbidden):
+- Do NOT write dialogue that is perfectly structured: each line balanced in length, \
+each response exactly on-topic, each exchange progressing neatly forward. \
+At least one line in every exchange should feel slightly off, deflected, or too much.
+- Do NOT distribute emotional tone evenly across a scene. A scene should have \
+a weight distribution — mostly quiet, one sharp spike; or building, then sudden flat. \
+Monotone emotional pacing is a failure mode.
+- Do NOT write scenes that feel complete. The reader should always leave with \
+something unresolved, something they noticed that was not named, a question \
+the scene did not answer. Closure is the enemy of forward motion.\
 """
 
 
@@ -454,20 +709,55 @@ STORY must contain only prose — no tags, headers, or meta-commentary.\
 """
 
 
-# ── system prompt (stable, cache-friendly) ────────────────────────────────────
+# ── output constraints (static, appended to every user message) ──────────────
+
+_OUTPUT_CONSTRAINTS = """\
+CONSTRAINTS:
+- Avoid generic phrases and stock AI phrasing.
+- Avoid repetitive sentence structures within a paragraph.
+- No emotional summarising ("she felt relieved", "he was overcome with guilt").
+- Every paragraph must contain at least one of: action, specific observation, or dialogue.
+- Do not resolve the scene completely. End on something unfinished, implied, or still in motion.\
+"""
+
+
+# ── system prompt ─────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = f"""\
-You are StoryLab, Ficshon's narrative continuation engine. You continue stories \
-with the voice, tense, and POV already established — never explaining, never \
-summarising, never breaking the fourth wall.
+You are a professional novelist writing a continuous story.
 
-Core rules:
+You must produce grounded, character-driven, emotionally real prose.
+
+CRITICAL RULES:
+- Do NOT write generic or filler prose.
+- Do NOT summarise events. Always write in-scene.
+- Every paragraph must either advance tension, reveal character, or shift the situation.
+- Dialogue must contain subtext.
+- Avoid cliché phrasing and safe, neutral language.
 - Write ONLY the continuation. No preamble, no titles, no commentary.
 - Do not repeat or paraphrase any text from the scene provided to you.
-- Match the established POV (default: third person limited if unclear).
-- Honour boundary and direction instructions exactly.
+- At least once per scene, introduce a disruption: a mistake, an emotional slip, an
+  unexpected line, or a shift in control. Not telegraphed — it should arrive naturally.
+- Characters should not behave perfectly: allow hesitation, deflection, contradiction,
+  or partial honesty. A character who always does the right thing at the right moment
+  is not a character.
+- Include at least one micro-reversal: a moment where one character gains ground, then
+  loses it — or thinks they've resolved something, and hasn't.
+
+SCENE CONTINUITY:
+- Continue the current scene where it left off.
+- Respect prior events and character dynamics.
+- Do not reset or reintroduce characters unnecessarily.
+- Match the established POV, tense, and voice (default: third person limited if unclear).
+
+STYLE:
+- Controlled pacing — varied sentence rhythm, not uniform.
+- Specific detail, not overwritten.
+- Tight, readable prose with weight where it matters.
 
 {_STYLE_RULES}
+
+{_SCENE_INTENSITY_RULES}
 
 {_OUTPUT_CONTRACT}\
 """
@@ -569,48 +859,73 @@ def build_storylab_prompt(
     characters: list[Any],
     recent_endings: list[str] | None = None,
     variant: str = "default",
+    story_title: str = "",
+    story_genre: str = "",
+    story_premise: str = "",
 ) -> list[dict[str, str]]:
     """Build and return the messages list for the OpenRouter chat completions call.
 
     Block order in the user message:
-        1. Story context + narrative state
+        1. Story context (title / genre / premise / characters / current scene state)
         2. Character voice block      (if characters present)
         3. User material handling     (always — canonical manuscript + beat rendering rules)
         4. Character fidelity         (always — psychology-first escalation constraint)
         5. Scene momentum requirement (always)
         6. Repetition dampening       (recurring phrases + recent endings, when present)
-        7. Direction / boundary / pacing / tone
-        8. Target length
-        9. Recent scene text
-       10. Task instruction
+        7. Beat instruction           (direction → explicit BEAT: block)
+        8. Boundary / pacing / tone
+        9. Target length
+       10. Recent scene text
+       11. Output constraints
+       12. Task instruction
 
     Args:
         recent_endings: Last N ending phrases from this story's GenerationLog,
                         used to drive repetition dampening.
+        story_title / story_genre / story_premise: optional story-level metadata;
+                        populated when available, gracefully omitted when not.
 
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
     """
-    ss = state_json.get("story_state", {})
-
-    def _fmt(v: object) -> str:
-        return f"{v:.2f}" if isinstance(v, float) else str(v)
-
-    state_lines = "\n".join(
-        f"  {k}: {_fmt(v)}" for k, v in ss.items() if k != "scene_type"
-    ) or "  (default)"
-
-    char_names = (
-        ", ".join(
-            c.get("name", "Unknown") if isinstance(c, dict) else str(c)
-            for c in (characters or [])
-        )
-        or "None specified"
-    )
-
     target_words = _length_target(controls.length)
     cap_words = _length_cap(controls.length)
     scene_tail = text[-6000:] if len(text) > 6000 else text
+
+    # ── 1. Story context block ────────────────────────────────────────────────
+
+    context_lines: list[str] = ["STORY CONTEXT"]
+    if story_title:
+        context_lines.append(f"Title: {story_title}")
+    if story_genre:
+        context_lines.append(f"Genre: {story_genre}")
+    if story_premise:
+        context_lines.append(f"Premise: {story_premise}")
+
+    if characters:
+        context_lines.append("\nCHARACTERS:")
+        for c in (characters or []):
+            if not isinstance(c, dict):
+                context_lines.append(f"  {str(c).strip()}")
+                continue
+            name = (c.get("name") or "Unknown").strip()
+            frags: list[str] = []
+            for field in ("role", "personality", "traits", "voice"):
+                val = c.get(field)
+                if not val:
+                    continue
+                if isinstance(val, list):
+                    val = ", ".join(str(v).strip() for v in val if str(v).strip())
+                val = str(val).strip()
+                if val:
+                    frags.append(val)
+            desc = "; ".join(frags)[:140] if frags else ""
+            context_lines.append(f"  {name}" + (f": {desc}" if desc else ""))
+
+    if summary and summary.strip():
+        context_lines.append(f"\nCURRENT SCENE STATE:\n{summary.strip()}")
+    else:
+        context_lines.append("\nCURRENT SCENE STATE:\nOpening — no prior scene.")
 
     # ── build optional blocks ─────────────────────────────────────────────────
 
@@ -634,12 +949,7 @@ def build_storylab_prompt(
 
     sections: list[str] = []
 
-    sections.append(
-        f"## Story context\n"
-        f"Summary: {summary or 'No summary yet.'}\n"
-        f"Characters: {char_names}"
-    )
-    sections.append(f"## Narrative state\n{state_lines}")
+    sections.append("\n".join(context_lines))
 
     if voice_block:
         sections.append(voice_block)
@@ -653,9 +963,16 @@ def build_storylab_prompt(
     if dampen_parts:
         sections.append("## Repetition dampening\n" + "\n\n".join(dampen_parts))
 
+    # Narrative state as actionable prose hints (not raw floats)
+    ss = state_json.get("story_state", {})
+    state_hints = _narrative_state_hints(ss)
+    sections.append(f"## Scene state\n{state_hints}")
+
+    # Beat instruction — direction label + explicit BEAT: block
     sections.append(
         f"## Direction: {controls.direction}\n{direction_instructions(controls.direction)}"
     )
+
     sections.append(
         f"## Boundary: {controls.boundary}\n{boundary_instructions(controls.boundary)}"
     )
@@ -669,6 +986,9 @@ def build_storylab_prompt(
         f"## Target length\nAim for ~{target_words} words (hard cap: {cap_words} words)."
     )
     sections.append(f"## Recent scene\n{scene_tail}")
+
+    sections.append(_OUTPUT_CONSTRAINTS)
+
     alt_clause = (
         " Write a distinctly different alternative take — vary the opening beat, "
         "narrative approach, and closing hook from the default continuation."
@@ -676,9 +996,9 @@ def build_storylab_prompt(
     )
     sections.append(
         f"## Task\n"
-        f"Continue directly from where the scene ends.{alt_clause} Apply all direction, boundary, "
-        f"pacing, and tone instructions above. Write approximately {target_words} words "
-        f"(max {cap_words}). End on a natural pause with a distinct forward hook. "
+        f"Continue directly from where the scene ends.{alt_clause} "
+        f"Write approximately {target_words} words (max {cap_words}). "
+        f"End on something unfinished, implied, or still in motion. "
         f"Use the required output format."
     )
 
@@ -902,7 +1222,7 @@ def _call_openrouter(
     temperature = 0.85 + (0.15 if variant == "alt" else 0.0)
 
     payload = {
-        "model": settings.STORYLAB_MODEL,
+        "model": _EFFECTIVE_STORYLAB_MODEL,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -914,18 +1234,32 @@ def _call_openrouter(
         "X-Title": "Ficshon StoryLab",
     }
 
+    user_content_len = len(messages[1]["content"]) if len(messages) > 1 else 0
+    logger.info(
+        "[SL-DIAG] _call_openrouter (continuation) | model=%s max_tokens=%d prompt_chars=%d",
+        _EFFECTIVE_STORYLAB_MODEL, max_tokens, user_content_len,
+    )
+
     with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
         resp = client.post(url, json=payload, headers=headers)
+        logger.info("[SL-DIAG] _call_openrouter HTTP status=%d", resp.status_code)
         resp.raise_for_status()
 
     data = resp.json()
     raw: str = data["choices"][0]["message"]["content"]
+    logger.info(
+        "[SL-DIAG] _call_openrouter raw_chars=%d has_story_tag=%s",
+        len(raw), "<STORY>" in raw,
+    )
 
     delta = _parse_delta_signals(raw)
     if delta:
         logger.debug("StoryLab delta signals: %s", delta)
 
     story_text = _trim_to_cap(_parse_model_output(raw), cap_words)
+    if not story_text.strip():
+        logger.error("[SL-DIAG] _call_openrouter returned empty story text (raw_chars=%d)", len(raw))
+        raise ValueError("Model returned empty story text after parsing")
     return story_text, delta
 
 
@@ -950,6 +1284,10 @@ def generate_storylab_continuation(
     recent_endings is forwarded to the prompt for anti-repetition guidance.
     """
     provider = settings.STORYLAB_PROVIDER
+    logger.info(
+        "[SL-DIAG] generate_storylab_continuation called | provider=%s key_present=%s model=%s story_id=%s",
+        provider, bool(settings.OPENROUTER_API_KEY), _EFFECTIVE_STORYLAB_MODEL, story_id,
+    )
 
     if provider == "openrouter":
         if not settings.OPENROUTER_API_KEY:
@@ -960,12 +1298,16 @@ def generate_storylab_continuation(
                     text, controls, state_json, summary, characters, recent_endings, variant=variant
                 )
             except httpx.TimeoutException:
-                logger.warning("OpenRouter request timed out; falling back to stub")
+                logger.warning("[SL-DIAG] generate_storylab_continuation FALLBACK: timed out")
             except httpx.HTTPStatusError as exc:
-                logger.warning("OpenRouter returned HTTP %s; falling back to stub", exc.response.status_code)
+                logger.warning(
+                    "[SL-DIAG] generate_storylab_continuation FALLBACK: HTTP %s body=%s",
+                    exc.response.status_code, exc.response.text[:300],
+                )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("OpenRouter error (%s); falling back to stub", exc)
+                logger.warning("[SL-DIAG] generate_storylab_continuation FALLBACK: %s: %s", type(exc).__name__, exc)
 
+    logger.warning("[SL-DIAG] generate_storylab_continuation returning STUB | provider=%s story_id=%s", provider, story_id)
     return _generate_stub_text(story_id, controls), None
 
 
@@ -995,18 +1337,35 @@ scene_type should label this beat (e.g. "confrontation", "revelation", "intimacy
 # ── chapter system prompt ─────────────────────────────────────────────────────
 
 _CHAPTER_SYSTEM_PROMPT = f"""\
-You are StoryLab, Ficshon's narrative chapter engine. You write complete, polished chapters \
-based on user guidance and story context — never summarising, never breaking the fourth wall.
+You are a professional novelist writing a complete chapter for a continuous story.
 
-Core rules:
+You must produce grounded, character-driven, emotionally real prose.
+
+CRITICAL RULES:
+- Do NOT write generic or filler prose.
+- Do NOT summarise events. Always write in-scene.
+- Every paragraph must either advance tension, reveal character, or shift the situation.
+- Dialogue must contain subtext.
+- Avoid cliché phrasing and safe, neutral language.
 - Write ONLY the chapter prose. No titles, no headers, no preamble, no commentary.
 - Treat the user's guidance as REQUIRED scene beats — render every beat as prose and dialogue.
 - If the user includes rough dialogue or prose fragments, incorporate them naturally (light polishing permitted).
+
+SCENE CONTINUITY:
 - Match the established voice, tense, and POV from the story context provided.
-- Honour boundary and direction instructions exactly.
-- Do NOT add chapter numbers or headings to your output — prose only.
+- Respect prior events and character dynamics.
+- Do not reset or reintroduce characters unnecessarily.
+- Anchor narration in the protagonist's specific sensory experience, emotional register, \
+and way of seeing — not as a detached observer filling a template.
+
+STYLE:
+- Controlled pacing — varied sentence rhythm, not uniform.
+- Specific detail, not overwritten.
+- Tight, readable prose with weight where it matters.
 
 {_STYLE_RULES}
+
+{_SCENE_INTENSITY_RULES}
 
 {_CHAPTER_OUTPUT_CONTRACT}\
 """
@@ -1022,78 +1381,112 @@ def build_chapter_prompt(
     characters: list[Any],
     previous_chapter_text: str | None = None,
     variant: str = "default",
+    story_title: str = "",
+    story_genre: str = "",
+    story_premise: str = "",
+    realm_description: str = "",
+    story_characters: list[Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build the messages list for a chapter generation call.
 
-    Unlike build_storylab_prompt, this generates a FRESH chapter rather than
-    appending after a manuscript. The user prompt is scene guidance/beats.
+    Character-first ordering: protagonist identity is established before world
+    context so the model anchors narration in a specific character from the
+    first token, rather than defaulting to a generic narrator.
 
     Block order in the user message:
-        1.  Story context (characters only) + Narrative state
-        2.  Character voice block         (if characters present)
-        3.  Character behaviour anchors   (if anchor data present)
-        4.  Character fidelity            (always)
-        5.  Story so far                  (only if summary is non-empty)
-        6.  Last chapter                  (only if previous_chapter_text is non-empty)
-        7.  Direction / boundary / pacing / tone
-        8.  Outcome vs Path               (always — governs control interpretation)
-        9.  Target length
-        10. User guidance for this chapter
-        11. Task instruction
+        1.  Protagonist anchor            (first character — rich identity block)
+        2.  Supporting characters         (remaining characters — compact voice + anchors)
+        3.  Story identity                (title / genre / premise)
+        4.  World / setting               (realm description)
+        5.  Story so far                  (memory / summary continuity)
+        6.  Last chapter                  (immediate prose continuity)
+        7.  Current scene state           (narrative state as actionable prose hints)
+        8.  Character fidelity            (always)
+        9.  Direction / boundary / pacing / tone
+        10. Outcome vs Path               (governs control interpretation)
+        11. Target length
+        12. User guidance for this chapter
+        13. Task instruction              (character-specific)
+
+    story_characters: pre-fetched DB character dicts (authoritative). When non-empty,
+        these are used in preference to state_json characters (memory-extracted).
 
     Returns:
         [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
     """
-    ss = state_json.get("story_state", {})
+    # Prefer story_characters (DB-sourced, authoritative) over state_json characters
+    active_characters = story_characters if story_characters else (characters or [])
 
-    def _fmt(v: object) -> str:
-        return f"{v:.2f}" if isinstance(v, float) else str(v)
-
-    state_lines = "\n".join(
-        f"  {k}: {_fmt(v)}" for k, v in ss.items() if k != "scene_type"
-    ) or "  (default)"
-
-    char_names = (
-        ", ".join(
-            c.get("name", "Unknown") if isinstance(c, dict) else str(c)
-            for c in (characters or [])
-        )
-        or "None specified"
+    # Split into protagonist (first) and supporting (rest)
+    protagonist: dict[str, Any] | None = (
+        active_characters[0] if active_characters and isinstance(active_characters[0], dict) else None
     )
+    supporting: list[dict[str, Any]] = [
+        c for c in active_characters[1:] if isinstance(c, dict)
+    ]
 
     target_words = _length_target(controls.length)
     cap_words = _length_cap(controls.length)
-
-    voice_block = build_character_voice_block(characters or [])
-    anchor_block = build_character_behaviour_anchors(characters or [])
+    ss = state_json.get("story_state", {})
 
     sections: list[str] = []
 
-    sections.append(
-        f"## Story context\n"
-        f"Characters: {char_names}"
-    )
-    sections.append(f"## Narrative state\n{state_lines}")
+    # ── 1. Protagonist anchor (CHARACTER-FIRST) ───────────────────────────────
+    protagonist_block = build_protagonist_anchor(protagonist) if protagonist else ""
+    if protagonist_block:
+        sections.append(protagonist_block)
 
-    if voice_block:
-        sections.append(voice_block)
+    # ── 2. Supporting characters (compact voice + behaviour anchors) ──────────
+    if supporting:
+        support_voice = build_character_voice_block(supporting)
+        support_anchors = build_character_behaviour_anchors(supporting)
+        if support_voice:
+            sections.append(support_voice)
+        if support_anchors:
+            sections.append(support_anchors)
+    elif not protagonist_block and active_characters:
+        # No protagonist data (no DB characters) — fall back to flat voice/anchor blocks
+        fallback_voice = build_character_voice_block(active_characters)
+        fallback_anchors = build_character_behaviour_anchors(active_characters)
+        if fallback_voice:
+            sections.append(fallback_voice)
+        if fallback_anchors:
+            sections.append(fallback_anchors)
 
-    if anchor_block:
-        sections.append(anchor_block)
+    # ── 3. Story identity ─────────────────────────────────────────────────────
+    identity_parts: list[str] = []
+    if story_title:
+        identity_parts.append(f"Title: {story_title}")
+    if story_genre:
+        identity_parts.append(f"Genre: {story_genre}")
+    if story_premise:
+        identity_parts.append(f"Premise: {story_premise}")
+    if identity_parts:
+        sections.append("## Story identity\n" + "\n".join(identity_parts))
 
-    sections.append(_CHARACTER_FIDELITY_BLOCK)
+    # ── 4. World / setting ────────────────────────────────────────────────────
+    if realm_description:
+        sections.append(f"## Setting\n{realm_description}")
 
-    # STORY SO FAR — only injected when a persisted summary exists
+    # ── 5. Story so far (memory continuity) ──────────────────────────────────
     if summary and summary.strip():
         sections.append(f"## Story so far\n{summary.strip()}")
 
-    # LAST CHAPTER — full text for maximum continuity fidelity; omitted for opening chapter
+    # ── 6. Last chapter (immediate prose continuity) ──────────────────────────
     if previous_chapter_text and previous_chapter_text.strip():
         sections.append(
-            f"## Last chapter (do NOT copy or repeat — use for continuity only)\n"
+            f"## Last chapter (use for continuity — do NOT copy or repeat)\n"
             f"{previous_chapter_text.strip()}"
         )
 
+    # ── 7. Current scene state (prose hints, not raw numbers) ─────────────────
+    state_hints = _narrative_state_hints(ss)
+    sections.append(f"## Current scene state\n{state_hints}")
+
+    # ── 8. Character fidelity ─────────────────────────────────────────────────
+    sections.append(_CHARACTER_FIDELITY_BLOCK)
+
+    # ── 9. Direction / boundary / pacing / tone ───────────────────────────────
     sections.append(
         f"## Direction: {controls.direction}\n{direction_instructions(controls.direction)}"
     )
@@ -1106,14 +1499,32 @@ def build_chapter_prompt(
     sections.append(
         f"## Tone: {controls.tone_intensity}\n{tone_instructions(controls.tone_intensity)}"
     )
+
+    # ── 10. Outcome vs Path ───────────────────────────────────────────────────
     sections.append(_OUTCOME_VS_PATH_BLOCK)
+
+    # ── 11. Target length ─────────────────────────────────────────────────────
     sections.append(
         f"## Target length\nAim for ~{target_words} words (hard cap: {cap_words} words)."
     )
 
-    guidance = prompt.strip() if prompt and prompt.strip() else "(No specific guidance — develop the story naturally.)"
+    # ── 12. User guidance ─────────────────────────────────────────────────────
+    guidance = (
+        prompt.strip() if prompt and prompt.strip()
+        else "(No specific guidance — develop the story naturally.)"
+    )
     sections.append(f"## User guidance for this chapter\n{guidance}")
 
+    # ── 13. Output constraints ────────────────────────────────────────────────
+    sections.append(_OUTPUT_CONSTRAINTS)
+
+    # ── 14. Task (character-specific) ────────────────────────────────────────
+    protagonist_name = protagonist.get("name", "").strip() if protagonist else ""
+    char_clause = (
+        f" Filter the scene through {protagonist_name}'s specific perspective — "
+        f"their senses, their emotional register, their way of reading the room."
+        if protagonist_name else ""
+    )
     alt_clause = (
         " Write a distinctly different alternative take — vary the opening beat, "
         "narrative approach, and closing hook."
@@ -1121,8 +1532,9 @@ def build_chapter_prompt(
     )
     sections.append(
         f"## Task\n"
-        f"Write a complete chapter.{alt_clause} Every beat in the user guidance above is a REQUIRED "
-        f"scene event — render each beat as polished narrative and dialogue. Apply all direction, "
+        f"Write a complete chapter.{alt_clause}{char_clause} "
+        f"Every beat in the user guidance above is a REQUIRED scene event — "
+        f"render each beat as polished narrative and dialogue. Apply all direction, "
         f"boundary, pacing, and tone instructions. Write approximately {target_words} words "
         f"(max {cap_words}). Use the required output format including SUGGESTIONS."
     )
@@ -1201,19 +1613,51 @@ def _call_openrouter_chapter(
     characters: list[Any],
     previous_chapter_text: str | None = None,
     variant: str = "default",
+    story_title: str = "",
+    story_genre: str = "",
+    story_premise: str = "",
+    realm_description: str = "",
+    story_characters: list[Any] | None = None,
 ) -> tuple[str, list[str], dict[str, Any] | None]:
     """Call OpenRouter for chapter generation; parse STORY + SUGGESTIONS + DELTA_SIGNALS."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     messages = build_chapter_prompt(
-        prompt, controls, state_json, summary, characters, previous_chapter_text, variant=variant
+        prompt, controls, state_json, summary, characters, previous_chapter_text,
+        variant=variant,
+        story_title=story_title,
+        story_genre=story_genre,
+        story_premise=story_premise,
+        realm_description=realm_description,
+        story_characters=story_characters,
     )
     cap_words = _length_cap(controls.length)
     # Extra headroom for SUGGESTIONS + DELTA_SIGNALS blocks on top of prose
     max_tokens = max(400, int(cap_words * 2.5))
     temperature = 0.85 + (0.15 if variant == "alt" else 0.0)
 
+    user_content_len = len(messages[1]["content"]) if len(messages) > 1 else 0
+    # Derive context-shape flags from available data (no secrets or content logged)
+    _active = story_characters if story_characters else (characters or [])
+    _protagonist = _active[0] if _active and isinstance(_active[0], dict) else None
+    _char_has_identity = bool(
+        _protagonist and any(
+            _protagonist.get(f) for f in ("personality", "short_bio", "traits", "tags", "voice")
+        )
+    ) if _protagonist else False
+    logger.info(
+        "[SL-DIAG] _call_openrouter_chapter | model=%s max_tokens=%d temp=%.2f "
+        "prompt_chars=%d protagonist=%s char_identity=%s realm=%s memory=%s last_chapter=%s",
+        _EFFECTIVE_STORYLAB_MODEL, max_tokens, temperature,
+        user_content_len,
+        bool(_protagonist),
+        _char_has_identity,
+        bool(realm_description),
+        bool(summary and summary.strip()),
+        bool(previous_chapter_text and previous_chapter_text.strip()),
+    )
+
     payload = {
-        "model": settings.STORYLAB_MODEL,
+        "model": _EFFECTIVE_STORYLAB_MODEL,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -1227,10 +1671,15 @@ def _call_openrouter_chapter(
 
     with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
         resp = client.post(url, json=payload, headers=headers)
+        logger.info("[SL-DIAG] _call_openrouter_chapter HTTP status=%d", resp.status_code)
         resp.raise_for_status()
 
     data = resp.json()
     raw: str = data["choices"][0]["message"]["content"]
+    logger.info(
+        "[SL-DIAG] _call_openrouter_chapter raw_chars=%d has_story_tag=%s has_suggestions_tag=%s",
+        len(raw), "<STORY>" in raw, "<SUGGESTIONS>" in raw,
+    )
 
     delta = _parse_delta_signals(raw)
     suggestions = _parse_suggestions(raw)
@@ -1238,6 +1687,9 @@ def _call_openrouter_chapter(
         suggestions = _fallback_suggestions(state_json)
 
     chapter_text = _trim_to_cap(_parse_model_output(raw), cap_words)
+    if not chapter_text.strip():
+        logger.error("[SL-DIAG] _call_openrouter_chapter returned empty chapter text (raw_chars=%d)", len(raw))
+        raise ValueError("Model returned empty chapter text after parsing")
     return chapter_text, suggestions, delta
 
 
@@ -1252,6 +1704,11 @@ def generate_chapter(
     previous_chapter_text: str | None = None,
     story_id: str = "",
     variant: str = "default",
+    story_title: str = "",
+    story_genre: str = "",
+    story_premise: str = "",
+    realm_description: str = "",
+    story_characters: list[Any] | None = None,
 ) -> tuple[str, list[str], dict[str, Any] | None]:
     """Return (chapter_text, suggestions, delta_signals_or_none).
 
@@ -1261,23 +1718,45 @@ def generate_chapter(
     Stub returns deterministic text + fallback suggestions.
     """
     provider = settings.STORYLAB_PROVIDER
+    key_present = bool(settings.OPENROUTER_API_KEY)
+    logger.info(
+        "[SL-DIAG] generate_chapter called | provider=%s key_present=%s model=%s "
+        "story_id=%s story_title=%r story_genre=%r realm=%s story_chars=%d state_chars=%d",
+        provider, key_present, _EFFECTIVE_STORYLAB_MODEL,
+        story_id, story_title, story_genre, bool(realm_description),
+        len(story_characters or []), len(characters or []),
+    )
 
     if provider == "openrouter":
         if not settings.OPENROUTER_API_KEY:
             logger.warning("STORYLAB_PROVIDER=openrouter but OPENROUTER_API_KEY is empty; using stub")
         else:
             try:
-                return _call_openrouter_chapter(
+                result = _call_openrouter_chapter(
                     prompt, controls, state_json, summary, characters,
                     previous_chapter_text, variant=variant,
+                    story_title=story_title,
+                    story_genre=story_genre,
+                    story_premise=story_premise,
+                    realm_description=realm_description,
+                    story_characters=story_characters,
                 )
+                logger.info(
+                    "[SL-DIAG] generate_chapter OPENROUTER SUCCESS | words=%d",
+                    len(result[0].split()),
+                )
+                return result
             except httpx.TimeoutException:
-                logger.warning("OpenRouter chapter request timed out; falling back to stub")
+                logger.warning("[SL-DIAG] generate_chapter FALLBACK: OpenRouter chapter request timed out")
             except httpx.HTTPStatusError as exc:
-                logger.warning("OpenRouter returned HTTP %s; falling back to stub", exc.response.status_code)
+                logger.warning(
+                    "[SL-DIAG] generate_chapter FALLBACK: OpenRouter returned HTTP %s body=%s",
+                    exc.response.status_code, exc.response.text[:300],
+                )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("OpenRouter chapter error (%s); falling back to stub", exc)
+                logger.warning("[SL-DIAG] generate_chapter FALLBACK: OpenRouter chapter error (%s: %s)", type(exc).__name__, exc)
 
+    logger.warning("[SL-DIAG] generate_chapter returning STUB | provider=%s story_id=%s", provider, story_id)
     stub_text = _generate_stub_text(story_id, controls)
     suggestions = _fallback_suggestions(state_json)
     return stub_text, suggestions, None
@@ -1367,7 +1846,7 @@ def _call_openrouter_summary(
     url = "https://openrouter.ai/api/v1/chat/completions"
     messages = build_story_summary_prompt(existing_summary, chapter_text, chapter_number)
     payload = {
-        "model": settings.STORYLAB_MODEL,
+        "model": _EFFECTIVE_STORYLAB_MODEL,
         "messages": messages,
         "max_tokens": 600,   # ~300 words × 2 tokens/word with headroom
         "temperature": 0.4,  # lower for consistency

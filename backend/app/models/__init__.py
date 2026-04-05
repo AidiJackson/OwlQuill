@@ -1,5 +1,5 @@
 """Database models."""
-from app.models.storylab import StoryState, GenerationLog, StoryChapter
+from app.models.storylab import Story, StoryState, GenerationLog, StoryChapter
 from app.models.report import Report, ReportTargetTypeEnum, ReportStatusEnum
 from app.models.block import Block
 from app.models.user import User
@@ -19,6 +19,7 @@ from app.models.user_image import UserImage
 from app.models.password_reset_token import PasswordResetToken
 
 __all__ = [
+    "Story",
     "StoryState",
     "GenerationLog",
     "StoryChapter",

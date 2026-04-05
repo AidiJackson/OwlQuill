@@ -1,7 +1,7 @@
-"""StoryLab DB models: story_state + generation_log + story_chapter."""
+"""StoryLab DB models: story_state + generation_log + story_chapter + story."""
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.types import JSON
 
 from app.core.database import Base
@@ -37,6 +37,34 @@ class GenerationLog(Base):
     response_text = Column(Text, nullable=False)
     word_count = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Story(Base):
+    """A StoryLab story — the top-level object giving a workspace its identity."""
+
+    __tablename__ = "stories"
+
+    id = Column(String, primary_key=True, index=True)  # UUID string
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title = Column(String(200), nullable=False)
+    genre = Column(String(50), nullable=True)
+    premise = Column(Text, nullable=True)
+    # Soft references — no hard FK so realm/character deletion doesn't cascade
+    realm_id = Column(Integer, nullable=True)
+    character_ids = Column(JSON, nullable=False, default=list)
+    cover_color = Column(String(20), nullable=False, default="#1a1a2e")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
 
 class StoryChapter(Base):

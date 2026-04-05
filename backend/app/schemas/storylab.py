@@ -129,3 +129,38 @@ class ChapterGenerateResponse(BaseModel):
     prompt_text: str
     suggestions: list[str]
     meta: dict[str, Any]
+
+
+# ── story schemas ──────────────────────────────────────────────────────────────
+
+_VALID_GENRES = {
+    "literary", "romance", "fantasy", "thriller",
+    "horror", "adventure", "sci-fi", "mystery", "other",
+}
+
+_COVER_COLORS = [
+    "#1a1a2e", "#16213e", "#0f3460", "#1b1b2f",
+    "#2c1810", "#1a2a1a", "#2a1a2e", "#1e2a1e",
+]
+
+
+class StoryCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    genre: Optional[str] = Field(None, max_length=50)
+    premise: Optional[str] = Field(None, max_length=1000)
+    realm_id: Optional[int] = None
+    character_ids: list[int] = Field(default_factory=list)
+    cover_color: str = Field("#1a1a2e", max_length=20)
+
+
+class StoryResponse(BaseModel):
+    id: str
+    user_id: int
+    title: str
+    genre: Optional[str]
+    premise: Optional[str]
+    realm_id: Optional[int]
+    character_ids: list[int]
+    cover_color: str
+    created_at: str
+    updated_at: str

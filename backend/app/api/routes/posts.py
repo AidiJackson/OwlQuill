@@ -10,6 +10,9 @@ from app.core.admin_seed import auto_join_commons
 from app.models.user import User
 from app.models.post import Post as PostModel
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
+from app.models.character import Character as CharacterModel
+from app.models.character_image import CharacterImage
+from app.models.user_image import UserImage
 from app.schemas.post import Post, PostCreate
 from app.services.safety import blocked_user_ids
 
@@ -73,6 +76,34 @@ def create_post_in_realm(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You must be a member of this realm to post"
         )
+
+    # Enforce image ownership: if image_url is provided, it must belong to the
+    # current user (via their character's images or their user images).
+    if post_data.image_url:
+        file_path = post_data.image_url.lstrip('/')
+        owned_char_img = (
+            db.query(CharacterImage)
+            .join(CharacterModel, CharacterImage.character_id == CharacterModel.id)
+            .filter(
+                CharacterImage.file_path == file_path,
+                CharacterModel.owner_id == current_user.id,
+            )
+            .first()
+        )
+        owned_user_img = (
+            db.query(UserImage)
+            .filter(
+                UserImage.file_path == file_path,
+                UserImage.user_id == current_user.id,
+            )
+            .first()
+        ) if not owned_char_img else None
+
+        if not owned_char_img and not owned_user_img:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only use your own images in posts",
+            )
 
     db_post = PostModel(
         **post_data.model_dump(),

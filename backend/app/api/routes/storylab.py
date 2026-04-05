@@ -27,7 +27,8 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.character import Character as CharacterModel
-from app.models.storylab import GenerationLog, StoryChapter, StoryState
+from app.models.realm import Realm, RealmMembership
+from app.models.storylab import GenerationLog, Story as StoryModel, StoryChapter, StoryState
 from app.models.user import User
 from app.schemas.storylab import (
     Boundary,
@@ -38,10 +39,12 @@ from app.schemas.storylab import (
     Direction,
     SafetyInfo,
     StateDelta,
+    StoryCreateRequest,
     StoryLabGenerateRequest,
     StoryLabGenerateResponse,
     StoryLabStateResponse,
     StoryLabStateSnapshot,
+    StoryResponse,
     GeneratedText,
 )
 from app.services.storylab_generator import (
@@ -403,6 +406,75 @@ def _chapter_to_detail(ch: StoryChapter, suggestions: list[str]) -> ChapterDetai
     )
 
 
+def _build_story_context(
+    story_id: str,
+    db: Session,
+) -> tuple[str, str, str, str, list[dict[str, Any]]]:
+    """Fetch story identity, realm description, and character dicts for generation.
+
+    Returns (title, genre, premise, realm_description, story_characters).
+    All fields gracefully degrade to empty strings / empty list when data is absent.
+    """
+    story_obj = db.query(StoryModel).filter(StoryModel.id == story_id).first()
+    if not story_obj:
+        return "", "", "", "", []
+
+    title = story_obj.title or ""
+    genre = story_obj.genre or ""
+    premise = story_obj.premise or ""
+
+    # Realm description
+    realm_description = ""
+    if story_obj.realm_id:
+        realm_obj = db.query(Realm).filter(Realm.id == story_obj.realm_id).first()
+        if realm_obj:
+            parts = [p for p in (realm_obj.name, realm_obj.tagline, realm_obj.description) if p]
+            realm_description = " — ".join(parts)
+
+    # Story-bound characters
+    story_characters: list[dict[str, Any]] = []
+    char_ids = story_obj.character_ids or []
+    if char_ids:
+        char_rows = (
+            db.query(CharacterModel)
+            .filter(CharacterModel.id.in_(char_ids))
+            .all()
+        )
+        for c in char_rows:
+            entry: dict[str, Any] = {
+                "name": c.name or "Unknown",
+                "role": c.role or "",
+                "short_bio": c.short_bio or "",
+                # Additional identity fields for richer protagonist anchor
+                "age": c.age or "",
+                "species": c.species or "",
+                "era": c.era or "",
+                "tags": c.tags or "",  # comma-separated trait tags
+            }
+            # Merge identity_spec_json voice/behaviour fields for richer prompt injection
+            if c.identity_spec_json:
+                try:
+                    spec = (
+                        json.loads(c.identity_spec_json)
+                        if isinstance(c.identity_spec_json, str)
+                        else c.identity_spec_json
+                    )
+                    if isinstance(spec, dict):
+                        for field in (
+                            "personality", "traits", "voice", "speech_style", "tone",
+                            "motivation", "behavior", "pursuit_style", "never",
+                            "power_style", "emotional_pacing",
+                        ):
+                            val = spec.get(field)
+                            if val:
+                                entry[field] = val
+                except (json.JSONDecodeError, TypeError, AttributeError):
+                    pass
+            story_characters.append(entry)
+
+    return title, genre, premise, realm_description, story_characters
+
+
 def _run_chapter_generation(
     story_id: str,
     req: ChapterGenerateRequest,
@@ -421,6 +493,11 @@ def _run_chapter_generation(
     )
     previous_text = last_chapter.generated_text if last_chapter else None
 
+    # Story-bound context enrichment (gracefully degrades when story/realm/chars absent)
+    story_title, story_genre, story_premise, realm_description, story_characters = (
+        _build_story_context(story_id, db)
+    )
+
     chapter_text, suggestions, model_deltas = generate_chapter(
         prompt=req.prompt,
         controls=req.controls,
@@ -430,6 +507,11 @@ def _run_chapter_generation(
         previous_chapter_text=previous_text,
         story_id=story_id,
         variant=req.variant,
+        story_title=story_title,
+        story_genre=story_genre,
+        story_premise=story_premise,
+        realm_description=realm_description,
+        story_characters=story_characters,
     )
 
     # Update story state
@@ -1023,6 +1105,17 @@ def generate_chapter_endpoint(
             },
         ) from exc
 
+    if not chapter_text.strip():
+        logger.error("StoryLab chapter generation returned empty text for story %s", story_id)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "empty_generation",
+                "detail": "Generation produced no text. Please try again.",
+                "hint": "The model may have returned an unusable response.",
+            },
+        )
+
     word_count = len(chapter_text.split())
     chapter_number = _get_next_chapter_number(story_id, db)
 
@@ -1135,6 +1228,18 @@ def regenerate_chapter(
                 "model": settings.STORYLAB_MODEL,
             },
         ) from exc
+
+    if not chapter_text.strip():
+        logger.error("StoryLab chapter regeneration returned empty text for story %s ch%s", story_id, chapter_number)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "empty_generation",
+                "detail": "Generation produced no text. Please try again.",
+                "hint": "The model may have returned an unusable response.",
+            },
+        )
+
     word_count = len(chapter_text.split())
 
     controls_snapshot = {
@@ -1165,3 +1270,91 @@ def regenerate_chapter(
         suggestions=suggestions,
         meta={"words": word_count, "delta": model_deltas},
     )
+
+
+# ── story routes ──────────────────────────────────────────────────────────────
+
+def _story_to_response(story: StoryModel) -> StoryResponse:
+    return StoryResponse(
+        id=story.id,
+        user_id=story.user_id,
+        title=story.title,
+        genre=story.genre,
+        premise=story.premise,
+        realm_id=story.realm_id,
+        character_ids=story.character_ids or [],
+        cover_color=story.cover_color,
+        created_at=story.created_at.isoformat(),
+        updated_at=story.updated_at.isoformat(),
+    )
+
+
+@router.post("/stories", response_model=StoryResponse, status_code=201)
+def create_story(
+    req: StoryCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StoryResponse:
+    """Create a new Story record with title, genre, premise, and optional realm/cast."""
+    # Cap character list
+    char_ids = req.character_ids[:4]
+
+    # Validate realm access (owner or member)
+    if req.realm_id is not None:
+        realm = db.query(Realm).filter(Realm.id == req.realm_id).first()
+        if realm is None:
+            raise HTTPException(status_code=404, detail="Realm not found")
+        is_owner = realm.owner_id == current_user.id
+        is_member = db.query(RealmMembership).filter(
+            RealmMembership.realm_id == req.realm_id,
+            RealmMembership.user_id == current_user.id,
+        ).first() is not None
+        if not (is_owner or is_member):
+            raise HTTPException(status_code=403, detail="You are not a member of that realm")
+
+    # Validate character ownership
+    for char_id in char_ids:
+        char = db.query(CharacterModel).filter(
+            CharacterModel.id == char_id,
+            CharacterModel.owner_id == current_user.id,
+        ).first()
+        if char is None:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Character {char_id} not found or not owned by you",
+            )
+
+    now = datetime.utcnow()
+    story = StoryModel(
+        id=str(uuid.uuid4()),
+        user_id=current_user.id,
+        title=req.title.strip(),
+        genre=req.genre,
+        premise=req.premise,
+        realm_id=req.realm_id,
+        character_ids=char_ids,
+        cover_color=req.cover_color or "#1a1a2e",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+
+    return _story_to_response(story)
+
+
+@router.get("/stories/{story_id}", response_model=StoryResponse)
+def get_story(
+    story_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StoryResponse:
+    """Return a story by ID. Only the owning user may access it."""
+    story = db.query(StoryModel).filter(
+        StoryModel.id == story_id,
+        StoryModel.user_id == current_user.id,
+    ).first()
+    if story is None:
+        raise HTTPException(status_code=404, detail="Story not found")
+    return _story_to_response(story)

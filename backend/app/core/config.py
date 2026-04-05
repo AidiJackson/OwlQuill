@@ -105,10 +105,13 @@ class Settings(BaseSettings):
 
     # StoryLab narrative engine
     # STORYLAB_PROVIDER: "stub" (deterministic, no key needed) | "openrouter"
-    # STORYLAB_MODEL: any OpenRouter-supported model slug
+    # STORYLAB_MODEL: any OpenRouter-supported model slug.
+    # NOTE: "anthropic/claude-3.5-sonnet" is INVALID — OpenRouter routes it to Amazon
+    # Bedrock which rejects the slug format (HTTP 400). Use anthropic/claude-3.7-sonnet
+    # or newer (anthropic/claude-sonnet-4.6) instead.
     STORYLAB_PROVIDER: str = "stub"
     OPENROUTER_API_KEY: str = ""
-    STORYLAB_MODEL: str = "anthropic/claude-3.5-sonnet"
+    STORYLAB_MODEL: str = "anthropic/claude-3.7-sonnet"
     # Per-boundary model overrides (empty = fall back to STORYLAB_MODEL)
     STORYLAB_MODEL_SFW: str = ""
     STORYLAB_MODEL_FADE: str = ""

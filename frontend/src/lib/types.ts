@@ -195,3 +195,17 @@ export interface ProfileTimelineItem {
   realm_name?: string;
   payload: Record<string, unknown>;
 }
+
+// StoryLab story record
+export interface StoryRecord {
+  id: string;
+  user_id: number;
+  title: string;
+  genre?: string | null;
+  premise?: string | null;
+  realm_id?: number | null;
+  character_ids: number[];
+  cover_color: string;
+  created_at: string;
+  updated_at: string;
+}

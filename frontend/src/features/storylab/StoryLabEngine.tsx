@@ -8,6 +8,8 @@
  * Story IDs are per-session strings stored in localStorage (unchanged).
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { apiClient } from '@/lib/apiClient';
+import type { Character, StoryRecord } from '@/lib/types';
 
 // ── Authenticated fetch helper ────────────────────────────────────────────────
 // Attaches the JWT token stored by apiClient so StoryLab requests are
@@ -100,12 +102,55 @@ type SLStoryState = {
   emotional_weight: number;
 };
 
+// ── Beat actions ──────────────────────────────────────────────────────────────
+
+type BeatAction = {
+  label: string;
+  hint: string;
+  direction: string;
+  pacing: string;
+  length: string;
+  tone_intensity?: string;
+};
+
+// ── Support characters (creation view, local-only) ────────────────────────────
+
+type SupportChar = {
+  id: string;
+  name: string;
+  age: string;
+  personality: string;
+};
+
+const BEAT_ACTIONS: BeatAction[] = [
+  { label: 'Continue',               hint: 'Advance the scene forward',        direction: 'advance_plot',     pacing: 'balanced', length: 'short' },
+  { label: 'Complicate It',          hint: 'Add friction or conflict',          direction: 'argument_begins',  pacing: 'fast',     length: 'short' },
+  { label: 'Slow It Down',           hint: 'Interior moment — let it breathe',  direction: 'quiet_reflection', pacing: 'slow',     length: 'short' },
+  { label: 'Reveal Something',       hint: 'Shift what the reader knows',       direction: 'twist_event',      pacing: 'balanced', length: 'short' },
+  { label: 'Turn the Conversation',  hint: 'Push the dialogue somewhere else',  direction: 'add_dialogue',     pacing: 'balanced', length: 'short' },
+  { label: 'End the Scene',          hint: 'Close this moment, open the next',  direction: 'quiet_reflection', pacing: 'slow',     length: 'short', tone_intensity: 'moderate' },
+];
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function StoryLabEngine() {
+interface StoryLabEngineProps {
+  /** When provided, the engine operates against this story ID instead of
+   *  the localStorage-managed one. The story selector and "+ New story"
+   *  button are hidden when this prop is set. */
+  storyId?: string;
+  /** Display name shown in the chapter header when storyId prop is set. */
+  storyTitle?: string;
+  /** Full story record — used to populate the creation view (protagonist, genre, etc.). */
+  storyRecord?: StoryRecord;
+}
+
+export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, storyRecord }: StoryLabEngineProps = {}) {
   // ── Story-ID state ─────────────────────────────────────────────────────────
+  // When externalStoryId is provided, use it directly (named story flow).
+  // Otherwise fall back to localStorage (legacy inline flow).
 
   const [currentStoryId, setCurrentStoryId] = useState<string>(() => {
+    if (externalStoryId) return externalStoryId;
     const stored = localStorage.getItem(LS_CURRENT);
     if (stored) return stored;
     const id = makeStoryId();
@@ -135,6 +180,16 @@ export default function StoryLabEngine() {
   });
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
+  type GenStatus = 'idle' | 'generating' | 'success' | 'failed';
+  const [genStatus, setGenStatus] = useState<GenStatus>('idle');
+
+  // ── Creation view state ────────────────────────────────────────────────────
+
+  const [protagonist, setProtagonist] = useState<Character | null>(null);
+  const [supportChars, setSupportChars] = useState<SupportChar[]>([]);
+  const [newSupportName, setNewSupportName] = useState('');
+  const [newSupportAge, setNewSupportAge] = useState('');
+  const [newSupportPersonality, setNewSupportPersonality] = useState('');
 
   // ── UI state ───────────────────────────────────────────────────────────────
 
@@ -237,15 +292,22 @@ export default function StoryLabEngine() {
     }
   }
 
-  async function handleGenerate() {
+  async function handleGenerate(overrideControls?: Partial<SLControls>) {
+    const activeControls: SLControls = overrideControls
+      ? { ...slControls, ...overrideControls }
+      : slControls;
     setError('');
+    setGenStatus('generating');
     setConfirmAction(null);
     setIsGenerating(true);
     try {
+      const effectivePrompt = chapters.length === 0
+        ? buildEffectivePrompt(promptInput, supportChars)
+        : promptInput;
       const payload = {
-        prompt: promptInput,
+        prompt: effectivePrompt,
         mode,
-        controls: slControls,
+        controls: activeControls,
       };
       const resp = await authFetch(
         `/api/storylab/chapters/generate?story_id=${encodeURIComponent(currentStoryId)}`,
@@ -263,11 +325,15 @@ export default function StoryLabEngine() {
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = await resp.json() as any;
+      // Guard: blank or missing generated_text is treated as a failure, not a silent no-op
+      if (!data.generated_text?.trim()) {
+        throw new Error('Generation returned no text. Please try again.');
+      }
       const newChapter: ChapterDetail = {
         chapter_number: data.chapter_number,
         generated_text: data.generated_text,
         prompt_text: data.prompt_text,
-        controls: slControls,
+        controls: activeControls,
         suggestions: data.suggestions ?? [],
         words: data.meta?.words ?? 0,
         created_at: new Date().toISOString(),
@@ -282,17 +348,19 @@ export default function StoryLabEngine() {
             created_at: newChapter.created_at,
             words: newChapter.words,
             mode,
-            boundary: slControls.boundary,
-            length: slControls.length,
+            boundary: activeControls.boundary,
+            length: activeControls.length,
           },
         ].sort((a, b) => a.chapter_number - b.chapter_number);
       });
       setPromptInput('');
+      setGenStatus('success');
       // Refresh state for progress bars
       void fetchStoryState(currentStoryId);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setError((err as Error).message || 'Generation failed.');
+      setGenStatus('failed');
     } finally {
       setIsGenerating(false);
     }
@@ -324,8 +392,9 @@ export default function StoryLabEngine() {
   async function handleRegenerate() {
     if (!currentChapter) return;
     setConfirmAction(null);
-    setIsGenerating(true);
     setError('');
+    setGenStatus('generating');
+    setIsGenerating(true);
     try {
       const payload = {
         prompt: currentChapter.prompt_text,
@@ -341,9 +410,16 @@ export default function StoryLabEngine() {
           signal: abortRef.current?.signal,
         },
       );
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      if (!resp.ok) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const err = await resp.json().catch(() => ({})) as any;
+        throw new Error(err?.detail?.message || err?.detail || `HTTP ${resp.status}`);
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = await resp.json() as any;
+      if (!data.generated_text?.trim()) {
+        throw new Error('Regeneration returned no text. Please try again.');
+      }
       setCurrentChapter((prev) =>
         prev ? { ...prev, generated_text: data.generated_text, suggestions: data.suggestions ?? prev.suggestions, words: data.meta?.words ?? prev.words } : prev
       );
@@ -354,13 +430,26 @@ export default function StoryLabEngine() {
             : c
         )
       );
+      setGenStatus('success');
       void fetchStoryState(currentStoryId);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError('Regenerate failed.');
+      setError((err as Error).message || 'Regeneration failed.');
+      setGenStatus('failed');
     } finally {
       setIsGenerating(false);
     }
+  }
+
+  // ── Beat action handler ────────────────────────────────────────────────────
+
+  function handleBeatAction(action: BeatAction) {
+    void handleGenerate({
+      direction: action.direction,
+      pacing: action.pacing,
+      length: action.length,
+      ...(action.tone_intensity ? { tone_intensity: action.tone_intensity } : {}),
+    });
   }
 
   // ── Story switching ────────────────────────────────────────────────────────
@@ -375,6 +464,7 @@ export default function StoryLabEngine() {
     setCurrentChapter(null);
     setPromptInput('');
     setError('');
+    setGenStatus('idle');
     setStoryState(null);
     setConfirmAction(null);
     void fetchChapters(id);
@@ -391,9 +481,49 @@ export default function StoryLabEngine() {
     setCurrentChapter(null);
     setPromptInput('');
     setError('');
+    setGenStatus('idle');
     setStoryState(null);
     setConfirmAction(null);
     void fetchStoryState(id);
+  }
+
+  // ── Protagonist fetch — creation view only ────────────────────────────────
+
+  useEffect(() => {
+    const firstCharId = storyRecord?.character_ids?.[0];
+    if (!firstCharId || chapters.length > 0 || isLoadingChapters) return;
+    apiClient.getCharacter(firstCharId)
+      .then((char) => setProtagonist(char))
+      .catch(() => { /* protagonist chip is optional */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storyRecord?.character_ids?.[0], chapters.length, isLoadingChapters]);
+
+  // ── Support character helpers ──────────────────────────────────────────────
+
+  function addSupportChar() {
+    if (!newSupportName.trim()) return;
+    setSupportChars((prev) => [
+      ...prev,
+      {
+        id: `sc-${Date.now()}`,
+        name: newSupportName.trim(),
+        age: newSupportAge.trim(),
+        personality: newSupportPersonality.trim(),
+      },
+    ]);
+    setNewSupportName('');
+    setNewSupportAge('');
+    setNewSupportPersonality('');
+  }
+
+  function buildEffectivePrompt(base: string, chars: SupportChar[]): string {
+    if (chars.length === 0) return base;
+    const charLines = chars
+      .map((c) => `- ${c.name}${c.age ? `, ${c.age}` : ''}${c.personality ? `: ${c.personality}` : ''}`)
+      .join('\n');
+    return base
+      ? `${base}\n\nSupporting characters:\n${charLines}`
+      : `Supporting characters:\n${charLines}`;
   }
 
   // ── On mount ───────────────────────────────────────────────────────────────
@@ -422,199 +552,529 @@ export default function StoryLabEngine() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+
   return (
     <div className="flex flex-col min-h-0 flex-1">
 
-      {/* ── Top management bar ──────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 md:px-6 py-2.5 border-b border-gray-800/60 bg-gray-950/40 flex-wrap">
+      {/* ── Top bar — thin, minimal ────────────────────────────────────── */}
+      <div className="flex items-center gap-2 px-4 md:px-5 py-1.5 border-b border-gray-800/40 bg-gray-950/20 flex-wrap">
 
-        {/* Story selector */}
-        <span className="text-[10px] text-gray-600 uppercase tracking-wide shrink-0">Story</span>
-        <select
-          value={currentStoryId}
-          onChange={(e) => switchStory(e.target.value)}
-          className="flex-1 max-w-[200px] h-7 px-2 text-xs rounded-lg bg-gray-900/60 border border-gray-800 text-gray-300 focus:outline-none focus:border-gray-700 transition"
-        >
-          {displayedRecents.map((id) => (
-            <option key={id} value={id}>{formatStoryId(id)}</option>
-          ))}
-        </select>
-
-        {/* Mode selector */}
-        <select
-          value={mode}
-          onChange={(e) => setMode(e.target.value as 'roleplay' | 'duet' | 'play')}
-          className="h-7 px-2 text-xs rounded-lg bg-gray-900/60 border border-gray-800 text-gray-300 focus:outline-none focus:border-gray-700 transition"
-        >
-          <option value="roleplay">Roleplay</option>
-          <option value="duet">Duet</option>
-          <option value="play">Play</option>
-        </select>
-
-        {/* Chapter selector */}
-        {chapters.length > 0 && (
-          <select
-            value={currentChapter?.chapter_number ?? ''}
-            onChange={(e) => void loadChapter(currentStoryId, parseInt(e.target.value))}
-            className="h-7 px-2 text-xs rounded-lg bg-gray-900/60 border border-gray-800 text-gray-300 focus:outline-none focus:border-gray-700 transition"
-          >
-            {chapters.map((c) => (
-              <option key={c.chapter_number} value={c.chapter_number}>
-                Ch {c.chapter_number} · {c.words} w
-              </option>
-            ))}
-          </select>
+        {/* Story selector — legacy mode only */}
+        {!externalStoryId && (
+          <>
+            <select
+              value={currentStoryId}
+              onChange={(e) => switchStory(e.target.value)}
+              className="max-w-[160px] h-6 px-1.5 text-[11px] rounded-md bg-transparent border border-gray-800/50 text-gray-600 focus:outline-none focus:border-gray-700 transition"
+            >
+              {displayedRecents.map((id) => (
+                <option key={id} value={id}>{formatStoryId(id)}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={newStory}
+              className="h-6 px-2 text-[11px] rounded-md border border-gray-800/40 bg-transparent hover:bg-gray-800/30 text-gray-600 hover:text-gray-400 transition shrink-0"
+            >
+              + New
+            </button>
+            <div className="w-px h-3.5 bg-gray-800/40 mx-0.5 shrink-0" />
+          </>
         )}
 
-        <button
-          type="button"
-          onClick={newStory}
-          className="h-7 px-3 text-xs rounded-lg border border-gray-700/60 bg-gray-900/40 hover:bg-gray-800/50 hover:border-gray-600 text-gray-400 hover:text-gray-300 transition shrink-0 ml-auto"
-        >
-          + New story
-        </button>
+        {/* Story title — named story mode */}
+        {externalStoryId && storyTitle && (
+          <>
+            <span className="text-[11px] text-gray-600 truncate max-w-[160px]">{storyTitle}</span>
+            <div className="w-px h-3.5 bg-gray-800/40 mx-0.5 shrink-0" />
+          </>
+        )}
+
+        {/* Chapter pills */}
+        {chapters.length > 0 && (
+          <div className="flex items-center gap-1">
+            {chapters.map((c) => (
+              <button
+                key={c.chapter_number}
+                type="button"
+                onClick={() => void loadChapter(currentStoryId, c.chapter_number)}
+                className={`h-6 px-2.5 text-[11px] rounded-md transition ${
+                  currentChapter?.chapter_number === c.chapter_number
+                    ? 'bg-gray-800/60 text-gray-200 font-medium'
+                    : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800/30'
+                }`}
+              >
+                {c.chapter_number}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Mode pills — hidden during creation */}
+        {(chapters.length > 0 || isLoadingChapters) && (
+          <div className="flex items-center gap-0.5 ml-auto">
+            {(['roleplay', 'duet', 'play'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={`h-6 px-2.5 text-[11px] rounded-md capitalize transition ${
+                  mode === m
+                    ? 'bg-gray-800/60 text-gray-200 font-medium'
+                    : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800/30'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* ── Two-pane layout ──────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row gap-4 md:gap-6 p-4 md:p-6 min-h-0 flex-1">
+      {/* ── Body — creation view OR reading + right panel ──────────────── */}
+      {chapters.length === 0 && !isLoadingChapters && !isGenerating ? (
 
-        {/* ── Left: Chapter display ────────────────────────────────────── */}
-        <div className="flex flex-col flex-1 min-h-0">
+        /* ── Creation view ───────────────────────────────────────────────── */
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-[560px] mx-auto px-6 py-12">
 
-          {/* Chapter header */}
-          {currentChapter ? (
-            <div className="mb-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                  Chapter {currentChapter.chapter_number}
-                </span>
-                <span className="text-[10px] text-gray-600">{currentChapter.words} words</span>
+            {/* Story context */}
+            {storyRecord && (
+              <div className="mb-6">
+                <h2 className="text-xl font-semibold text-gray-100 leading-tight">{storyRecord.title}</h2>
+                {(storyRecord.genre || protagonist) && (
+                  <div className="flex items-center gap-1.5 mt-1.5 text-[11px] text-gray-500">
+                    {storyRecord.genre && <span className="capitalize">{storyRecord.genre}</span>}
+                    {storyRecord.genre && protagonist && <span>·</span>}
+                    {protagonist && (
+                      <span className="flex items-center gap-1">
+                        {protagonist.avatar_url ? (
+                          <img src={protagonist.avatar_url} alt={protagonist.name} className="w-4 h-4 rounded-full object-cover shrink-0" />
+                        ) : (
+                          <span className="w-4 h-4 rounded-full bg-gray-800/60 shrink-0 flex items-center justify-center text-[8px] text-gray-500 font-medium">{protagonist.name[0]}</span>
+                        )}
+                        {protagonist.name}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {storyRecord.premise && (
+                  <p className="text-[13px] text-gray-500 mt-2.5 leading-relaxed">{storyRecord.premise}</p>
+                )}
               </div>
+            )}
 
-              {/* Prompt reveal */}
-              {currentChapter.prompt_text && (
-                <div className="mt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setPromptRevealOpen((p) => !p)}
-                    className="flex items-center gap-1 text-[10px] text-gray-600 hover:text-gray-400 transition"
-                  >
-                    <span className={`transition-transform duration-150 ${promptRevealOpen ? 'rotate-90' : ''}`}>›</span>
-                    Prompt used for this chapter
-                  </button>
-                  {promptRevealOpen && (
-                    <p className="mt-1 pl-3 text-[11px] text-gray-500 leading-relaxed border-l border-gray-800">
-                      {currentChapter.prompt_text}
-                    </p>
-                  )}
+            {/* Protagonist fallback — only when no storyRecord */}
+            {!storyRecord && protagonist && (
+              <div className="flex items-center gap-2.5 mb-6">
+                {protagonist.avatar_url ? (
+                  <img
+                    src={protagonist.avatar_url}
+                    alt={protagonist.name}
+                    className="w-8 h-8 rounded-full object-cover shrink-0"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gray-800/60 shrink-0 flex items-center justify-center text-[12px] text-gray-500 font-medium">
+                    {protagonist.name[0]}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-[13px] font-medium text-gray-200 leading-tight truncate">{protagonist.name}</p>
+                  <p className="text-[11px] text-gray-500 leading-tight truncate">{protagonist.role || 'Protagonist'}</p>
                 </div>
-              )}
-            </div>
-          ) : isLoadingChapters ? (
-            <div className="mb-3 h-4 w-32 bg-gray-800 rounded animate-pulse" />
-          ) : (
-            <div className="mb-3">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">No chapters yet</p>
-              <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
-                Write a prompt or paste beats on the right, then click Continue.
-              </p>
-            </div>
-          )}
+              </div>
+            )}
 
-          {/* Chapter text */}
-          <div className="flex-1 min-h-[300px] md:min-h-0 overflow-y-auto rounded-xl bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)] p-5">
-            {isLoadingChapter ? (
-              <div className="space-y-2.5 animate-pulse">
-                {[...Array(6)].map((_, i) => (
-                  <div key={i} className={`h-2 bg-gray-800 rounded ${i % 5 === 4 ? 'w-3/5' : 'w-full'}`} />
-                ))}
+            {/* Opening scene input */}
+            <div className="mt-6">
+              <textarea
+                value={promptInput}
+                onChange={(e) => setPromptInput(e.target.value)}
+                placeholder="Describe the opening moment — where are they, what's happening, what's the mood?"
+                rows={7}
+                autoFocus
+                className="w-full resize-none rounded-2xl bg-gray-900/50 border border-gray-700/40 p-4 text-[14px] text-gray-200 placeholder-gray-600 focus:outline-none focus:border-gray-600/60 transition leading-relaxed"
+              />
+            </div>
+
+            {/* Support characters — collapsible */}
+            <details className="group mt-5">
+              <summary className="text-[10px] font-medium text-gray-600 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
+                <span className="inline-block text-gray-700 transition-transform duration-150 group-open:rotate-90">{'\u203A'}</span>
+                Supporting characters{supportChars.length > 0 && <span className="text-gray-700 normal-case tracking-normal">({supportChars.length})</span>}
+              </summary>
+              <div className="mt-3 space-y-3">
+                {supportChars.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {supportChars.map((c) => (
+                      <li key={c.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-900/20">
+                        <span className="text-[12px] text-gray-300 flex-1 truncate">
+                          {c.name}{c.age ? `, ${c.age}` : ''}{c.personality ? ` — ${c.personality}` : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSupportChars((p) => p.filter((x) => x.id !== c.id))}
+                          className="text-[11px] text-gray-700 hover:text-red-400 transition shrink-0"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="space-y-1.5">
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={newSupportName}
+                      onChange={(e) => setNewSupportName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSupportChar(); } }}
+                      placeholder="Name"
+                      className="flex-1 min-w-[100px] h-8 px-2.5 text-[12px] rounded-lg bg-gray-900/30 border border-gray-800/50 text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition"
+                    />
+                    <input
+                      type="text"
+                      value={newSupportAge}
+                      onChange={(e) => setNewSupportAge(e.target.value)}
+                      placeholder="Age"
+                      className="w-14 h-8 px-2.5 text-[12px] rounded-lg bg-gray-900/30 border border-gray-800/50 text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition"
+                    />
+                  </div>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={newSupportPersonality}
+                      onChange={(e) => setNewSupportPersonality(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSupportChar(); } }}
+                      placeholder="Personality / role"
+                      className="flex-1 min-w-[140px] h-8 px-2.5 text-[12px] rounded-lg bg-gray-900/30 border border-gray-800/50 text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={addSupportChar}
+                      disabled={!newSupportName.trim()}
+                      className="h-8 px-3 text-[12px] rounded-lg border border-gray-700/50 text-gray-400 hover:text-gray-200 hover:border-gray-600 transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                    >
+                      + Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            {/* Generation settings — collapsible */}
+            <details className="group mt-4">
+              <summary className="text-[10px] font-medium text-gray-600 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
+                <span className="inline-block text-gray-700 transition-transform duration-150 group-open:rotate-90">{'\u203A'}</span>
+                Generation settings
+              </summary>
+              <div className="mt-4 space-y-4">
+                <div className="space-y-2">
+                  <p className="text-[10px] text-gray-700 tracking-wider">Direction</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { value: 'advance_plot',     label: 'Advance' },
+                      { value: 'quiet_reflection', label: 'Reflective' },
+                      { value: 'argument_begins',  label: 'Tension' },
+                      { value: 'add_dialogue',     label: 'Dialogue' },
+                      { value: 'twist_event',      label: 'Twist' },
+                      { value: 'romantic_moment',  label: 'Romantic' },
+                    ].map(({ value, label }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setSlControls((p) => ({ ...p, direction: value }))}
+                        className={`text-[11px] px-2.5 py-1 rounded-md border transition ${
+                          slControls.direction === value
+                            ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                            : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { label: 'Tone', key: 'tone_intensity' as const, options: ['light', 'moderate', 'intense'] },
+                    { label: 'Pacing', key: 'pacing' as const, options: ['slow', 'balanced', 'fast'] },
+                    { label: 'Length', key: 'length' as const, options: ['short', 'medium', 'long'] },
+                    { label: 'Boundary', key: 'boundary' as const, options: ['sfw', 'fade_to_black', 'sensual'] },
+                  ].map(({ label, key, options }) => (
+                    <div key={key} className="space-y-1">
+                      <p className="text-[10px] text-gray-700 tracking-wider">{label}</p>
+                      <select
+                        value={slControls[key]}
+                        onChange={(e) => setSlControls((p) => ({ ...p, [key]: e.target.value }))}
+                        className="w-full h-7 px-1.5 text-[11px] rounded-md bg-gray-900/30 border border-gray-800/50 text-gray-400 focus:outline-none focus:border-gray-700 transition capitalize"
+                      >
+                        {options.map((o) => (
+                          <option key={o} value={o}>{o.replace('_', ' ')}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </details>
+
+            {/* CTA */}
+            <div className="mt-8">
+              {genStatus === 'failed' && error && (
+                <p className="text-[12px] text-red-400 mb-3">{error}</p>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleGenerate()}
+                disabled={isGenerating}
+                className="w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-[15px] tracking-wide shadow-[0_4px_24px_rgba(16,185,129,0.18)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Write Opening Chapter →
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+      ) : (
+
+      /* ── Body — reading column + right panel ────────────────────────── */
+      <div className="flex flex-col md:flex-row min-h-0 flex-1">
+
+        {/* ── Reading column ────────────────────────────────────────────── */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="max-w-[680px] mx-auto px-6 md:px-12 py-8">
+
+            {/* Chapter header */}
+            {currentChapter ? (
+              <div className="mb-8">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[12px] font-semibold text-gray-500 uppercase tracking-[0.14em]">
+                    Chapter {currentChapter.chapter_number}
+                  </span>
+                  <span className="text-[11px] text-gray-700">{currentChapter.words} words</span>
+                </div>
+
+                {/* Prompt reveal */}
+                {currentChapter.prompt_text && (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setPromptRevealOpen((p) => !p)}
+                      className="flex items-center gap-1.5 text-[11px] text-gray-700 hover:text-gray-500 transition"
+                    >
+                      <span className={`transition-transform duration-150 text-[10px] ${promptRevealOpen ? 'rotate-90' : ''}`}>{'\u203A'}</span>
+                      Prompt
+                    </button>
+                    {promptRevealOpen && (
+                      <p className="mt-1.5 pl-3 text-[11px] text-gray-600 leading-relaxed border-l border-gray-800/40">
+                        {currentChapter.prompt_text}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : isLoadingChapters ? (
+              <div className="mb-8">
+                <div className="h-3 w-24 bg-gray-800/60 rounded-full animate-pulse" />
+              </div>
+            ) : null}
+
+            {/* Chapter text / empty / generating states */}
+            {isGenerating ? (
+              <div className="py-16">
+                <div className="space-y-5 max-w-[480px] mx-auto">
+                  {[92, 100, 88, 100, 72, 100, 96, 100, 64, 100, 84, 100].map((w, i) => (
+                    <div
+                      key={i}
+                      className="h-[2px] bg-gray-800 rounded-full animate-pulse"
+                      style={{ width: `${w}%`, animationDelay: `${i * 80}ms` }}
+                    />
+                  ))}
+                </div>
+                <p className="text-center text-[12px] text-gray-600 tracking-wide mt-10">Writing chapter{'\u2026'}</p>
+              </div>
+            ) : isLoadingChapter ? (
+              <div className="py-16">
+                <div className="space-y-5 max-w-[480px] mx-auto">
+                  {[100, 88, 100, 72, 96, 100].map((w, i) => (
+                    <div
+                      key={i}
+                      className="h-[2px] bg-gray-800 rounded-full animate-pulse"
+                      style={{ width: `${w}%`, animationDelay: `${i * 80}ms` }}
+                    />
+                  ))}
+                </div>
               </div>
             ) : currentChapter ? (
-              <p className="text-[15px] leading-[1.8] text-gray-100 whitespace-pre-wrap font-normal tracking-[0.01em]">
+              <p className="text-[16px] leading-[1.9] text-gray-100 whitespace-pre-wrap font-normal tracking-[0.01em]">
                 {currentChapter.generated_text}
               </p>
             ) : (
-              <p className="text-gray-700 text-sm italic">Your chapter will appear here.</p>
+              <div className="py-24 text-center">
+                <p className="text-gray-700 text-sm">No chapters yet</p>
+                <p className="text-gray-800 text-[12px] mt-2 leading-relaxed max-w-[320px] mx-auto">
+                  Add guidance on the right, then generate your opening chapter.
+                </p>
+              </div>
             )}
-          </div>
 
-          {/* Delete / Regenerate */}
-          {currentChapter && !isGenerating && (
-            <div className="mt-2 flex gap-2">
-              {confirmAction === 'delete' ? (
-                <>
-                  <span className="text-xs text-gray-500 self-center">Delete this chapter?</span>
+            {/* ── Beat System / CTA — below text ─────────────────────────── */}
+            {!isLoadingChapters && (
+              <div className="mt-12 pt-8 border-t border-gray-800/30 space-y-4">
+
+                {chapters.length > 0 ? (
+                  <>
+                    {/* Beat bar label */}
+                    <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">
+                      What happens next?
+                    </p>
+
+                    {/* Beat action grid — 2 cols on mobile, 3 on sm+ */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {BEAT_ACTIONS.map((action) => (
+                        <button
+                          key={action.label}
+                          type="button"
+                          onClick={() => handleBeatAction(action)}
+                          disabled={isGenerating}
+                          className="group flex flex-col gap-0.5 px-3 py-2.5 rounded-xl border border-gray-800/50 bg-gray-900/20 hover:border-emerald-700/40 hover:bg-emerald-950/20 active:bg-emerald-950/30 transition text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <span className="text-[13px] font-medium text-gray-300 group-hover:text-emerald-300 transition leading-tight">
+                            {action.label}
+                          </span>
+                          <span className="text-[11px] text-gray-600 leading-snug">
+                            {action.hint}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Full chapter — secondary option */}
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={() => void handleGenerate()}
+                        disabled={isGenerating}
+                        className="text-[12px] text-gray-600 hover:text-gray-400 transition disabled:opacity-40"
+                      >
+                        {isGenerating ? 'Writing\u2026' : 'Write full chapter \u2192'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  /* Opening — no chapters yet */
                   <button
                     type="button"
-                    onClick={() => void handleDelete()}
-                    className="px-3 py-1 text-xs rounded-lg bg-red-700/40 hover:bg-red-600/50 border border-red-700/60 text-red-300 transition"
+                    onClick={() => void handleGenerate()}
+                    disabled={isGenerating}
+                    className="w-full py-3 rounded-2xl bg-emerald-700/80 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm tracking-wide shadow-[0_4px_20px_rgba(16,185,129,0.10)] transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Confirm delete
+                    {isGenerating ? 'Writing\u2026' : 'Write Opening Chapter'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmAction(null)}
-                    className="px-3 py-1 text-xs rounded-lg border border-gray-700/60 bg-gray-900/40 text-gray-500 hover:text-gray-400 transition"
-                  >
-                    Cancel
-                  </button>
-                </>
-              ) : confirmAction === 'regenerate' ? (
-                <>
-                  <span className="text-xs text-gray-500 self-center">Replace this chapter with a new generation?</span>
-                  <button
-                    type="button"
-                    onClick={() => void handleRegenerate()}
-                    className="px-3 py-1 text-xs rounded-lg bg-amber-700/40 hover:bg-amber-600/50 border border-amber-700/60 text-amber-300 transition"
-                  >
-                    Confirm
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmAction(null)}
-                    className="px-3 py-1 text-xs rounded-lg border border-gray-700/60 bg-gray-900/40 text-gray-500 hover:text-gray-400 transition"
-                  >
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmAction('delete')}
-                    className="px-3 py-1 text-xs rounded-lg border border-gray-700/60 bg-gray-900/40 hover:border-red-700/50 hover:text-red-400 text-gray-500 transition"
-                  >
-                    Delete
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmAction('regenerate')}
-                    className="px-3 py-1 text-xs rounded-lg border border-gray-700/60 bg-gray-900/40 hover:border-amber-700/50 hover:text-amber-400 text-gray-500 transition"
-                  >
-                    Regenerate
-                  </button>
-                </>
-              )}
-            </div>
-          )}
+                )}
+
+                {/* Error state — inline */}
+                {genStatus === 'failed' && error ? (
+                  <div className="flex items-start gap-2">
+                    <p className="text-[12px] text-red-400 leading-relaxed flex-1">{error}</p>
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerate()}
+                      disabled={isGenerating}
+                      className="shrink-0 px-3 py-1 rounded-lg text-[11px] text-red-400 border border-red-800/40 hover:bg-red-900/20 transition disabled:opacity-50"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : error ? (
+                  <p className="text-[12px] text-red-400">{error}</p>
+                ) : null}
+
+              </div>
+            )}
+
+            {/* Delete / Regenerate — small, secondary */}
+            {currentChapter && !isGenerating && (
+              <div className="mt-4 flex items-center gap-2">
+                {confirmAction === 'delete' ? (
+                  <>
+                    <span className="text-[11px] text-gray-600 self-center">Delete this chapter?</span>
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete()}
+                      className="px-2.5 py-0.5 text-[11px] rounded-md bg-red-700/30 hover:bg-red-600/40 border border-red-700/40 text-red-400 transition"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmAction(null)}
+                      className="px-2.5 py-0.5 text-[11px] rounded-md border border-gray-800/40 text-gray-600 hover:text-gray-400 transition"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : confirmAction === 'regenerate' ? (
+                  <>
+                    <span className="text-[11px] text-gray-600 self-center">Replace with new generation?</span>
+                    <button
+                      type="button"
+                      onClick={() => void handleRegenerate()}
+                      className="px-2.5 py-0.5 text-[11px] rounded-md bg-amber-700/30 hover:bg-amber-600/40 border border-amber-700/40 text-amber-400 transition"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmAction(null)}
+                      className="px-2.5 py-0.5 text-[11px] rounded-md border border-gray-800/40 text-gray-600 hover:text-gray-400 transition"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmAction('delete')}
+                      className="px-2.5 py-0.5 text-[11px] rounded-md text-gray-700 hover:text-red-400 transition"
+                    >
+                      Delete chapter
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmAction('regenerate')}
+                      className="px-2.5 py-0.5 text-[11px] rounded-md text-gray-700 hover:text-amber-400 transition"
+                    >
+                      Regenerate
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+          </div>
         </div>
 
-        {/* ── Right: Continue panel ────────────────────────────────────── */}
-        <div className="w-full md:w-[320px] shrink-0 overflow-y-auto space-y-3">
+        {/* ── Right panel — guidance controls ──────────────────────────── */}
+        <div className="w-full md:w-[260px] shrink-0 border-t md:border-t-0 md:border-l border-gray-800/40 overflow-y-auto px-4 py-5 space-y-5">
 
-          {/* StoryLab suggests */}
+          {/* Suggestions */}
           {suggestions.length > 0 && (
-            <div className="border border-gray-800 rounded-xl p-4 space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">StoryLab suggests</p>
+            <div className="space-y-2">
+              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Suggestions</p>
               <ul className="space-y-1.5">
                 {suggestions.map((s, i) => (
                   <li key={i}>
                     <button
                       type="button"
                       onClick={() => setPromptInput(s)}
-                      className="text-left w-full flex gap-2 text-xs text-gray-300 hover:text-emerald-300 leading-relaxed transition group"
+                      className="text-left w-full flex gap-2 text-[12px] text-gray-400 hover:text-emerald-300 leading-relaxed transition group"
                     >
-                      <span className="mt-0.5 shrink-0 text-emerald-600 group-hover:text-emerald-400 transition">›</span>
+                      <span className="mt-0.5 shrink-0 text-emerald-700 group-hover:text-emerald-400 transition">{'\u203A'}</span>
                       <span>{s}</span>
                     </button>
                   </li>
@@ -623,147 +1083,126 @@ export default function StoryLabEngine() {
             </div>
           )}
 
-          {/* Prompt box */}
-          <div className="border border-gray-800 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">What happens next?</p>
+          {/* Guidance */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Guidance</p>
             <textarea
               value={promptInput}
               onChange={(e) => setPromptInput(e.target.value)}
-              placeholder="Write a beat, a line of dialogue, or paste rough notes…"
-              rows={4}
-              className="w-full resize-none rounded-lg bg-gray-900/60 border border-gray-800/70 p-3 text-sm text-gray-200 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition leading-relaxed"
+              placeholder="A beat, dialogue, rough notes..."
+              rows={3}
+              className="w-full resize-none rounded-lg bg-gray-900/30 border border-gray-800/50 p-2.5 text-[12px] text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition leading-relaxed"
             />
           </div>
 
-          {/* Controls */}
-          <div className="border border-gray-800 rounded-xl p-4 space-y-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Controls</p>
-
-            {/* Direction */}
-            <div className="space-y-2">
-              <p className="text-xs text-gray-500">Direction</p>
-              {(
-                [
-                  { group: 'Emotion',    chips: [{ value: 'sad_moment', label: 'Sad' }, { value: 'quiet_reflection', label: 'Reflective' }] },
-                  { group: 'Conflict',   chips: [{ value: 'argument_begins', label: 'Argument' }, { value: 'twist_event', label: 'Twist' }] },
-                  { group: 'Movement',   chips: [{ value: 'advance_plot', label: 'Advance Plot' }, { value: 'action_sequence', label: 'Action' }, { value: 'add_dialogue', label: 'Dialogue' }] },
-                  { group: 'Connection', chips: [{ value: 'romantic_moment', label: 'Romantic' }, { value: 'sensual_scene', label: 'Sensual' }, { value: 'intimate_scene', label: 'Intimate' }] },
-                ] as { group: string; chips: { value: string; label: string }[] }[]
-              ).map(({ group, chips }) => (
-                <div key={group} className="space-y-1">
-                  <p className="text-[10px] text-gray-600 uppercase tracking-wider">{group}</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {chips.map(({ value, label }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setSlControls((p) => ({ ...p, direction: value }))}
-                        className={`px-2.5 py-1 text-xs rounded-lg border transition ${
-                          slControls.direction === value
-                            ? 'bg-emerald-600/30 border-emerald-500/60 text-emerald-300'
-                            : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
+          {/* Direction chips */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Direction</p>
+            {(
+              [
+                { group: 'Emotion',    chips: [{ value: 'sad_moment', label: 'Sad' }, { value: 'quiet_reflection', label: 'Reflective' }] },
+                { group: 'Conflict',   chips: [{ value: 'argument_begins', label: 'Argument' }, { value: 'twist_event', label: 'Twist' }] },
+                { group: 'Movement',   chips: [{ value: 'advance_plot', label: 'Advance' }, { value: 'action_sequence', label: 'Action' }, { value: 'add_dialogue', label: 'Dialogue' }] },
+                { group: 'Connection', chips: [{ value: 'romantic_moment', label: 'Romantic' }, { value: 'sensual_scene', label: 'Sensual' }, { value: 'intimate_scene', label: 'Intimate' }] },
+              ] as { group: string; chips: { value: string; label: string }[] }[]
+            ).map(({ group, chips }) => (
+              <div key={group} className="space-y-1">
+                <p className="text-[10px] text-gray-700 tracking-wider">{group}</p>
+                <div className="flex flex-wrap gap-1">
+                  {chips.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setSlControls((p) => ({ ...p, direction: value }))}
+                      className={`text-[11px] px-2 py-0.5 rounded-md border transition ${
+                        slControls.direction === value
+                          ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                          : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
+          </div>
 
-            {/* Boundary */}
-            <div className="space-y-1">
-              <p className="text-xs text-gray-500">Boundary</p>
+          {/* Tone + Pacing — two columns */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Tone</p>
+              <div className="flex flex-col gap-1">
+                {(['light','moderate','intense'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setSlControls((p) => ({ ...p, tone_intensity: v }))}
+                    className={`py-1 text-[11px] rounded-md border transition capitalize ${
+                      slControls.tone_intensity === v
+                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                        : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Pacing</p>
+              <div className="flex flex-col gap-1">
+                {(['slow','balanced','fast'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setSlControls((p) => ({ ...p, pacing: v }))}
+                    className={`py-1 text-[11px] rounded-md border transition capitalize ${
+                      slControls.pacing === v
+                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                        : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Boundary + Length — two columns */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Boundary</p>
               <select
                 value={slControls.boundary}
                 onChange={(e) => setSlControls((p) => ({ ...p, boundary: e.target.value }))}
-                className="input text-sm w-full"
+                className="w-full h-7 px-1.5 text-[11px] rounded-md bg-gray-900/30 border border-gray-800/50 text-gray-400 focus:outline-none focus:border-gray-700 transition"
               >
                 <option value="sfw">SFW</option>
                 <option value="fade_to_black">Fade to black</option>
                 <option value="sensual">Sensual</option>
               </select>
             </div>
-
-            {/* Tone */}
-            <div className="space-y-1">
-              <p className="text-xs text-gray-500">Tone</p>
-              <div className="flex gap-1.5">
-                {(['light','moderate','intense'] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setSlControls((p) => ({ ...p, tone_intensity: v }))}
-                    className={`flex-1 py-1 text-xs rounded-lg border transition capitalize ${
-                      slControls.tone_intensity === v
-                        ? 'bg-emerald-600/30 border-emerald-500/60 text-emerald-300'
-                        : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
-                    }`}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Pacing */}
-            <div className="space-y-1">
-              <p className="text-xs text-gray-500">Pacing</p>
-              <div className="flex gap-1.5">
-                {(['slow','balanced','fast'] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setSlControls((p) => ({ ...p, pacing: v }))}
-                    className={`flex-1 py-1 text-xs rounded-lg border transition capitalize ${
-                      slControls.pacing === v
-                        ? 'bg-emerald-600/30 border-emerald-500/60 text-emerald-300'
-                        : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
-                    }`}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Length */}
-            <div className="space-y-1">
-              <p className="text-xs text-gray-500">Length</p>
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Length</p>
               <select
                 value={slControls.length}
                 onChange={(e) => setSlControls((p) => ({ ...p, length: e.target.value }))}
-                className="input text-xs w-full"
+                className="w-full h-7 px-1.5 text-[11px] rounded-md bg-gray-900/30 border border-gray-800/50 text-gray-400 focus:outline-none focus:border-gray-700 transition"
               >
-                <option value="short">Short (~350 w)</option>
-                <option value="medium">Medium (~1 000 w)</option>
-                <option value="long">Long (~2 000 w)</option>
+                <option value="short">Short</option>
+                <option value="medium">Medium</option>
+                <option value="long">Long</option>
               </select>
             </div>
           </div>
 
-          {/* Generate button */}
-          <div>
-            <button
-              type="button"
-              onClick={() => void handleGenerate()}
-              disabled={isGenerating}
-              className="w-full py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isGenerating ? 'Generating\u2026' : chapters.length === 0 ? 'Generate Opening Chapter' : 'Continue — New Chapter'}
-            </button>
-          </div>
-
-          {error && (
-            <p className="text-xs text-red-400">{error}</p>
-          )}
-
-          {/* Story progress */}
-          <div className="border border-gray-800 rounded-xl p-3 space-y-2.5">
+          {/* Story state bars — compact, at bottom */}
+          <div className="space-y-2 pt-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Story Progress</p>
-              {isLoadingState && <span className="text-xs text-gray-500">Loading\u2026</span>}
+              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Story State</p>
+              {isLoadingState && <span className="text-[10px] text-gray-700">{'\u2026'}</span>}
             </div>
             {storyState ? (
               <div className="space-y-2">
@@ -775,35 +1214,37 @@ export default function StoryLabEngine() {
                     { label: 'Intimacy', value: clamp(storyState.intimacy_level), dim: slControls.boundary === 'sfw' },
                   ] as { label: string; value: number; dim?: boolean }[]
                 ).map(({ label, value, dim }) => (
-                  <div key={label} className={dim ? 'opacity-40' : undefined}>
+                  <div key={label} className={dim ? 'opacity-30' : undefined}>
                     <div className="flex justify-between mb-0.5">
-                      <span className="text-[10px] text-gray-500">{label}</span>
-                      <span className="text-[10px] text-gray-600">{Math.round(value * 100)}%</span>
+                      <span className="text-[10px] text-gray-600">{label}</span>
+                      <span className="text-[10px] text-gray-700">{Math.round(value * 100)}%</span>
                     </div>
-                    <div className="h-1.5 bg-gray-800/80 rounded-full overflow-hidden">
+                    <div className="h-0.5 bg-gray-800/60 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-emerald-600/70 rounded-full transition-[width] duration-500 ease-out"
+                        className="h-full bg-emerald-700/50 rounded-full transition-[width] duration-500 ease-out"
                         style={{ width: `${value * 100}%` }}
                       />
                     </div>
                   </div>
                 ))}
-                <div className="pt-1 border-t border-gray-800/60 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
-                  <span className="text-gray-600">Tone</span>
-                  <span className="text-gray-400">{storyState.tone}</span>
-                  <span className="text-gray-600">Pacing</span>
-                  <span className="text-gray-400">{storyState.pacing}</span>
+                <div className="pt-1.5 border-t border-gray-800/30 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                  <span className="text-gray-700">Tone</span>
+                  <span className="text-gray-500">{storyState.tone}</span>
+                  <span className="text-gray-700">Pacing</span>
+                  <span className="text-gray-500">{storyState.pacing}</span>
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-gray-500">
-                {isLoadingState ? 'Loading\u2026' : 'No state loaded.'}
+              <p className="text-[11px] text-gray-700">
+                {isLoadingState ? 'Loading\u2026' : 'No state yet.'}
               </p>
             )}
           </div>
 
         </div>
       </div>
+      )}
+
     </div>
   );
 }
