@@ -397,7 +397,9 @@ export default function UserProfile() {
   return (
     <div className="min-h-screen bg-[#0F1419]">
       {/* === HERO SECTION — constrained width, Facebook-style === */}
-      <div className="max-w-[1000px] mx-auto px-4 sm:px-8 pt-4 sm:pt-6">
+      {/* Atmospheric hero wrapper: full-bleed radial wash with Ficshon tones */}
+      <div className="relative" style={{background: 'radial-gradient(ellipse 90% 55% at 50% 0%, rgba(16,185,129,0.07) 0%, transparent 65%), radial-gradient(ellipse 60% 40% at 82% 0%, rgba(168,85,247,0.05) 0%, transparent 55%), #0F1419'}}>
+      <div className="max-w-[1000px] mx-auto px-4 sm:px-8 pt-0">
 
         {/* Cover band — rounded, not full-bleed */}
         <div
@@ -428,8 +430,8 @@ export default function UserProfile() {
             />
           )}
 
-          {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-b from-[#1A1D23]/20 via-transparent to-[#1A1D23]/40" />
+          {/* Gradient overlay — atmospheric multi-tone: dark vignette + emerald tint + neon purple whisper */}
+          <div className="absolute inset-0" style={{background: 'linear-gradient(to bottom, rgba(26,29,35,0.30) 0%, transparent 38%, rgba(26,29,35,0.60) 100%), linear-gradient(to bottom right, rgba(16,185,129,0.06) 0%, transparent 55%), linear-gradient(to bottom left, rgba(168,85,247,0.05) 0%, transparent 45%)'}} />
 
           {/* Subtle pattern (no cover image) */}
           {!heroCoverUrl && (
@@ -663,6 +665,13 @@ export default function UserProfile() {
           ))}
         </div>
       </div>
+
+      {/* Hero/body cutoff — soft gradient edge */}
+      <div className="h-px mx-auto max-w-[1000px] px-8">
+        <div className="h-px bg-gradient-to-r from-transparent via-white/[0.07] to-transparent" />
+      </div>
+      <div className="h-8 bg-gradient-to-b from-[#1A1D23]/30 to-transparent pointer-events-none" />
+      </div>{/* end atmospheric hero wrapper */}
 
       {/* === CONTENT AREA === */}
       <div className="bg-[#0F1419]">
