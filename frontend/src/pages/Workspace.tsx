@@ -9,13 +9,15 @@ const PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
 const MODE_KEY       = 'ficshon.writespace.mode';
 const REALM_KEY      = 'ficshon.writespace.selected_realm_id';
 const CHARACTER_KEY  = 'ficshon.writespace.selected_character_id';
+const SURFACE_KEY    = 'fic_surface_mode';
 
 const EDITOR_TEXT    = 'text-[16px] md:text-[17px] lg:text-[18px]';
 const EDITOR_LEADING = 'leading-[1.75]';
 const EDITOR_FONT    = 'font-normal';
 const EDITOR_TRACKING = 'tracking-[0.01em]';
-const PAPER    = 'bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)]';
-const TOOLBTN  = 'h-9 px-3 text-sm rounded-lg bg-gray-900/30 border border-gray-800/70 text-gray-200 hover:bg-gray-800/40 hover:border-gray-700 transition';
+const PAPER        = 'bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)]';
+const PAPER_LIGHT  = 'bg-[#F5F0E8] border border-[#A09382]/30 shadow-[0_4px_16px_rgba(0,0,0,0.06)]';
+const TOOLBTN      = 'h-9 px-3 text-sm rounded-lg bg-gray-900/30 border border-gray-800/70 text-gray-200 hover:bg-gray-800/40 hover:border-gray-700 transition';
 
 const MOCK_CHARACTERS = [
   { id: 0, name: 'No character' },
@@ -194,6 +196,9 @@ export default function Workspace() {
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [saveTick, setSaveTick] = useState(0);
+  const [surfaceMode, setSurfaceMode] = useState<'night' | 'paper'>(
+    () => (localStorage.getItem(SURFACE_KEY) as 'night' | 'paper') ?? 'night'
+  );
   const [mode, setMode] = useState<'write' | 'preview' | 'review'>(() => {
     const v = localStorage.getItem(MODE_KEY);
     return v === 'preview' || v === 'review' || v === 'write' ? v : 'write';
@@ -254,6 +259,7 @@ export default function Workspace() {
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
   useEffect(() => { localStorage.setItem(REALM_KEY, selectedRealmId === null ? '' : String(selectedRealmId)); }, [selectedRealmId]);
   useEffect(() => { localStorage.setItem(CHARACTER_KEY, String(characterId)); }, [characterId]);
+  useEffect(() => { localStorage.setItem(SURFACE_KEY, surfaceMode); }, [surfaceMode]);
 
   // Load non-commons realms for the destination selector
   useEffect(() => {
@@ -643,7 +649,7 @@ export default function Workspace() {
       .replace(/>/g, '&gt;');
 
     // Scene breaks
-    escaped = escaped.replace(/^---$/gm, '<hr class="border-gray-700 my-6" />');
+    escaped = escaped.replace(/^---$/gm, `<hr class="${surfaceMode === 'paper' ? 'border-stone-400' : 'border-gray-700'} my-6" />`);
 
     // Headers
     escaped = escaped.replace(/^## (.*)$/gm, '<h2 class="text-xl font-semibold mt-6 mb-2">$1</h2>');
@@ -744,7 +750,7 @@ export default function Workspace() {
 
     return (
       <div
-        className="prose prose-invert max-w-none leading-relaxed"
+        className={`${surfaceMode === 'paper' ? 'prose' : 'prose prose-invert'} max-w-none leading-relaxed`}
         dangerouslySetInnerHTML={{ __html: finalHtml }}
       />
     );
@@ -1117,6 +1123,7 @@ export default function Workspace() {
         .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px}
         .ws-tip{position:fixed;pointer-events:none;transform:translate(12px,12px);background:#111827;border:1px solid #374151;color:#e5e7eb;font-size:.75rem;line-height:1.4;border-radius:.5rem;padding:.375rem .625rem;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:260px;z-index:9999}
         ::selection{background:rgba(52,211,153,.25)}
+        .ws-paper-surface::placeholder{color:#9D8E7D}
       `}</style>
       {/* A) Header bar */}
       <div className="px-4 md:px-6 pt-4 pb-3 border-b border-gray-800 flex-shrink-0">
@@ -1160,6 +1167,19 @@ export default function Workspace() {
             {getSaveLabel()}
           </p>
           {formatFlash && <span className="text-xs text-emerald-400">{formatFlash}</span>}
+          {/* Surface mode toggle — Night / Paper */}
+          <div className="flex items-center rounded-md border border-gray-700 overflow-hidden text-xs">
+            <button
+              type="button"
+              onClick={() => setSurfaceMode('night')}
+              className={`px-2 py-1 transition ${surfaceMode === 'night' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+            >Night</button>
+            <button
+              type="button"
+              onClick={() => setSurfaceMode('paper')}
+              className={`px-2 py-1 transition ${surfaceMode === 'paper' ? 'bg-[#E8E0D0] text-[#1C1917]' : 'text-gray-500 hover:text-gray-300'}`}
+            >Paper</button>
+          </div>
           <button
             type="button"
             onClick={() => setFocusMode((v) => !v)}
@@ -1308,7 +1328,7 @@ export default function Workspace() {
 
           {mode === 'preview' ? (
             <div
-              className={`flex-1 min-h-0 rounded-2xl p-4 md:p-5 ${PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} text-gray-200 overflow-y-auto`}
+              className={`flex-1 min-h-0 rounded-2xl p-4 md:p-5 ${surfaceMode === 'paper' ? PAPER_LIGHT : PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-200'} overflow-y-auto`}
               onClick={(e) => {
                 // Grammar underline click → switch to Review and jump to range
                 const gEl = (e.target as HTMLElement).closest('[data-ws-grammar-offset]');
@@ -1327,7 +1347,7 @@ export default function Workspace() {
                 if (s) handleSuggestionClick(s.id, s.kind, s.matchText, 'review');
               }}
             >
-              <div className={`text-gray-200 ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} space-y-4`}>
+              <div className={`${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-200'} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} space-y-4`}>
                 {renderPreview(body)}
               </div>
             </div>
@@ -1371,7 +1391,7 @@ export default function Workspace() {
                 onScroll={(e) => {
                   if (overlayRef.current) overlayRef.current.scrollTop = e.currentTarget.scrollTop;
                 }}
-                className={`absolute inset-0 w-full h-full rounded-2xl p-4 md:p-5 ${PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} text-gray-200 resize-none outline-none placeholder-gray-600 caret-emerald-300`}
+                className={`absolute inset-0 w-full h-full rounded-2xl p-4 md:p-5 ${surfaceMode === 'paper' ? PAPER_LIGHT : PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} ${surfaceMode === 'paper' ? 'text-[#1C1917] caret-emerald-700 ws-paper-surface' : 'text-gray-200 caret-emerald-300 placeholder-gray-600'} resize-none outline-none`}
               />
               {mode === 'write' && renderWriteOverlay(body)}
             </div>

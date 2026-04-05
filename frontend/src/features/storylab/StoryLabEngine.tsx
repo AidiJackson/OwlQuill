@@ -28,8 +28,9 @@ function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
 
 // ── localStorage keys ─────────────────────────────────────────────────────────
 
-const LS_CURRENT = 'ficshon_storylab_current_story_id';
-const LS_RECENTS = 'ficshon_storylab_recent_story_ids';
+const LS_CURRENT  = 'ficshon_storylab_current_story_id';
+const LS_RECENTS  = 'ficshon_storylab_recent_story_ids';
+const SURFACE_KEY = 'fic_surface_mode';
 
 // ── Story-ID helpers ──────────────────────────────────────────────────────────
 
@@ -195,12 +196,18 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
   const [promptRevealOpen, setPromptRevealOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'delete' | 'regenerate' | null>(null);
+  const [surfaceMode, setSurfaceMode] = useState<'night' | 'paper'>(
+    () => (localStorage.getItem(SURFACE_KEY) as 'night' | 'paper') ?? 'night'
+  );
 
   // Story progress state (from /state endpoint)
   const [storyState, setStoryState] = useState<SLStoryState | null>(null);
   const [isLoadingState, setIsLoadingState] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+
+  // Persist surface mode preference
+  useEffect(() => { localStorage.setItem(SURFACE_KEY, surfaceMode); }, [surfaceMode]);
 
   // ── Abort all in-flight requests ───────────────────────────────────────────
 
@@ -610,25 +617,41 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           </div>
         )}
 
-        {/* Mode pills — hidden during creation */}
-        {(chapters.length > 0 || isLoadingChapters) && (
-          <div className="flex items-center gap-0.5 ml-auto">
-            {(['roleplay', 'duet', 'play'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMode(m)}
-                className={`h-6 px-2.5 text-[11px] rounded-md capitalize transition ${
-                  mode === m
-                    ? 'bg-gray-800/60 text-gray-200 font-medium'
-                    : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800/30'
-                }`}
-              >
-                {m}
-              </button>
-            ))}
+        {/* Right-side controls: mode pills + surface toggle */}
+        <div className="flex items-center gap-2 ml-auto">
+          {/* Mode pills — hidden during creation */}
+          {(chapters.length > 0 || isLoadingChapters) && (
+            <div className="flex items-center gap-0.5">
+              {(['roleplay', 'duet', 'play'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  className={`h-6 px-2.5 text-[11px] rounded-md capitalize transition ${
+                    mode === m
+                      ? 'bg-gray-800/60 text-gray-200 font-medium'
+                      : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800/30'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Surface mode toggle — Night / Paper */}
+          <div className="flex items-center rounded-md border border-gray-800/50 overflow-hidden text-[11px]">
+            <button
+              type="button"
+              onClick={() => setSurfaceMode('night')}
+              className={`px-2 h-6 transition ${surfaceMode === 'night' ? 'bg-gray-800/60 text-gray-200' : 'text-gray-600 hover:text-gray-400'}`}
+            >Night</button>
+            <button
+              type="button"
+              onClick={() => setSurfaceMode('paper')}
+              className={`px-2 h-6 transition ${surfaceMode === 'paper' ? 'bg-[#E8E0D0] text-[#1C1917]' : 'text-gray-600 hover:text-gray-400'}`}
+            >Paper</button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* ── Body — creation view OR reading + right panel ──────────────── */}
@@ -693,7 +716,11 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 placeholder="Describe the opening moment — where are they, what's happening, what's the mood?"
                 rows={7}
                 autoFocus
-                className="w-full resize-none rounded-2xl bg-gray-900/50 border border-gray-700/40 p-4 text-[14px] text-gray-200 placeholder-gray-600 focus:outline-none focus:border-gray-600/60 transition leading-relaxed"
+                className={`w-full resize-none rounded-2xl p-4 text-[14px] focus:outline-none transition leading-relaxed ${
+                  surfaceMode === 'paper'
+                    ? 'bg-[#F5F0E8] border border-[#A09382]/30 text-[#1C1917] placeholder-[#9D8E7D] focus:border-[#A09382]/60'
+                    : 'bg-gray-900/50 border border-gray-700/40 text-gray-200 placeholder-gray-600 focus:border-gray-600/60'
+                }`}
               />
             </div>
 
@@ -844,17 +871,17 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
       <div className="flex flex-col md:flex-row min-h-0 flex-1">
 
         {/* ── Reading column ────────────────────────────────────────────── */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className={`flex-1 min-h-0 overflow-y-auto transition-colors duration-200 ${surfaceMode === 'paper' ? 'bg-[#F5F0E8]' : ''}`}>
           <div className="max-w-[680px] mx-auto px-6 md:px-12 py-8">
 
             {/* Chapter header */}
             {currentChapter ? (
               <div className="mb-8">
                 <div className="flex items-baseline justify-between">
-                  <span className="text-[12px] font-semibold text-gray-500 uppercase tracking-[0.14em]">
+                  <span className={`text-[12px] font-semibold uppercase tracking-[0.14em] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#7A6E5F]' : 'text-gray-500'}`}>
                     Chapter {currentChapter.chapter_number}
                   </span>
-                  <span className="text-[11px] text-gray-700">{currentChapter.words} words</span>
+                  <span className={`text-[11px] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#9D8E7D]' : 'text-gray-700'}`}>{currentChapter.words} words</span>
                 </div>
 
                 {/* Prompt reveal */}
@@ -909,7 +936,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 </div>
               </div>
             ) : currentChapter ? (
-              <p className="text-[16px] leading-[1.9] text-gray-100 whitespace-pre-wrap font-normal tracking-[0.01em]">
+              <p className={`text-[16px] leading-[1.9] whitespace-pre-wrap font-normal tracking-[0.01em] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-100'}`}>
                 {currentChapter.generated_text}
               </p>
             ) : (
