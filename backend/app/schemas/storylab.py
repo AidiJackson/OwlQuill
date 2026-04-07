@@ -102,6 +102,7 @@ class ChapterGenerateRequest(BaseModel):
     mode: str = Field("roleplay", description="Generation mode: roleplay, duet, or play")
     controls: StoryLabControls = Field(default_factory=StoryLabControls)
     variant: Literal["default", "alt"] = "default"
+    beat_type: Optional[str] = Field(None, description="Structured beat direction (continue/escalate/reveal/shift/slow/end)")
 
 
 class ChapterListItem(BaseModel):

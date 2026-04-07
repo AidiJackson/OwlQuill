@@ -512,6 +512,7 @@ def _run_chapter_generation(
         story_premise=story_premise,
         realm_description=realm_description,
         story_characters=story_characters,
+        beat_type=req.beat_type,
     )
 
     # Update story state

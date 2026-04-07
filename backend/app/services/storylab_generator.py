@@ -1386,6 +1386,7 @@ def build_chapter_prompt(
     story_premise: str = "",
     realm_description: str = "",
     story_characters: list[Any] | None = None,
+    beat_type: str | None = None,
 ) -> list[dict[str, str]]:
     """Build the messages list for a chapter generation call.
 
@@ -1515,6 +1516,19 @@ def build_chapter_prompt(
     )
     sections.append(f"## User guidance for this chapter\n{guidance}")
 
+    # ── 12b. Beat direction ───────────────────────────────────────────────────
+    if beat_type:
+        sections.append(
+            "## Beat direction\n"
+            "- continue: continue the emotional and narrative tension naturally\n"
+            "- escalate: raise stakes, introduce complication, increase pressure\n"
+            "- reveal: introduce new information or hidden truth\n"
+            "- shift: change POV, focus, or conversational direction\n"
+            "- slow: reduce pace, deepen emotion, introspection\n"
+            "- end: bring scene to a satisfying close\n"
+            f"\nActive beat: **{beat_type}**"
+        )
+
     # ── 13. Output constraints ────────────────────────────────────────────────
     sections.append(_OUTPUT_CONSTRAINTS)
 
@@ -1618,6 +1632,7 @@ def _call_openrouter_chapter(
     story_premise: str = "",
     realm_description: str = "",
     story_characters: list[Any] | None = None,
+    beat_type: str | None = None,
 ) -> tuple[str, list[str], dict[str, Any] | None]:
     """Call OpenRouter for chapter generation; parse STORY + SUGGESTIONS + DELTA_SIGNALS."""
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -1629,6 +1644,7 @@ def _call_openrouter_chapter(
         story_premise=story_premise,
         realm_description=realm_description,
         story_characters=story_characters,
+        beat_type=beat_type,
     )
     cap_words = _length_cap(controls.length)
     # Extra headroom for SUGGESTIONS + DELTA_SIGNALS blocks on top of prose
@@ -1709,6 +1725,7 @@ def generate_chapter(
     story_premise: str = "",
     realm_description: str = "",
     story_characters: list[Any] | None = None,
+    beat_type: str | None = None,
 ) -> tuple[str, list[str], dict[str, Any] | None]:
     """Return (chapter_text, suggestions, delta_signals_or_none).
 
@@ -1740,6 +1757,7 @@ def generate_chapter(
                     story_premise=story_premise,
                     realm_description=realm_description,
                     story_characters=story_characters,
+                    beat_type=beat_type,
                 )
                 logger.info(
                     "[SL-DIAG] generate_chapter OPENROUTER SUCCESS | words=%d",

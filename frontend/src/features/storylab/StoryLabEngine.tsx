@@ -103,6 +103,19 @@ type SLStoryState = {
   emotional_weight: number;
 };
 
+// ── Beat types ────────────────────────────────────────────────────────────────
+
+const BEAT_TYPES = [
+  { id: "continue", label: "Continue tension" },
+  { id: "escalate", label: "Escalate conflict" },
+  { id: "reveal",   label: "Reveal something" },
+  { id: "shift",    label: "Shift perspective" },
+  { id: "slow",     label: "Slow the moment" },
+  { id: "end",      label: "End the scene" },
+] as const;
+
+type BeatTypeId = typeof BEAT_TYPES[number]['id'];
+
 // ── Beat actions ──────────────────────────────────────────────────────────────
 
 type BeatAction = {
@@ -111,6 +124,7 @@ type BeatAction = {
   direction: string;
   pacing: string;
   length: string;
+  beat_type: BeatTypeId;
   tone_intensity?: string;
 };
 
@@ -124,12 +138,12 @@ type SupportChar = {
 };
 
 const BEAT_ACTIONS: BeatAction[] = [
-  { label: 'Continue',               hint: 'Advance the scene forward',        direction: 'advance_plot',     pacing: 'balanced', length: 'short' },
-  { label: 'Complicate It',          hint: 'Add friction or conflict',          direction: 'argument_begins',  pacing: 'fast',     length: 'short' },
-  { label: 'Slow It Down',           hint: 'Interior moment — let it breathe',  direction: 'quiet_reflection', pacing: 'slow',     length: 'short' },
-  { label: 'Reveal Something',       hint: 'Shift what the reader knows',       direction: 'twist_event',      pacing: 'balanced', length: 'short' },
-  { label: 'Turn the Conversation',  hint: 'Push the dialogue somewhere else',  direction: 'add_dialogue',     pacing: 'balanced', length: 'short' },
-  { label: 'End the Scene',          hint: 'Close this moment, open the next',  direction: 'quiet_reflection', pacing: 'slow',     length: 'short', tone_intensity: 'moderate' },
+  { label: 'Continue',               hint: 'Advance the scene forward',        direction: 'advance_plot',     pacing: 'balanced', length: 'short', beat_type: 'continue' },
+  { label: 'Complicate It',          hint: 'Add friction or conflict',          direction: 'argument_begins',  pacing: 'fast',     length: 'short', beat_type: 'escalate' },
+  { label: 'Slow It Down',           hint: 'Interior moment — let it breathe',  direction: 'quiet_reflection', pacing: 'slow',     length: 'short', beat_type: 'slow' },
+  { label: 'Reveal Something',       hint: 'Shift what the reader knows',       direction: 'twist_event',      pacing: 'balanced', length: 'short', beat_type: 'reveal' },
+  { label: 'Turn the Conversation',  hint: 'Push the dialogue somewhere else',  direction: 'add_dialogue',     pacing: 'balanced', length: 'short', beat_type: 'shift' },
+  { label: 'End the Scene',          hint: 'Close this moment, open the next',  direction: 'quiet_reflection', pacing: 'slow',     length: 'short', beat_type: 'end', tone_intensity: 'moderate' },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -299,7 +313,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
     }
   }
 
-  async function handleGenerate(overrideControls?: Partial<SLControls>) {
+  async function handleGenerate(overrideControls?: Partial<SLControls>, beatType?: BeatTypeId | null) {
     const activeControls: SLControls = overrideControls
       ? { ...slControls, ...overrideControls }
       : slControls;
@@ -315,6 +329,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
         prompt: effectivePrompt,
         mode,
         controls: activeControls,
+        beat_type: beatType ?? null,
       };
       const resp = await authFetch(
         `/api/storylab/chapters/generate?story_id=${encodeURIComponent(currentStoryId)}`,
@@ -456,7 +471,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
       pacing: action.pacing,
       length: action.length,
       ...(action.tone_intensity ? { tone_intensity: action.tone_intensity } : {}),
-    });
+    }, action.beat_type);
   }
 
   // ── Story switching ────────────────────────────────────────────────────────
