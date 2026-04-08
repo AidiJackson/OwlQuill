@@ -237,8 +237,9 @@ function detectFillerPhrases(
  * Apply inline Write-mode marks to a raw sentence string.
  * Returns an HTML string with zero or more <span class="ws-repeat|ws-filler"> wrappers.
  * Marks are non-overlapping; first match wins on conflict.
+ * baseOffset — character position of `raw` within the full body string (used for quick-fix offsets).
  */
-function markInlineSentence(raw: string): string {
+function markInlineSentence(raw: string, baseOffset = 0): string {
   type Mark = { start: number; end: number; cls: string };
   const marks: Mark[] = [];
   let m: RegExpExecArray | null;
@@ -275,20 +276,42 @@ function markInlineSentence(raw: string): string {
     if (mark.start >= cursor) { resolved.push(mark); cursor = mark.end; }
   }
 
-  // Label + hint text for each mark class
-  const MARK_META: Record<string, { label: string; hint: string }> = {
-    'ws-repeat': { label: 'Duplicate word', hint: 'This word appears twice in a row — likely a typo.' },
-    'ws-filler': { label: 'Weak phrase', hint: 'This word or phrase may weaken the sentence. Consider cutting or replacing it.' },
-  };
-
   // Interleave plain escaped text with marked spans
   const parts: string[] = [];
   let pos = 0;
   for (const mark of resolved) {
     if (mark.start > pos) parts.push(escHtml(raw.slice(pos, mark.start)));
-    const meta = MARK_META[mark.cls] ?? { label: 'Issue', hint: '' };
+    const matchedText = raw.slice(mark.start, mark.end);
+    const bodyOffset   = baseOffset + mark.start;
+    const markLength   = mark.end - mark.start;
+
+    // Determine label, hint, and whether this mark is auto-fixable
+    let label: string, hint: string, fixType: string | null = null;
+    if (mark.cls === 'ws-repeat') {
+      label   = 'Duplicate word';
+      hint    = 'This word appears twice in a row — likely a typo. Click to fix.';
+      fixType = 'remove-dup';
+    } else {
+      // ws-filler: single words are safely removable; multi-word phrases are not
+      const isSingleWord = FILLER_SINGLE.some(
+        (w) => w.toLowerCase() === matchedText.trim().toLowerCase()
+      );
+      label   = 'Weak phrase';
+      if (isSingleWord) {
+        hint    = 'This word may weaken the sentence. Click to remove it.';
+        fixType = 'remove-word';
+      } else {
+        hint    = 'This phrase may weaken the sentence. Consider rewriting.';
+        fixType = null; // multi-word phrases need manual rewrite
+      }
+    }
+
+    const fixAttrs = fixType
+      ? ` data-ws-fix-type="${fixType}" data-ws-offset="${bodyOffset}" data-ws-length="${markLength}"`
+      : '';
+
     parts.push(
-      `<span class="${mark.cls}" data-ws-label="${escHtml(meta.label)}" data-ws-hint="${escHtml(meta.hint)}">${escHtml(raw.slice(mark.start, mark.end))}</span>`
+      `<span class="${mark.cls}" data-ws-label="${escHtml(label)}" data-ws-hint="${escHtml(hint)}"${fixAttrs}>${escHtml(matchedText)}</span>`
     );
     pos = mark.end;
   }
@@ -656,6 +679,38 @@ export default function Workspace() {
     setGrammar((prev) => ({ ...prev, matches: prev.matches.filter((x) => x !== m) }));
   }
 
+  /**
+   * Quick Fix v1 — apply a simple, deterministic edit to the body.
+   * Only called for high-confidence cases: duplicate word removal and single filler-word removal.
+   */
+  function applyQuickFix(fixType: string, offset: number, length: number) {
+    if (offset < 0 || length <= 0 || offset + length > body.length) return;
+    const matchText = body.slice(offset, offset + length);
+    let newBody: string;
+
+    if (fixType === 'remove-dup') {
+      // "the the" → "the"  (keep first copy, preserve original casing)
+      const firstWord = matchText.match(/^(\S+)/)?.[1] ?? matchText;
+      newBody = body.slice(0, offset) + firstWord + body.slice(offset + length);
+    } else if (fixType === 'remove-word') {
+      // "very" → ""  — absorb one adjacent space to avoid double-spacing
+      let start = offset;
+      let end   = offset + length;
+      if (start > 0 && body[start - 1] === ' ') {
+        start--; // remove the space before the word
+      } else if (end < body.length && body[end] === ' ') {
+        end++;   // remove the space after the word
+      }
+      newBody = body.slice(0, start) + body.slice(end);
+    } else {
+      return; // unknown type — do nothing
+    }
+
+    setBody(newBody);
+    // Restore textarea focus after React re-renders
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }
+
   function ignoreGrammarMatch(m: GrammarMatch) {
     setIgnoredKeys((prev) => {
       const next = new Set(prev);
@@ -755,20 +810,22 @@ export default function Workspace() {
     // Split on sentence-ending punctuation, keeping delimiters
     const parts = text.split(/([.!?]+)/);
     const rebuilt: string[] = [];
+    let bodyPos = 0; // cumulative char offset into the original text
 
     for (let i = 0; i < parts.length; i += 2) {
       const sentence = (parts[i] ?? '') + (parts[i + 1] ?? '');
       if (!sentence) continue;
       const words = sentence.trim().split(/\s+/).filter(Boolean).length;
-      // Apply repeat + filler inline marks within the sentence
-      const markedHtml = markInlineSentence(sentence);
+      // Apply repeat + filler inline marks, with exact body offsets for quick-fix
+      const markedHtml = markInlineSentence(sentence, bodyPos);
       if (words > 28) {
         // Long sentence: wrap everything in ws-long; inner marks remain visible
-        const longHint = `${words}-word sentence — long sentences can be hard to follow. Consider splitting.`;
+        const longHint = `${words}-word sentence — long sentences can be hard to follow. Click to go to Review.`;
         rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}" data-ws-key="${escHtml(makeKey(sentence))}" data-ws-label="Long sentence" data-ws-hint="${escHtml(longHint)}">${markedHtml}</span>`);
       } else {
         rebuilt.push(markedHtml);
       }
+      bodyPos += sentence.length;
     }
 
     return (
@@ -1306,9 +1363,9 @@ export default function Workspace() {
         .ws-ul-para{background:rgba(251,191,36,.06);border-radius:4px}
         .ws-write-overlay{position:absolute;inset:0;padding:1rem;border-radius:1rem;white-space:pre-wrap;word-break:break-word;color:transparent;pointer-events:none;font:inherit;line-height:inherit;overflow:hidden}
         @media(min-width:768px){.ws-write-overlay{padding:1.25rem}}
-        .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:help}
-        .ws-write-overlay span.ws-repeat{color:transparent;text-decoration-line:underline;text-decoration-style:wavy;text-decoration-color:rgba(251,113,133,.8);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:help}
-        .ws-write-overlay span.ws-filler{color:transparent;text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:rgba(167,139,250,.7);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:help}
+        .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:pointer}
+        .ws-write-overlay span.ws-repeat{color:transparent;text-decoration-line:underline;text-decoration-style:wavy;text-decoration-color:rgba(251,113,133,.8);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:pointer}
+        .ws-write-overlay span.ws-filler{color:transparent;text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:rgba(167,139,250,.7);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:pointer}
         .ws-tip{position:fixed;pointer-events:none;transform:translate(12px,12px);background:#111827;border:1px solid #374151;color:#e5e7eb;font-size:.75rem;line-height:1.4;border-radius:.5rem;padding:.375rem .625rem;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:260px;z-index:9999}
         ::selection{background:rgba(52,211,153,.25)}
         .ws-paper-surface::placeholder{color:#9D8E7D}
@@ -1554,9 +1611,11 @@ export default function Workspace() {
               onMouseLeave={mode === 'write' ? () => setWsTip((s) => ({ ...s, show: false })) : undefined}
               onClick={mode === 'write' ? (e) => {
                 setWsTip((s) => ({ ...s, show: false }));
-                const longEl = (e.target as HTMLElement).closest?.('[data-ws-long="1"]') as HTMLElement | null;
+                const target = e.target as HTMLElement;
+
+                // Long sentence → jump to Review (existing behaviour)
+                const longEl = target.closest?.('[data-ws-long="1"]') as HTMLElement | null;
                 if (longEl) {
-                  // Existing behaviour: click a long-sentence mark → jump to Review
                   const key = longEl.getAttribute('data-ws-key') ?? '';
                   const match = review.suggestions.find(
                     (s) => s.kind === 'sentence' && s.matchKey && s.matchKey === key
@@ -1569,9 +1628,19 @@ export default function Workspace() {
                   }
                   return;
                 }
-                // For repeat/filler marks: clicking a marked span should restore textarea focus
-                // so editing can continue normally (click-to-fix is a future step).
-                if ((e.target as HTMLElement).closest?.('[data-ws-hint]')) {
+
+                // Fixable inline mark (ws-repeat, single-word ws-filler) → quick fix
+                const fixEl = target.closest?.('[data-ws-fix-type]') as HTMLElement | null;
+                if (fixEl) {
+                  const fixType = fixEl.getAttribute('data-ws-fix-type') ?? '';
+                  const offset  = parseInt(fixEl.getAttribute('data-ws-offset')  ?? '-1', 10);
+                  const length  = parseInt(fixEl.getAttribute('data-ws-length')  ?? '0',  10);
+                  applyQuickFix(fixType, offset, length);
+                  return;
+                }
+
+                // Non-fixable marks (multi-word filler etc.) → just refocus the textarea
+                if (target.closest?.('[data-ws-hint]')) {
                   textareaRef.current?.focus();
                 }
               } : undefined}
