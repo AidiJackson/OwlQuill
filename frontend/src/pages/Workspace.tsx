@@ -147,6 +147,83 @@ function normKey(s: string): string {
     .trim();
 }
 
+// Grammar Engine v1 — deterministic, client-side, zero dependencies
+
+/** Adjacent repeated word detection: finds "the the", "a a" etc. within sentences. */
+function detectAdjacentRepeats(sentences: string[]): { word: string; sentence: string }[] {
+  const results: { word: string; sentence: string }[] = [];
+  for (const s of sentences) {
+    const tokens = s.match(/\b\w+\b/g) ?? [];
+    for (let i = 0; i < tokens.length - 1; i++) {
+      if (tokens[i].length >= 2 && tokens[i].toLowerCase() === tokens[i + 1].toLowerCase()) {
+        results.push({ word: tokens[i].toLowerCase(), sentence: s });
+        break; // one hit per sentence
+      }
+    }
+  }
+  return results;
+}
+
+/** High-frequency repeated word: same significant word 3+ times in one sentence. */
+function detectHighFreqRepeats(sentences: string[]): { word: string; sentence: string }[] {
+  const STOP = new Set(['the','a','an','and','or','but','in','on','at','to','for','of','with',
+    'by','from','is','was','are','were','be','been','being','have','has','had','do','does','did',
+    'will','would','could','should','may','might','shall','can','it','its','this','that','these',
+    'those','i','he','she','we','they','you','me','him','her','us','them','my','his','our',
+    'their','your','what','which','who','how','when','where','why','as','if','so','not','no',
+    'up','out','into','then','than','there','here','some','any','all','each','every','more',
+    'most','one','two','three','also','even','still','now','after','before','about','over',
+    'both','few','many','much','such','other']);
+  const results: { word: string; sentence: string }[] = [];
+  for (const s of sentences) {
+    const tokens = s.toLowerCase().match(/\b[a-z]{4,}\b/g) ?? [];
+    const freq: Record<string, number> = {};
+    for (const w of tokens) { if (!STOP.has(w)) freq[w] = (freq[w] ?? 0) + 1; }
+    const hit = Object.entries(freq).find(([, n]) => n >= 3);
+    if (hit) results.push({ word: hit[0], sentence: s });
+  }
+  return results;
+}
+
+/** Human-readable category label for a suggestion id. */
+function suggestionLabel(id: string): string {
+  if (id === 'long-sent' || id === 'very-long-sent') return 'Long sentence';
+  if (id === 'passive') return 'Passive voice';
+  if (id === 'long-para' || id === 'one-para') return 'Long paragraph';
+  if (id === 'repeat-adj') return 'Duplicate word';
+  if (id === 'repeat-word') return 'Repeated word';
+  if (id === 'filler') return 'Weak phrase';
+  if (id === 'dense') return 'Readability';
+  if (id === 'easy') return 'Readability';
+  return '';
+}
+
+/** Weak/filler phrase detection across all sentences. Returns first hit + total count. */
+const FILLER_MULTI = [
+  'started to', 'began to', 'seemed to', 'appeared to',
+  'was able to', 'were able to', 'kind of', 'sort of',
+  'in order to', 'the fact that', 'due to the fact that',
+];
+const FILLER_SINGLE = ['very', 'really', 'basically', 'literally', 'actually', 'quite'];
+
+function detectFillerPhrases(
+  sentences: string[]
+): { phrase: string; sentence: string; count: number } | null {
+  let total = 0;
+  let first: { phrase: string; sentence: string } | null = null;
+  for (const s of sentences) {
+    for (const phrase of FILLER_MULTI) {
+      const re = new RegExp(`\\b${phrase.replace(/\s+/g, '\\s+')}\\b`, 'i');
+      if (re.test(s)) { total++; if (!first) first = { phrase, sentence: s }; }
+    }
+    for (const word of FILLER_SINGLE) {
+      const re = new RegExp(`\\b${word}\\b`, 'i');
+      if (re.test(s)) { total++; if (!first) first = { phrase: word, sentence: s }; }
+    }
+  }
+  return first && total >= 2 ? { ...first, count: total } : null;
+}
+
 function makeKey(s: string, n = 80): string {
   const t = normKey(s);
   return t.length > n ? t.slice(0, n) : t;
@@ -560,12 +637,7 @@ export default function Workspace() {
   function renderLiveChecks() {
     const checks = review.suggestions.filter((s) => s.kind !== 'info').slice(0, 6);
 
-    function labelFor(id: string) {
-      if (id === 'long-sent' || id === 'very-long-sent') return 'Long sentence';
-      if (id === 'passive') return 'Passive voice';
-      if (id === 'long-para' || id === 'one-para') return 'Long paragraph';
-      return 'Issue';
-    }
+    function labelFor(id: string) { return suggestionLabel(id) || 'Issue'; }
 
     return (
       <div className="shrink-0 mt-3 border border-gray-800 rounded-xl bg-gray-900/40">
@@ -833,7 +905,12 @@ export default function Workspace() {
                   >
                     <div className="flex gap-2 min-w-0">
                       <span className="text-gray-600 select-none mt-0.5 shrink-0">&bull;</span>
-                      <span>{s.text}</span>
+                      <span className="flex flex-col gap-0.5">
+                        <span>{s.text}</span>
+                        {suggestionLabel(s.id) && (
+                          <span className="text-[11px] text-gray-500">{suggestionLabel(s.id)}</span>
+                        )}
+                      </span>
                     </div>
                     {s.fix && (
                       <button
@@ -1068,6 +1145,11 @@ export default function Workspace() {
       : readabilityScore >= 45  ? 'Medium'
       : 'Dense';
 
+    // Grammar Engine v1 — client-side checks
+    const adjacentRepeats = detectAdjacentRepeats(sentenceList);
+    const highFreqRepeats = detectHighFreqRepeats(sentenceList);
+    const fillerHit = detectFillerPhrases(sentenceList);
+
     const suggestions: ReviewSuggestion[] = [];
     if (words === 0) {
       suggestions.push({ id: 'empty', text: 'Start writing to see suggestions.', kind: 'info', matchText: '' });
@@ -1087,6 +1169,38 @@ export default function Workspace() {
       const firstPassiveIdx = sentenceList.findIndex((s) => /\b(am|is|are|was|were|be|been|being)\b\s+\w+(ed|en)\b/i.test(s));
       if (passiveCount > 0)
         suggestions.push({ id: 'passive', text: `Passive phrasing detected in ${passiveCount} sentence(s). Consider active voice for punch.`, kind: 'sentence', matchText: firstPassiveIdx >= 0 ? sentenceList[firstPassiveIdx] : '', fix: { label: 'Show suggestion', applyMode: 'suggest' } });
+
+      // Repeated word checks
+      if (adjacentRepeats.length > 0) {
+        const hit = adjacentRepeats[0];
+        suggestions.push({
+          id: 'repeat-adj',
+          text: `Duplicate word "${hit.word} ${hit.word}" — likely a typo (${adjacentRepeats.length} instance${adjacentRepeats.length > 1 ? 's' : ''}).`,
+          kind: 'sentence',
+          matchText: hit.sentence,
+          matchKey: makeKey(hit.sentence),
+        });
+      } else if (highFreqRepeats.length > 0) {
+        const hit = highFreqRepeats[0];
+        suggestions.push({
+          id: 'repeat-word',
+          text: `"${hit.word}" repeats 3+ times in a sentence. Vary your word choice.`,
+          kind: 'sentence',
+          matchText: hit.sentence,
+          matchKey: makeKey(hit.sentence),
+        });
+      }
+
+      // Filler / weak phrase check
+      if (fillerHit) {
+        suggestions.push({
+          id: 'filler',
+          text: `Weak phrase "${fillerHit.phrase}" found (${fillerHit.count} filler instance${fillerHit.count > 1 ? 's' : ''}). Cut or replace for stronger prose.`,
+          kind: 'sentence',
+          matchText: fillerHit.sentence,
+          matchKey: makeKey(fillerHit.sentence),
+        });
+      }
 
       if (paragraphs === 1 && words > 120)
         suggestions.push({ id: 'one-para', text: 'Try adding paragraph breaks for readability.', kind: 'paragraph', matchText: paragraphList[0] ?? '', fix: { label: 'Add breaks', applyMode: 'apply' } });
