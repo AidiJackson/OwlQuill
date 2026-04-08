@@ -275,12 +275,21 @@ function markInlineSentence(raw: string): string {
     if (mark.start >= cursor) { resolved.push(mark); cursor = mark.end; }
   }
 
+  // Label + hint text for each mark class
+  const MARK_META: Record<string, { label: string; hint: string }> = {
+    'ws-repeat': { label: 'Duplicate word', hint: 'This word appears twice in a row — likely a typo.' },
+    'ws-filler': { label: 'Weak phrase', hint: 'This word or phrase may weaken the sentence. Consider cutting or replacing it.' },
+  };
+
   // Interleave plain escaped text with marked spans
   const parts: string[] = [];
   let pos = 0;
   for (const mark of resolved) {
     if (mark.start > pos) parts.push(escHtml(raw.slice(pos, mark.start)));
-    parts.push(`<span class="${mark.cls}">${escHtml(raw.slice(mark.start, mark.end))}</span>`);
+    const meta = MARK_META[mark.cls] ?? { label: 'Issue', hint: '' };
+    parts.push(
+      `<span class="${mark.cls}" data-ws-label="${escHtml(meta.label)}" data-ws-hint="${escHtml(meta.hint)}">${escHtml(raw.slice(mark.start, mark.end))}</span>`
+    );
     pos = mark.end;
   }
   if (pos < raw.length) parts.push(escHtml(raw.slice(pos)));
@@ -355,8 +364,8 @@ export default function Workspace() {
   });
   const [showPanel, setShowPanel] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  const [wsTip, setWsTip] = useState<{ show: boolean; x: number; y: number; words: number }>(
-    { show: false, x: 0, y: 0, words: 0 }
+  const [wsTip, setWsTip] = useState<{ show: boolean; x: number; y: number; label: string; hint: string }>(
+    { show: false, x: 0, y: 0, label: '', hint: '' }
   );
   const [highlightId, setHighlightId] = useState<string>('');
   const [fixStatus, setFixStatus] = useState<{ id: string; msg: string } | null>(null);
@@ -755,7 +764,8 @@ export default function Workspace() {
       const markedHtml = markInlineSentence(sentence);
       if (words > 28) {
         // Long sentence: wrap everything in ws-long; inner marks remain visible
-        rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}" data-ws-key="${escHtml(makeKey(sentence))}">${markedHtml}</span>`);
+        const longHint = `${words}-word sentence — long sentences can be hard to follow. Consider splitting.`;
+        rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}" data-ws-key="${escHtml(makeKey(sentence))}" data-ws-label="Long sentence" data-ws-hint="${escHtml(longHint)}">${markedHtml}</span>`);
       } else {
         rebuilt.push(markedHtml);
       }
@@ -1296,9 +1306,9 @@ export default function Workspace() {
         .ws-ul-para{background:rgba(251,191,36,.06);border-radius:4px}
         .ws-write-overlay{position:absolute;inset:0;padding:1rem;border-radius:1rem;white-space:pre-wrap;word-break:break-word;color:transparent;pointer-events:none;font:inherit;line-height:inherit;overflow:hidden}
         @media(min-width:768px){.ws-write-overlay{padding:1.25rem}}
-        .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px}
-        .ws-write-overlay span.ws-repeat{color:transparent;text-decoration-line:underline;text-decoration-style:wavy;text-decoration-color:rgba(251,113,133,.8);text-decoration-thickness:2px;text-underline-offset:3px}
-        .ws-write-overlay span.ws-filler{color:transparent;text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:rgba(167,139,250,.7);text-decoration-thickness:2px;text-underline-offset:3px}
+        .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:help}
+        .ws-write-overlay span.ws-repeat{color:transparent;text-decoration-line:underline;text-decoration-style:wavy;text-decoration-color:rgba(251,113,133,.8);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:help}
+        .ws-write-overlay span.ws-filler{color:transparent;text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:rgba(167,139,250,.7);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:help}
         .ws-tip{position:fixed;pointer-events:none;transform:translate(12px,12px);background:#111827;border:1px solid #374151;color:#e5e7eb;font-size:.75rem;line-height:1.4;border-radius:.5rem;padding:.375rem .625rem;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:260px;z-index:9999}
         ::selection{background:rgba(52,211,153,.25)}
         .ws-paper-surface::placeholder{color:#9D8E7D}
@@ -1533,25 +1543,36 @@ export default function Workspace() {
             <div
               className="relative flex-1 min-h-0"
               onMouseMove={mode === 'write' ? (e) => {
-                const el = (e.target as HTMLElement).closest?.('[data-ws-long="1"]') as HTMLElement | null;
+                // Works for both ws-long (pointer-events:auto) and ws-repeat/ws-filler spans.
+                // Events from those spans bubble to this wrapper even though the overlay div is pointer-events:none.
+                const el = (e.target as HTMLElement).closest?.('[data-ws-hint]') as HTMLElement | null;
                 if (!el) { if (wsTip.show) setWsTip((s) => ({ ...s, show: false })); return; }
-                const words = Number(el.getAttribute('data-ws-words') ?? '0');
-                setWsTip({ show: true, x: e.clientX, y: e.clientY, words });
+                const label = el.getAttribute('data-ws-label') ?? '';
+                const hint  = el.getAttribute('data-ws-hint')  ?? '';
+                setWsTip({ show: true, x: e.clientX, y: e.clientY, label, hint });
               } : undefined}
               onMouseLeave={mode === 'write' ? () => setWsTip((s) => ({ ...s, show: false })) : undefined}
               onClick={mode === 'write' ? (e) => {
-                const el = (e.target as HTMLElement).closest?.('[data-ws-long="1"]') as HTMLElement | null;
-                if (!el) return;
                 setWsTip((s) => ({ ...s, show: false }));
-                const key = el.getAttribute('data-ws-key') ?? '';
-                const match = review.suggestions.find(
-                  (s) => s.kind === 'sentence' && s.matchKey && s.matchKey === key
-                );
-                if (match) {
-                  handleSuggestionClick(match.id, match.kind, match.matchText, 'review');
-                } else {
-                  setMode('review');
-                  setShowPanel(false);
+                const longEl = (e.target as HTMLElement).closest?.('[data-ws-long="1"]') as HTMLElement | null;
+                if (longEl) {
+                  // Existing behaviour: click a long-sentence mark → jump to Review
+                  const key = longEl.getAttribute('data-ws-key') ?? '';
+                  const match = review.suggestions.find(
+                    (s) => s.kind === 'sentence' && s.matchKey && s.matchKey === key
+                  );
+                  if (match) {
+                    handleSuggestionClick(match.id, match.kind, match.matchText, 'review');
+                  } else {
+                    setMode('review');
+                    setShowPanel(false);
+                  }
+                  return;
+                }
+                // For repeat/filler marks: clicking a marked span should restore textarea focus
+                // so editing can continue normally (click-to-fix is a future step).
+                if ((e.target as HTMLElement).closest?.('[data-ws-hint]')) {
+                  textareaRef.current?.focus();
                 }
               } : undefined}
             >
@@ -1629,8 +1650,8 @@ export default function Workspace() {
 
       {mode === 'write' && wsTip.show && (
         <div className="ws-tip" style={{ left: wsTip.x, top: wsTip.y }}>
-          <div style={{ fontWeight: 600, color: '#f3f4f6' }}>Long sentence</div>
-          <div style={{ color: '#d1d5db', marginTop: 2 }}>{wsTip.words} words — tap Review to fix.</div>
+          <div style={{ fontWeight: 600, color: '#f3f4f6' }}>{wsTip.label}</div>
+          {wsTip.hint && <div style={{ color: '#d1d5db', marginTop: 2 }}>{wsTip.hint}</div>}
         </div>
       )}
     </div>
