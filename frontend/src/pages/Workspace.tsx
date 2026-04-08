@@ -149,6 +149,23 @@ function normKey(s: string): string {
 
 // Grammar Engine v1 — deterministic, client-side, zero dependencies
 
+/** Safe HTML escaper — always escape raw text before inserting into dangerouslySetInnerHTML. */
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Stop words excluded from high-frequency repeat detection. */
+const STOP_WORDS = new Set([
+  'the','a','an','and','or','but','in','on','at','to','for','of','with','by','from',
+  'is','was','are','were','be','been','being','have','has','had','do','does','did',
+  'will','would','could','should','may','might','shall','can','it','its','this','that',
+  'these','those','i','he','she','we','they','you','me','him','her','us','them',
+  'my','his','our','their','your','what','which','who','how','when','where','why',
+  'as','if','so','not','no','up','out','into','then','than','there','here','some',
+  'any','all','each','every','more','most','one','two','three','also','even','still',
+  'now','after','before','about','over','both','few','many','much','such','other',
+]);
+
 /** Adjacent repeated word detection: finds "the the", "a a" etc. within sentences. */
 function detectAdjacentRepeats(sentences: string[]): { word: string; sentence: string }[] {
   const results: { word: string; sentence: string }[] = [];
@@ -166,19 +183,11 @@ function detectAdjacentRepeats(sentences: string[]): { word: string; sentence: s
 
 /** High-frequency repeated word: same significant word 3+ times in one sentence. */
 function detectHighFreqRepeats(sentences: string[]): { word: string; sentence: string }[] {
-  const STOP = new Set(['the','a','an','and','or','but','in','on','at','to','for','of','with',
-    'by','from','is','was','are','were','be','been','being','have','has','had','do','does','did',
-    'will','would','could','should','may','might','shall','can','it','its','this','that','these',
-    'those','i','he','she','we','they','you','me','him','her','us','them','my','his','our',
-    'their','your','what','which','who','how','when','where','why','as','if','so','not','no',
-    'up','out','into','then','than','there','here','some','any','all','each','every','more',
-    'most','one','two','three','also','even','still','now','after','before','about','over',
-    'both','few','many','much','such','other']);
   const results: { word: string; sentence: string }[] = [];
   for (const s of sentences) {
     const tokens = s.toLowerCase().match(/\b[a-z]{4,}\b/g) ?? [];
     const freq: Record<string, number> = {};
-    for (const w of tokens) { if (!STOP.has(w)) freq[w] = (freq[w] ?? 0) + 1; }
+    for (const w of tokens) { if (!STOP_WORDS.has(w)) freq[w] = (freq[w] ?? 0) + 1; }
     const hit = Object.entries(freq).find(([, n]) => n >= 3);
     if (hit) results.push({ word: hit[0], sentence: s });
   }
@@ -222,6 +231,60 @@ function detectFillerPhrases(
     }
   }
   return first && total >= 2 ? { ...first, count: total } : null;
+}
+
+/**
+ * Apply inline Write-mode marks to a raw sentence string.
+ * Returns an HTML string with zero or more <span class="ws-repeat|ws-filler"> wrappers.
+ * Marks are non-overlapping; first match wins on conflict.
+ */
+function markInlineSentence(raw: string): string {
+  type Mark = { start: number; end: number; cls: string };
+  const marks: Mark[] = [];
+  let m: RegExpExecArray | null;
+
+  // Adjacent duplicate words — "the the", "had had", etc.
+  const adjRe = /\b(\w{2,})\s+\1\b/gi;
+  while ((m = adjRe.exec(raw)) !== null) {
+    marks.push({ start: m.index, end: m.index + m[0].length, cls: 'ws-repeat' });
+  }
+
+  // Multi-word filler phrases
+  for (const phrase of FILLER_MULTI) {
+    const re = new RegExp(`\\b${phrase.replace(/\s+/g, '\\s+')}\\b`, 'gi');
+    while ((m = re.exec(raw)) !== null) {
+      marks.push({ start: m.index, end: m.index + m[0].length, cls: 'ws-filler' });
+    }
+  }
+
+  // Single-word fillers (mark all in Write mode — instant feedback even for one instance)
+  for (const word of FILLER_SINGLE) {
+    const re = new RegExp(`\\b${word}\\b`, 'gi');
+    while ((m = re.exec(raw)) !== null) {
+      marks.push({ start: m.index, end: m.index + m[0].length, cls: 'ws-filler' });
+    }
+  }
+
+  if (marks.length === 0) return escHtml(raw);
+
+  // Sort by start; resolve overlaps (first/adjacent wins)
+  marks.sort((a, b) => a.start - b.start);
+  const resolved: Mark[] = [];
+  let cursor = 0;
+  for (const mark of marks) {
+    if (mark.start >= cursor) { resolved.push(mark); cursor = mark.end; }
+  }
+
+  // Interleave plain escaped text with marked spans
+  const parts: string[] = [];
+  let pos = 0;
+  for (const mark of resolved) {
+    if (mark.start > pos) parts.push(escHtml(raw.slice(pos, mark.start)));
+    parts.push(`<span class="${mark.cls}">${escHtml(raw.slice(mark.start, mark.end))}</span>`);
+    pos = mark.end;
+  }
+  if (pos < raw.length) parts.push(escHtml(raw.slice(pos)));
+  return parts.join('');
 }
 
 function makeKey(s: string, n = 80): string {
@@ -680,10 +743,6 @@ export default function Workspace() {
   function renderWriteOverlay(text: string) {
     if (!text) return null;
 
-    // Escape HTML to prevent injection via dangerouslySetInnerHTML
-    const esc = (s: string) =>
-      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
     // Split on sentence-ending punctuation, keeping delimiters
     const parts = text.split(/([.!?]+)/);
     const rebuilt: string[] = [];
@@ -692,10 +751,13 @@ export default function Workspace() {
       const sentence = (parts[i] ?? '') + (parts[i + 1] ?? '');
       if (!sentence) continue;
       const words = sentence.trim().split(/\s+/).filter(Boolean).length;
+      // Apply repeat + filler inline marks within the sentence
+      const markedHtml = markInlineSentence(sentence);
       if (words > 28) {
-        rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}" data-ws-key="${esc(makeKey(sentence))}">${esc(sentence)}</span>`);
+        // Long sentence: wrap everything in ws-long; inner marks remain visible
+        rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}" data-ws-key="${escHtml(makeKey(sentence))}">${markedHtml}</span>`);
       } else {
-        rebuilt.push(esc(sentence));
+        rebuilt.push(markedHtml);
       }
     }
 
@@ -1235,6 +1297,8 @@ export default function Workspace() {
         .ws-write-overlay{position:absolute;inset:0;padding:1rem;border-radius:1rem;white-space:pre-wrap;word-break:break-word;color:transparent;pointer-events:none;font:inherit;line-height:inherit;overflow:hidden}
         @media(min-width:768px){.ws-write-overlay{padding:1.25rem}}
         .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px}
+        .ws-write-overlay span.ws-repeat{color:transparent;text-decoration-line:underline;text-decoration-style:wavy;text-decoration-color:rgba(251,113,133,.8);text-decoration-thickness:2px;text-underline-offset:3px}
+        .ws-write-overlay span.ws-filler{color:transparent;text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:rgba(167,139,250,.7);text-decoration-thickness:2px;text-underline-offset:3px}
         .ws-tip{position:fixed;pointer-events:none;transform:translate(12px,12px);background:#111827;border:1px solid #374151;color:#e5e7eb;font-size:.75rem;line-height:1.4;border-radius:.5rem;padding:.375rem .625rem;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:260px;z-index:9999}
         ::selection{background:rgba(52,211,153,.25)}
         .ws-paper-surface::placeholder{color:#9D8E7D}
