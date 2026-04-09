@@ -138,12 +138,12 @@ type SupportChar = {
 };
 
 const BEAT_ACTIONS: BeatAction[] = [
-  { label: 'Continue',               hint: 'Advance the scene forward',        direction: 'advance_plot',     pacing: 'balanced', length: 'short', beat_type: 'continue' },
-  { label: 'Complicate It',          hint: 'Add friction or conflict',          direction: 'argument_begins',  pacing: 'fast',     length: 'short', beat_type: 'escalate' },
-  { label: 'Slow It Down',           hint: 'Interior moment — let it breathe',  direction: 'quiet_reflection', pacing: 'slow',     length: 'short', beat_type: 'slow' },
-  { label: 'Reveal Something',       hint: 'Shift what the reader knows',       direction: 'twist_event',      pacing: 'balanced', length: 'short', beat_type: 'reveal' },
-  { label: 'Turn the Conversation',  hint: 'Push the dialogue somewhere else',  direction: 'add_dialogue',     pacing: 'balanced', length: 'short', beat_type: 'shift' },
-  { label: 'End the Scene',          hint: 'Close this moment, open the next',  direction: 'quiet_reflection', pacing: 'slow',     length: 'short', beat_type: 'end', tone_intensity: 'moderate' },
+  { label: 'Continue',               hint: 'Advance the story forward',         direction: 'advance_plot',     pacing: 'balanced', length: 'short', beat_type: 'continue' },
+  { label: 'Complicate It',          hint: 'Introduce conflict or pressure',     direction: 'argument_begins',  pacing: 'fast',     length: 'short', beat_type: 'escalate' },
+  { label: 'Slow It Down',           hint: 'Interior moment, let it breathe',    direction: 'quiet_reflection', pacing: 'slow',     length: 'short', beat_type: 'slow' },
+  { label: 'Reveal Something',       hint: 'Expose hidden information',          direction: 'twist_event',      pacing: 'balanced', length: 'short', beat_type: 'reveal' },
+  { label: 'Turn the Conversation',  hint: 'Shift power or direction',           direction: 'add_dialogue',     pacing: 'balanced', length: 'short', beat_type: 'shift' },
+  { label: 'End the Scene',          hint: 'Close this moment cleanly',          direction: 'quiet_reflection', pacing: 'slow',     length: 'short', beat_type: 'end', tone_intensity: 'moderate' },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -969,32 +969,81 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
                 {chapters.length > 0 ? (
                   <>
-                    {/* Beat bar label */}
-                    <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">
-                      What happens next?
-                    </p>
+                    {/* Section label + generation status */}
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">
+                        What happens next?
+                      </p>
+                      {isGenerating && (
+                        <span className="flex items-center gap-1.5 text-[11px] text-gray-500 tracking-wide">
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500/60 animate-pulse" />
+                          Writing next beat&hellip;
+                        </span>
+                      )}
+                    </div>
 
-                    {/* Beat action grid — 2 cols on mobile, 3 on sm+ */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {BEAT_ACTIONS.map((action) => (
+                    {/* PRIMARY — Continue: full-width, dominant */}
+                    {BEAT_ACTIONS.filter((a) => a.beat_type === 'continue').map((action) => (
+                      <button
+                        key={action.label}
+                        type="button"
+                        onClick={() => handleBeatAction(action)}
+                        disabled={isGenerating}
+                        className="w-full group flex items-center justify-between px-4 py-3.5 rounded-xl border border-emerald-800/40 bg-emerald-950/20 hover:bg-emerald-950/35 hover:border-emerald-700/55 active:bg-emerald-950/45 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <div className="text-left">
+                          <span className="block text-[14px] font-semibold text-emerald-300 group-hover:text-emerald-200 transition leading-tight">
+                            {action.label}
+                          </span>
+                          <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">
+                            {action.hint}
+                          </span>
+                        </div>
+                        <span className="text-emerald-700/60 group-hover:text-emerald-500/80 transition text-lg leading-none select-none">›</span>
+                      </button>
+                    ))}
+
+                    {/* SECONDARY — Complicate It / Reveal Something / Turn the Conversation */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {BEAT_ACTIONS.filter((a) => ['escalate', 'reveal', 'shift'].includes(a.beat_type)).map((action) => (
                         <button
                           key={action.label}
                           type="button"
                           onClick={() => handleBeatAction(action)}
                           disabled={isGenerating}
-                          className="group flex flex-col gap-0.5 px-3 py-2.5 rounded-xl border border-gray-800/50 bg-gray-900/20 hover:border-emerald-700/40 hover:bg-emerald-950/20 active:bg-emerald-950/30 transition text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="group flex flex-col gap-0.5 px-3 py-2.5 rounded-xl border border-gray-800/50 bg-gray-900/15 hover:border-gray-700/60 hover:bg-gray-800/25 active:bg-gray-800/35 transition text-left disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          <span className="text-[13px] font-medium text-gray-300 group-hover:text-emerald-300 transition leading-tight">
+                          <span className="text-[12px] font-medium text-gray-300 group-hover:text-gray-100 transition leading-tight">
                             {action.label}
                           </span>
-                          <span className="text-[11px] text-gray-600 leading-snug">
+                          <span className="text-[10px] text-gray-600 leading-snug">
                             {action.hint}
                           </span>
                         </button>
                       ))}
                     </div>
 
-                    {/* Full chapter — secondary option */}
+                    {/* TERTIARY — Slow It Down / End the Scene: quieter, utility-like */}
+                    <div className="flex gap-2">
+                      {BEAT_ACTIONS.filter((a) => ['slow', 'end'].includes(a.beat_type)).map((action) => (
+                        <button
+                          key={action.label}
+                          type="button"
+                          onClick={() => handleBeatAction(action)}
+                          disabled={isGenerating}
+                          className="flex-1 group flex flex-col gap-0.5 px-3 py-2 rounded-lg border border-gray-800/30 hover:border-gray-700/45 hover:bg-gray-900/15 active:bg-gray-900/25 transition text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <span className="text-[11px] font-medium text-gray-500 group-hover:text-gray-400 transition leading-tight">
+                            {action.label}
+                          </span>
+                          <span className="text-[10px] text-gray-700 leading-snug">
+                            {action.hint}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Full chapter — ghost link */}
                     <div className="flex items-center justify-between pt-1">
                       <button
                         type="button"
