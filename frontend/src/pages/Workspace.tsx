@@ -19,11 +19,7 @@ const PAPER        = 'bg-gray-900/60 border border-gray-800/70 ring-1 ring-black
 const PAPER_LIGHT  = 'bg-[#F5F0E8] border border-[#A09382]/30 shadow-[0_4px_16px_rgba(0,0,0,0.06)]';
 const TOOLBTN      = 'h-9 px-3 text-sm rounded-lg bg-gray-900/30 border border-gray-800/70 text-gray-200 hover:bg-gray-800/40 hover:border-gray-700 transition';
 
-const MOCK_CHARACTERS = [
-  { id: 0, name: 'Yourself (OOC)' },
-  { id: 1, name: 'Arleth Vane' },
-  { id: 2, name: 'Seren Dusk' },
-];
+const OOC_OPTION = { id: 0, name: 'Yourself (OOC)' };
 
 async function copyToClipboard(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText) {
@@ -399,6 +395,7 @@ export default function Workspace() {
   const [publishSuccess, setPublishSuccess] = useState(false);
   const [publishDestination, setPublishDestination] = useState('');
   const [realms, setRealms] = useState<Realm[]>([]);
+  const [characters, setCharacters] = useState<{ id: number; name: string }[]>([]);
   const [selectedRealmId, setSelectedRealmId] = useState<number | null>(() => {
     const v = localStorage.getItem(REALM_KEY);
     if (!v) return null;
@@ -459,6 +456,23 @@ export default function Workspace() {
     apiClient.getRealms()
       .then((all) => setRealms(all.filter((r) => !r.is_commons)))
       .catch(() => { /* non-fatal: selector stays empty */ });
+  }, []);
+
+  // Load the user's real characters for the WriteSpace selector
+  useEffect(() => {
+    apiClient.getCharacters()
+      .then((chars) => {
+        setCharacters(chars.map((c) => ({ id: c.id, name: c.name })));
+        // If the persisted characterId no longer exists (e.g. deleted), reset to OOC
+        setCharacterId((prev) => {
+          if (prev === 0) return prev;
+          return chars.some((c) => c.id === prev) ? prev : 0;
+        });
+      })
+      .catch(() => {
+        // Graceful degradation: only OOC option shown
+        setCharacters([]);
+      });
   }, []);
 
   // Scroll to highlighted element whenever preview becomes active with a highlight
@@ -1010,7 +1024,7 @@ export default function Workspace() {
             onChange={(e) => setCharacterId(Number(e.target.value))}
             className="input text-sm"
           >
-            {MOCK_CHARACTERS.map((c) => (
+            {wsCharacters.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
@@ -1353,9 +1367,12 @@ export default function Workspace() {
     ? realms.find((r) => r.id === selectedRealmId)?.name
     : null;
 
+  // OOC entry + real user characters — used by all identity surfaces
+  const wsCharacters = [OOC_OPTION, ...characters];
+
   // null when OOC (characterId === 0), string when a character is active
   const selectedCharName = characterId !== 0
-    ? (MOCK_CHARACTERS.find((c) => c.id === characterId)?.name ?? null)
+    ? (wsCharacters.find((c) => c.id === characterId)?.name ?? null)
     : null;
 
   const hasText = body.trim().length > 0;
@@ -1504,7 +1521,7 @@ export default function Workspace() {
                 onChange={(e) => setCharacterId(Number(e.target.value))}
                 className="input text-sm"
               >
-                {MOCK_CHARACTERS.map((c) => (
+                {wsCharacters.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
