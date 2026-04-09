@@ -1514,7 +1514,12 @@ export default function Workspace() {
           {/* Selectors: desktop only — drawer carries them on mobile */}
           <div className="hidden lg:flex items-center gap-3">
             {/* Character / role selector */}
-            <div className="flex items-center gap-1.5">
+            <div className={`flex items-center gap-1.5 rounded-lg px-2 py-1 transition-colors ${
+              selectedCharName ? 'bg-emerald-950/25 border border-emerald-800/30' : ''
+            }`}>
+              {selectedCharName && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 shrink-0" />
+              )}
               <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider select-none">As</span>
               <select
                 value={characterId}
@@ -1638,8 +1643,11 @@ export default function Workspace() {
               <div className="flex flex-wrap items-center gap-2">
                 {selectedCharName && (
                   <>
-                    <span className="text-gray-400 font-medium">{selectedCharName}</span>
-                    <span className="text-emerald-600/70 text-[10px] font-semibold uppercase tracking-wider">IC</span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60 shrink-0" />
+                      <span className="text-gray-300 font-medium">{selectedCharName}</span>
+                    </span>
+                    <span className="text-emerald-500/70 text-[10px] font-semibold uppercase tracking-wider">IC</span>
                     <span>·</span>
                   </>
                 )}
@@ -1709,11 +1717,20 @@ export default function Workspace() {
           </p>
 
           {!hasText && mode === 'write' && (
-            <p className="text-gray-500 text-sm text-center mt-8">
-              {selectedCharName
-                ? `Writing as ${selectedCharName} — start your scene.`
-                : 'Start writing — tools will appear automatically.'}
-            </p>
+            selectedCharName ? (
+              <div className="flex flex-col items-center gap-2 mt-8 text-center">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/30 border border-emerald-800/30 text-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 shrink-0" />
+                  <span className="text-emerald-300/80 font-medium">{selectedCharName}</span>
+                  <span className="text-emerald-600/60 text-[10px] font-semibold uppercase tracking-wider">IC</span>
+                </div>
+                <p className="text-gray-600 text-xs">Start your scene — in character.</p>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm text-center mt-8">
+                Start writing — tools will appear automatically.
+              </p>
+            )
           )}
 
           {mode === 'review' && (
