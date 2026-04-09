@@ -181,13 +181,13 @@ export default function Home() {
 
   const getPostTypeBadge = (contentType: string) => {
     const badges = {
-      ic: { label: 'IC', className: 'bg-emerald-600 text-white' },
-      ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
-      narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' }
+      ic:        { label: 'IC',        className: 'text-emerald-400/80 border-emerald-800/60 bg-emerald-950/30' },
+      ooc:       { label: 'OOC',       className: 'text-blue-400/70   border-blue-800/50    bg-blue-950/20'    },
+      narration: { label: 'NARRATION', className: 'text-amber-400/70  border-amber-800/50   bg-amber-950/20'   },
     };
     const badge = badges[contentType as keyof typeof badges] || badges.ic;
     return (
-      <span className={`px-2 py-1 text-xs font-semibold rounded ${badge.className}`}>
+      <span className={`px-1.5 py-0.5 text-[10px] font-semibold tracking-wider uppercase rounded border select-none ${badge.className}`}>
         {badge.label}
       </span>
     );
@@ -196,13 +196,13 @@ export default function Home() {
   const getPostKindBadge = (postKind?: string) => {
     if (!postKind || postKind === 'general') return null;
     const kinds: Record<string, { label: string; className: string }> = {
-      open_starter: { label: 'Open Starter', className: 'bg-teal-700 text-white' },
-      finished_piece: { label: 'Finished Piece', className: 'bg-rose-700 text-white' },
+      open_starter:   { label: 'Open Starter',   className: 'text-teal-400/80 border-teal-800/50 bg-teal-950/20' },
+      finished_piece: { label: 'Finished Piece', className: 'text-rose-400/70 border-rose-800/50 bg-rose-950/20' },
     };
     const kind = kinds[postKind];
     if (!kind) return null;
     return (
-      <span className={`px-2 py-1 text-xs font-semibold rounded ${kind.className}`}>
+      <span className={`px-1.5 py-0.5 text-[10px] font-semibold tracking-wider uppercase rounded border select-none ${kind.className}`}>
         {kind.label}
       </span>
     );
@@ -484,47 +484,65 @@ export default function Home() {
             const profileHref = post.author_username ? `/u/${encodeURIComponent(post.author_username)}` : '#';
 
             return (
-              <div key={post.id} className="card">
-                {/* Post header: character-first identity */}
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2 flex-wrap min-w-0">
-                    {/* Author identity — character takes priority, username is fallback */}
+              <div key={post.id} className="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 hover:border-gray-700 hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all group">
+                {/* Post header: two-level identity — character row + attribution row */}
+                <div className="flex items-start justify-between mb-3 gap-2">
+                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                    {/* Avatar — 32px, rounded-lg */}
                     {post.character_name ? (
-                      <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 flex-shrink-0">
+                      <Link to={profileHref} className="flex-shrink-0 mt-0.5">
                         {post.character_avatar_url ? (
                           <img
                             src={post.character_avatar_url}
                             alt={post.character_name}
-                            className="w-7 h-7 rounded-md object-cover border border-gray-700 group-hover:border-emerald-500/50 transition-colors"
+                            className="w-8 h-8 rounded-lg object-cover border border-gray-700 group-hover:border-emerald-500/40 transition-colors"
                           />
                         ) : (
-                          <div className="w-7 h-7 rounded-md bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[11px] font-semibold text-emerald-400 flex-shrink-0">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-600/15 border border-emerald-500/20 flex items-center justify-center text-sm font-bold text-emerald-400 flex-shrink-0">
                             {post.character_name.charAt(0)}
                           </div>
                         )}
-                        <span className="text-sm font-medium text-emerald-400 group-hover:text-emerald-300 transition-colors">
-                          {post.character_name}
-                        </span>
                       </Link>
                     ) : post.author_username ? (
-                      <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 flex-shrink-0">
-                        <div className="w-7 h-7 rounded-md bg-gray-700 border border-gray-600 flex items-center justify-center text-[11px] font-medium text-gray-400 flex-shrink-0">
+                      <Link to={profileHref} className="flex-shrink-0 mt-0.5">
+                        <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-medium text-gray-400">
                           {post.author_username.charAt(0).toUpperCase()}
                         </div>
-                        <span className="text-sm text-gray-400 group-hover:text-emerald-300 transition-colors">
-                          @{post.author_username}
-                        </span>
                       </Link>
                     ) : null}
-                    {getPostTypeBadge(post.content_type)}
-                    {getPostKindBadge(post.post_kind)}
-                    <span className="text-xs text-gray-500">
-                      in <span className={isCommons ? 'text-emerald-400 font-semibold' : 'text-emerald-300'}>{realmName}</span>
-                    </span>
+
+                    {/* Identity text: name + badges on first line, attribution on second */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {post.character_name ? (
+                          <Link to={profileHref} className="text-sm font-semibold text-gray-100 hover:text-emerald-300 transition-colors leading-tight">
+                            {post.character_name}
+                          </Link>
+                        ) : post.author_username ? (
+                          <Link to={profileHref} className="text-sm font-medium text-gray-300 hover:text-emerald-300 transition-colors">
+                            @{post.author_username}
+                          </Link>
+                        ) : null}
+                        {getPostTypeBadge(post.content_type)}
+                        {getPostKindBadge(post.post_kind)}
+                      </div>
+                      <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                        {post.character_name && post.author_username && (
+                          <span className="text-[11px] text-gray-600">by @{post.author_username}</span>
+                        )}
+                        {post.character_name && post.author_username && (
+                          <span className="text-gray-700 text-[11px]">·</span>
+                        )}
+                        <span className="text-[11px] text-gray-600">
+                          in <span className={isCommons ? 'text-gray-500' : 'text-emerald-600/80'}>{realmName}</span>
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-gray-500">
-                      {new Date(post.created_at).toLocaleDateString()}
+
+                  <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+                    <span className="text-[11px] text-gray-600">
+                      {new Date(post.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                     </span>
                     {(post.author_user_id === user?.id || user?.is_admin) && (
                       <PostMenu postId={post.id} onDeleted={(id) => setPosts(prev => prev.filter(p => p.id !== id))} />
@@ -534,9 +552,9 @@ export default function Home() {
 
                 {/* Post content */}
                 {post.title && (
-                  <h3 className="text-xl font-semibold mb-2">{post.title}</h3>
+                  <h3 className="text-xl font-semibold mb-2 text-gray-100">{post.title}</h3>
                 )}
-                <p className="text-gray-300 whitespace-pre-wrap leading-relaxed mt-1">{post.content}</p>
+                <p className="text-gray-200 whitespace-pre-wrap leading-[1.75] mt-1">{post.content}</p>
 
                 {post.image_url && (
                   <img
@@ -549,25 +567,25 @@ export default function Home() {
                 )}
 
                 {post.post_kind === 'open_starter' && (
-                  <div className="mt-3 p-3 bg-teal-900/30 border border-teal-800 rounded-lg">
-                    <p className="text-xs text-teal-300 mb-2">
-                      Open Starter — use comments for OOC. Roleplay continues in a Scene.
+                  <div className="mt-3 px-3 py-2.5 bg-teal-950/20 border border-teal-800/40 rounded-lg flex items-center justify-between gap-3 flex-wrap">
+                    <p className="text-[11px] text-teal-400/70">
+                      Open to collaboration — comment OOC or request to continue in a Scene.
                     </p>
                     <button
                       onClick={() => requestToJoin(post.id)}
                       disabled={joinLoading[post.id] || joinSent[post.id]}
-                      className={`text-xs px-3 py-1 rounded ${
+                      className={`text-[11px] px-3 py-1 rounded-md border transition-colors flex-shrink-0 ${
                         joinSent[post.id]
-                          ? 'bg-green-700 text-green-200 cursor-default'
+                          ? 'border-emerald-800/50 text-emerald-400/70 bg-emerald-950/20 cursor-default'
                           : joinLoading[post.id]
-                            ? 'bg-gray-700 text-gray-400 cursor-wait'
-                            : 'bg-teal-700 text-white hover:bg-teal-600 transition-colors'
+                            ? 'border-gray-700 text-gray-500 cursor-wait'
+                            : 'border-teal-800/60 text-teal-400/80 bg-teal-950/30 hover:bg-teal-900/40 hover:border-teal-700/60'
                       }`}
                     >
-                      {joinLoading[post.id] ? 'Sending\u2026' : joinSent[post.id] ? 'Request Sent' : 'Request to Join'}
+                      {joinLoading[post.id] ? 'Sending\u2026' : joinSent[post.id] ? 'Request sent' : 'Request to join'}
                     </button>
                     {joinError[post.id] && (
-                      <p className="text-red-400 text-xs mt-1">{joinError[post.id]}</p>
+                      <p className="text-red-400 text-xs w-full mt-0.5">{joinError[post.id]}</p>
                     )}
                   </div>
                 )}
