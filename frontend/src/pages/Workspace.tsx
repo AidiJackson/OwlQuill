@@ -20,7 +20,7 @@ const PAPER_LIGHT  = 'bg-[#F5F0E8] border border-[#A09382]/30 shadow-[0_4px_16px
 const TOOLBTN      = 'h-9 px-3 text-sm rounded-lg bg-gray-900/30 border border-gray-800/70 text-gray-200 hover:bg-gray-800/40 hover:border-gray-700 transition';
 
 const MOCK_CHARACTERS = [
-  { id: 0, name: 'No character' },
+  { id: 0, name: 'Yourself (OOC)' },
   { id: 1, name: 'Arleth Vane' },
   { id: 2, name: 'Seren Dusk' },
 ];
@@ -1213,12 +1213,10 @@ export default function Workspace() {
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider">As</span>
                 <span className="text-xs text-right">
-                  {characterId !== 0 ? (
+                  {selectedCharName ? (
                     <>
-                      <span className="text-gray-300">
-                        {MOCK_CHARACTERS.find((c) => c.id === characterId)?.name ?? 'Character'}
-                      </span>
-                      <span className="text-gray-600"> · IC</span>
+                      <span className="text-gray-300">{selectedCharName}</span>
+                      <span className="text-emerald-600/70 font-semibold"> · IC</span>
                     </>
                   ) : (
                     <span className="text-gray-500">You · OOC</span>
@@ -1353,6 +1351,11 @@ export default function Workspace() {
 
   const selectedRealmName = selectedRealmId !== null
     ? realms.find((r) => r.id === selectedRealmId)?.name
+    : null;
+
+  // null when OOC (characterId === 0), string when a character is active
+  const selectedCharName = characterId !== 0
+    ? (MOCK_CHARACTERS.find((c) => c.id === characterId)?.name ?? null)
     : null;
 
   const hasText = body.trim().length > 0;
@@ -1493,17 +1496,28 @@ export default function Workspace() {
           />
           {/* Selectors: desktop only — drawer carries them on mobile */}
           <div className="hidden lg:flex items-center gap-3">
-            <select
-              value={characterId}
-              onChange={(e) => setCharacterId(Number(e.target.value))}
-              className="input text-sm"
-            >
-              {MOCK_CHARACTERS.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            {/* Character / role selector */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider select-none">As</span>
+              <select
+                value={characterId}
+                onChange={(e) => setCharacterId(Number(e.target.value))}
+                className="input text-sm"
+              >
+                {MOCK_CHARACTERS.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border select-none transition-colors ${
+                selectedCharName
+                  ? 'text-emerald-400/80 border-emerald-800/50 bg-emerald-950/20'
+                  : 'text-gray-600 border-gray-800/60 bg-transparent'
+              }`}>
+                {selectedCharName ? 'IC' : 'OOC'}
+              </span>
+            </div>
             <select
               value={selectedRealmId ?? ''}
               onChange={(e) =>
@@ -1605,6 +1619,13 @@ export default function Workspace() {
           {mode === 'write' && (
             <div className={`flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 flex-shrink-0 ${hasText ? 'opacity-100 transition-opacity duration-200' : 'opacity-0 pointer-events-none h-0 overflow-hidden'}`}>
               <div className="flex flex-wrap items-center gap-2">
+                {selectedCharName && (
+                  <>
+                    <span className="text-gray-400 font-medium">{selectedCharName}</span>
+                    <span className="text-emerald-600/70 text-[10px] font-semibold uppercase tracking-wider">IC</span>
+                    <span>·</span>
+                  </>
+                )}
                 <span>{review.words} words</span>
                 <span>·</span>
                 <span>{review.sentences} sentences</span>
@@ -1672,7 +1693,9 @@ export default function Workspace() {
 
           {!hasText && mode === 'write' && (
             <p className="text-gray-500 text-sm text-center mt-8">
-              Start writing — tools will appear automatically.
+              {selectedCharName
+                ? `Writing as ${selectedCharName} — start your scene.`
+                : 'Start writing — tools will appear automatically.'}
             </p>
           )}
 
@@ -1770,7 +1793,7 @@ export default function Workspace() {
                 ref={textareaRef}
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                placeholder="Start writing..."
+                placeholder={selectedCharName ? `${selectedCharName}\u2019s scene\u2026` : 'Start writing\u2026'}
                 spellCheck={true}
                 autoCorrect="on"
                 autoCapitalize="sentences"
