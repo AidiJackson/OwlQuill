@@ -396,6 +396,8 @@ export default function Workspace() {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
+  const [publishSuccess, setPublishSuccess] = useState(false);
+  const [publishDestination, setPublishDestination] = useState('');
   const [realms, setRealms] = useState<Realm[]>([]);
   const [selectedRealmId, setSelectedRealmId] = useState<number | null>(() => {
     const v = localStorage.getItem(REALM_KEY);
@@ -514,13 +516,25 @@ export default function Workspace() {
       setBody('');
       localStorage.removeItem(TITLE_KEY);
       localStorage.removeItem(BODY_KEY);
-      navigate(destination);
+      setPublishDestination(destination);
+      setPublishSuccess(true);
     } catch {
       setPublishError('Post failed. Try again.');
     } finally {
       setPublishing(false);
     }
   };
+
+  function downloadDraft() {
+    if (!body.trim()) return;
+    const blob = new Blob([body], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = (title.trim() || 'draft') + '.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   // Wrap selection with before/after markers (Bold, Italic)
   function insertAroundSelection(before: string, after = before) {
@@ -1157,41 +1171,108 @@ export default function Workspace() {
       <>
       {drawerSelectors}
       <div className="space-y-3">
-        {/* Publish context */}
-        <div className="text-xs text-gray-500 space-y-1 border-b border-gray-800 pb-3">
-          <div>
-            <span>Posting to: </span>
-            <span className="text-gray-300">
-              {selectedRealmName ?? 'Commons'}
-            </span>
-          </div>
-          <div>
-            <span>Posting as: </span>
-            <span className="text-gray-300">
-              {characterId !== 0
-                ? MOCK_CHARACTERS.find((c) => c.id === characterId)?.name
-                : 'No character selected'}
-            </span>
-          </div>
-        </div>
 
-        <button
-          onClick={handlePublishToCommons}
-          disabled={publishing || !body.trim()}
-          className="w-full py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {publishing
-            ? 'Publishing\u2026'
-            : selectedRealmId === null
-              ? 'Publish to Commons'
-              : 'Publish to Realm'}
-        </button>
-        {publishError && (
-          <p className="text-xs text-red-400">{publishError}</p>
+        {publishSuccess ? (
+          /* ── Post success panel ─────────────────────────────────── */
+          <div className="rounded-xl border border-emerald-800/50 bg-emerald-950/20 p-4 space-y-3">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-emerald-300">Published</p>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Your post is live on{' '}
+                <span className="text-gray-300">
+                  {publishDestination === '/' ? 'Commons' : selectedRealmName ?? 'the realm'}
+                </span>.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => navigate(publishDestination)}
+                className="w-full py-2 px-3 rounded-lg bg-emerald-700/80 hover:bg-emerald-600 active:bg-emerald-700 text-white text-xs font-semibold transition"
+              >
+                View post
+              </button>
+              <button
+                type="button"
+                onClick={() => setPublishSuccess(false)}
+                className="w-full py-1.5 px-3 rounded-lg text-gray-500 hover:text-gray-300 text-xs transition"
+              >
+                Write another
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ── Publish controls ───────────────────────────────────── */
+          <>
+            {/* Identity summary */}
+            <div className="rounded-lg bg-gray-900/40 border border-gray-800/60 px-3 py-2.5 space-y-1.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider">To</span>
+                <span className="text-xs text-gray-300 text-right">{selectedRealmName ?? 'Commons'}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider">As</span>
+                <span className="text-xs text-right">
+                  {characterId !== 0 ? (
+                    <>
+                      <span className="text-gray-300">
+                        {MOCK_CHARACTERS.find((c) => c.id === characterId)?.name ?? 'Character'}
+                      </span>
+                      <span className="text-gray-600"> · IC</span>
+                    </>
+                  ) : (
+                    <span className="text-gray-500">You · OOC</span>
+                  )}
+                </span>
+              </div>
+              {hasText && (
+                <div className="flex items-baseline justify-between gap-2 pt-0.5 border-t border-gray-800/50">
+                  <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider">Words</span>
+                  <span className="text-[11px] text-gray-500">
+                    {body.trim().split(/\s+/).filter(Boolean).length}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Publish button */}
+            <button
+              type="button"
+              onClick={handlePublishToCommons}
+              disabled={publishing || !body.trim()}
+              className="w-full py-2.5 px-4 rounded-xl bg-emerald-700/90 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {publishing
+                ? 'Publishing\u2026'
+                : selectedRealmId === null
+                  ? 'Publish to Commons'
+                  : `Publish to ${selectedRealmName ?? 'Realm'}`}
+            </button>
+
+            {/* Error state */}
+            {publishError && (
+              <div className="flex items-start gap-2 rounded-lg border border-red-800/40 bg-red-950/20 px-3 py-2">
+                <p className="text-xs text-red-400 flex-1 leading-relaxed">{publishError}</p>
+                <button
+                  type="button"
+                  onClick={handlePublishToCommons}
+                  className="shrink-0 text-[11px] text-red-500 hover:text-red-300 transition font-medium"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={downloadDraft}
+              disabled={!body.trim()}
+              className="btn btn-secondary w-full disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Download text
+            </button>
+          </>
         )}
-        <button className="btn btn-secondary w-full">
-          Download text
-        </button>
 
         <div className="border-t border-gray-800 pt-3 space-y-2">
           <button
