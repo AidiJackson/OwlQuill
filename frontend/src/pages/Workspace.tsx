@@ -240,7 +240,7 @@ function detectFillerPhrases(
  * baseOffset — character position of `raw` within the full body string (used for quick-fix offsets).
  */
 function markInlineSentence(raw: string, baseOffset = 0): string {
-  type Mark = { start: number; end: number; cls: string };
+  type Mark = { start: number; end: number; cls: string; count?: number };
   const marks: Mark[] = [];
   let m: RegExpExecArray | null;
 
@@ -263,6 +263,20 @@ function markInlineSentence(raw: string, baseOffset = 0): string {
     const re = new RegExp(`\\b${word}\\b`, 'gi');
     while ((m = re.exec(raw)) !== null) {
       marks.push({ start: m.index, end: m.index + m[0].length, cls: 'ws-filler' });
+    }
+  }
+
+  // High-frequency word overuse: same significant word appears 3+ times in sentence
+  {
+    const tokens = raw.toLowerCase().match(/\b[a-z]{4,}\b/g) ?? [];
+    const freq: Record<string, number> = {};
+    for (const w of tokens) { if (!STOP_WORDS.has(w)) freq[w] = (freq[w] ?? 0) + 1; }
+    for (const [word, count] of Object.entries(freq)) {
+      if (count < 3) continue;
+      const wordRe = new RegExp(`\\b${word}\\b`, 'gi');
+      while ((m = wordRe.exec(raw)) !== null) {
+        marks.push({ start: m.index, end: m.index + m[0].length, cls: 'ws-overuse', count });
+      }
     }
   }
 
@@ -291,6 +305,10 @@ function markInlineSentence(raw: string, baseOffset = 0): string {
       label   = 'Duplicate word';
       hint    = 'This word appears twice in a row — likely a typo. Click to fix.';
       fixType = 'remove-dup';
+    } else if (mark.cls === 'ws-overuse') {
+      label   = 'Word overuse';
+      hint    = `"${matchedText}" appears ${mark.count ?? 'several'} times in this sentence — consider varying your word choice.`;
+      fixType = null; // explanation only; no safe auto-removal
     } else {
       // ws-filler: single words are safely removable; multi-word phrases are not
       const isSingleWord = FILLER_SINGLE.some(
@@ -402,6 +420,7 @@ export default function Workspace() {
   const [ignoredKeys, setIgnoredKeys] = useState<Set<string>>(new Set<string>());
   const grammarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const grammarAbortRef = useRef<AbortController | null>(null);
+  const pendingCaretRef = useRef<number | null>(null);
 
 
   // Debounced autosave — persists draft content + UI context
@@ -687,11 +706,13 @@ export default function Workspace() {
     if (offset < 0 || length <= 0 || offset + length > body.length) return;
     const matchText = body.slice(offset, offset + length);
     let newBody: string;
+    let caretPos: number;
 
     if (fixType === 'remove-dup') {
       // "the the" → "the"  (keep first copy, preserve original casing)
       const firstWord = matchText.match(/^(\S+)/)?.[1] ?? matchText;
-      newBody = body.slice(0, offset) + firstWord + body.slice(offset + length);
+      newBody   = body.slice(0, offset) + firstWord + body.slice(offset + length);
+      caretPos  = offset + firstWord.length;
     } else if (fixType === 'remove-word') {
       // "very" → ""  — absorb one adjacent space to avoid double-spacing
       let start = offset;
@@ -701,14 +722,22 @@ export default function Workspace() {
       } else if (end < body.length && body[end] === ' ') {
         end++;   // remove the space after the word
       }
-      newBody = body.slice(0, start) + body.slice(end);
+      newBody  = body.slice(0, start) + body.slice(end);
+      caretPos = start;
     } else {
       return; // unknown type — do nothing
     }
 
     setBody(newBody);
-    // Restore textarea focus after React re-renders
-    setTimeout(() => textareaRef.current?.focus(), 0);
+    // Restore caret near the edit location after React re-renders
+    pendingCaretRef.current = caretPos;
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el || pendingCaretRef.current === null) return;
+      el.focus();
+      el.setSelectionRange(pendingCaretRef.current, pendingCaretRef.current);
+      pendingCaretRef.current = null;
+    });
   }
 
   function ignoreGrammarMatch(m: GrammarMatch) {
@@ -820,8 +849,8 @@ export default function Workspace() {
       const markedHtml = markInlineSentence(sentence, bodyPos);
       if (words > 28) {
         // Long sentence: wrap everything in ws-long; inner marks remain visible
-        const longHint = `${words}-word sentence — long sentences can be hard to follow. Click to go to Review.`;
-        rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}" data-ws-key="${escHtml(makeKey(sentence))}" data-ws-label="Long sentence" data-ws-hint="${escHtml(longHint)}">${markedHtml}</span>`);
+        const longHint = `${words}-word sentence — click to split in place.`;
+        rebuilt.push(`<span class="ws-long" data-ws-long="1" data-ws-words="${words}" data-ws-key="${escHtml(makeKey(sentence))}" data-ws-sentence="${escHtml(sentence)}" data-ws-label="Long sentence" data-ws-hint="${escHtml(longHint)}">${markedHtml}</span>`);
       } else {
         rebuilt.push(markedHtml);
       }
@@ -1366,6 +1395,7 @@ export default function Workspace() {
         .ws-write-overlay span.ws-long{color:transparent;text-decoration:underline;text-decoration-color:rgba(251,191,36,.45);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:pointer}
         .ws-write-overlay span.ws-repeat{color:transparent;text-decoration-line:underline;text-decoration-style:wavy;text-decoration-color:rgba(251,113,133,.8);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:pointer}
         .ws-write-overlay span.ws-filler{color:transparent;text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:rgba(167,139,250,.7);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:pointer}
+        .ws-write-overlay span.ws-overuse{color:transparent;text-decoration-line:underline;text-decoration-style:dashed;text-decoration-color:rgba(251,146,60,.7);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:default}
         .ws-tip{position:fixed;pointer-events:none;transform:translate(12px,12px);background:#111827;border:1px solid #374151;color:#e5e7eb;font-size:.75rem;line-height:1.4;border-radius:.5rem;padding:.375rem .625rem;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:260px;z-index:9999}
         ::selection{background:rgba(52,211,153,.25)}
         .ws-paper-surface::placeholder{color:#9D8E7D}
@@ -1613,9 +1643,19 @@ export default function Workspace() {
                 setWsTip((s) => ({ ...s, show: false }));
                 const target = e.target as HTMLElement;
 
-                // Long sentence → jump to Review (existing behaviour)
+                // Long sentence → try inline split first; fall back to Review
                 const longEl = target.closest?.('[data-ws-long="1"]') as HTMLElement | null;
                 if (longEl) {
+                  const rawSentence = longEl.getAttribute('data-ws-sentence') ?? '';
+                  if (rawSentence) {
+                    const newBody = splitLongSentence(body, rawSentence);
+                    if (newBody !== body) {
+                      setBody(newBody);
+                      requestAnimationFrame(() => textareaRef.current?.focus());
+                      return;
+                    }
+                  }
+                  // Fallback: no good split point found → go to Review
                   const key = longEl.getAttribute('data-ws-key') ?? '';
                   const match = review.suggestions.find(
                     (s) => s.kind === 'sentence' && s.matchKey && s.matchKey === key
