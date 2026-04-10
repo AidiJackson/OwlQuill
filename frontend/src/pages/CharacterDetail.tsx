@@ -202,19 +202,41 @@ export default function CharacterDetail() {
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
         {/* Arrival banner */}
         {justCreated && (
-          <div className="flex items-center justify-between gap-3 bg-emerald-600/10 border border-emerald-600/20 rounded-lg px-4 py-3">
-            <div className="flex items-center gap-2">
-              <Feather className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-              <span className="text-sm text-emerald-300">
-                Your character now lives on Ficshon.
-              </span>
+          <div className="bg-emerald-600/10 border border-emerald-600/20 rounded-lg px-4 py-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Feather className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-emerald-300">
+                    {character.name} is live on Ficshon.
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Write your first post to introduce them to the community.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={dismissBanner}
+                className="text-gray-600 hover:text-gray-400 transition-colors flex-shrink-0 mt-0.5"
+                aria-label="Dismiss"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <button
-              onClick={dismissBanner}
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
-            >
-              Dismiss
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate('/')}
+                className="btn btn-primary text-sm"
+              >
+                Post to The Commons
+              </button>
+              <button
+                onClick={() => navigate('/storylab')}
+                className="btn btn-secondary text-sm"
+              >
+                Open StoryLab
+              </button>
+            </div>
           </div>
         )}
 

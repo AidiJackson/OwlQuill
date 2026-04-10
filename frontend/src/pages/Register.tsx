@@ -17,7 +17,9 @@ export default function Register() {
 
     try {
       await register(email, username, password, inviteCode.trim().toUpperCase());
-      navigate('/');
+      // New users go straight to character creation — skips the cold empty feed
+      // and gets them to Ficshon's magic moment (character identity) immediately.
+      navigate('/characters/new');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
     }

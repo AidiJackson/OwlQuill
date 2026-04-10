@@ -218,7 +218,7 @@ export default function Home() {
 
   return (
     <div className="max-w-4xl mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-8">Home Feed</h1>
+      <h1 className="text-3xl font-bold mb-8">The Commons</h1>
 
       {/* First-time user banner — hidden once dismissed or once a character exists */}
       {isFirstTimeUser && !bannerDismissed && (
@@ -226,7 +226,7 @@ export default function Home() {
           <div className="space-y-1">
             <p className="text-sm font-semibold text-emerald-300">Welcome to Ficshon</p>
             <p className="text-sm text-gray-400">
-              Create your first character to unlock identity-locked scenes and posting.
+              Create your character to start writing, posting, and roleplaying in the world.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -249,11 +249,11 @@ export default function Home() {
 
       {/* "Get started" nudge — has a character but no own posts yet in the feed */}
       {showGetStartedCard && (
-        <div className="border border-gray-800 rounded-lg bg-gray-900/50 px-4 py-4 mb-6 space-y-3">
+        <div className="border border-emerald-800/40 rounded-lg bg-emerald-950/20 px-4 py-4 mb-6 space-y-3">
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-gray-200">Get started</p>
+            <p className="text-sm font-semibold text-emerald-300">Your character is ready — say hello</p>
             <p className="text-sm text-gray-400">
-              Introduce your character and start your first story.
+              Post as <span className="text-gray-200 font-medium">{characters[0]?.name ?? 'your character'}</span> to introduce yourself to the community. This is how people find you.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -261,10 +261,10 @@ export default function Home() {
               Write first post
             </button>
             <button
-              onClick={() => navigate(`/characters/${characters[0].id}`)}
+              onClick={() => navigate('/storylab')}
               className="btn btn-secondary text-sm"
             >
-              Go to your character
+              Try StoryLab
             </button>
           </div>
         </div>
@@ -273,8 +273,11 @@ export default function Home() {
       {/* Quick Post composer for The Commons */}
       {commonsRealm ? (
         <div className="card mb-6">
-          <h3 className="text-lg font-semibold mb-3">
-            Post in <span className="text-emerald-400">The Commons</span>
+          <h3 className="text-base font-semibold mb-3 text-gray-300">
+            {characters.length > 0
+              ? <>Writing as <span className="text-emerald-400">{composerCharId ? (characters.find(c => c.id === composerCharId)?.name ?? characters[0].name) : characters[0].name}</span></>
+              : <>Post in <span className="text-emerald-400">The Commons</span></>
+            }
           </h3>
           {showWorkspacePasteHint && (
             <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
@@ -461,17 +464,21 @@ export default function Home() {
             The Commons is your shared space for OOC intros, plotting sessions, writing prompts, and getting to know fellow writers.
           </p>
           <p className="text-sm text-gray-500 mb-6 max-w-lg mx-auto">
-            No need to join a realm first — just start posting!
+            No need to join a realm first — just start posting.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             <button onClick={focusComposer} className="btn btn-primary">
-              Post in The Commons
+              {characters.length > 0
+                ? `Post as ${characters[0].name}`
+                : 'Post in The Commons'}
             </button>
+            {characters.length === 0 && (
+              <button onClick={() => navigate('/characters/new')} className="btn btn-secondary">
+                Create Character
+              </button>
+            )}
             <button onClick={() => navigate('/realms')} className="btn btn-secondary">
               Browse Realms
-            </button>
-            <button onClick={() => navigate('/characters')} className="btn btn-secondary text-sm opacity-80">
-              Create Character
             </button>
           </div>
         </div>
