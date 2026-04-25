@@ -41,6 +41,7 @@ def ensure_admin_user() -> None:
                 username=admin_username,
                 hashed_password=get_password_hash(admin_password),
                 display_name=admin_username,
+                is_admin=True,
             )
             db.add(admin)
             db.commit()
@@ -48,9 +49,13 @@ def ensure_admin_user() -> None:
         elif force_reset:
             # Update password if force reset enabled
             existing.hashed_password = get_password_hash(admin_password)
+            existing.is_admin = True
             db.commit()
             logger.info(f"Admin password reset: {admin_email}")
         else:
+            if not existing.is_admin:
+                existing.is_admin = True
+                db.commit()
             logger.info(f"Admin ensured: {admin_email}")
     except Exception as e:
         db.rollback()

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.report import Report, ReportStatusEnum, ReportTargetTypeEnum
@@ -18,7 +19,8 @@ router = APIRouter()
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     """Dependency that ensures the caller is an admin. Returns the user if so."""
-    if not bool(current_user.is_admin):
+    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    if not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "forbidden", "detail": "Admin access required."},
