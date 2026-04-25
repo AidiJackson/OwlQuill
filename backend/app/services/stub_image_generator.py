@@ -2,14 +2,11 @@
 
 Produces solid-colour images with text overlays. No external AI services.
 """
-import os
-import uuid
-from pathlib import Path
+import io
 
 from PIL import Image, ImageDraw, ImageFont
 
-# Base directory for generated images (relative to backend root)
-_GENERATED_DIR = Path(__file__).resolve().parent.parent.parent / "static" / "generated"
+from app.core.storage import save_image
 
 # Colour palette per pack role
 _ROLE_COLOURS: dict[str, tuple[int, int, int]] = {
@@ -20,11 +17,6 @@ _ROLE_COLOURS: dict[str, tuple[int, int, int]] = {
 }
 
 
-def _ensure_dir() -> Path:
-    _GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    return _GENERATED_DIR
-
-
 def generate_placeholder_png(
     *,
     label: str,
@@ -33,20 +25,11 @@ def generate_placeholder_png(
     width: int = 512,
     height: int = 768,
 ) -> str:
-    """Create a placeholder PNG and return its relative file path.
-
-    The returned path is relative to the backend root, e.g.
-    ``static/generated/<uuid>.png``.
-    """
-    out_dir = _ensure_dir()
-    filename = f"{uuid.uuid4().hex}.png"
-    filepath = out_dir / filename
-
+    """Create a placeholder PNG and return a storable file_path string."""
     bg = _ROLE_COLOURS.get(role, (80, 80, 80))
     img = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(img)
 
-    # Use default font (always available)
     try:
         font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
         font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
@@ -54,7 +37,6 @@ def generate_placeholder_png(
         font_large = ImageFont.load_default()
         font_small = font_large
 
-    # Centre the label text
     text_colour = (255, 255, 255)
     bbox = draw.textbbox((0, 0), label, font=font_large)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -65,8 +47,8 @@ def generate_placeholder_png(
         tw2 = bbox2[2] - bbox2[0]
         draw.text(((width - tw2) / 2, (height + th) / 2 + 10), sublabel, fill=(200, 200, 200), font=font_small)
 
-    # Decorative border
     draw.rectangle([10, 10, width - 11, height - 11], outline=(255, 255, 255, 128), width=2)
 
-    img.save(filepath, "PNG")
-    return f"static/generated/{filename}"
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return save_image(buf.getvalue())

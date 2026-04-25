@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.storage import save_image
 from app.models.user import User
 from app.models.character import Character as CharacterModel
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
@@ -50,11 +51,6 @@ class SceneImageGenerateRequest(BaseModel):
         return normed if normed in _VALID_STYLES else "realistic"
 
 
-def _save_png_bytes(png_bytes: bytes) -> str:
-    _GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{uuid.uuid4().hex}.png"
-    (_GENERATED_DIR / filename).write_bytes(png_bytes)
-    return f"static/generated/{filename}"
 
 
 def _is_moderation_block(exc: BaseException) -> bool:
@@ -225,7 +221,7 @@ def generate_scene_image(
 
     # Tier D: stub placeholder
     if png_bytes is not None:
-        file_path = _save_png_bytes(png_bytes)
+        file_path = save_image(png_bytes)
     else:
         file_path = generate_placeholder_png(
             label=f"{character.name} — scene",

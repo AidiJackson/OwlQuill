@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.storage import save_image
 from app.models.user import User
 from app.services.image_quota import check_weekly_quota
 from app.models.character import Character as CharacterModel
@@ -124,13 +125,6 @@ class ImageGenerateRequest(BaseModel):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
-
-
-def _save_png_bytes(png_bytes: bytes) -> str:
-    _GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{uuid.uuid4().hex}.png"
-    (_GENERATED_DIR / filename).write_bytes(png_bytes)
-    return f"static/generated/{filename}"
 
 
 def _parse_anchor_json(raw: str | None) -> dict | None:
@@ -615,7 +609,7 @@ def generate_image(
             multi_image_used,
             len(anchor_images),
         )
-        file_path = _save_png_bytes(png_bytes)
+        file_path = save_image(png_bytes)
 
     # ── NORMAL MODE (include_character=False) ─────────────────────
     else:
@@ -645,7 +639,7 @@ def generate_image(
                     )
 
         if png_bytes is not None:
-            file_path = _save_png_bytes(png_bytes)
+            file_path = save_image(png_bytes)
         else:
             file_path = generate_placeholder_png(
                 label=character.name,
@@ -694,7 +688,7 @@ def generate_image(
             except (ValueError, RuntimeError):
                 pass
         if cover_retry_png is not None:
-            file_path = _save_png_bytes(cover_retry_png)
+            file_path = save_image(cover_retry_png)
             png_bytes = cover_retry_png
             cover_retry_succeeded = True
             logger.info("cover_retry_succeeded character_id=%s", character_id)

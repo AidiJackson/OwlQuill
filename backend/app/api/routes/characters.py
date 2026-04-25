@@ -14,6 +14,7 @@ from sqlalchemy import or_
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.config import settings
+from app.core.storage import save_image, file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
@@ -23,14 +24,6 @@ from app.schemas.character import Character, CharacterCreate, CharacterUpdate, C
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
 _AVATAR_SIZE = (512, 512)
 _COVER_SIZE = (2048, 720)
-
-
-def _save_avatar_png(png_bytes: bytes) -> str:
-    """Write avatar PNG bytes to static/generated/<uuid>.png. Return relative file_path."""
-    _GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{uuid.uuid4().hex}.png"
-    (_GENERATED_DIR / filename).write_bytes(png_bytes)
-    return f"static/generated/{filename}"
 
 
 def _crop_to_banner(png_bytes: bytes) -> bytes:
@@ -302,8 +295,8 @@ def set_character_avatar(
 
     raw_bytes = source_path.read_bytes()
     avatar_bytes = _crop_to_square(raw_bytes)
-    file_path = _save_avatar_png(avatar_bytes)
-    avatar_url = f"/{file_path}"
+    file_path = save_image(avatar_bytes)
+    avatar_url = file_path_to_url(file_path)
 
     character.avatar_url = avatar_url
     db.commit()

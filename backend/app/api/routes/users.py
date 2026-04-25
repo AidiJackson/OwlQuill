@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.storage import save_image, file_path_to_url
 from app.core.admin_seed import auto_join_commons
 from app.models.user import User as UserModel
 from app.models.user_image import UserImage
@@ -53,15 +54,6 @@ COVER_PRESETS = {
 }
 
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
-
-
-def _save_png_bytes(png_bytes: bytes) -> str:
-    """Write PNG bytes to static/generated/<uuid>.png. Return relative file_path."""
-    _GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{uuid.uuid4().hex}.png"
-    (_GENERATED_DIR / filename).write_bytes(png_bytes)
-    return f"static/generated/{filename}"
-
 
 _COVER_SIZE = (2048, 720)
 _AVATAR_SIZE = (512, 512)
@@ -183,8 +175,8 @@ def generate_profile_cover(
         )
 
     banner_bytes = _crop_to_banner(png_bytes)
-    file_path = _save_png_bytes(banner_bytes)
-    cover_url = f"/{file_path}"
+    file_path = save_image(banner_bytes)
+    cover_url = file_path_to_url(file_path)
 
     # Store image record
     img = UserImage(
@@ -296,8 +288,8 @@ def set_avatar(
 
     raw_bytes = source_path.read_bytes()
     avatar_bytes = _crop_to_square(raw_bytes)
-    file_path = _save_png_bytes(avatar_bytes)
-    avatar_url = f"/{file_path}"
+    file_path = save_image(avatar_bytes)
+    avatar_url = file_path_to_url(file_path)
 
     current_user.avatar_url = avatar_url
     db.commit()

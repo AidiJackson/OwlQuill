@@ -134,6 +134,9 @@ class Settings(BaseSettings):
     BETA_INVITE_REQUIRED: bool = True
     BETA_INVITE_CODES: str = ""
 
+    # Object storage — set true to write new images to Cloudflare R2
+    USE_OBJECT_STORAGE: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

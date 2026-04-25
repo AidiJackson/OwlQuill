@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_user_optional
+from app.core.storage import save_image, file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_dna import CharacterDNA
@@ -298,14 +299,6 @@ ROLE_EDIT_PROMPT = {
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
 
 
-def _save_png_bytes(png_bytes: bytes) -> str:
-    """Write PNG bytes to static/generated/<uuid>.png. Return relative file_path."""
-    _GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{uuid.uuid4().hex}.png"
-    (_GENERATED_DIR / filename).write_bytes(png_bytes)
-    return f"static/generated/{filename}"
-
-
 def _build_pack_prompt(
     character: CharacterModel,
     dna: CharacterDNA | None,
@@ -451,10 +444,7 @@ def set_avatar(
             detail="Cannot use a temporary image as avatar.",
         )
 
-    # Derive the servable URL (same logic as CharacterImageRead.url)
-    path = image.file_path.lstrip("/")
-    avatar_url = f"/{path}" if path.startswith("static/") else f"/static/{path}"
-
+    avatar_url = file_path_to_url(image.file_path)
     character.avatar_url = avatar_url
     db.commit()
     db.refresh(image)
@@ -945,7 +935,7 @@ def generate_identity_pack(
                     f"(seed_provider={_seed_name!r}); retry exhausted"
                 )
 
-            front_path = _save_png_bytes(front_bytes)
+            front_path = save_image(front_bytes)
             logger.info(
                 "identity_pack_seed_generated provider=%s bytes=%d request_id=%s",
                 _seed_name, len(front_bytes), pack_id,
@@ -1075,7 +1065,7 @@ def generate_identity_pack(
                             raise
                         _angle_provider_name = "openai"
 
-                file_path = _save_png_bytes(png_bytes)
+                file_path = save_image(png_bytes)
                 logger.info(
                     "identity_pack_angle_generated provider=%s grounded=true angle=%s request_id=%s",
                     _angle_provider_name, role, pack_id,
@@ -1112,7 +1102,7 @@ def generate_identity_pack(
                 # Try primary provider (text-to-image, no reference)
                 try:
                     png_bytes = seed_provider.generate_image(prompt=prompt)
-                    file_path = _save_png_bytes(png_bytes)
+                    file_path = save_image(png_bytes)
                     tier_images.append(_make_image_record(role, file_path, seed_provider_name))
                     continue
                 except (ValueError, RuntimeError) as exc:
@@ -1129,7 +1119,7 @@ def generate_identity_pack(
                 if fallback is not None:
                     try:
                         png_bytes = fallback.generate_image(prompt=prompt)
-                        file_path = _save_png_bytes(png_bytes)
+                        file_path = save_image(png_bytes)
                         tier_images.append(_make_image_record(role, file_path, "fal"))
                         continue
                     except (ValueError, RuntimeError):
@@ -1307,9 +1297,7 @@ def accept_identity_pack(
     for img in matching:
         role = img.metadata_json["pack_role"]
         short_key = _role_key_map.get(role, role)
-        path = img.file_path.lstrip("/")
-        url = f"/{path}" if path.startswith("static/") else f"/static/{path}"
-        anchors_dict[short_key] = {"id": img.id, "url": url}
+        anchors_dict[short_key] = {"id": img.id, "url": file_path_to_url(img.file_path)}
 
     # Derive identity lock/hash from stored spec if available
     _lock_string = None
@@ -1352,7 +1340,7 @@ def accept_identity_pack(
             _front_abs = _GENERATED_DIR / Path(_front_for_ref.file_path).name
             _front_raw = _front_abs.read_bytes()
             _face_ref_bytes = _crop_face_reference(_front_raw)
-            _face_ref_path = _save_png_bytes(_face_ref_bytes)
+            _face_ref_path = save_image(_face_ref_bytes)
             _face_ref_img = CharacterImage(
                 character_id=character_id,
                 kind=ImageKindEnum.IDENTITY_FACE_REF,
@@ -1757,7 +1745,7 @@ def generate_identity_sketch(
             detail = "Sketch generation is temporarily unavailable."
         raise HTTPException(status_code=503, detail=detail)
 
-    file_path = _save_png_bytes(png_bytes)
+    file_path = save_image(png_bytes)
 
     # Archive any previous identity sketch for this character
     previous_sketches = (
@@ -1804,9 +1792,7 @@ def generate_identity_sketch(
     db.commit()
     db.refresh(sketch_img)
 
-    # Derive servable URL
-    path = sketch_img.file_path.lstrip("/")
-    image_url = f"/{path}" if path.startswith("static/") else f"/static/{path}"
+    image_url = file_path_to_url(sketch_img.file_path)
 
     logger.info(
         "identity_sketch_generated character_id=%s style=%s provider=%s image_id=%s",
