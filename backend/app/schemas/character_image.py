@@ -36,7 +36,8 @@ class CharacterImageRead(BaseModel):
     @property
     def url(self) -> str:
         """Derive a servable URL from the stored file_path."""
-        # file_path is stored as e.g. "static/generated/<uuid>.png"
+        if self.file_path.startswith(("http://", "https://")):
+            return self.file_path
         path = self.file_path.lstrip("/")
         if not path.startswith("static/"):
             return f"/static/{path}"
