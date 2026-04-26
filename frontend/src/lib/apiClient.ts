@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -375,6 +375,21 @@ class ApiClient {
 
   async getStorySpace(id: number): Promise<StorySpaceRead> {
     return this.request<StorySpaceRead>(`/story-spaces/${id}`);
+  }
+
+  async getSpacePosts(spaceId: number, channelId: number): Promise<StorySpacePost[]> {
+    return this.request<StorySpacePost[]>(`/story-spaces/${spaceId}/channels/${channelId}/posts`);
+  }
+
+  async createSpacePost(
+    spaceId: number,
+    channelId: number,
+    payload: { content: string; content_type?: string; character_id?: number },
+  ): Promise<StorySpacePost> {
+    return this.request<StorySpacePost>(`/story-spaces/${spaceId}/channels/${channelId}/posts`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   }
 }
 

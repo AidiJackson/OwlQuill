@@ -205,6 +205,21 @@ export interface StorySpaceChannel {
   position: number;
 }
 
+export interface StorySpacePost {
+  id: number;
+  space_id: number;
+  channel_id: number;
+  author_user_id: number;
+  author_username: string;
+  character_id?: number;
+  character_name?: string;
+  character_avatar_url?: string;
+  content: string;
+  content_type: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StorySpaceListItem {
   id: number;
   owner_id: number;

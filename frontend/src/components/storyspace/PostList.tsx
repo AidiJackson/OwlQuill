@@ -1,0 +1,117 @@
+import type { StorySpacePost } from '@/lib/types';
+
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  const now = Date.now();
+  const diffMs = now - d.getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function Avatar({ url, name }: { url?: string; name: string }) {
+  const initial = name.charAt(0).toUpperCase();
+  return (
+    <div className="w-7 h-7 rounded-full flex-shrink-0 overflow-hidden bg-gray-800 flex items-center justify-center border border-gray-700/60">
+      {url ? (
+        <img src={url} alt={name} className="w-full h-full object-cover" />
+      ) : (
+        <span className="text-[11px] font-semibold text-gray-400">{initial}</span>
+      )}
+    </div>
+  );
+}
+
+function PostItem({ post }: { post: StorySpacePost }) {
+  const displayName = post.character_name ?? `@${post.author_username}`;
+  const avatarName = post.character_name ?? post.author_username;
+  const isCharacter = Boolean(post.character_name);
+
+  return (
+    <article className="group py-3 border-b border-gray-800/60 last:border-0">
+      {/* Byline */}
+      <div className="flex items-center gap-2 mb-1.5">
+        <Avatar url={post.character_avatar_url} name={avatarName} />
+        <span
+          className={`text-sm font-medium leading-none ${
+            isCharacter ? 'text-emerald-400' : 'text-gray-400'
+          }`}
+        >
+          {displayName}
+        </span>
+        {isCharacter && (
+          <span className="text-xs text-gray-600 leading-none">via @{post.author_username}</span>
+        )}
+        <span className="ml-auto text-[11px] text-gray-700 group-hover:text-gray-600 transition-colors leading-none flex-shrink-0">
+          {formatTimestamp(post.created_at)}
+        </span>
+      </div>
+
+      {/* Content */}
+      <div className="pl-9">
+        <p
+          className={`text-sm leading-relaxed whitespace-pre-wrap ${
+            post.content_type === 'ooc'
+              ? 'text-gray-500 italic'
+              : post.content_type === 'narration'
+              ? 'text-gray-300 italic'
+              : 'text-gray-200'
+          }`}
+        >
+          {post.content_type === 'ooc' && (
+            <span className="not-italic text-[10px] font-semibold uppercase tracking-wide text-gray-600 mr-1.5">
+              OOC
+            </span>
+          )}
+          {post.content}
+        </p>
+      </div>
+    </article>
+  );
+}
+
+interface Props {
+  posts: StorySpacePost[];
+  loading: boolean;
+}
+
+export default function PostList({ posts, loading }: Props) {
+  if (loading) {
+    return (
+      <div className="space-y-3 px-4 py-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="animate-pulse">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-full bg-gray-800" />
+              <div className="h-3 bg-gray-800 rounded w-24" />
+            </div>
+            <div className="pl-9 space-y-1.5">
+              <div className="h-3 bg-gray-800 rounded w-full" />
+              <div className="h-3 bg-gray-800 rounded w-3/4" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (posts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[12rem] text-center px-6 py-10">
+        <p className="text-gray-600 text-sm">Nothing here yet.</p>
+        <p className="text-gray-700 text-xs mt-1">Be the first to write something.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 py-2">
+      {posts.map((p) => (
+        <PostItem key={p.id} post={p} />
+      ))}
+    </div>
+  );
+}
