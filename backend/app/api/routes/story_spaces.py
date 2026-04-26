@@ -1,4 +1,4 @@
-"""Story Spaces API routes — Stage 2: space management + channels list."""
+"""Story Spaces API routes — Stages 2-4: spaces, channels, posts, publish."""
 from datetime import datetime
 from typing import List
 
@@ -8,12 +8,22 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.character import Character
-from app.models.story_space import StorySpace, StorySpaceChannel, StorySpaceMember, StorySpacePost
+from app.models.story_space import (
+    PublishedStory,
+    PublishedStorySegment,
+    StorySpace,
+    StorySpaceChannel,
+    StorySpaceMember,
+    StorySpacePost,
+)
 from app.models.user import User
 from app.schemas.story_space import (
     ChannelRead,
     InviteRequest,
     MemberRead,
+    PublishRequest,
+    PublishedSegmentRead,
+    PublishedStoryRead,
     SpaceCreate,
     SpaceListItem,
     SpaceRead,
@@ -344,3 +354,106 @@ def list_posts(
         .all()
     )
     return [_to_post_read(p) for p in posts]
+
+
+# ── publish ───────────────────────────────────────────────────────────────────
+
+def _to_published_read(story: PublishedStory) -> PublishedStoryRead:
+    segs = sorted(story.segments, key=lambda s: s.position)
+    return PublishedStoryRead(
+        id=story.id,
+        publisher_user_id=story.publisher_user_id,
+        title=story.title,
+        summary=story.summary,
+        cover_url=story.cover_url,
+        visibility=story.visibility,
+        segment_count=len(segs),
+        segments=[
+            PublishedSegmentRead(
+                id=s.id,
+                position=s.position,
+                content=s.content,
+                content_type=s.content_type,
+                character_id=s.character_id,
+                character_name_snap=s.character_name_snap,
+            )
+            for s in segs
+        ],
+        published_at=story.published_at,
+        created_at=story.created_at,
+        updated_at=story.updated_at,
+    )
+
+
+@router.post("/{space_id}/publish", response_model=PublishedStoryRead, status_code=status.HTTP_201_CREATED)
+def publish_story(
+    space_id: int,
+    body: PublishRequest,
+    member: StorySpaceMember = Depends(get_space_member),
+    db: Session = Depends(get_db),
+) -> PublishedStoryRead:
+    """Publish selected story-channel posts as a snapshot. Only 'story' channel posts allowed."""
+    if not body.post_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="post_ids must not be empty")
+
+    if len(body.post_ids) != len(set(body.post_ids)):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="post_ids contains duplicates")
+
+    selected: List[StorySpacePost] = []
+    for pid in body.post_ids:
+        post = db.query(StorySpacePost).filter(StorySpacePost.id == pid).first()
+        if not post or post.space_id != space_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Post {pid} not found in this space")
+        channel = db.query(StorySpaceChannel).filter(StorySpaceChannel.id == post.channel_id).first()
+        if not channel or channel.channel_type != "story":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Post {pid} is not from a story channel")
+        selected.append(post)
+
+    now = datetime.utcnow()
+    published = PublishedStory(
+        publisher_user_id=member.user_id,
+        title=body.title,
+        summary=body.summary,
+        cover_url=body.cover_url,
+        visibility="public",
+        published_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(published)
+    db.flush()
+
+    for position, post in enumerate(selected, start=1):
+        char_name_snap = post.character.name if post.character else None
+        db.add(PublishedStorySegment(
+            published_story_id=published.id,
+            source_post_id=post.id,
+            position=position,
+            content=post.content,
+            character_id=post.character_id,
+            character_name_snap=char_name_snap,
+            content_type=post.content_type,
+            created_at=now,
+        ))
+
+    db.commit()
+    db.refresh(published)
+    return _to_published_read(published)
+
+
+# ── published stories (separate prefix) ──────────────────────────────────────
+
+published_router = APIRouter()
+
+
+@published_router.get("/{published_story_id}", response_model=PublishedStoryRead)
+def get_published_story(
+    published_story_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PublishedStoryRead:
+    """Fetch a published story by ID. Auth required; space_id and source_post_id never exposed."""
+    story = db.query(PublishedStory).filter(PublishedStory.id == published_story_id).first()
+    if not story:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return _to_published_read(story)

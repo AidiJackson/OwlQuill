@@ -14,6 +14,7 @@ from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
 from app.core.invite_seed import seed_invite_codes
 from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces
+from app.api.routes.story_spaces import published_router
 
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ app.include_router(reports.router, prefix="/reports", tags=["reports"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 app.include_router(blocks.router, prefix="/blocks", tags=["blocks"])
 app.include_router(story_spaces.router, prefix="/story-spaces", tags=["story-spaces"])
+app.include_router(published_router, prefix="/published-stories", tags=["published-stories"])
 
 # Mirror all routes under /api/* prefix
 api_router = APIRouter(prefix="/api")
@@ -123,6 +125,7 @@ api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(blocks.router, prefix="/blocks", tags=["blocks"])
 api_router.include_router(admin_diagnostics.router, prefix="/admin", tags=["admin-diagnostics"])
 api_router.include_router(story_spaces.router, prefix="/story-spaces", tags=["story-spaces"])
+api_router.include_router(published_router, prefix="/published-stories", tags=["published-stories"])
 app.include_router(api_router)
 
 

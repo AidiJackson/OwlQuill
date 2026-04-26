@@ -699,3 +699,169 @@ def test_list_posts_empty_channel_returns_empty_list(client):
     )
     assert resp.status_code == 200
     assert resp.json() == []
+
+# ── publish ───────────────────────────────────────────────────────────────────
+
+def _publish_space(client: TestClient, token: str, space_id: int, post_ids: list, title: str = "Test Story") -> object:
+    return client.post(
+        f"/story-spaces/{space_id}/publish",
+        json={"title": title, "post_ids": post_ids},
+        headers=auth_headers(token),
+    )
+
+
+def _post_to_channel(client: TestClient, token: str, space: dict, channel_type: str, content: str = "Post content", content_type: str = "ic") -> dict:
+    ch = _get_channel(client, token, space, channel_type)
+    resp = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": content, "content_type": content_type},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, f"Post failed: {resp.text}"
+    return resp.json()
+
+
+def test_publish_valid_story_posts(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+
+    post_ids = []
+    for msg in ["Chapter one begins.", "The hero arrives.", "A twist emerges."]:
+        post = _post_to_channel(client, token, space, "story", content=msg)
+        post_ids.append(post["id"])
+
+    resp = _publish_space(client, token, space["id"], post_ids)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["segment_count"] == 3
+    assert "space_id" not in data
+
+
+def test_publish_rejects_chat_channel(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+
+    post = _post_to_channel(client, token, space, "chat", content="Hey all", content_type="ooc")
+
+    resp = _publish_space(client, token, space["id"], [post["id"]])
+    assert resp.status_code == 400
+
+
+def test_publish_rejects_planning_channel(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+
+    post = _post_to_channel(client, token, space, "planning", content="Arc notes", content_type="ooc")
+
+    resp = _publish_space(client, token, space["id"], [post["id"]])
+    assert resp.status_code == 400
+
+
+def test_publish_rejects_cross_space_post(client):
+    t1 = _make_user(client, 1)
+    t2 = _make_user(client, 2)
+    space_a = _create_space(client, t1, name="Space A")
+    space_b = _create_space(client, t2, name="Space B")
+
+    post_in_a = _post_to_channel(client, t1, space_a, "story", content="Post in A")
+
+    # t2 tries to publish space B using a post that belongs to space A
+    resp = _publish_space(client, t2, space_b["id"], [post_in_a["id"]])
+    assert resp.status_code == 400
+
+
+def test_publish_rejects_duplicate_ids(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+
+    post = _post_to_channel(client, token, space, "story", content="Once.")
+
+    resp = _publish_space(client, token, space["id"], [post["id"], post["id"]])
+    assert resp.status_code == 400
+
+
+def test_publish_rejects_empty_list(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+
+    resp = _publish_space(client, token, space["id"], [])
+    assert resp.status_code == 400
+
+
+def test_published_story_not_leaking_internal_fields(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+
+    post = _post_to_channel(client, token, space, "story", content="Visible content")
+    publish_resp = _publish_space(client, token, space["id"], [post["id"]])
+    assert publish_resp.status_code == 201
+    published_id = publish_resp.json()["id"]
+
+    resp = client.get(f"/published-stories/{published_id}", headers=auth_headers(token))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "space_id" not in data
+    for segment in data.get("segments", []):
+        assert "source_post_id" not in segment
+
+
+def test_get_published_requires_auth(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+
+    post = _post_to_channel(client, token, space, "story", content="Auth-gated story")
+    publish_resp = _publish_space(client, token, space["id"], [post["id"]])
+    assert publish_resp.status_code == 201
+    published_id = publish_resp.json()["id"]
+
+    resp = client.get(f"/published-stories/{published_id}")
+    assert resp.status_code == 403  # HTTPBearer raises 403 for missing token, consistent with all other auth guards
+
+
+def test_published_segments_order(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+    ch = _get_channel(client, token, space, "story")
+
+    post_ids = []
+    for msg in ["First", "Second", "Third"]:
+        p = client.post(
+            f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+            json={"content": msg, "content_type": "ic"},
+            headers=auth_headers(token),
+        )
+        assert p.status_code == 201
+        post_ids.append(p.json()["id"])
+
+    publish_resp = _publish_space(client, token, space["id"], post_ids)
+    assert publish_resp.status_code == 201
+    published_id = publish_resp.json()["id"]
+
+    resp = client.get(f"/published-stories/{published_id}", headers=auth_headers(token))
+    assert resp.status_code == 200
+    segments = resp.json()["segments"]
+    assert [s["position"] for s in segments] == [1, 2, 3]
+
+
+def test_segment_content_snapshot(client, db_session):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+
+    original_content = "Original story content — must not change."
+    post = _post_to_channel(client, token, space, "story", content=original_content)
+    post_id = post["id"]
+
+    publish_resp = _publish_space(client, token, space["id"], [post_id])
+    assert publish_resp.status_code == 201
+    published_id = publish_resp.json()["id"]
+
+    # Mutate the source post directly via DB — simulates a future edit
+    from app.models.story_space import StorySpacePost
+    source = db_session.query(StorySpacePost).filter(StorySpacePost.id == post_id).first()
+    source.content = "Mutated — should NOT appear in published snapshot"
+    db_session.commit()
+
+    resp = client.get(f"/published-stories/{published_id}", headers=auth_headers(token))
+    assert resp.status_code == 200
+    segments = resp.json()["segments"]
+    assert segments[0]["content"] == original_content
