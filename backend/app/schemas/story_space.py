@@ -5,6 +5,27 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class StorySpacePostCreate(BaseModel):
+    content: str = Field(..., min_length=1)
+    content_type: str = Field("ic", pattern="^(ic|ooc|narration)$")
+    character_id: Optional[int] = None
+
+
+class StorySpacePostRead(BaseModel):
+    id: int
+    space_id: int
+    channel_id: int
+    author_user_id: int
+    author_username: str
+    character_id: Optional[int] = None
+    character_name: Optional[str] = None
+    character_avatar_url: Optional[str] = None
+    content: str
+    content_type: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class SpaceCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     slug: Optional[str] = Field(None, max_length=100)   # optional internal label, never routed

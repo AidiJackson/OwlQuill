@@ -481,3 +481,221 @@ def test_list_channels_each_has_id(client):
     ids = [c["id"] for c in channels]
     assert len(ids) == 3
     assert len(set(ids)) == 3   # all distinct
+
+# ── posts ─────────────────────────────────────────────────────────────────────
+
+def _get_channel(client: TestClient, token: str, space: dict, channel_type: str) -> dict:
+    channels = client.get(
+        f"/story-spaces/{space['id']}/channels",
+        headers=auth_headers(token),
+    ).json()
+    return next(c for c in channels if c["channel_type"] == channel_type)
+
+
+def _create_character(client: TestClient, token: str, name: str = "TestChar") -> dict:
+    resp = client.post(
+        "/characters/",
+        json={"name": name},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, f"Character creation failed: {resp.text}"
+    return resp.json()
+
+
+def test_member_can_post_to_story_channel(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+    ch = _get_channel(client, token, space, "story")
+
+    resp = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "Once upon a time...", "content_type": "ic"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["content"] == "Once upon a time..."
+    assert data["content_type"] == "ic"
+    assert data["author_username"] == "spacetest1"
+    assert data["channel_id"] == ch["id"]
+    assert data["space_id"] == space["id"]
+
+
+def test_member_can_post_to_chat_channel(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+    ch = _get_channel(client, token, space, "chat")
+
+    resp = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "Hey everyone", "content_type": "ooc"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201
+    assert resp.json()["content_type"] == "ooc"
+
+
+def test_member_can_post_to_planning_channel(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+    ch = _get_channel(client, token, space, "planning")
+
+    resp = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "Let's plan the next arc", "content_type": "ooc"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201
+
+
+def test_non_member_post_returns_404(client):
+    owner = _make_user(client, 1)
+    outsider = _make_user(client, 2)
+    space = _create_space(client, owner)
+    ch = _get_channel(client, owner, space, "story")
+
+    resp = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "Sneaking in", "content_type": "ic"},
+        headers=auth_headers(outsider),
+    )
+    assert resp.status_code == 404
+
+
+def test_wrong_channel_different_space_returns_404(client):
+    t1 = _make_user(client, 1)
+    t2 = _make_user(client, 2)
+    space1 = _create_space(client, t1, name="Space 1")
+    space2 = _create_space(client, t2, name="Space 2")
+    ch2 = _get_channel(client, t2, space2, "story")
+
+    # t1 is member of space1, tries to post to channel from space2
+    resp = client.post(
+        f"/story-spaces/{space1['id']}/channels/{ch2['id']}/posts",
+        json={"content": "Wrong space channel", "content_type": "ic"},
+        headers=auth_headers(t1),
+    )
+    assert resp.status_code == 404
+
+
+def test_invalid_character_ownership_returns_403(client):
+    owner = _make_user(client, 1)
+    member = _make_user(client, 2)
+    space = _create_space(client, owner)
+    ch = _get_channel(client, owner, space, "story")
+
+    # Invite member
+    client.post(
+        f"/story-spaces/{space['id']}/invites",
+        json={"username": "spacetest2"},
+        headers=auth_headers(owner),
+    )
+
+    # Create character owned by owner (user 1)
+    char = _create_character(client, owner, name="OwnerChar")
+
+    # member (user 2) tries to post with owner's character
+    resp = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "Using someone else's char", "content_type": "ic", "character_id": char["id"]},
+        headers=auth_headers(member),
+    )
+    assert resp.status_code == 403
+
+
+def test_post_with_own_character_includes_character_fields(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+    ch = _get_channel(client, token, space, "story")
+    char = _create_character(client, token, name="MyHero")
+
+    resp = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "Entering the scene", "content_type": "ic", "character_id": char["id"]},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["character_id"] == char["id"]
+    assert data["character_name"] == "MyHero"
+    assert data["character_avatar_url"] is None   # no avatar set in test
+
+
+def test_post_without_character_has_null_character_fields(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+    ch = _get_channel(client, token, space, "story")
+
+    resp = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "Narrator voice", "content_type": "narration"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["character_id"] is None
+    assert data["character_name"] is None
+    assert data["character_avatar_url"] is None
+
+
+def test_list_posts_returns_correct_order(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+    ch = _get_channel(client, token, space, "story")
+
+    messages = ["First post", "Second post", "Third post"]
+    for msg in messages:
+        client.post(
+            f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+            json={"content": msg, "content_type": "ic"},
+            headers=auth_headers(token),
+        )
+
+    resp = client.get(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 3
+    assert [p["content"] for p in data] == messages
+
+
+def test_list_posts_non_member_returns_404(client):
+    owner = _make_user(client, 1)
+    outsider = _make_user(client, 2)
+    space = _create_space(client, owner)
+    ch = _get_channel(client, owner, space, "story")
+
+    resp = client.get(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        headers=auth_headers(outsider),
+    )
+    assert resp.status_code == 404
+
+
+def test_list_posts_wrong_channel_returns_404(client):
+    t1 = _make_user(client, 1)
+    t2 = _make_user(client, 2)
+    space1 = _create_space(client, t1, name="Space 1")
+    space2 = _create_space(client, t2, name="Space 2")
+    ch2 = _get_channel(client, t2, space2, "story")
+
+    resp = client.get(
+        f"/story-spaces/{space1['id']}/channels/{ch2['id']}/posts",
+        headers=auth_headers(t1),
+    )
+    assert resp.status_code == 404
+
+
+def test_list_posts_empty_channel_returns_empty_list(client):
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+    ch = _get_channel(client, token, space, "chat")
+
+    resp = client.get(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []

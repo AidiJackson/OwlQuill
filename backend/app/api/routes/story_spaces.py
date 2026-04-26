@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.models.story_space import StorySpace, StorySpaceChannel, StorySpaceMember
+from app.models.character import Character
+from app.models.story_space import StorySpace, StorySpaceChannel, StorySpaceMember, StorySpacePost
 from app.models.user import User
 from app.schemas.story_space import (
     ChannelRead,
@@ -16,6 +17,8 @@ from app.schemas.story_space import (
     SpaceCreate,
     SpaceListItem,
     SpaceRead,
+    StorySpacePostCreate,
+    StorySpacePostRead,
 )
 
 router = APIRouter()
@@ -256,3 +259,88 @@ def list_channels(
         .all()
     )
     return [_to_channel_read(ch) for ch in channels]
+
+
+def _to_post_read(post: StorySpacePost) -> StorySpacePostRead:
+    character_name = None
+    character_avatar_url = None
+    if post.character:
+        character_name = post.character.name
+        character_avatar_url = post.character.avatar_url
+    return StorySpacePostRead(
+        id=post.id,
+        space_id=post.space_id,
+        channel_id=post.channel_id,
+        author_user_id=post.author_user_id,
+        author_username=post.author.username,
+        character_id=post.character_id,
+        character_name=character_name,
+        character_avatar_url=character_avatar_url,
+        content=post.content,
+        content_type=post.content_type,
+        created_at=post.created_at,
+        updated_at=post.updated_at,
+    )
+
+
+@router.post(
+    "/{space_id}/channels/{channel_id}/posts",
+    response_model=StorySpacePostRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_post(
+    space_id: int,
+    channel_id: int,
+    body: StorySpacePostCreate,
+    member: StorySpaceMember = Depends(get_space_member),
+    db: Session = Depends(get_db),
+) -> StorySpacePostRead:
+    """Post to a channel. Caller must be a space member; channel must belong to this space."""
+    channel = db.query(StorySpaceChannel).filter(StorySpaceChannel.id == channel_id).first()
+    if not channel or channel.space_id != space_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found")
+
+    if body.character_id is not None:
+        character = db.query(Character).filter(Character.id == body.character_id).first()
+        if not character or character.owner_id != member.user_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Character not owned by you")
+
+    now = datetime.utcnow()
+    post = StorySpacePost(
+        space_id=space_id,
+        channel_id=channel_id,
+        author_user_id=member.user_id,
+        character_id=body.character_id,
+        content=body.content,
+        content_type=body.content_type,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(post)
+    db.commit()
+    db.refresh(post)
+    return _to_post_read(post)
+
+
+@router.get(
+    "/{space_id}/channels/{channel_id}/posts",
+    response_model=List[StorySpacePostRead],
+)
+def list_posts(
+    space_id: int,
+    channel_id: int,
+    member: StorySpaceMember = Depends(get_space_member),
+    db: Session = Depends(get_db),
+) -> List[StorySpacePostRead]:
+    """List posts for a channel in ascending created_at order. Non-members receive 404."""
+    channel = db.query(StorySpaceChannel).filter(StorySpaceChannel.id == channel_id).first()
+    if not channel or channel.space_id != space_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found")
+
+    posts = (
+        db.query(StorySpacePost)
+        .filter(StorySpacePost.channel_id == channel_id)
+        .order_by(StorySpacePost.created_at.asc())
+        .all()
+    )
+    return [_to_post_read(p) for p in posts]
