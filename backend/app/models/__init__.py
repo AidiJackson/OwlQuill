@@ -1,4 +1,13 @@
 """Database models."""
+from app.models.story_space import (
+    StorySpace,
+    StorySpaceMember,
+    StorySpaceChannel,
+    StorySpacePost,
+    PublishedStory,
+    PublishedStorySegment,
+    ChannelTypeEnum,
+)
 from app.models.storylab import Story, StoryState, GenerationLog, StoryChapter
 from app.models.report import Report, ReportTargetTypeEnum, ReportStatusEnum
 from app.models.block import Block
@@ -50,4 +59,11 @@ __all__ = [
     "UserImage",
     "PasswordResetToken",
     "Block",
+    "StorySpace",
+    "StorySpaceMember",
+    "StorySpaceChannel",
+    "StorySpacePost",
+    "PublishedStory",
+    "PublishedStorySegment",
+    "ChannelTypeEnum",
 ]
