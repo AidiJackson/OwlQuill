@@ -24,6 +24,8 @@ import ImageNew from '@/pages/ImageNew';
 import Workspace from '@/pages/Workspace';
 import StoryLab from '@/pages/StoryLab';
 import StoryLabSession from '@/pages/StoryLabSession';
+import StorySpaces from '@/pages/StorySpaces';
+import StorySpaceDetail from '@/pages/StorySpaceDetail';
 
 function RouteLogger() {
   const location = useLocation();
@@ -75,6 +77,8 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/realms" element={<Realms />} />
           <Route path="/realms/:realmId" element={<RealmDetail />} />
+          <Route path="/spaces" element={<StorySpaces />} />
+          <Route path="/spaces/:spaceId" element={<StorySpaceDetail />} />
           <Route path="/characters" element={<Characters />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/storylab" element={<StoryLab />} />

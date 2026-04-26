@@ -196,6 +196,42 @@ export interface ProfileTimelineItem {
   payload: Record<string, unknown>;
 }
 
+// Story Spaces
+
+export interface StorySpaceChannel {
+  id: number;
+  channel_type: string;
+  name: string;
+  position: number;
+}
+
+export interface StorySpaceListItem {
+  id: number;
+  owner_id: number;
+  name: string;
+  slug?: string;
+  description?: string;
+  cover_url?: string;
+  your_role: string;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StorySpaceRead {
+  id: number;
+  owner_id: number;
+  name: string;
+  slug?: string;
+  description?: string;
+  cover_url?: string;
+  your_role: string;
+  member_count: number;
+  channels: StorySpaceChannel[];
+  created_at: string;
+  updated_at: string;
+}
+
 // StoryLab story record
 export interface StoryRecord {
   id: string;

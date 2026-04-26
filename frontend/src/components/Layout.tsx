@@ -37,6 +37,7 @@ export default function Layout() {
   const p = location.pathname;
   const isHome       = p === '/';
   const isRealms     = p.startsWith('/realms');
+  const isSpaces     = p.startsWith('/spaces');
   const isChars      = p.startsWith('/characters');
   const isWorkspace  = p.startsWith('/workspace');
   const isStoryLab   = p.startsWith('/storylab');
@@ -67,6 +68,13 @@ export default function Layout() {
           onClick={closeSidebar}
         >
           Realms
+        </Link>
+        <Link
+          to="/spaces"
+          className={navCls(isSpaces)}
+          onClick={closeSidebar}
+        >
+          Story Spaces
         </Link>
         <Link
           to="/characters"
