@@ -247,6 +247,38 @@ export interface StorySpaceRead {
   updated_at: string;
 }
 
+// Published Stories
+
+export interface PublishedStorySegment {
+  id: number;
+  position: number;
+  content: string;
+  content_type: string;
+  character_id?: number;
+  character_name_snap?: string;
+}
+
+export interface PublishedStory {
+  id: number;
+  publisher_user_id: number;
+  title: string;
+  summary?: string;
+  cover_url?: string;
+  visibility: string;
+  segment_count: number;
+  segments: PublishedStorySegment[];
+  published_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PublishStoryPayload {
+  title: string;
+  summary?: string;
+  cover_url?: string;
+  post_ids: number[];
+}
+
 // StoryLab story record
 export interface StoryRecord {
   id: string;

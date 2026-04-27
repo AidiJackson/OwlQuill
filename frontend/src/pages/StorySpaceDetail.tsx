@@ -128,11 +128,21 @@ export default function StorySpaceDetail() {
             </p>
           )}
         </div>
-        <div className="flex-shrink-0 text-[10px] text-gray-700 flex items-center gap-1">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-          {space?.member_count} {space?.member_count === 1 ? 'member' : 'members'}
+        <div className="flex-shrink-0 flex items-center gap-2">
+          <span className="text-[10px] text-gray-700 flex items-center gap-1">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            {space?.member_count} {space?.member_count === 1 ? 'member' : 'members'}
+          </span>
+          {spaceId && (
+            <Link
+              to={`/spaces/${spaceId}/publish`}
+              className="px-3 py-1 rounded-lg bg-emerald-700/30 hover:bg-emerald-700/50 border border-emerald-700/40 text-emerald-400 text-xs font-medium transition-colors"
+            >
+              Publish
+            </Link>
+          )}
         </div>
       </div>
 

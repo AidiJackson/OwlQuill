@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -390,6 +390,17 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  }
+
+  async publishStory(spaceId: number, payload: PublishStoryPayload): Promise<PublishedStory> {
+    return this.request<PublishedStory>(`/story-spaces/${spaceId}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getPublishedStory(id: number): Promise<PublishedStory> {
+    return this.request<PublishedStory>(`/published-stories/${id}`);
   }
 }
 
