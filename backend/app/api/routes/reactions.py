@@ -12,6 +12,15 @@ from app.schemas.reaction import Reaction, ReactionCreate
 router = APIRouter()
 
 
+@router.get("/posts/{post_id}/reactions", response_model=list[Reaction])
+def get_post_reactions(
+    post_id: int,
+    db: Session = Depends(get_db),
+) -> list[ReactionModel]:
+    """Return all reactions for a post."""
+    return db.query(ReactionModel).filter(ReactionModel.post_id == post_id).all()
+
+
 @router.post("/posts/{post_id}/reactions", response_model=Reaction, status_code=status.HTTP_201_CREATED)
 def create_reaction(
     post_id: int,
