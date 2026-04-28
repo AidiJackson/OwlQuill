@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Image, X, Check, Trash2, Flag } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage, Character } from '@/lib/types';
@@ -11,6 +11,9 @@ type LbMode = 'view' | 'coverEdit' | 'avatarEdit';
 
 export default function Images() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const onboardingCharId = searchParams.get('characterId') ? Number(searchParams.get('characterId')) : undefined;
+  const onboardingPrompt = searchParams.get('prompt') ?? undefined;
 
   // Library
   const [images, setImages] = useState<LibraryImage[]>([]);
@@ -351,10 +354,26 @@ export default function Images() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        {/* Onboarding nudge — shown when arriving from character creation */}
+        {onboardingCharId != null && (
+          <div className="bg-emerald-600/10 border border-emerald-600/20 rounded-lg px-4 py-3 space-y-1">
+            <p className="text-sm font-semibold text-emerald-300">
+              {myCharacters.find((c) => c.id === onboardingCharId)?.name
+                ? `Bring ${myCharacters.find((c) => c.id === onboardingCharId)!.name} to life`
+                : 'Bring your character to life'}
+            </p>
+            <p className="text-xs text-gray-400">
+              Generate your first image, then set it as a profile picture or cover.
+            </p>
+          </div>
+        )}
+
         {/* Image generator */}
         {myCharacters.length > 0 && (
           <SceneGeneratorPanel
             characters={myCharacters}
+            initialCharacterId={onboardingCharId}
+            initialPrompt={onboardingPrompt}
             onGenerated={(image) => {
               setImages((prev) => [image as unknown as LibraryImage, ...prev]);
               setQuota((q) =>

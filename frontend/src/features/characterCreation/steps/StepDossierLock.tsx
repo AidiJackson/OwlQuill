@@ -39,6 +39,10 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
     (img) => (img.metadata_json?.pack_role as string) === 'anchor_torso',
   );
 
+  const preloadedPrompt = basics.name
+    ? `A cinematic portrait of ${basics.name}, detailed face, atmospheric lighting, neutral background`
+    : '';
+
   if (locking) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20">
@@ -116,13 +120,17 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
       <div className="flex flex-col gap-3 pt-2">
         <button
           className="btn btn-primary w-full"
-          onClick={() => navigate(`/characters/${characterId}?created=1`)}
+          onClick={() => {
+            const params = new URLSearchParams({ characterId: String(characterId) });
+            if (preloadedPrompt) params.set('prompt', preloadedPrompt);
+            navigate(`/images?${params.toString()}`);
+          }}
         >
-          Continue to Ficshon
+          {basics.name ? `Bring ${basics.name} to life` : 'Generate Your First Image'}
         </button>
         <button
           className="btn btn-secondary w-full"
-          onClick={() => navigate(`/characters/${characterId}`)}
+          onClick={() => navigate(`/characters/${characterId}?created=1`)}
         >
           View Character
         </button>

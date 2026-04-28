@@ -16,6 +16,10 @@ interface Props {
   onGeneratingChange?: (generating: boolean) => void;
   /** When true, generates wide-banner cover images (kind=cover) instead of standard images. */
   isCover?: boolean;
+  /** Pre-select this character on first load (onboarding nudge). */
+  initialCharacterId?: number;
+  /** Pre-fill the prompt textarea on first load (onboarding nudge). */
+  initialPrompt?: string;
 }
 
 export default function SceneGeneratorPanel({
@@ -23,10 +27,13 @@ export default function SceneGeneratorPanel({
   onGenerated,
   onGeneratingChange,
   isCover = false,
+  initialCharacterId,
+  initialPrompt,
 }: Props) {
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(initialPrompt ?? '');
   // null = "No character"; number = character id
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
+  const initialCharacterIdRef = useRef(initialCharacterId);
   const [providerOption, setProviderOption] = useState<'option1' | 'option2'>('option1');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -36,10 +43,13 @@ export default function SceneGeneratorPanel({
   useEffect(() => {
     if (didInitRef.current || characters.length === 0) return;
     didInitRef.current = true;
-    if (characters.length === 1) {
+    const initId = initialCharacterIdRef.current;
+    if (initId != null && characters.some((c) => c.id === initId)) {
+      setSelectedCharacterId(initId);
+    } else if (characters.length === 1) {
       setSelectedCharacterId(characters[0].id);
     }
-    // Multi-character: default to "No character" (null) — explicit selection required
+    // Multi-character with no initId: default to "No character" (null) — explicit selection required
   }, [characters]);
 
   const mountedRef = useRef(true);
