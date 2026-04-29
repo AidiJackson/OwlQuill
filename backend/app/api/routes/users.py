@@ -110,10 +110,7 @@ class UserImageRead(BaseModel):
     @computed_field
     @property
     def url(self) -> str:
-        path = self.file_path.lstrip("/")
-        if not path.startswith("static/"):
-            return f"/static/{path}"
-        return f"/{path}"
+        return file_path_to_url(self.file_path)
 
     model_config = {"from_attributes": True}
 
@@ -217,10 +214,7 @@ def set_profile_cover(
     if (img.metadata_json or {}).get("is_temp", False):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
 
-    # Derive servable URL (same logic as UserImageRead.url)
-    path = img.file_path.lstrip("/")
-    cover_url = f"/static/{path}" if not path.startswith("static/") else f"/{path}"
-
+    cover_url = file_path_to_url(img.file_path)
     current_user.cover_url = cover_url
     db.commit()
 
@@ -281,15 +275,17 @@ def set_avatar(
         if (img.metadata_json or {}).get("is_temp", False):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
 
-    # Load source image and crop to square
-    source_path = Path(__file__).resolve().parent.parent.parent.parent / img.file_path.lstrip("/")
-    if not source_path.exists():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Source image file not found on disk")
-
-    raw_bytes = source_path.read_bytes()
-    avatar_bytes = _crop_to_square(raw_bytes)
-    file_path = save_image(avatar_bytes)
-    avatar_url = file_path_to_url(file_path)
+    if img.file_path.startswith(("http://", "https://")):
+        # R2-hosted image: use the URL directly, no local disk read needed.
+        avatar_url = img.file_path
+    else:
+        source_path = Path(__file__).resolve().parent.parent.parent.parent / img.file_path.lstrip("/")
+        if not source_path.exists():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Source image file not found on disk")
+        raw_bytes = source_path.read_bytes()
+        avatar_bytes = _crop_to_square(raw_bytes)
+        file_path = save_image(avatar_bytes)
+        avatar_url = file_path_to_url(file_path)
 
     current_user.avatar_url = avatar_url
     db.commit()

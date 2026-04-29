@@ -289,14 +289,17 @@ def set_character_avatar(
         if (img.metadata_json or {}).get("is_temp", False):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
 
-    source_path = Path(__file__).resolve().parent.parent.parent.parent / img.file_path.lstrip("/")
-    if not source_path.exists():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Source image file not found on disk")
-
-    raw_bytes = source_path.read_bytes()
-    avatar_bytes = _crop_to_square(raw_bytes)
-    file_path = save_image(avatar_bytes)
-    avatar_url = file_path_to_url(file_path)
+    if img.file_path.startswith(("http://", "https://")):
+        # R2-hosted image: use the URL directly, no local disk read needed.
+        avatar_url = img.file_path
+    else:
+        source_path = Path(__file__).resolve().parent.parent.parent.parent / img.file_path.lstrip("/")
+        if not source_path.exists():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Source image file not found on disk")
+        raw_bytes = source_path.read_bytes()
+        avatar_bytes = _crop_to_square(raw_bytes)
+        file_path = save_image(avatar_bytes)
+        avatar_url = file_path_to_url(file_path)
 
     character.avatar_url = avatar_url
     db.commit()
@@ -341,11 +344,9 @@ def set_character_cover(
         if (img.metadata_json or {}).get("is_temp", False):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
 
-    # Use the original image file directly as the cover URL.
-    # CSS object-fit:cover + object-position handles all positioning at render time,
-    # so a pre-crop is not needed and actively breaks WYSIWYG (the editor shows the
-    # original image while the profile would show a different pre-cropped derivative).
-    cover_url = f"/{img.file_path.lstrip('/')}"
+    # Use the original image directly as the cover URL.
+    # CSS object-fit:cover + object-position handles all positioning at render time.
+    cover_url = file_path_to_url(img.file_path)
 
     character.cover_url = cover_url
     character.cover_position_y = req.cover_position_y
