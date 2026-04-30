@@ -206,25 +206,40 @@ def _load_anchor_images(
     loaded_bytes: list[bytes] = []
     loaded_keys: list[str] = []
 
+    logger.info(
+        "DIAG anchor_load_start character_id=%s anchors_in_json=%s",
+        character_id,
+        list(anchors.keys()),
+    )
+
     for key in _ANCHOR_LOAD_ORDER:
         entry = anchors.get(key)
         if not entry:
+            logger.info("DIAG anchor_skip character_id=%s key=%s reason=not_in_json", character_id, key)
             continue
         url = entry.get("url", "")
         if not url:
+            logger.info("DIAG anchor_skip character_id=%s key=%s reason=empty_url", character_id, key)
             continue
+        logger.info("DIAG anchor_attempt character_id=%s key=%s url=%s", character_id, key, url)
         try:
             img_bytes = load_image_bytes(url)
             loaded_bytes.append(img_bytes)
             loaded_keys.append(key)
-        except Exception:
+            logger.info(
+                "DIAG anchor_loaded character_id=%s key=%s bytes=%d",
+                character_id, key, len(img_bytes),
+            )
+        except Exception as _exc:
             logger.warning(
-                "anchor_image_load_failed character_id=%s key=%s url=%s",
-                character_id,
-                key,
-                url,
+                "DIAG anchor_load_failed character_id=%s key=%s url=%s error=%r",
+                character_id, key, url, str(_exc),
             )
 
+    logger.info(
+        "DIAG anchor_load_done character_id=%s loaded=%d/%d keys=%s",
+        character_id, len(loaded_bytes), len(anchors), loaded_keys,
+    )
     return loaded_bytes, loaded_keys
 
 
@@ -401,12 +416,26 @@ def generate_image(
             .order_by(CharacterImage.created_at.desc())
             .first()
         )
-        if face_ref_img is not None:
+        if face_ref_img is None:
+            logger.info(
+                "DIAG face_ref_missing character_id=%s name=%r — no IDENTITY_FACE_REF in DB",
+                character_id, character.name,
+            )
+        else:
+            logger.info(
+                "DIAG face_ref_found character_id=%s name=%r file_path=%s",
+                character_id, character.name, face_ref_img.file_path,
+            )
             try:
                 face_ref_bytes = load_image_bytes(face_ref_img.file_path)
-            except Exception:
+                logger.info(
+                    "DIAG face_ref_loaded character_id=%s bytes=%d",
+                    character_id, len(face_ref_bytes),
+                )
+            except Exception as _fre:
                 logger.warning(
-                    "image_generator face_ref_load_failed character_id=%s", character_id
+                    "DIAG face_ref_load_failed character_id=%s file_path=%s error=%r",
+                    character_id, face_ref_img.file_path, str(_fre),
                 )
 
     provider_prompt = base_prompt[:800]
@@ -431,6 +460,14 @@ def generate_image(
 
     # ── B18/B19 STRICT IDENTITY MODE (include_character=True) ─────
     if body.include_character:
+        logger.info(
+            "DIAG identity_mode_enter character_id=%s name=%r provider=%s "
+            "face_ref_available=%s anchor_json_present=%s",
+            character_id, character.name, resolved_provider_name,
+            face_ref_bytes is not None,
+            character.identity_anchor_json is not None,
+        )
+
         # B19: load actual anchor images from disk
         anchor_images, anchor_types = _load_anchor_images(
             anchor_data,  # type: ignore[arg-type]
@@ -443,6 +480,17 @@ def generate_image(
         anchor_images, anchor_types = _prioritise_face_anchors(anchor_images, anchor_types)
 
         provider_supports_multi = getattr(provider, "supports_multi_image_input", False)
+        logger.info(
+            "DIAG strict_identity_state character_id=%s provider=%s "
+            "anchors_loaded=%d anchor_types=%s multi_image_supported=%s "
+            "face_ref_bytes=%s",
+            character_id,
+            resolved_provider_name,
+            len(anchor_images),
+            anchor_types,
+            provider_supports_multi,
+            f"{len(face_ref_bytes)}b" if face_ref_bytes else "None",
+        )
         logger.info(
             "strict_identity_enabled character_id=%s provider=%s "
             "anchors_loaded=%d anchor_types=%s multi_image_supported=%s",
@@ -478,6 +526,7 @@ def generate_image(
 
         # Tier 1: multi-image anchor conditioning (B19)
         if provider_supports_multi and anchor_images:
+            logger.info("DIAG tier1_attempt character_id=%s anchor_count=%d", character_id, len(anchor_images))
             try:
                 png_bytes = provider.generate_with_anchors(
                     prompt=strict_prompt,
@@ -485,13 +534,24 @@ def generate_image(
                 )
                 actual_provider_name = resolved_provider_name
                 multi_image_used = True
-            except (ValueError, RuntimeError, NotImplementedError):
+                logger.info("DIAG tier1_success character_id=%s", character_id)
+            except (ValueError, RuntimeError, NotImplementedError) as _t1e:
+                logger.warning(
+                    "DIAG tier1_failed character_id=%s provider=%s error=%r",
+                    character_id, resolved_provider_name, str(_t1e),
+                )
                 logger.info(
                     "anchor_multi_image_failed attempt=1 character_id=%s provider=%s",
                     character_id,
                     resolved_provider_name,
                 )
         else:
+            logger.info(
+                "DIAG tier1_skip character_id=%s reason=%s anchors=%d",
+                character_id,
+                "multi_image_not_supported" if not provider_supports_multi else "no_anchors",
+                len(anchor_images),
+            )
             logger.info(
                 "anchor_conditioning_fallback character_id=%s "
                 "reason=multi_image_not_supported anchors_available=%d using=face_ref",
@@ -501,6 +561,7 @@ def generate_image(
 
         # Tier 2: single-image grounded (face-ref crop)
         if png_bytes is None and face_ref_bytes is not None:
+            logger.info("DIAG tier2_attempt character_id=%s face_ref_bytes=%d", character_id, len(face_ref_bytes))
             try:
                 png_bytes = provider.generate_grounded_image(
                     prompt=strict_prompt,
@@ -508,19 +569,35 @@ def generate_image(
                 )
                 actual_provider_name = resolved_provider_name
                 used_face_ref = True
-            except (ValueError, RuntimeError, NotImplementedError):
+                logger.info("DIAG tier2_success character_id=%s", character_id)
+            except (ValueError, RuntimeError, NotImplementedError) as _t2e:
+                logger.warning(
+                    "DIAG tier2_failed character_id=%s provider=%s error=%r",
+                    character_id, resolved_provider_name, str(_t2e),
+                )
                 logger.info(
                     "strict_identity_grounded_failed attempt=1 character_id=%s provider=%s",
                     character_id,
                     resolved_provider_name,
                 )
+        elif png_bytes is None:
+            logger.info(
+                "DIAG tier2_skip character_id=%s reason=face_ref_not_available",
+                character_id,
+            )
 
         # Tier 3: text-only strict (no image reference available)
         if png_bytes is None:
+            logger.info("DIAG tier3_attempt character_id=%s text_only_fallback=TRUE", character_id)
             try:
                 png_bytes = provider.generate_image(prompt=strict_prompt)
                 actual_provider_name = resolved_provider_name
-            except (ValueError, RuntimeError):
+                logger.info("DIAG tier3_success character_id=%s WARNING=text_only_no_identity_grounding", character_id)
+            except (ValueError, RuntimeError) as _t3e:
+                logger.warning(
+                    "DIAG tier3_failed character_id=%s provider=%s error=%r",
+                    character_id, resolved_provider_name, str(_t3e),
+                )
                 logger.info(
                     "strict_identity_text_failed attempt=1 character_id=%s provider=%s",
                     character_id,
@@ -540,6 +617,7 @@ def generate_image(
             )
 
             if provider_supports_multi and anchor_images:
+                logger.info("DIAG retry_tier1_attempt character_id=%s", character_id)
                 try:
                     png_bytes = provider.generate_with_anchors(
                         prompt=retry_prompt,
@@ -547,7 +625,11 @@ def generate_image(
                     )
                     actual_provider_name = resolved_provider_name
                     multi_image_used = True
-                except (ValueError, RuntimeError, NotImplementedError):
+                    logger.info("DIAG retry_tier1_success character_id=%s", character_id)
+                except (ValueError, RuntimeError, NotImplementedError) as _r1e:
+                    logger.warning(
+                        "DIAG retry_tier1_failed character_id=%s error=%r", character_id, str(_r1e),
+                    )
                     logger.info(
                         "anchor_multi_image_failed attempt=2 character_id=%s provider=%s",
                         character_id,
@@ -555,6 +637,7 @@ def generate_image(
                     )
 
             if png_bytes is None and face_ref_bytes is not None:
+                logger.info("DIAG retry_tier2_attempt character_id=%s", character_id)
                 try:
                     png_bytes = provider.generate_grounded_image(
                         prompt=retry_prompt,
@@ -562,7 +645,11 @@ def generate_image(
                     )
                     actual_provider_name = resolved_provider_name
                     used_face_ref = True
-                except (ValueError, RuntimeError, NotImplementedError):
+                    logger.info("DIAG retry_tier2_success character_id=%s", character_id)
+                except (ValueError, RuntimeError, NotImplementedError) as _r2e:
+                    logger.warning(
+                        "DIAG retry_tier2_failed character_id=%s error=%r", character_id, str(_r2e),
+                    )
                     logger.info(
                         "strict_identity_grounded_failed attempt=2 character_id=%s provider=%s",
                         character_id,
@@ -570,10 +657,15 @@ def generate_image(
                     )
 
             if png_bytes is None:
+                logger.info("DIAG retry_tier3_attempt character_id=%s text_only_fallback=TRUE", character_id)
                 try:
                     png_bytes = provider.generate_image(prompt=retry_prompt)
                     actual_provider_name = resolved_provider_name
-                except (ValueError, RuntimeError):
+                    logger.info("DIAG retry_tier3_success character_id=%s WARNING=text_only_no_grounding", character_id)
+                except (ValueError, RuntimeError) as _r3e:
+                    logger.warning(
+                        "DIAG retry_tier3_failed character_id=%s error=%r", character_id, str(_r3e),
+                    )
                     logger.info(
                         "strict_identity_text_failed attempt=2 character_id=%s provider=%s",
                         character_id,
