@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.core.storage import save_image
+from app.core.storage import save_image, load_image_bytes
 from app.models.user import User
 from app.services.image_quota import check_weekly_quota
 from app.models.character import Character as CharacterModel
@@ -193,9 +193,10 @@ def _load_anchor_images(
     anchor_data: dict,
     character_id: int,
 ) -> tuple[list[bytes], list[str]]:
-    """Load identity anchor images from disk in preferred order (B19).
+    """Load identity anchor images in preferred order (B19).
 
-    Preferred order: front → three_quarter → torso → full_body.
+    Works for both R2 (https://...) and local (/static/generated/...) URLs
+    via load_image_bytes.  Preferred order: front → three_quarter → torso → full_body.
 
     Returns:
         (loaded_bytes, loaded_type_keys) — parallel lists.
@@ -212,19 +213,16 @@ def _load_anchor_images(
         url = entry.get("url", "")
         if not url:
             continue
-        # URL format: "/static/generated/xxx.png" → filename "xxx.png"
-        filename = Path(url.lstrip("/")).name
-        abs_path = _GENERATED_DIR / filename
         try:
-            img_bytes = abs_path.read_bytes()
+            img_bytes = load_image_bytes(url)
             loaded_bytes.append(img_bytes)
             loaded_keys.append(key)
         except Exception:
             logger.warning(
-                "anchor_image_load_failed character_id=%s key=%s path=%s",
+                "anchor_image_load_failed character_id=%s key=%s url=%s",
                 character_id,
                 key,
-                str(abs_path),
+                url,
             )
 
     return loaded_bytes, loaded_keys
@@ -405,8 +403,7 @@ def generate_image(
         )
         if face_ref_img is not None:
             try:
-                _face_abs = _GENERATED_DIR / Path(face_ref_img.file_path).name
-                face_ref_bytes = _face_abs.read_bytes()
+                face_ref_bytes = load_image_bytes(face_ref_img.file_path)
             except Exception:
                 logger.warning(
                     "image_generator face_ref_load_failed character_id=%s", character_id

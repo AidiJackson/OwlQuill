@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_user_optional
-from app.core.storage import save_image, file_path_to_url
+from app.core.storage import save_image, file_path_to_url, load_image_bytes
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_dna import CharacterDNA
@@ -1337,8 +1337,7 @@ def accept_identity_pack(
     )
     if _front_for_ref is not None:
         try:
-            _front_abs = _GENERATED_DIR / Path(_front_for_ref.file_path).name
-            _front_raw = _front_abs.read_bytes()
+            _front_raw = load_image_bytes(_front_for_ref.file_path)
             _face_ref_bytes = _crop_face_reference(_front_raw)
             _face_ref_path = save_image(_face_ref_bytes)
             _face_ref_img = CharacterImage(

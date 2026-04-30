@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.core.storage import save_image
+from app.core.storage import save_image, load_image_bytes
 from app.models.user import User
 from app.models.character import Character as CharacterModel
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
@@ -145,8 +145,7 @@ def generate_scene_image(
     )
     if face_ref_img is not None:
         try:
-            _face_abs = _GENERATED_DIR / Path(face_ref_img.file_path).name
-            face_ref_bytes = _face_abs.read_bytes()
+            face_ref_bytes = load_image_bytes(face_ref_img.file_path)
         except Exception:
             logger.warning(
                 "scene_image face_ref_load_failed character_id=%s", character_id

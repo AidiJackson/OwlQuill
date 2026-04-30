@@ -58,3 +58,21 @@ def file_path_to_url(file_path: str) -> str:
         return file_path
     path = file_path.lstrip("/")
     return f"/{path}" if path.startswith("static/") else f"/static/{path}"
+
+
+def load_image_bytes(file_path: str) -> bytes:
+    """Load image bytes from a stored file_path — works for R2 URLs and local paths.
+
+    R2 mode  — file_path is https://...: fetches via HTTP GET (30 s timeout).
+    Local mode — file_path is static/generated/... or a bare filename:
+                 resolves the filename and reads from _GENERATED_DIR.
+
+    Raises urllib.error.URLError on network failure or OSError on missing
+    local file.  Callers are responsible for catching and logging.
+    """
+    if file_path.startswith(("http://", "https://")):
+        import urllib.request
+        with urllib.request.urlopen(file_path, timeout=30) as resp:  # noqa: S310
+            return resp.read()
+    filename = Path(file_path.lstrip("/")).name
+    return (_GENERATED_DIR / filename).read_bytes()
