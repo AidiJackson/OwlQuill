@@ -63,16 +63,81 @@ def file_path_to_url(file_path: str) -> str:
 def load_image_bytes(file_path: str) -> bytes:
     """Load image bytes from a stored file_path — works for R2 URLs and local paths.
 
-    R2 mode  — file_path is https://...: fetches via HTTP GET (30 s timeout).
-    Local mode — file_path is static/generated/... or a bare filename:
-                 resolves the filename and reads from _GENERATED_DIR.
+    R2 mode (USE_OBJECT_STORAGE=true) — file_path is https://...:
+        Downloads via authenticated boto3 S3 GetObject so Cloudflare/R2
+        access-control never produces a 403.  Anonymous HTTP GET is NOT used
+        because R2 public-URL access is blocked for server-side requests.
 
-    Raises urllib.error.URLError on network failure or OSError on missing
-    local file.  Callers are responsible for catching and logging.
+    Local mode — file_path is static/generated/... or a bare filename:
+        Resolves the filename and reads from _GENERATED_DIR on disk.
+
+    Raises RuntimeError (R2 failure) or OSError (local missing file).
+    Callers are responsible for catching and logging.
     """
     if file_path.startswith(("http://", "https://")):
-        import urllib.request
-        with urllib.request.urlopen(file_path, timeout=30) as resp:  # noqa: S310
-            return resp.read()
+        from app.core.config import settings  # lazy to avoid circular
+        if settings.USE_OBJECT_STORAGE:
+            return _load_from_r2(file_path)
+        # Non-R2 public URL (e.g. legacy CDN) — plain HTTP with browser UA
+        return _load_from_http(file_path)
     filename = Path(file_path.lstrip("/")).name
     return (_GENERATED_DIR / filename).read_bytes()
+
+
+def _r2_client():
+    """Return a boto3 S3 client configured for Cloudflare R2."""
+    import boto3
+    return boto3.client(
+        "s3",
+        endpoint_url=f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        region_name="auto",
+    )
+
+
+def _load_from_r2(url: str) -> bytes:
+    """Download an object from R2 using authenticated S3 GetObject.
+
+    Derives the object key from the URL by stripping the R2_PUBLIC_URL
+    prefix.  Falls back to extracting just the filename under generated/
+    if the URL prefix doesn't match (e.g. after a bucket migration).
+
+    Raises RuntimeError with HTTP status detail on failure.
+    """
+    import logging
+    _log = logging.getLogger(__name__)
+
+    r2_public_url = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
+    if r2_public_url and url.startswith(r2_public_url + "/"):
+        key = url[len(r2_public_url) + 1:]
+    else:
+        # Fallback: assume the object lives under generated/<filename>
+        key = "generated/" + Path(url).name
+
+    _log.info("r2_load_attempt key=%s", key)
+    try:
+        s3 = _r2_client()
+        resp = s3.get_object(Bucket=os.environ["R2_BUCKET_NAME"], Key=key)
+        data: bytes = resp["Body"].read()
+        _log.info("r2_load_success key=%s bytes=%d", key, len(data))
+        return data
+    except Exception as exc:
+        # Log the full S3 error code and message so operators can act on it.
+        http_status = getattr(getattr(exc, "response", None), "get", lambda *_: None)("Error", {}).get("Code", "?")
+        _log.error(
+            "r2_load_failed key=%s error=%r http_code=%s",
+            key, str(exc), http_status,
+        )
+        raise RuntimeError(f"R2 download failed for key={key!r}: {exc}") from exc
+
+
+def _load_from_http(url: str) -> bytes:
+    """HTTP GET with a browser-compatible User-Agent (non-R2 fallback only)."""
+    import urllib.request
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; Ficshon/1.0)"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+        return resp.read()

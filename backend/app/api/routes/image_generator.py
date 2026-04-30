@@ -474,6 +474,28 @@ def generate_image(
             character_id,
         )
 
+        # ── Identity reference gate ───────────────────────────────────
+        # If the character has identity anchors stored in JSON but none could
+        # be loaded, do NOT silently proceed to text-only generation — that
+        # produces a wrong face and destroys identity.  Fail loudly so the
+        # operator/user knows there is a storage access problem.
+        _anchors_in_json = anchor_data.get("anchors") or {}
+        if _anchors_in_json and not anchor_images and face_ref_bytes is None:
+            logger.error(
+                "identity_reference_gate_failed character_id=%s name=%r "
+                "anchors_in_json=%d anchors_loaded=0 face_ref=None "
+                "— refusing text-only fallback to prevent wrong-face output",
+                character_id, character.name, len(_anchors_in_json),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Character image generation failed: identity reference images "
+                    "could not be loaded from storage. This prevents generating an "
+                    "image with the wrong face. Please try again or contact support."
+                ),
+            )
+
         # B21: boost face anchor signal — duplicate front anchor for stronger conditioning.
         # Tracked separately so metadata accurately reflects the boost.
         _face_anchor_boosted = "front" in anchor_types
