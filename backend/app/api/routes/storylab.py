@@ -505,7 +505,7 @@ def _run_chapter_generation(
     req: ChapterGenerateRequest,
     db: Session,
     canon_correction_note: str = "",
-) -> tuple[str, list[str], dict[str, Any] | None]:
+) -> tuple[str, list[str], dict[str, Any] | None, dict[str, Any]]:
     """Shared generation logic: fetch state, get previous chapter, call generator.
 
     canon_correction_note — when non-empty, prepended to the user prompt so the
@@ -1216,6 +1216,9 @@ def generate_chapter_endpoint(
     # by _run_chapter_generation as its 4th element and used as fallback.
     _pre_state = _get_or_create_state(story_id, db)
     _pre_memory: dict[str, Any] = (_pre_state.state_json or {}).get("memory") or {}
+    # Snapshot pre-generation state_json so we can restore it before any retry,
+    # preventing double state-delta application for a single saved chapter.
+    _pre_state_json_snapshot: dict[str, Any] = dict(_pre_state.state_json or {})
 
     try:
         chapter_text, suggestions, model_deltas, _post_memory = _run_chapter_generation(story_id, req, db)
@@ -1267,6 +1270,10 @@ def generate_chapter_endpoint(
                 "All characters confirmed alive in canon must remain alive in this chapter."
             )
             try:
+                # Restore pre-generation state before retry to prevent double
+                # state-delta application for a single chapter.
+                _pre_state.state_json = _pre_state_json_snapshot
+                db.add(_pre_state)
                 chapter_text, suggestions, model_deltas, _post_memory = _run_chapter_generation(
                     story_id, req, db, canon_correction_note=correction_note
                 )
