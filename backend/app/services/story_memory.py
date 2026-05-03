@@ -104,6 +104,17 @@ def seed_memory_from_story_creation(
         memory["canon"]["forbidden_contradictions"].append(
             f"Do not kill or erase {name} unless the current user prompt explicitly instructs it."
         )
+        # Explicit death-phrase forbidden list so the injection block names them concretely
+        for death_phrase in (
+            f"{name} is dead",
+            f"{name} died",
+            f"{name} was killed",
+            f"the late {name}",
+            f"{name} had died",
+        ):
+            memory["canon"]["forbidden_contradictions"].append(
+                f'Never write: "{death_phrase}"'
+            )
 
     logger.info(
         "[STORY-MEMORY] Seeded from story creation | title=%r genre=%r "
@@ -139,7 +150,14 @@ def build_canon_injection_block(memory: dict[str, Any]) -> str:
         return ""
 
     sep = "═" * 55
-    lines: list[str] = [sep, "STORY CANON — DO NOT CONTRADICT ANYTHING IN THIS BLOCK", sep]
+    lines: list[str] = [
+        sep,
+        "STORY CANON — DO NOT CONTRADICT ANYTHING IN THIS BLOCK",
+        sep,
+        "Hard canon is absolute. Do not contradict it, reinterpret it, kill living "
+        "characters, resurrect dead ones, or change parentage unless the user's current "
+        "prompt explicitly instructs the change.",
+    ]
 
     if hard_truths:
         lines.append("")
@@ -233,6 +251,31 @@ _DEATH_PHRASES = (
     "{name} perished",
     "{name} was murdered",
     "{name} was slain",
+    "{name} was dead",
+    "{name} had died",
+    "{name} has died",
+    "{name} is gone",
+    "killed {name}",
+    "{name} lay dead",
+    "{name} lies dead",
+)
+
+_LATE_TITLE_PHRASES = (
+    "the late {name}",
+    "late {name}",
+    "deceased {name}",
+)
+
+_PRONOUN_DEATH_PHRASES = (
+    "his dead {role}",
+    "her dead {role}",
+    "their dead {role}",
+    "his deceased {role}",
+    "her deceased {role}",
+    "their deceased {role}",
+    "his late {role}",
+    "her late {role}",
+    "their late {role}",
 )
 
 _TRANSFORMATION_PHRASES = (
@@ -252,6 +295,11 @@ def check_for_contradictions(
 
     Returns a list of human-readable contradiction descriptions.
     Empty list means no obvious violations were detected.
+
+    Checks two surfaces:
+    1. canon.hard_truths for "X is alive" facts.
+    2. characters[name]["current_status"] containing "alive".
+    Both trigger death-phrase, late-title, and pronoun-pattern scans.
     """
     if not generated_text or not memory or not isinstance(memory, dict):
         return []
@@ -259,34 +307,109 @@ def check_for_contradictions(
     contradictions: list[str] = []
     text_lower = generated_text.lower()
 
-    # Hard truths — scan for character death contradictions
+    def _check_alive_name(char_name_raw: str, source_label: str) -> None:
+        """Fire all death-pattern checks for a character confirmed alive."""
+        name_lower = char_name_raw.lower()
+        for pattern in _DEATH_PHRASES:
+            phrase = pattern.format(name=name_lower)
+            if phrase in text_lower:
+                contradictions.append(
+                    f"Hard canon violated ({source_label}): '{char_name_raw} is alive'"
+                    f" — generated text appears to kill them (matched: '{phrase}')"
+                )
+                return
+        for pattern in _LATE_TITLE_PHRASES:
+            phrase = pattern.format(name=name_lower)
+            if phrase in text_lower:
+                contradictions.append(
+                    f"Hard canon violated ({source_label}): '{char_name_raw} is alive'"
+                    f" — generated text uses death-title phrasing (matched: '{phrase}')"
+                )
+                return
+
+    def _check_pronoun_patterns(char_name_raw: str, relationships: list[dict]) -> None:
+        """Check pronoun+role death patterns (e.g. 'his dead father') when the
+        character is stored as a parent/family role in relationships."""
+        name_lower = char_name_raw.lower()
+        family_roles: list[str] = []
+        for rel in relationships:
+            if not isinstance(rel, dict):
+                continue
+            a = str(rel.get("a", "")).lower()
+            b = str(rel.get("b", "")).lower()
+            status = str(rel.get("status", "")).lower()
+            if name_lower in (a, b) and any(w in status for w in ("father", "mother", "parent", "family")):
+                family_roles.extend(["father", "mother", "parent"])
+        for role in set(family_roles):
+            for pattern in _PRONOUN_DEATH_PHRASES:
+                phrase = pattern.format(role=role)
+                if phrase in text_lower:
+                    contradictions.append(
+                        f"Hard canon violated (pronoun pattern): '{char_name_raw} is alive'"
+                        f" — generated text references them as dead via '{phrase}'"
+                    )
+                    return
+
+    # ── Surface 1: hard_truths "X is alive" ──────────────────────────────────
     for ht in memory.get("canon", {}).get("hard_truths", []):
         ht_lower = ht.lower()
         if " is alive" not in ht_lower:
             continue
-        # Extract character name: "X is alive..." → "X"
-        char_name_lower = ht_lower.split(" is alive")[0].strip()
-        # Skip premise-seeded truths
-        if char_name_lower.startswith("story premise:"):
+        char_name_raw = ht.split(" is alive")[0].strip()
+        if char_name_raw.lower().startswith("story premise:"):
             continue
-        for pattern in _DEATH_PHRASES:
-            phrase = pattern.format(name=char_name_lower)
-            if phrase in text_lower:
-                contradictions.append(
-                    f"Hard truth violated: '{ht}' — generated text appears to kill {char_name_lower}"
-                )
-                break
+        _check_alive_name(char_name_raw, "hard_truths")
+        _check_pronoun_patterns(char_name_raw, memory.get("relationships", []))
 
-    # Character core-nature drift — check for generic transformation tropes
+    # ── Surface 2: characters[name]["current_status"] containing "alive" ─────
     characters_mem = memory.get("characters", {})
+    already_checked_lower: set[str] = set()
+
+    # Collect names already covered by hard_truths to avoid duplicate entries
+    for ht in memory.get("canon", {}).get("hard_truths", []):
+        if " is alive" in ht.lower():
+            already_checked_lower.add(ht.lower().split(" is alive")[0].strip())
+
     for char_name, char_data in characters_mem.items():
         if not isinstance(char_data, dict):
             continue
         name_lower = char_name.lower()
+        status_list = char_data.get("current_status", [])
+        if not isinstance(status_list, list):
+            continue
+        is_alive = any("alive" in str(s).lower() for s in status_list)
+        if not is_alive:
+            continue
+        if name_lower not in already_checked_lower:
+            _check_alive_name(char_name, "character_status")
+            _check_pronoun_patterns(char_name, memory.get("relationships", []))
+
+        # Character core-nature drift — check for generic transformation tropes
         traits = char_data.get("abilities_or_traits", [])
         for trait in traits:
             trait_lower = str(trait).lower()
-            # If a character has an "echo" or unique supernatural effect, check for transformation drift
+            if any(kw in trait_lower for kw in ("echo", "supernatural effect", "echo-like")):
+                for pattern in _TRANSFORMATION_PHRASES:
+                    phrase = pattern.format(name=name_lower)
+                    if phrase in text_lower:
+                        contradictions.append(
+                            f"Mechanic drift detected: {char_name} has trait '{trait}' "
+                            f"but generated text suggests generic werewolf transformation"
+                        )
+                        break
+
+    # Character core-nature drift for characters NOT in character_status loop
+    for char_name, char_data in characters_mem.items():
+        if not isinstance(char_data, dict):
+            continue
+        name_lower = char_name.lower()
+        status_list = char_data.get("current_status", [])
+        is_alive = isinstance(status_list, list) and any("alive" in str(s).lower() for s in status_list)
+        if is_alive:
+            continue
+        traits = char_data.get("abilities_or_traits", [])
+        for trait in traits:
+            trait_lower = str(trait).lower()
             if any(kw in trait_lower for kw in ("echo", "supernatural effect", "echo-like")):
                 for pattern in _TRANSFORMATION_PHRASES:
                     phrase = pattern.format(name=name_lower)
@@ -539,10 +662,40 @@ def _apply_memory_updates(memory: dict[str, Any], updates: dict[str, Any]) -> No
             }
         existing_char = memory["characters"][char_name]
 
-        # current_status is replaced (it's the present state, not accumulated history)
+        # current_status is replaced (it's the present state, not accumulated history).
+        # PROTECTION: never allow the LLM memory extractor to downgrade an "alive"
+        # character to a death-indicating status unless hard_truths already contain
+        # a death fact for this character. This prevents bad chapters from poisoning
+        # future generation by overwriting living status.
         new_status = char_updates.get("current_status", [])
         if new_status and isinstance(new_status, list):
-            existing_char["current_status"] = [str(s).strip() for s in new_status[:2] if str(s).strip()]
+            new_status_strs = [str(s).strip().lower() for s in new_status[:2] if str(s).strip()]
+            _DEATH_STATUS_WORDS = {"dead", "deceased", "killed", "died", "perished", "slain", "murdered"}
+            is_downgrade = any(
+                any(dw in s for dw in _DEATH_STATUS_WORDS) for s in new_status_strs
+            )
+            was_alive = any("alive" in s for s in (str(v).lower() for v in existing_char.get("current_status", [])))
+            if is_downgrade and was_alive:
+                # Only allow if a death hard truth already exists for this character
+                existing_hard_truths = memory.get("canon", {}).get("hard_truths", [])
+                name_lower_chk = char_name.lower()
+                death_already_in_canon = any(
+                    name_lower_chk in ht.lower() and any(
+                        dw in ht.lower() for dw in _DEATH_STATUS_WORDS
+                    )
+                    for ht in existing_hard_truths
+                )
+                if not death_already_in_canon:
+                    logger.warning(
+                        "[STORY-MEMORY-CONTRADICTION] LLM attempted to downgrade living "
+                        "character '%s' status from %r to %r — rejected (no death hard truth found).",
+                        char_name, existing_char.get("current_status"), new_status_strs,
+                    )
+                    # Keep existing alive status — do not overwrite
+                else:
+                    existing_char["current_status"] = new_status_strs
+            else:
+                existing_char["current_status"] = new_status_strs
 
         # All other fields append new unique values
         for field in ("identity", "abilities_or_traits", "goals", "growth", "secrets"):

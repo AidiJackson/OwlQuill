@@ -504,8 +504,13 @@ def _run_chapter_generation(
     story_id: str,
     req: ChapterGenerateRequest,
     db: Session,
+    canon_correction_note: str = "",
 ) -> tuple[str, list[str], dict[str, Any] | None]:
-    """Shared generation logic: fetch state, get previous chapter, call generator."""
+    """Shared generation logic: fetch state, get previous chapter, call generator.
+
+    canon_correction_note — when non-empty, prepended to the user prompt so the
+    model is given explicit guidance to correct a prior canon contradiction.
+    """
     state_row = _get_or_create_state(story_id, db)
     current_state: dict[str, Any] = dict(state_row.state_json or _DEFAULT_STATE)
 
@@ -546,8 +551,12 @@ def _run_chapter_generation(
         len(canon_memory.get("open_threads") or []),
     )
 
+    effective_prompt = req.prompt or ""
+    if canon_correction_note:
+        effective_prompt = (canon_correction_note + "\n\n" + effective_prompt).strip()
+
     chapter_text, suggestions, model_deltas = generate_chapter(
-        prompt=req.prompt,
+        prompt=effective_prompt,
         controls=req.controls,
         state_json=current_state,
         summary=state_row.story_summary or "",
@@ -1202,6 +1211,10 @@ def generate_chapter_endpoint(
         if used >= limit:
             raise _storylab_quota_error(used, limit)
 
+    # Capture pre-generation canon memory for contradiction checking
+    _pre_state = _get_or_create_state(story_id, db)
+    _pre_memory: dict[str, Any] = (_pre_state.state_json or {}).get("memory") or {}
+
     try:
         chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
     except HTTPException:
@@ -1232,6 +1245,58 @@ def generate_chapter_endpoint(
 
     word_count = len(chapter_text.split())
     chapter_number = _get_next_chapter_number(story_id, db)
+
+    # ── Blocking canon contradiction check — BEFORE db.commit() ───────────────
+    if _pre_memory:
+        contradictions = check_for_contradictions(chapter_text, _pre_memory)
+        if contradictions:
+            logger.warning(
+                "[STORY-CANON-AUDIT] story_id=%s chapter=%d contradictions_found=%d "
+                "— attempting correction retry. details=%s",
+                story_id, chapter_number, len(contradictions), contradictions,
+            )
+            correction_note = (
+                "CANON CORRECTION REQUIRED: The previous generation attempt violated hard canon. "
+                "Specifically: " + "; ".join(contradictions[:3]) + ". "
+                "Regenerate this chapter without these violations. "
+                "All characters confirmed alive in canon must remain alive in this chapter."
+            )
+            try:
+                chapter_text, suggestions, model_deltas = _run_chapter_generation(
+                    story_id, req, db, canon_correction_note=correction_note
+                )
+                retry_contradictions = check_for_contradictions(chapter_text, _pre_memory)
+                if retry_contradictions:
+                    logger.error(
+                        "[STORY-CANON-AUDIT] story_id=%s chapter=%d retry_also_violated=%d "
+                        "— refusing to save chapter. details=%s",
+                        story_id, chapter_number, len(retry_contradictions), retry_contradictions,
+                    )
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "error": "canon_contradiction",
+                            "detail": (
+                                "Generated chapter contradicts hard canon and could not be "
+                                "corrected automatically. Please adjust your prompt and try again."
+                            ),
+                            "contradictions": retry_contradictions,
+                        },
+                    )
+                else:
+                    logger.info(
+                        "[STORY-CANON-AUDIT] story_id=%s chapter=%d correction_retry_succeeded.",
+                        story_id, chapter_number,
+                    )
+                    word_count = len(chapter_text.split())
+            except HTTPException:
+                raise
+            except Exception as retry_exc:
+                logger.warning(
+                    "[STORY-CANON-AUDIT] story_id=%s chapter=%d retry_generation_failed: %s "
+                    "— proceeding with original (imperfect) chapter.",
+                    story_id, chapter_number, retry_exc,
+                )
 
     controls_snapshot = {
         "direction": req.controls.direction,
