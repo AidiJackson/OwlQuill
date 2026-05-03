@@ -583,7 +583,7 @@ def _run_chapter_generation(
     state_row.updated_at = datetime.utcnow()
     db.add(state_row)
 
-    return chapter_text, suggestions, model_deltas
+    return chapter_text, suggestions, model_deltas, canon_memory
 
 
 def _has_memory_content(memory: dict[str, Any]) -> bool:
@@ -1211,12 +1211,14 @@ def generate_chapter_endpoint(
         if used >= limit:
             raise _storylab_quota_error(used, limit)
 
-    # Capture pre-generation canon memory for contradiction checking
+    # Capture pre-generation canon memory for contradiction checking.
+    # For first chapters this will be empty; the seeded memory is returned
+    # by _run_chapter_generation as its 4th element and used as fallback.
     _pre_state = _get_or_create_state(story_id, db)
     _pre_memory: dict[str, Any] = (_pre_state.state_json or {}).get("memory") or {}
 
     try:
-        chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+        chapter_text, suggestions, model_deltas, _post_memory = _run_chapter_generation(story_id, req, db)
     except HTTPException:
         raise
     except Exception as exc:
@@ -1247,8 +1249,11 @@ def generate_chapter_endpoint(
     chapter_number = _get_next_chapter_number(story_id, db)
 
     # ── Blocking canon contradiction check — BEFORE db.commit() ───────────────
-    if _pre_memory:
-        contradictions = check_for_contradictions(chapter_text, _pre_memory)
+    # Use pre-memory when available (chapters 2+); fall back to the seeded
+    # post-memory for chapter 1 (where pre-memory is empty before seeding).
+    _check_memory = _pre_memory or _post_memory
+    if _check_memory:
+        contradictions = check_for_contradictions(chapter_text, _check_memory)
         if contradictions:
             logger.warning(
                 "[STORY-CANON-AUDIT] story_id=%s chapter=%d contradictions_found=%d "
@@ -1262,10 +1267,10 @@ def generate_chapter_endpoint(
                 "All characters confirmed alive in canon must remain alive in this chapter."
             )
             try:
-                chapter_text, suggestions, model_deltas = _run_chapter_generation(
+                chapter_text, suggestions, model_deltas, _post_memory = _run_chapter_generation(
                     story_id, req, db, canon_correction_note=correction_note
                 )
-                retry_contradictions = check_for_contradictions(chapter_text, _pre_memory)
+                retry_contradictions = check_for_contradictions(chapter_text, _check_memory)
                 if retry_contradictions:
                     logger.error(
                         "[STORY-CANON-AUDIT] story_id=%s chapter=%d retry_also_violated=%d "
@@ -1283,20 +1288,30 @@ def generate_chapter_endpoint(
                             "contradictions": retry_contradictions,
                         },
                     )
-                else:
-                    logger.info(
-                        "[STORY-CANON-AUDIT] story_id=%s chapter=%d correction_retry_succeeded.",
-                        story_id, chapter_number,
-                    )
-                    word_count = len(chapter_text.split())
+                logger.info(
+                    "[STORY-CANON-AUDIT] story_id=%s chapter=%d correction_retry_succeeded.",
+                    story_id, chapter_number,
+                )
+                word_count = len(chapter_text.split())
             except HTTPException:
                 raise
             except Exception as retry_exc:
-                logger.warning(
+                logger.error(
                     "[STORY-CANON-AUDIT] story_id=%s chapter=%d retry_generation_failed: %s "
-                    "— proceeding with original (imperfect) chapter.",
+                    "— refusing to save contradictory chapter.",
                     story_id, chapter_number, retry_exc,
                 )
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "canon_contradiction",
+                        "detail": (
+                            "Generated chapter contradicts hard canon. "
+                            "The correction attempt also failed. Please try again."
+                        ),
+                        "contradictions": contradictions,
+                    },
+                ) from retry_exc
 
     controls_snapshot = {
         "direction": req.controls.direction,
@@ -1395,7 +1410,7 @@ def regenerate_chapter(
             raise _storylab_quota_error(used, limit)
 
     try:
-        chapter_text, suggestions, model_deltas = _run_chapter_generation(story_id, req, db)
+        chapter_text, suggestions, model_deltas, _post_memory = _run_chapter_generation(story_id, req, db)
     except HTTPException:
         raise
     except Exception as exc:

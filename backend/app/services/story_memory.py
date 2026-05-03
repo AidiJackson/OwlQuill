@@ -101,20 +101,13 @@ def seed_memory_from_story_creation(
 
         memory["characters"][name] = entry
         memory["canon"]["hard_truths"].append(f"{name} is alive at story start.")
-        memory["canon"]["forbidden_contradictions"].append(
-            f"Do not kill or erase {name} unless the current user prompt explicitly instructs it."
-        )
-        # Explicit death-phrase forbidden list so the injection block names them concretely
-        for death_phrase in (
-            f"{name} is dead",
-            f"{name} died",
-            f"{name} was killed",
-            f"the late {name}",
-            f"{name} had died",
-        ):
+        if f"Do not kill or erase {name} unless the current user prompt explicitly instructs it." \
+                not in memory["canon"]["forbidden_contradictions"]:
             memory["canon"]["forbidden_contradictions"].append(
-                f'Never write: "{death_phrase}"'
+                f"Do not kill or erase {name} unless the current user prompt explicitly instructs it."
             )
+        # Explicit death-phrase forbidden list — uses shared helper for deduplication
+        _auto_append_alive_forbidden(memory, name)
 
     logger.info(
         "[STORY-MEMORY] Seeded from story creation | title=%r genre=%r "
@@ -696,6 +689,9 @@ def _apply_memory_updates(memory: dict[str, Any], updates: dict[str, Any]) -> No
                     existing_char["current_status"] = new_status_strs
             else:
                 existing_char["current_status"] = new_status_strs
+                # Auto-append explicit forbidden phrases when status is set to alive
+                if any("alive" in s for s in new_status_strs):
+                    _auto_append_alive_forbidden(memory, char_name)
 
         # All other fields append new unique values
         for field in ("identity", "abilities_or_traits", "goals", "growth", "secrets"):
@@ -755,6 +751,26 @@ def _apply_memory_updates(memory: dict[str, Any], updates: dict[str, Any]) -> No
             memory["recent_events"].append(e_str)
     if len(memory["recent_events"]) > 5:
         memory["recent_events"] = memory["recent_events"][-5:]
+
+
+def _auto_append_alive_forbidden(memory: dict[str, Any], char_name: str) -> None:
+    """Add explicit death-phrase forbidden entries for a living character.
+
+    Idempotent — entries are deduplicated before appending.
+    Called both from seed_memory_from_story_creation and _apply_memory_updates
+    whenever a character's current_status is confirmed as alive.
+    """
+    forbidden_list = memory.setdefault("canon", {}).setdefault("forbidden_contradictions", [])
+    for death_phrase in (
+        f"{char_name} is dead",
+        f"{char_name} died",
+        f"{char_name} was killed",
+        f"the late {char_name}",
+        f"{char_name} had died",
+    ):
+        entry = f'Never write: "{death_phrase}"'
+        if entry not in forbidden_list:
+            forbidden_list.append(entry)
 
 
 def _log_memory_counts(memory: dict[str, Any], story_id: str, action: str) -> None:

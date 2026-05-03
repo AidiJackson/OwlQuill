@@ -396,3 +396,43 @@ class TestSeedMemory:
             characters=[{"name": "Angelo Baptiste"}],
         )
         assert memory["characters"]["Angelo Baptiste"]["current_status"] == ["alive"]
+
+    def test_apply_memory_updates_auto_appends_forbidden_phrases_when_alive(self):
+        """_apply_memory_updates auto-appends forbidden death phrases when status is set to alive."""
+        from app.services.story_memory import _apply_memory_updates, _deep_copy_empty
+
+        base = _deep_copy_empty()
+        # Start with no forbidden contradictions
+        assert base["canon"]["forbidden_contradictions"] == []
+
+        updates = {
+            "character_updates": {
+                "Marco Rossi": {
+                    "current_status": ["alive"],
+                }
+            }
+        }
+        _apply_memory_updates(base, updates)
+
+        forbidden = base["canon"]["forbidden_contradictions"]
+        assert any('Never write: "Marco Rossi is dead"' in f for f in forbidden)
+        assert any('Never write: "Marco Rossi died"' in f for f in forbidden)
+        assert any('Never write: "the late Marco Rossi"' in f for f in forbidden)
+
+    def test_apply_memory_updates_forbidden_phrases_are_deduplicated(self):
+        """Calling _apply_memory_updates twice does not duplicate forbidden phrases."""
+        from app.services.story_memory import _apply_memory_updates, _deep_copy_empty
+
+        base = _deep_copy_empty()
+        updates = {
+            "character_updates": {
+                "Marco Rossi": {"current_status": ["alive"]}
+            }
+        }
+        _apply_memory_updates(base, updates)
+        count_before = len(base["canon"]["forbidden_contradictions"])
+        _apply_memory_updates(base, updates)
+        count_after = len(base["canon"]["forbidden_contradictions"])
+        assert count_after == count_before, (
+            f"Duplicate entries added: before={count_before}, after={count_after}"
+        )
