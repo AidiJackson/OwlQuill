@@ -47,6 +47,11 @@ from app.schemas.storylab import (
     StoryResponse,
     GeneratedText,
 )
+from app.services.story_memory import (
+    check_for_contradictions,
+    extract_and_merge_memory,
+    seed_memory_from_story_creation,
+)
 from app.services.storylab_generator import (
     extract_ending_phrase,
     generate_chapter,
@@ -74,6 +79,13 @@ _DEFAULT_STATE: dict[str, Any] = {
     },
     "characters": [],
     "relationships": [],
+    "memory": {
+        "canon": {"hard_truths": [], "world_rules": [], "forbidden_contradictions": []},
+        "characters": {},
+        "relationships": [],
+        "open_threads": [],
+        "recent_events": [],
+    },
 }
 
 # ── quota helpers ─────────────────────────────────────────────────────────────
@@ -309,6 +321,18 @@ def generate(
     state_row = _get_or_create_state(req.story_id, db)
     current_state: dict[str, Any] = dict(state_row.state_json or _DEFAULT_STATE)
 
+    # ── load canon memory ─────────────────────────────────────────────────────
+    canon_memory: dict[str, Any] = current_state.get("memory") or {}
+    logger.info(
+        "[STORY-MEMORY] loaded | story_id=%s hard_truths=%d characters=%d "
+        "relationships=%d open_threads=%d",
+        req.story_id,
+        len((canon_memory.get("canon") or {}).get("hard_truths", [])),
+        len(canon_memory.get("characters") or {}),
+        len(canon_memory.get("relationships") or []),
+        len(canon_memory.get("open_threads") or []),
+    )
+
     # ── fetch recent endings for anti-repetition guidance ─────────────────────
     recent_endings = _fetch_recent_endings(req.story_id, db)
 
@@ -322,6 +346,7 @@ def generate(
         story_id=req.story_id,
         recent_endings=recent_endings,
         variant=req.variant,
+        canon_memory=canon_memory or None,
     )
     word_count = len(generated_text.split())
     request_id = str(uuid.uuid4())
@@ -498,6 +523,29 @@ def _run_chapter_generation(
         _build_story_context(story_id, db)
     )
 
+    # ── Load or seed canon memory ─────────────────────────────────────────────
+    canon_memory: dict[str, Any] = current_state.get("memory") or {}
+    is_first_chapter = last_chapter is None
+    if is_first_chapter and not _has_memory_content(canon_memory):
+        # Seed memory from story creation inputs on the first chapter
+        canon_memory = seed_memory_from_story_creation(
+            title=story_title,
+            genre=story_genre,
+            premise=story_premise,
+            characters=story_characters,
+        )
+        current_state["memory"] = canon_memory
+
+    logger.info(
+        "[STORY-MEMORY] loaded | story_id=%s hard_truths=%d characters=%d "
+        "relationships=%d open_threads=%d",
+        story_id,
+        len((canon_memory.get("canon") or {}).get("hard_truths", [])),
+        len(canon_memory.get("characters") or {}),
+        len(canon_memory.get("relationships") or []),
+        len(canon_memory.get("open_threads") or []),
+    )
+
     chapter_text, suggestions, model_deltas = generate_chapter(
         prompt=req.prompt,
         controls=req.controls,
@@ -513,17 +561,31 @@ def _run_chapter_generation(
         realm_description=realm_description,
         story_characters=story_characters,
         beat_type=req.beat_type,
+        canon_memory=canon_memory or None,
     )
 
-    # Update story state
+    # Update story state (preserve memory key through the delta update)
     new_state, _ = _build_deltas(req.controls.direction, req.controls.boundary, current_state)
     if model_deltas:
         new_state = apply_model_deltas(new_state, model_deltas, req.controls.boundary)
+    # Carry forward the canon memory into the new state
+    new_state["memory"] = canon_memory
     state_row.state_json = new_state
     state_row.updated_at = datetime.utcnow()
     db.add(state_row)
 
     return chapter_text, suggestions, model_deltas
+
+
+def _has_memory_content(memory: dict[str, Any]) -> bool:
+    """Return True if the memory dict has any substantive content."""
+    if not memory or not isinstance(memory, dict):
+        return False
+    return bool(
+        (memory.get("canon") or {}).get("hard_truths")
+        or memory.get("characters")
+        or memory.get("open_threads")
+    )
 
 
 def _update_story_summary(
@@ -1032,6 +1094,57 @@ def _update_character_memory(
         logger.warning("Character memory update failed for %s: %s", story_id, exc)
 
 
+def _update_canon_memory(
+    story_id: str,
+    chapter_text: str,
+    chapter_number: int,
+    state_row: StoryState,
+    db: Session,
+) -> None:
+    """Extract structured memory from the chapter and persist to state_json["memory"].
+
+    Also runs contradiction detection and logs any violations with [STORY-MEMORY-CONTRADICTION].
+    Non-fatal: any exception is logged and swallowed so the chapter response is unaffected.
+    """
+    try:
+        current = dict(state_row.state_json or {})
+        existing_memory: dict[str, Any] = current.get("memory") or {}
+
+        # Contradiction check on the generated text before updating memory
+        contradictions = check_for_contradictions(chapter_text, existing_memory)
+        for contradiction in contradictions:
+            logger.warning("[STORY-MEMORY-CONTRADICTION] story_id=%s chapter=%d — %s",
+                           story_id, chapter_number, contradiction)
+
+        # Extract and merge new memory from this chapter
+        updated_memory = extract_and_merge_memory(
+            existing_memory=existing_memory,
+            chapter_text=chapter_text,
+            chapter_number=chapter_number,
+            story_id=story_id,
+        )
+
+        current["memory"] = updated_memory
+        state_row.state_json = current
+        state_row.updated_at = datetime.utcnow()
+        db.add(state_row)
+        db.commit()
+
+        logger.info(
+            "[STORY-MEMORY] Memory updated after chapter %d | story_id=%s "
+            "hard_truths=%d characters=%d relationships=%d open_threads=%d",
+            chapter_number, story_id,
+            len((updated_memory.get("canon") or {}).get("hard_truths", [])),
+            len(updated_memory.get("characters") or {}),
+            len(updated_memory.get("relationships") or []),
+            len(updated_memory.get("open_threads") or []),
+        )
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[STORY-MEMORY] Canon memory update failed for %s ch%d: %s",
+                       story_id, chapter_number, exc)
+
+
 # ── chapter routes ─────────────────────────────────────────────────────────────
 
 @router.get("/chapters", response_model=list[ChapterListItem])
@@ -1149,6 +1262,9 @@ def generate_chapter_endpoint(
     _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
     state_row = _get_or_create_state(story_id, db)  # re-fetch after summary commit
     _update_character_memory(story_id, user_key, state_row, db)
+
+    # ── Canon memory extraction + contradiction check (non-fatal) ─────────────
+    _update_canon_memory(story_id, chapter_text, chapter_number, state_row, db)
 
     return ChapterGenerateResponse(
         chapter_number=chapter_number,
@@ -1325,6 +1441,44 @@ def create_story(
                 detail=f"Character {char_id} not found or not owned by you",
             )
 
+    # Fetch character objects for memory seeding
+    story_char_dicts: list[dict[str, Any]] = []
+    for char_id in char_ids:
+        char = db.query(CharacterModel).filter(CharacterModel.id == char_id).first()
+        if char:
+            entry: dict[str, Any] = {
+                "name": char.name or "",
+                "role": char.role or "",
+                "species": char.species or "",
+                "short_bio": char.short_bio or "",
+                "tags": char.tags or "",
+            }
+            if char.identity_spec_json:
+                try:
+                    spec = (
+                        json.loads(char.identity_spec_json)
+                        if isinstance(char.identity_spec_json, str)
+                        else char.identity_spec_json
+                    )
+                    if isinstance(spec, dict):
+                        for field in ("traits", "personality", "personality_traits"):
+                            val = spec.get(field)
+                            if val:
+                                entry["traits"] = val
+                                break
+                except Exception:  # noqa: BLE001
+                    pass
+            story_char_dicts.append(entry)
+
+    # Seed initial canon memory from story creation inputs
+    seeded_memory = seed_memory_from_story_creation(
+        title=req.title.strip(),
+        genre=req.genre or "",
+        premise=req.premise or "",
+        characters=story_char_dicts,
+        opening_prompt=req.opening_prompt if hasattr(req, "opening_prompt") else "",
+    )
+
     now = datetime.utcnow()
     story = StoryModel(
         id=str(uuid.uuid4()),
@@ -1341,6 +1495,18 @@ def create_story(
     db.add(story)
     db.commit()
     db.refresh(story)
+
+    # Create StoryState with seeded memory
+    initial_state = dict(_DEFAULT_STATE)
+    initial_state["memory"] = seeded_memory
+    state_row = StoryState(
+        story_id=story.id,
+        story_summary="",
+        state_json=initial_state,
+        updated_at=now,
+    )
+    db.add(state_row)
+    db.commit()
 
     return _story_to_response(story)
 

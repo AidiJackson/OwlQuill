@@ -862,10 +862,12 @@ def build_storylab_prompt(
     story_title: str = "",
     story_genre: str = "",
     story_premise: str = "",
+    canon_memory: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build and return the messages list for the OpenRouter chat completions call.
 
     Block order in the user message:
+        0. Canon injection block      (if memory present — hard truths, character state, anti-drift)
         1. Story context (title / genre / premise / characters / current scene state)
         2. Character voice block      (if characters present)
         3. User material handling     (always — canonical manuscript + beat rendering rules)
@@ -948,6 +950,13 @@ def build_storylab_prompt(
     # ── assemble sections (joined with blank lines) ───────────────────────────
 
     sections: list[str] = []
+
+    # ── 0. Canon injection block (MUST come first) ────────────────────────────
+    if canon_memory:
+        from app.services.story_memory import build_canon_injection_block
+        canon_block = build_canon_injection_block(canon_memory)
+        if canon_block:
+            sections.append(canon_block)
 
     sections.append("\n".join(context_lines))
 
@@ -1210,11 +1219,13 @@ def _call_openrouter(
     characters: list[Any],
     recent_endings: list[str] | None = None,
     variant: str = "default",
+    canon_memory: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
     """Call OpenRouter; parse <STORY> tag from response; fall back to raw on missing tags."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     messages = build_storylab_prompt(
-        text, controls, state_json, summary, characters, recent_endings, variant=variant
+        text, controls, state_json, summary, characters, recent_endings,
+        variant=variant, canon_memory=canon_memory,
     )
     cap_words = _length_cap(controls.length)
     # cap_words / 0.75 ≈ cap in tokens; ×2.0 gives comfortable headroom for tags + delta block
@@ -1274,6 +1285,7 @@ def generate_storylab_continuation(
     story_id: str = "",
     recent_endings: list[str] | None = None,
     variant: str = "default",
+    canon_memory: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
     """Return (story_text, delta_signals_or_none).
 
@@ -1282,6 +1294,7 @@ def generate_storylab_continuation(
     on any error so the endpoint never returns empty-handed.
     Stub always returns None for delta signals.
     recent_endings is forwarded to the prompt for anti-repetition guidance.
+    canon_memory is forwarded to the prompt for canon constraint injection.
     """
     provider = settings.STORYLAB_PROVIDER
     logger.info(
@@ -1295,7 +1308,8 @@ def generate_storylab_continuation(
         else:
             try:
                 return _call_openrouter(
-                    text, controls, state_json, summary, characters, recent_endings, variant=variant
+                    text, controls, state_json, summary, characters, recent_endings,
+                    variant=variant, canon_memory=canon_memory,
                 )
             except httpx.TimeoutException:
                 logger.warning("[SL-DIAG] generate_storylab_continuation FALLBACK: timed out")
@@ -1387,6 +1401,7 @@ def build_chapter_prompt(
     realm_description: str = "",
     story_characters: list[Any] | None = None,
     beat_type: str | None = None,
+    canon_memory: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build the messages list for a chapter generation call.
 
@@ -1395,6 +1410,7 @@ def build_chapter_prompt(
     first token, rather than defaulting to a generic narrator.
 
     Block order in the user message:
+        0.  Canon injection block         (hard truths / character memory / anti-drift — FIRST)
         1.  Protagonist anchor            (first character — rich identity block)
         2.  Supporting characters         (remaining characters — compact voice + anchors)
         3.  Story identity                (title / genre / premise)
@@ -1431,6 +1447,13 @@ def build_chapter_prompt(
     ss = state_json.get("story_state", {})
 
     sections: list[str] = []
+
+    # ── 0. Canon injection block (MUST come first) ────────────────────────────
+    if canon_memory:
+        from app.services.story_memory import build_canon_injection_block
+        canon_block = build_canon_injection_block(canon_memory)
+        if canon_block:
+            sections.append(canon_block)
 
     # ── 1. Protagonist anchor (CHARACTER-FIRST) ───────────────────────────────
     protagonist_block = build_protagonist_anchor(protagonist) if protagonist else ""
@@ -1633,6 +1656,7 @@ def _call_openrouter_chapter(
     realm_description: str = "",
     story_characters: list[Any] | None = None,
     beat_type: str | None = None,
+    canon_memory: dict[str, Any] | None = None,
 ) -> tuple[str, list[str], dict[str, Any] | None]:
     """Call OpenRouter for chapter generation; parse STORY + SUGGESTIONS + DELTA_SIGNALS."""
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -1645,6 +1669,7 @@ def _call_openrouter_chapter(
         realm_description=realm_description,
         story_characters=story_characters,
         beat_type=beat_type,
+        canon_memory=canon_memory,
     )
     cap_words = _length_cap(controls.length)
     # Extra headroom for SUGGESTIONS + DELTA_SIGNALS blocks on top of prose
@@ -1726,6 +1751,7 @@ def generate_chapter(
     realm_description: str = "",
     story_characters: list[Any] | None = None,
     beat_type: str | None = None,
+    canon_memory: dict[str, Any] | None = None,
 ) -> tuple[str, list[str], dict[str, Any] | None]:
     """Return (chapter_text, suggestions, delta_signals_or_none).
 
@@ -1733,6 +1759,7 @@ def generate_chapter(
     OPENROUTER_API_KEY is set; falls back to the deterministic stub
     on any error so the endpoint never returns empty-handed.
     Stub returns deterministic text + fallback suggestions.
+    canon_memory is forwarded to the prompt for canon constraint injection.
     """
     provider = settings.STORYLAB_PROVIDER
     key_present = bool(settings.OPENROUTER_API_KEY)
@@ -1758,6 +1785,7 @@ def generate_chapter(
                     realm_description=realm_description,
                     story_characters=story_characters,
                     beat_type=beat_type,
+                    canon_memory=canon_memory,
                 )
                 logger.info(
                     "[SL-DIAG] generate_chapter OPENROUTER SUCCESS | words=%d",

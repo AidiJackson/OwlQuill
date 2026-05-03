@@ -1857,3 +1857,552 @@ def test_user_id_param_ignored_or_rejected(client):
             headers=headers_a,
         )
     assert resp2.status_code == 429  # user A is blocked, not the fake user 99999
+
+
+# ── Story Canon / Memory Engine tests ────────────────────────────────────────
+
+class TestSeedMemoryFromStoryCreation:
+    """seed_memory_from_story_creation populates hard_truths and characters."""
+
+    def test_seed_produces_hard_truth_for_each_character(self):
+        from app.services.story_memory import seed_memory_from_story_creation
+
+        memory = seed_memory_from_story_creation(
+            title="Bloodlines",
+            genre="urban_fantasy",
+            premise="A demon hunter discovers her bloodline is cursed.",
+            characters=[
+                {"name": "Angelo Baptiste", "role": "mentor"},
+                {"name": "Leonardo", "role": "protagonist"},
+            ],
+        )
+        truths = memory["canon"]["hard_truths"]
+        names_in_truths = " ".join(truths).lower()
+        assert "angelo baptiste" in names_in_truths
+        assert "leonardo" in names_in_truths
+        assert any("alive" in t.lower() for t in truths if "angelo" in t.lower())
+
+    def test_seed_creates_forbidden_contradiction_per_character(self):
+        from app.services.story_memory import seed_memory_from_story_creation
+
+        memory = seed_memory_from_story_creation(
+            characters=[{"name": "Angelo Baptiste", "role": "patriarch"}],
+        )
+        forbidden = memory["canon"]["forbidden_contradictions"]
+        assert any("Angelo Baptiste" in f for f in forbidden)
+
+    def test_seed_stores_character_in_characters_dict(self):
+        from app.services.story_memory import seed_memory_from_story_creation
+
+        memory = seed_memory_from_story_creation(
+            characters=[
+                {
+                    "name": "Leonardo",
+                    "role": "protagonist",
+                    "traits": ["Echo-like effect", "supernatural magnet"],
+                }
+            ],
+        )
+        assert "Leonardo" in memory["characters"]
+        char = memory["characters"]["Leonardo"]
+        assert "Echo-like effect" in char.get("abilities_or_traits", [])
+
+    def test_seed_premise_added_to_hard_truths(self):
+        from app.services.story_memory import seed_memory_from_story_creation
+
+        memory = seed_memory_from_story_creation(premise="Angelo is the Demon Wolf.")
+        assert any("Angelo is the Demon Wolf" in t for t in memory["canon"]["hard_truths"])
+
+    def test_empty_seed_returns_valid_empty_schema(self):
+        from app.services.story_memory import seed_memory_from_story_creation
+
+        memory = seed_memory_from_story_creation()
+        assert "canon" in memory
+        assert "characters" in memory
+        assert "relationships" in memory
+        assert "open_threads" in memory
+        assert "recent_events" in memory
+
+
+class TestBuildCanonInjectionBlock:
+    """build_canon_injection_block formats the memory into an injectable string."""
+
+    def test_empty_memory_returns_empty_string(self):
+        from app.services.story_memory import build_canon_injection_block
+
+        assert build_canon_injection_block({}) == ""
+        assert build_canon_injection_block({"canon": {"hard_truths": [], "world_rules": [], "forbidden_contradictions": []}, "characters": {}, "relationships": [], "open_threads": [], "recent_events": []}) == ""
+
+    def test_block_includes_hard_truths(self):
+        from app.services.story_memory import build_canon_injection_block
+
+        memory = {
+            "canon": {
+                "hard_truths": ["Angelo Baptiste is alive."],
+                "world_rules": [],
+                "forbidden_contradictions": [],
+            },
+            "characters": {},
+            "relationships": [],
+            "open_threads": [],
+            "recent_events": [],
+        }
+        block = build_canon_injection_block(memory)
+        assert "Angelo Baptiste is alive." in block
+        assert "STORY CANON" in block
+
+    def test_block_includes_forbidden_contradictions(self):
+        from app.services.story_memory import build_canon_injection_block
+
+        memory = {
+            "canon": {
+                "hard_truths": [],
+                "world_rules": [],
+                "forbidden_contradictions": ["Do not kill Angelo Baptiste"],
+            },
+            "characters": {},
+            "relationships": [],
+            "open_threads": [],
+            "recent_events": [],
+        }
+        block = build_canon_injection_block(memory)
+        assert "Do not kill Angelo Baptiste" in block
+        assert "FORBIDDEN" in block.upper()
+
+    def test_block_includes_character_memory(self):
+        from app.services.story_memory import build_canon_injection_block
+
+        memory = {
+            "canon": {"hard_truths": ["X"], "world_rules": [], "forbidden_contradictions": []},
+            "characters": {
+                "Leonardo": {
+                    "identity": ["Role: protagonist"],
+                    "current_status": ["alive"],
+                    "abilities_or_traits": ["Echo-like supernatural effect"],
+                    "goals": [],
+                    "growth": [],
+                    "secrets": [],
+                }
+            },
+            "relationships": [],
+            "open_threads": [],
+            "recent_events": [],
+        }
+        block = build_canon_injection_block(memory)
+        assert "Leonardo" in block
+        assert "Echo-like supernatural effect" in block
+
+    def test_block_includes_anti_drift_constraints(self):
+        from app.services.story_memory import build_canon_injection_block
+
+        memory = {
+            "canon": {"hard_truths": ["Foo is alive."], "world_rules": [], "forbidden_contradictions": []},
+            "characters": {},
+            "relationships": [],
+            "open_threads": [],
+            "recent_events": [],
+        }
+        block = build_canon_injection_block(memory)
+        assert "ANTI-DRIFT" in block or "anti-drift" in block.lower()
+        assert "generic tropes" in block.lower()
+
+    def test_block_includes_open_threads(self):
+        from app.services.story_memory import build_canon_injection_block
+
+        memory = {
+            "canon": {"hard_truths": [], "world_rules": [], "forbidden_contradictions": []},
+            "characters": {},
+            "relationships": [],
+            "open_threads": ["Why is Angelo hiding his identity?"],
+            "recent_events": [],
+        }
+        block = build_canon_injection_block(memory)
+        assert "Why is Angelo hiding his identity?" in block
+
+
+class TestCheckForContradictions:
+    """check_for_contradictions detects hard truth violations and mechanic drift."""
+
+    def _make_memory(self, hard_truths=None, characters=None):
+        return {
+            "canon": {
+                "hard_truths": hard_truths or [],
+                "world_rules": [],
+                "forbidden_contradictions": [],
+            },
+            "characters": characters or {},
+            "relationships": [],
+            "open_threads": [],
+            "recent_events": [],
+        }
+
+    def test_no_contradiction_on_clean_text(self):
+        from app.services.story_memory import check_for_contradictions
+
+        memory = self._make_memory(hard_truths=["Angelo Baptiste is alive."])
+        text = "Angelo Baptiste walked into the room and greeted Leonardo."
+        assert check_for_contradictions(text, memory) == []
+
+    def test_detects_death_contradiction(self):
+        from app.services.story_memory import check_for_contradictions
+
+        memory = self._make_memory(hard_truths=["Angelo Baptiste is alive at story start."])
+        text = "angelo baptiste died in the courtyard as leonardo watched helplessly."
+        results = check_for_contradictions(text, memory)
+        assert len(results) >= 1
+        assert any("angelo baptiste" in r.lower() for r in results)
+
+    def test_detects_dead_contradiction(self):
+        from app.services.story_memory import check_for_contradictions
+
+        memory = self._make_memory(hard_truths=["Angelo Baptiste is alive."])
+        text = "It was clear that angelo baptiste is dead and gone forever."
+        results = check_for_contradictions(text, memory)
+        assert len(results) >= 1
+
+    def test_detects_mechanic_drift(self):
+        from app.services.story_memory import check_for_contradictions
+
+        memory = self._make_memory(
+            characters={
+                "Leonardo": {
+                    "identity": [],
+                    "current_status": ["alive"],
+                    "abilities_or_traits": ["Echo-like supernatural effect on nearby beings"],
+                    "goals": [],
+                    "growth": [],
+                    "secrets": [],
+                }
+            }
+        )
+        text = "leonardo transformed into a werewolf under the full moon."
+        results = check_for_contradictions(text, memory)
+        assert len(results) >= 1
+        assert any("mechanic drift" in r.lower() or "echo" in r.lower() for r in results)
+
+    def test_empty_text_returns_no_contradictions(self):
+        from app.services.story_memory import check_for_contradictions
+
+        memory = self._make_memory(hard_truths=["Angelo is alive."])
+        assert check_for_contradictions("", memory) == []
+        assert check_for_contradictions("", {}) == []
+
+
+class TestExtractAndMergeMemory:
+    """extract_and_merge_memory preserves existing facts and merges new ones."""
+
+    def _base_memory(self):
+        from app.services.story_memory import seed_memory_from_story_creation
+        return seed_memory_from_story_creation(
+            characters=[
+                {"name": "Angelo Baptiste", "role": "patriarch"},
+                {"name": "Leonardo", "role": "protagonist"},
+            ],
+            premise="Angelo is the Demon Wolf.",
+        )
+
+    def test_existing_hard_truths_preserved_after_extract(self):
+        from app.services.story_memory import extract_and_merge_memory
+
+        existing = self._base_memory()
+        original_truths = list(existing["canon"]["hard_truths"])
+
+        updated = extract_and_merge_memory(
+            existing_memory=existing,
+            chapter_text="A chapter passes. Nothing changes.",
+            chapter_number=2,
+            story_id="test-preserve-001",
+        )
+
+        # All original truths must survive the merge
+        for truth in original_truths:
+            assert truth in updated["canon"]["hard_truths"], (
+                f"Hard truth lost after merge: {truth!r}"
+            )
+
+    def test_existing_characters_preserved_after_extract(self):
+        from app.services.story_memory import extract_and_merge_memory
+
+        existing = self._base_memory()
+
+        updated = extract_and_merge_memory(
+            existing_memory=existing,
+            chapter_text="Leonardo spoke briefly then left.",
+            chapter_number=3,
+            story_id="test-preserve-002",
+        )
+
+        assert "Angelo Baptiste" in updated["characters"]
+        assert "Leonardo" in updated["characters"]
+
+    def test_merge_does_not_drop_forbidden_contradictions(self):
+        from app.services.story_memory import extract_and_merge_memory
+
+        existing = self._base_memory()
+        forbidden_before = list(existing["canon"]["forbidden_contradictions"])
+
+        updated = extract_and_merge_memory(
+            existing_memory=existing,
+            chapter_text="A routine chapter with no major events.",
+            chapter_number=2,
+            story_id="test-forbidden-001",
+        )
+
+        for item in forbidden_before:
+            assert item in updated["canon"]["forbidden_contradictions"], (
+                f"Forbidden contradiction lost: {item!r}"
+            )
+
+    def test_merge_accepts_new_hard_truth_from_updates(self):
+        from app.services.story_memory import _apply_memory_updates, _deep_copy_empty
+
+        memory = _deep_copy_empty()
+        memory["canon"]["hard_truths"].append("Angelo is alive.")
+
+        updates = {
+            "new_hard_truths": ["Leonardo cannot be possessed by demons."],
+            "new_world_rules": [],
+            "character_updates": {},
+            "relationship_updates": [],
+            "new_open_threads": [],
+            "recent_events": [],
+        }
+        _apply_memory_updates(memory, updates)
+
+        assert "Angelo is alive." in memory["canon"]["hard_truths"]
+        assert "Leonardo cannot be possessed by demons." in memory["canon"]["hard_truths"]
+
+    def test_merge_does_not_duplicate_hard_truths(self):
+        from app.services.story_memory import _apply_memory_updates, _deep_copy_empty
+
+        memory = _deep_copy_empty()
+        memory["canon"]["hard_truths"].append("Angelo is alive.")
+
+        updates = {"new_hard_truths": ["Angelo is alive."], "new_world_rules": [], "character_updates": {}, "relationship_updates": [], "new_open_threads": [], "recent_events": []}
+        _apply_memory_updates(memory, updates)
+
+        assert memory["canon"]["hard_truths"].count("Angelo is alive.") == 1
+
+    def test_merge_upserts_relationship(self):
+        from app.services.story_memory import _apply_memory_updates, _deep_copy_empty
+
+        memory = _deep_copy_empty()
+        memory["relationships"].append({
+            "a": "Angelo Baptiste",
+            "b": "Leonardo",
+            "status": "family",
+            "tension": "low",
+            "recent_change": "",
+        })
+
+        updates = {
+            "new_hard_truths": [],
+            "new_world_rules": [],
+            "character_updates": {},
+            "relationship_updates": [
+                {
+                    "a": "Angelo Baptiste",
+                    "b": "Leonardo",
+                    "status": "family",
+                    "tension": "high",
+                    "recent_change": "Angelo revealed his demon nature",
+                }
+            ],
+            "new_open_threads": [],
+            "recent_events": [],
+        }
+        _apply_memory_updates(memory, updates)
+
+        # Should update, not duplicate
+        rels = memory["relationships"]
+        assert len(rels) == 1
+        assert rels[0]["tension"] == "high"
+        assert "Angelo revealed" in rels[0]["recent_change"]
+
+    def test_open_threads_capped_at_10(self):
+        from app.services.story_memory import _apply_memory_updates, _deep_copy_empty
+
+        memory = _deep_copy_empty()
+        memory["open_threads"] = [f"Thread {i}" for i in range(9)]
+
+        updates = {
+            "new_hard_truths": [],
+            "new_world_rules": [],
+            "character_updates": {},
+            "relationship_updates": [],
+            "new_open_threads": ["New thread A", "New thread B"],
+            "recent_events": [],
+        }
+        _apply_memory_updates(memory, updates)
+
+        assert len(memory["open_threads"]) <= 10
+
+
+class TestCanonInjectedIntoChapterPrompt:
+    """Canon memory block is injected into build_chapter_prompt output."""
+
+    def test_canon_block_appears_in_chapter_prompt_when_memory_present(self):
+        from app.services.storylab_generator import build_chapter_prompt
+        from app.schemas.storylab import StoryLabControls
+
+        memory = {
+            "canon": {
+                "hard_truths": ["Angelo Baptiste is alive."],
+                "world_rules": [],
+                "forbidden_contradictions": ["Do not kill Angelo Baptiste."],
+            },
+            "characters": {
+                "Leonardo": {
+                    "identity": [],
+                    "current_status": ["alive"],
+                    "abilities_or_traits": ["Echo-like supernatural effect"],
+                    "goals": [],
+                    "growth": [],
+                    "secrets": [],
+                }
+            },
+            "relationships": [],
+            "open_threads": [],
+            "recent_events": [],
+        }
+
+        msgs = build_chapter_prompt(
+            prompt="Continue the story.",
+            controls=StoryLabControls(),
+            state_json={},
+            summary="Angelo and Leonardo are at odds.",
+            characters=[],
+            canon_memory=memory,
+        )
+        user_content = msgs[1]["content"]
+
+        assert "Angelo Baptiste is alive." in user_content
+        assert "Echo-like supernatural effect" in user_content
+        assert "STORY CANON" in user_content
+
+    def test_canon_block_absent_when_no_memory(self):
+        from app.services.storylab_generator import build_chapter_prompt
+        from app.schemas.storylab import StoryLabControls
+
+        msgs = build_chapter_prompt(
+            prompt="Begin.",
+            controls=StoryLabControls(),
+            state_json={},
+            summary="",
+            characters=[],
+            canon_memory=None,
+        )
+        user_content = msgs[1]["content"]
+        assert "STORY CANON" not in user_content
+
+    def test_canon_block_appears_in_continuation_prompt(self):
+        from app.services.storylab_generator import build_storylab_prompt
+        from app.schemas.storylab import StoryLabControls
+
+        memory = {
+            "canon": {
+                "hard_truths": ["Leonardo has an Echo-like effect on supernatural beings."],
+                "world_rules": [],
+                "forbidden_contradictions": [],
+            },
+            "characters": {},
+            "relationships": [],
+            "open_threads": [],
+            "recent_events": [],
+        }
+
+        msgs = build_storylab_prompt(
+            text="The night felt different.",
+            controls=StoryLabControls(),
+            state_json={},
+            summary="",
+            characters=[],
+            canon_memory=memory,
+        )
+        user_content = msgs[1]["content"]
+        assert "Echo-like effect on supernatural beings" in user_content
+
+
+class TestHardTruthsPersistAcrossChapterGeneration:
+    """Hard truths survive multi-chapter extraction/merge cycles."""
+
+    def test_hard_truths_survive_three_extract_merge_cycles(self):
+        """Simulate 3 chapter extractions and confirm original hard_truths persist."""
+        from app.services.story_memory import seed_memory_from_story_creation, extract_and_merge_memory
+
+        memory = seed_memory_from_story_creation(
+            characters=[
+                {"name": "Angelo Baptiste", "role": "patriarch"},
+                {"name": "Leonardo", "role": "protagonist"},
+            ],
+            premise="Angelo Baptiste is the Demon Wolf and is alive.",
+        )
+        original_truths = set(memory["canon"]["hard_truths"])
+
+        # Simulate 3 stub-mode chapter extraction cycles
+        for chapter_number in range(1, 4):
+            memory = extract_and_merge_memory(
+                existing_memory=memory,
+                chapter_text=f"Chapter {chapter_number}: events unfold between Angelo and Leonardo.",
+                chapter_number=chapter_number,
+                story_id="multi-cycle-test",
+            )
+
+        # All original hard truths must survive
+        for truth in original_truths:
+            assert truth in memory["canon"]["hard_truths"], (
+                f"Hard truth lost after 3 extraction cycles: {truth!r}"
+            )
+
+    def test_character_memory_survives_multiple_cycles(self):
+        """Character facts from seeding must still exist after several merge cycles."""
+        from app.services.story_memory import seed_memory_from_story_creation, extract_and_merge_memory
+
+        memory = seed_memory_from_story_creation(
+            characters=[
+                {
+                    "name": "Leonardo",
+                    "traits": ["Echo-like supernatural effect", "demon magnet"],
+                }
+            ],
+        )
+
+        for i in range(3):
+            memory = extract_and_merge_memory(
+                existing_memory=memory,
+                chapter_text=f"Chapter {i + 1}: Leonardo navigates the supernatural world.",
+                chapter_number=i + 1,
+                story_id="char-cycle-test",
+            )
+
+        assert "Leonardo" in memory["characters"]
+        traits = memory["characters"]["Leonardo"].get("abilities_or_traits", [])
+        assert "Echo-like supernatural effect" in traits
+
+    def test_memory_schema_always_valid_after_merge(self):
+        """extract_and_merge_memory always returns a dict with required top-level keys."""
+        from app.services.story_memory import extract_and_merge_memory
+
+        memory = extract_and_merge_memory(
+            existing_memory={},
+            chapter_text="A chapter with no meaningful events.",
+            chapter_number=1,
+            story_id="schema-check",
+        )
+        assert isinstance(memory, dict)
+        assert "canon" in memory
+        assert "characters" in memory
+        assert "relationships" in memory
+        assert "open_threads" in memory
+        assert "recent_events" in memory
+        assert isinstance(memory["canon"].get("hard_truths"), list)
+
+    def test_default_state_includes_memory_key(self):
+        """The _DEFAULT_STATE used for new StoryState rows includes the memory key."""
+        from app.api.routes.storylab import _DEFAULT_STATE
+
+        assert "memory" in _DEFAULT_STATE
+        memory = _DEFAULT_STATE["memory"]
+        assert "canon" in memory
+        assert "characters" in memory
+        assert isinstance(memory["canon"].get("hard_truths"), list)

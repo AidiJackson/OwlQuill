@@ -1,0 +1,180 @@
+We have a StoryLab Canon Engine enforcement failure.
+
+Workflow first:
+1. Create rollback checkpoint:
+   git tag fic-checkpoint-storylab-canon-enforcement-audit-start-2026-05-02
+
+Specialists:
+- Backend specialist: StoryLab generation and StoryState persistence
+- Prompt-engine specialist: canon injection strength and ordering
+- QA specialist: contradiction detection and multi-chapter regression
+- Data/state specialist: memory schema and merge behaviour
+
+Problem:
+StoryLab still contradicts hard canon by Chapter 4.
+
+Original prompt/canon:
+- Leo’s mother died in childbirth.
+- Angelo Baptiste is Leo’s father.
+- Angelo Baptiste is alive.
+- Angelo is a crime lord.
+- Angelo is the Demon Wolf.
+- Leo is investigating Angelo’s past.
+
+Failure:
+By Chapter 4, generated output says or implies Angelo is dead.
+
+This is unacceptable. This proves the Story Memory / Canon Engine v1 is storing/injecting memory but not enforcing hard truths strongly enough.
+
+Goal:
+Audit and fix canon enforcement so hard truths cannot be contradicted silently.
+
+Do NOT:
+- redesign StoryLab UI
+- change model provider
+- remove the memory engine
+- weaken story quality instructions
+- rely only on better wording
+- treat this as a user prompt issue
+
+Audit requirements:
+
+1. Inspect StoryState.state_json for the affected story.
+Confirm whether these facts are stored:
+- Angelo Baptiste is alive
+- Angelo Baptiste is Leo’s father
+- Angelo Baptiste is the Demon Wolf
+- Angelo Baptiste is a crime lord
+- Leo’s mother died in childbirth
+
+2. Check whether “Angelo is alive” is stored as:
+- hard_truth
+- character current_status
+- forbidden contradiction
+or only buried in recent_events/premise.
+
+3. Inspect the exact prompt sent for Chapter 4.
+Confirm:
+- whether the canon block is actually present
+- where it appears
+- whether “Angelo is alive” appears explicitly
+- whether forbidden contradictions include:
+  - “Angelo is dead”
+  - “Angelo died”
+  - “late Angelo”
+  - “Angelo was killed”
+  - “Angelo’s death”
+  - “his dead father”
+  - “his father was dead”
+
+4. Check contradiction detection.
+Find why it did not catch “Angelo is dead”.
+Likely causes:
+- forbidden contradiction patterns too narrow
+- only checks exact phrases
+- does not map character names to alive/dead status
+- runs after generation but only logs instead of blocking/regenerating
+- canon facts are not promoted into forbidden contradictions
+
+Fix requirements:
+
+1. Promote living/dead status to first-class canon.
+
+In memory schema, character status must support:
+- alive
+- dead
+- unknown
+- missing
+- presumed_dead
+- hidden_alive
+
+For Angelo, status must be alive.
+
+2. Add automatic forbidden contradiction generation.
+
+If a character has status = alive, automatically forbid:
+- “[Name] is dead”
+- “[Name] died”
+- “[Name] had died”
+- “[Name] was dead”
+- “[Name] was killed”
+- “the late [Name]”
+- “[Name]’s death”
+- “death of [Name]”
+- “his dead father” where the father maps to that character if possible
+
+3. Make contradiction detection blocking.
+
+If generated output contradicts hard canon:
+- log with [STORY-MEMORY-CONTRADICTION]
+- do not silently save it
+- regenerate once with a stricter correction prompt
+- if it still contradicts, return a clear backend error/warning rather than saving broken canon
+
+4. Add a stricter generation instruction at the top of the canon block:
+
+“Hard canon is absolute. Do not contradict it, reinterpret it, kill living characters, resurrect dead characters, or change parentage unless the user explicitly requests that change in the current prompt.”
+
+5. Add a post-generation canon validator.
+
+Minimum validator:
+- reads hard_truths and character statuses
+- checks generated prose for contradictions
+- checks living/dead contradictions
+- checks parentage contradictions
+- checks unique mechanic drift where forbidden patterns exist
+
+6. Add tests.
+
+Required tests:
+- Angelo alive hard truth is injected into prompt.
+- Generated text saying “Angelo is dead” is detected as contradiction.
+- Generated text saying “the late Angelo Baptiste” is detected.
+- Generated text saying “Leo’s dead father” is detected when Angelo is mapped as father.
+- Contradictory chapter is not saved without regeneration.
+- Regeneration path is called once when contradiction detected.
+- If regeneration still fails, backend does not silently persist the bad chapter.
+
+7. Add diagnostic output.
+
+Use prefix:
+[STORY-CANON-AUDIT]
+[STORY-MEMORY-CONTRADICTION]
+
+Log:
+- story_id
+- chapter number
+- hard truth count
+- character status count
+- contradiction detected yes/no
+- regeneration attempted yes/no
+Do not log full chapter prose unless dev/debug mode.
+
+Manual verification:
+Create or use the Leo story with canon:
+- Leo’s mother died in childbirth.
+- Angelo Baptiste is alive.
+- Angelo Baptiste is Leo’s father.
+- Angelo is a crime lord.
+- Angelo is the Demon Wolf.
+- Leo is investigating Angelo’s past.
+
+Generate 4 chapters.
+
+Pass criteria:
+- Angelo is never described as dead.
+- Angelo may be absent, hidden, wanted, feared, unreachable, or presumed dead by outsiders only if clearly framed as false belief.
+- Narration must not state as fact that Angelo is dead.
+- StoryState keeps Angelo status = alive.
+- Contradiction validator catches any generated death contradiction.
+
+Stop after audit/fix and report:
+- exact root cause
+- affected files
+- whether the bad chapter was saved before validation
+- tests added
+- manual verification result
+
+After successful verification:
+git status
+git tag fic-checkpoint-storylab-canon-enforcement-audit-complete-2026-05-02
