@@ -1,4 +1,4 @@
-"""Story Canon/Memory Engine v1 — canon tracking and injection for StoryLab.
+"""Story Canon/Memory Engine v3 — canon tracking, injection, and inference enforcement for StoryLab.
 
 Tracks hard canon facts, character states, relationships, open threads and
 world rules across chapters. Injects structured memory into generation prompts
@@ -31,6 +31,7 @@ EMPTY_CANON_MEMORY: dict[str, Any] = {
         "hard_truths": [],
         "world_rules": [],
         "forbidden_contradictions": [],
+        "forbidden_inferences": [],
     },
     "characters": {},
     "relationships": [],
@@ -108,6 +109,8 @@ def seed_memory_from_story_creation(
             )
         # Explicit death-phrase forbidden list — uses shared helper for deduplication
         _auto_append_alive_forbidden(memory, name)
+        # Disappearance / fake-death inference protection
+        _auto_append_alive_inferences(memory, name)
 
     logger.info(
         "[STORY-MEMORY] Seeded from story creation | title=%r genre=%r "
@@ -134,11 +137,12 @@ def build_canon_injection_block(memory: dict[str, Any]) -> str:
     hard_truths = canon.get("hard_truths", [])
     world_rules = canon.get("world_rules", [])
     forbidden = canon.get("forbidden_contradictions", [])
+    forbidden_inferences = canon.get("forbidden_inferences", [])
     characters_mem = memory.get("characters", {})
     relationships = memory.get("relationships", [])
     open_threads = memory.get("open_threads", [])
 
-    has_content = any([hard_truths, world_rules, forbidden, characters_mem, relationships, open_threads])
+    has_content = any([hard_truths, world_rules, forbidden, forbidden_inferences, characters_mem, relationships, open_threads])
     if not has_content:
         return ""
 
@@ -219,6 +223,12 @@ def build_canon_injection_block(memory: dict[str, Any]) -> str:
         for fc in forbidden:
             lines.append(f"  ✗ {fc}")
 
+    if forbidden_inferences:
+        lines.append("")
+        lines.append("FORBIDDEN INFERENCES — DO NOT IMPLY THESE (even without stating directly):")
+        for fi in forbidden_inferences:
+            lines.append(f"  ⚠ {fi}")
+
     lines.append("")
     lines.append("ANTI-DRIFT CONSTRAINTS (enforce strictly):")
     lines.append("  ✗ Do not kill or erase a living character unless the current user prompt explicitly does so.")
@@ -279,29 +289,111 @@ _TRANSFORMATION_PHRASES = (
     "{name} turned into a werewolf",
 )
 
+# ── v3: inference pattern sets ────────────────────────────────────────────────
+
+_DISAPPEARANCE_PHRASES = (
+    "{name} disappeared",
+    "{name} vanished",
+    "{name}'s disappearance",
+    "{name} went missing",
+    "{name} had vanished",
+    "{name} had disappeared",
+)
+
+_FAKE_DEATH_NAME_PHRASES = (
+    "{name} faked his death",
+    "{name} faked her death",
+    "{name} faked their death",
+    "{name} is presumed dead",
+    "{name} was presumed dead",
+    "{name} presumed dead",
+)
+
+# Fired when any confirmed-alive character is present in memory.
+_GENERAL_INFERENCE_PHRASES = (
+    "letting the world believe him dead",
+    "letting the world believe her dead",
+    "letting the world believe them dead",
+    "faked his death",
+    "faked her death",
+    "faked their death",
+    "fake his death",
+    "fake her death",
+    "fake their death",
+    "fake death",
+    # Intentional-disappearance constructions ("disappeared to <purpose>"):
+    "disappeared to protect",
+    "disappeared to keep",
+    "disappeared to save",
+    "disappeared to hide",
+    "disappeared to escape",
+    "vanished to protect",
+    "vanished to keep",
+    "vanished to save",
+)
+
+# Root words used by the sentence-level co-occurrence check (v4).
+_DISAPPEAR_ROOTS: frozenset[str] = frozenset({"disappear", "vanish"})
+
+# Fired when a family relationship exists in memory.
+_IDENTITY_TRANSFER_ROLE_PHRASES = (
+    "becoming what your father is",
+    "becoming what his father is",
+    "becoming what her father is",
+    "becoming what their father is",
+    "becoming what your mother is",
+    "becoming what his mother is",
+    "becoming what her mother is",
+    "becoming what their mother is",
+    "becoming what your parent is",
+)
+
+_FAMILY_STATUS_WORDS = frozenset({"father", "mother", "parent", "family", "son", "daughter", "child"})
+
 
 def check_for_contradictions(
     generated_text: str,
     memory: dict[str, Any],
 ) -> list[str]:
-    """Scan generated text for obvious contradictions against canon.
+    """Scan generated text for obvious contradictions and forbidden inferences against canon.
 
-    Returns a list of human-readable contradiction descriptions.
+    Returns a list of human-readable violation descriptions.
     Empty list means no obvious violations were detected.
 
-    Checks two surfaces:
-    1. canon.hard_truths for "X is alive" facts.
-    2. characters[name]["current_status"] containing "alive".
-    Both trigger death-phrase, late-title, and pronoun-pattern scans.
+    Surfaces checked:
+    1. canon.hard_truths "X is alive" — death phrases, late-title phrases, disappearance,
+       fake-death, pronoun-death patterns.
+    2. characters[name]["current_status"] containing "alive" — same checks, deduplicated.
+    3. General inference phrases (presumed-dead, fake-death, letting-world-believe-dead) —
+       fired whenever any confirmed-alive character is in memory.
+    4. Identity-transfer inferences — role-based ("becoming what your father is"), name-based
+       ("becoming what {char} is"), and trait-noun-based ("becoming the Demon Wolf") — fired
+       when family relationships or living characters with supernatural traits are present.
     """
     if not generated_text or not memory or not isinstance(memory, dict):
         return []
 
     contradictions: list[str] = []
     text_lower = generated_text.lower()
+    characters_mem = memory.get("characters", {})
+    relationships = memory.get("relationships", [])
+
+    # ── Pre-scan: collect all confirmed-alive character names ─────────────────
+    # Used by Surfaces 3 and 4 without re-iterating.
+    _alive_char_names: set[str] = set()
+    for _ht in memory.get("canon", {}).get("hard_truths", []):
+        if " is alive" in _ht.lower():
+            _nm = _ht.split(" is alive")[0].strip()
+            if _nm and not _nm.lower().startswith("story premise:"):
+                _alive_char_names.add(_nm)
+    for _cn, _cd in characters_mem.items():
+        if isinstance(_cd, dict):
+            _sl = _cd.get("current_status", [])
+            if isinstance(_sl, list) and any("alive" in str(_s).lower() for _s in _sl):
+                _alive_char_names.add(_cn)
 
     def _check_alive_name(char_name_raw: str, source_label: str) -> None:
-        """Fire all death-pattern checks for a character confirmed alive."""
+        """Fire death-phrase, late-title, and inference checks for a confirmed-alive character."""
         name_lower = char_name_raw.lower()
         for pattern in _DEATH_PHRASES:
             phrase = pattern.format(name=name_lower)
@@ -319,8 +411,39 @@ def check_for_contradictions(
                     f" — generated text uses death-title phrasing (matched: '{phrase}')"
                 )
                 return
+        # v3: full-name disappearance exact phrases
+        for pattern in _DISAPPEARANCE_PHRASES:
+            phrase = pattern.format(name=name_lower)
+            if phrase in text_lower:
+                contradictions.append(
+                    f"Forbidden inference ({source_label}): '{char_name_raw} is alive'"
+                    f" — generated text implies disappearance (matched: '{phrase}')."
+                    f" Absence must be framed as estrangement or lack of contact, not disappearance."
+                )
+                return
+        # v3: fake-death / presumed-dead inferences
+        for pattern in _FAKE_DEATH_NAME_PHRASES:
+            phrase = pattern.format(name=name_lower)
+            if phrase in text_lower:
+                contradictions.append(
+                    f"Forbidden inference ({source_label}): '{char_name_raw} is alive'"
+                    f" — generated text implies fake death or presumed dead (matched: '{phrase}')"
+                )
+                return
+        # v4: sentence-level co-occurrence — catches first-name-only usage like
+        # "Angelo disappeared to protect you" where full name is not present.
+        first_name = name_lower.split()[0]
+        snippet = _sentence_cooccur_disappearance(first_name, text_lower)
+        if snippet:
+            contradictions.append(
+                f"Forbidden inference ({source_label}): '{char_name_raw} is alive'"
+                f" — first name co-occurs with disappearance verb in same sentence"
+                f" (context: '…{snippet}…')."
+                f" Absence must be framed as estrangement or distance, not disappearance."
+            )
+            return
 
-    def _check_pronoun_patterns(char_name_raw: str, relationships: list[dict]) -> None:
+    def _check_pronoun_patterns(char_name_raw: str) -> None:
         """Check pronoun+role death patterns (e.g. 'his dead father') when the
         character is stored as a parent/family role in relationships."""
         name_lower = char_name_raw.lower()
@@ -352,10 +475,9 @@ def check_for_contradictions(
         if char_name_raw.lower().startswith("story premise:"):
             continue
         _check_alive_name(char_name_raw, "hard_truths")
-        _check_pronoun_patterns(char_name_raw, memory.get("relationships", []))
+        _check_pronoun_patterns(char_name_raw)
 
     # ── Surface 2: characters[name]["current_status"] containing "alive" ─────
-    characters_mem = memory.get("characters", {})
     already_checked_lower: set[str] = set()
 
     # Collect names already covered by hard_truths to avoid duplicate entries
@@ -375,7 +497,7 @@ def check_for_contradictions(
             continue
         if name_lower not in already_checked_lower:
             _check_alive_name(char_name, "character_status")
-            _check_pronoun_patterns(char_name, memory.get("relationships", []))
+            _check_pronoun_patterns(char_name)
 
         # Character core-nature drift — check for generic transformation tropes
         traits = char_data.get("abilities_or_traits", [])
@@ -413,6 +535,60 @@ def check_for_contradictions(
                         )
                         break
 
+    # ── Surface 3: general inference phrases (when any alive character present) ─
+    if _alive_char_names:
+        for phrase in _GENERAL_INFERENCE_PHRASES:
+            if phrase in text_lower:
+                contradictions.append(
+                    f"Forbidden inference (general): '{phrase}' implies a living character"
+                    f" disappeared, faked their death, or is presumed dead"
+                )
+                break  # one report per surface to avoid flooding
+
+    # ── Surface 4: identity-transfer inferences ───────────────────────────────
+    # 4a. Role-based — fires when any family relationship exists
+    has_family_rel = any(
+        isinstance(rel, dict)
+        and any(w in str(rel.get("status", "")).lower() for w in _FAMILY_STATUS_WORDS)
+        for rel in relationships
+    )
+    if has_family_rel:
+        for phrase in _IDENTITY_TRANSFER_ROLE_PHRASES:
+            if phrase in text_lower:
+                contradictions.append(
+                    f"Forbidden inference (identity transfer): '{phrase}'"
+                    f" — do not imply a character is inheriting their parent's nature"
+                    f" unless the current prompt explicitly instructs it"
+                )
+                break
+
+    # 4b. Name-based — "becoming what {name} is" for any alive character
+    for char_name in _alive_char_names:
+        phrase = f"becoming what {char_name.lower()} is"
+        if phrase in text_lower:
+            contradictions.append(
+                f"Forbidden inference (identity transfer): 'becoming what {char_name} is'"
+                f" — do not imply identity inheritance unless explicitly instructed"
+            )
+
+    # 4c. Trait-noun-based — "becoming the {Noun}" matched against alive chars' trait nouns
+    for char_name, char_data in characters_mem.items():
+        if not isinstance(char_data, dict):
+            continue
+        status_list = char_data.get("current_status", [])
+        is_alive = isinstance(status_list, list) and any("alive" in str(s).lower() for s in status_list)
+        if not is_alive:
+            continue
+        traits = char_data.get("abilities_or_traits", [])
+        for noun in _extract_trait_nouns(traits):
+            phrase = f"becoming the {noun.lower()}"
+            if phrase in text_lower:
+                contradictions.append(
+                    f"Forbidden inference (identity transfer): 'becoming the {noun}'"
+                    f" — this implies inheriting '{char_name}'s supernatural identity;"
+                    f" do not imply this unless explicitly instructed"
+                )
+
     return contradictions
 
 
@@ -429,6 +605,7 @@ Use this exact schema (omit empty arrays):
 {
   "new_hard_truths": ["<established canon fact>"],
   "new_world_rules": ["<world or lore rule revealed>"],
+  "new_forbidden_inferences": ["<inference to forbid, e.g. 'Do not imply X disappeared'>"],
   "character_updates": {
     "<character_name>": {
       "identity": ["<identity fact>"],
@@ -580,6 +757,7 @@ def _deep_copy_empty() -> dict[str, Any]:
             "hard_truths": [],
             "world_rules": [],
             "forbidden_contradictions": [],
+            "forbidden_inferences": [],
         },
         "characters": {},
         "relationships": [],
@@ -595,7 +773,7 @@ def _merge_existing_into(base: dict[str, Any], existing: dict[str, Any]) -> None
 
     existing_canon = existing.get("canon", {})
     if isinstance(existing_canon, dict):
-        for key in ("hard_truths", "world_rules", "forbidden_contradictions"):
+        for key in ("hard_truths", "world_rules", "forbidden_contradictions", "forbidden_inferences"):
             vals = existing_canon.get(key, [])
             if isinstance(vals, list):
                 base["canon"][key] = list(vals)
@@ -640,6 +818,13 @@ def _apply_memory_updates(memory: dict[str, Any], updates: dict[str, Any]) -> No
         wr_str = str(wr).strip()
         if wr_str and wr_str not in memory["canon"]["world_rules"]:
             memory["canon"]["world_rules"].append(wr_str)
+
+    # Forbidden inferences — append unique, never overwrite
+    fi_list = memory["canon"].setdefault("forbidden_inferences", [])
+    for fi in updates.get("new_forbidden_inferences", []):
+        fi_str = str(fi).strip()
+        if fi_str and fi_str not in fi_list:
+            fi_list.append(fi_str)
 
     # Character updates — merge field-by-field, never overwrite
     for char_name, char_updates in updates.get("character_updates", {}).items():
@@ -689,9 +874,10 @@ def _apply_memory_updates(memory: dict[str, Any], updates: dict[str, Any]) -> No
                     existing_char["current_status"] = new_status_strs
             else:
                 existing_char["current_status"] = new_status_strs
-                # Auto-append explicit forbidden phrases when status is set to alive
+                # Auto-append explicit forbidden phrases and inferences when status is set to alive
                 if any("alive" in s for s in new_status_strs):
                     _auto_append_alive_forbidden(memory, char_name)
+                    _auto_append_alive_inferences(memory, char_name)
 
         # All other fields append new unique values
         for field in ("identity", "abilities_or_traits", "goals", "growth", "secrets"):
@@ -771,6 +957,68 @@ def _auto_append_alive_forbidden(memory: dict[str, Any], char_name: str) -> None
         entry = f'Never write: "{death_phrase}"'
         if entry not in forbidden_list:
             forbidden_list.append(entry)
+
+
+def _auto_append_alive_inferences(memory: dict[str, Any], char_name: str) -> None:
+    """Add forbidden-inference entries protecting a living character from disappearance implications.
+
+    Idempotent — entries are deduplicated before appending.
+    Called from seed_memory_from_story_creation and _apply_memory_updates whenever
+    a character's current_status is confirmed as alive.
+    """
+    inference_list = memory.setdefault("canon", {}).setdefault("forbidden_inferences", [])
+    for entry in (
+        f"Do not imply {char_name} disappeared, vanished, or faked their death"
+        f" unless the current prompt explicitly states this.",
+        f"Absence of {char_name} from another character's life must be framed as"
+        f" estrangement, secrecy, or distance — not disappearance.",
+    ):
+        if entry not in inference_list:
+            inference_list.append(entry)
+
+
+def _sentence_cooccur_disappearance(name_fragment: str, text_lower: str) -> str | None:
+    """Return a short context snippet if name_fragment and a disappearance root verb
+    co-occur within the same sentence boundary (period / ! / ? / ; / newline).
+
+    Only fires for name fragments of ≥ 3 characters to avoid short false-positives.
+    Catches constructions like "Angelo disappeared to protect you" where only the
+    first name is used (full-name exact patterns would miss this).
+
+    Returns None if no co-occurrence is detected.
+    """
+    if len(name_fragment) < 3:
+        return None
+    text_norm = text_lower.lower()
+    name_re = re.compile(rf'\b{re.escape(name_fragment.lower())}\b')
+    for sentence in re.split(r'(?<=[.!?;])\s+|\n+', text_norm):
+        sentence = sentence.strip()
+        if not sentence or not name_re.search(sentence):
+            continue
+        for root in _DISAPPEAR_ROOTS:
+            if root in sentence:
+                idx = sentence.find(root)
+                start = max(0, idx - 25)
+                end = min(len(sentence), idx + len(root) + 30)
+                return sentence[start:end].strip()
+    return None
+
+
+def _extract_trait_nouns(traits: list[str]) -> list[str]:
+    """Extract Title-Case noun phrases from trait strings for identity-transfer checks.
+
+    Returns phrases like 'Demon Wolf' from 'Demon Wolf supernatural nature'.
+    Used to detect 'becoming the {Noun}' inference patterns.
+    """
+    _SKIP = frozenset({"Role", "Species", "Identity", "Personality", "Trait", "Traits",
+                       "Bio", "Nature", "Effect", "Type", "Form"})
+    nouns: list[str] = []
+    for trait in traits:
+        for m in re.finditer(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b', trait):
+            phrase = m.group(1)
+            if phrase not in _SKIP and len(phrase) > 3:
+                nouns.append(phrase)
+    return nouns
 
 
 def _log_memory_counts(memory: dict[str, Any], story_id: str, action: str) -> None:

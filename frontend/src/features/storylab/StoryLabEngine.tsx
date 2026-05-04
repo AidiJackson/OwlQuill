@@ -10,6 +10,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, StoryRecord } from '@/lib/types';
+import { isUuidLike, deriveReadableTitle } from '@/lib/storyTitleUtils';
 
 // ── Authenticated fetch helper ────────────────────────────────────────────────
 // Attaches the JWT token stored by apiClient so StoryLab requests are
@@ -28,9 +29,11 @@ function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
 
 // ── localStorage keys ─────────────────────────────────────────────────────────
 
-const LS_CURRENT  = 'ficshon_storylab_current_story_id';
-const LS_RECENTS  = 'ficshon_storylab_recent_story_ids';
-const SURFACE_KEY = 'fic_surface_mode';
+const LS_CURRENT      = 'ficshon_storylab_current_story_id';
+const LS_RECENTS      = 'ficshon_storylab_recent_story_ids';
+const SURFACE_KEY     = 'fic_surface_mode';
+const LS_DRAFT_PREFIX = 'ficshon_storylab_draft_';
+const LS_DRAFT_TEMP   = 'ficshon_storylab_draft_temp';
 
 // ── Story-ID helpers ──────────────────────────────────────────────────────────
 
@@ -62,6 +65,52 @@ function formatStoryId(id: string): string {
   if (!m) return id;
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return `${months[parseInt(m[2]) - 1]} ${parseInt(m[3])}, ${m[4]}:${m[5]}`;
+}
+
+function getStoryLabel(
+  id: string,
+  cache: Record<string, { title: string; premise: string | null }>,
+): string {
+  if (!isUuidLike(id)) return formatStoryId(id);
+  const meta = cache[id];
+  if (!meta) return 'Loading…';
+  return (meta.title && !isUuidLike(meta.title))
+    ? meta.title
+    : deriveReadableTitle(meta.premise);
+}
+
+// ── Draft persistence helpers ─────────────────────────────────────────────────
+
+function getDraftKey(storyId: string): string {
+  return storyId ? `${LS_DRAFT_PREFIX}${storyId}` : LS_DRAFT_TEMP;
+}
+
+function loadDraft(storyId: string): string {
+  try { return localStorage.getItem(getDraftKey(storyId)) ?? ''; } catch { return ''; }
+}
+
+function saveDraft(storyId: string, value: string): void {
+  try {
+    if (value) localStorage.setItem(getDraftKey(storyId), value);
+    else localStorage.removeItem(getDraftKey(storyId));
+  } catch { /* localStorage unavailable */ }
+}
+
+function clearDraft(storyId: string): void {
+  try {
+    localStorage.removeItem(getDraftKey(storyId));
+    localStorage.removeItem(LS_DRAFT_TEMP);
+  } catch { /* ignore */ }
+}
+
+function migrateTempDraft(toStoryId: string): void {
+  try {
+    const temp = localStorage.getItem(LS_DRAFT_TEMP);
+    if (!temp) return;
+    const key = getDraftKey(toStoryId);
+    if (!localStorage.getItem(key)) localStorage.setItem(key, temp);
+    localStorage.removeItem(LS_DRAFT_TEMP);
+  } catch { /* ignore */ }
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -175,6 +224,14 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
   const [recentIds, setRecentIds] = useState<string[]>(() => loadRecents());
 
+  // Resolved titles/premises for UUID-based story IDs (named stories that appear in recents)
+  const [storyMetaCache, setStoryMetaCache] = useState<Record<string, { title: string; premise: string | null }>>(() =>
+    externalStoryId && storyRecord
+      ? { [externalStoryId]: { title: storyRecord.title ?? '', premise: storyRecord.premise ?? null } }
+      : {},
+  );
+  const fetchedMetaIds = useRef<Set<string>>(new Set());
+
   // ── Chapter state ──────────────────────────────────────────────────────────
 
   const [chapters, setChapters] = useState<ChapterListItem[]>([]);
@@ -184,7 +241,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
   // ── Generation state ───────────────────────────────────────────────────────
 
-  const [promptInput, setPromptInput] = useState('');
+  const [promptInput, setPromptInput] = useState<string>(() => loadDraft(currentStoryId));
   const [mode, setMode] = useState<'roleplay' | 'duet' | 'play'>('roleplay');
   const [slControls, setSlControls] = useState<SLControls>({
     direction: 'advance_plot',
@@ -219,9 +276,27 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
   const [isLoadingState, setIsLoadingState] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+  const draftDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Persist surface mode preference
   useEffect(() => { localStorage.setItem(SURFACE_KEY, surfaceMode); }, [surfaceMode]);
+
+  // Persist draft input — debounced 300ms
+  useEffect(() => {
+    if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
+    draftDebounceRef.current = setTimeout(() => {
+      saveDraft(currentStoryId, promptInput);
+    }, 300);
+    return () => {
+      if (draftDebounceRef.current) clearTimeout(draftDebounceRef.current);
+    };
+  }, [promptInput, currentStoryId]);
+
+  // Migrate temp draft when a real story ID is available
+  useEffect(() => {
+    migrateTempDraft(currentStoryId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStoryId]);
 
   // ── Abort all in-flight requests ───────────────────────────────────────────
 
@@ -376,6 +451,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
         ].sort((a, b) => a.chapter_number - b.chapter_number);
       });
       setPromptInput('');
+      clearDraft(currentStoryId);
       setGenStatus('success');
       // Refresh state for progress bars
       void fetchStoryState(currentStoryId);
@@ -484,7 +560,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
     setRecentIds((prev) => addToRecents(id, prev));
     setChapters([]);
     setCurrentChapter(null);
-    setPromptInput('');
+    setPromptInput(loadDraft(id));
     setError('');
     setGenStatus('idle');
     setStoryState(null);
@@ -552,7 +628,14 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
   useEffect(() => {
     abortRef.current = new AbortController();
-    setRecentIds((prev) => addToRecents(currentStoryId, prev));
+    // Only track recents for legacy (non-named) stories — named stories use UUIDs
+    // that should never appear in the inline legacy selector.
+    if (!externalStoryId) {
+      setRecentIds((prev) => addToRecents(currentStoryId, prev));
+    }
+    if (import.meta.env.DEV && promptInput) {
+      console.log('[STORYLAB-DRAFT-RESTORED]', promptInput);
+    }
     void fetchChapters(currentStoryId);
     void fetchStoryState(currentStoryId);
     return () => {
@@ -560,6 +643,19 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fetch story metadata for any UUID IDs in recents so the selector shows real titles.
+  useEffect(() => {
+    const allIds = recentIds.includes(currentStoryId) ? recentIds : [currentStoryId, ...recentIds];
+    for (const id of allIds) {
+      if (!isUuidLike(id) || fetchedMetaIds.current.has(id)) continue;
+      fetchedMetaIds.current.add(id);
+      void apiClient.getStory(id)
+        .then((s) => setStoryMetaCache((prev) => ({ ...prev, [id]: { title: s.title, premise: s.premise ?? null } })))
+        .catch(() => setStoryMetaCache((prev) => ({ ...prev, [id]: { title: '', premise: null } })));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStoryId, recentIds]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -590,7 +686,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
               className="max-w-[160px] h-6 px-1.5 text-[11px] rounded-md bg-transparent border border-gray-800/50 text-gray-600 focus:outline-none focus:border-gray-700 transition"
             >
               {displayedRecents.map((id) => (
-                <option key={id} value={id}>{formatStoryId(id)}</option>
+                <option key={id} value={id}>{getStoryLabel(id, storyMetaCache)}</option>
               ))}
             </select>
             <button
@@ -605,9 +701,13 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
         )}
 
         {/* Story title — named story mode */}
-        {externalStoryId && storyTitle && (
+        {externalStoryId && (
           <>
-            <span className="text-[11px] text-gray-600 truncate max-w-[160px]">{storyTitle}</span>
+            <span className="text-[11px] text-gray-600 truncate max-w-[160px]">
+              {storyTitle && !isUuidLike(storyTitle)
+                ? storyTitle
+                : deriveReadableTitle(storyRecord?.premise)}
+            </span>
             <div className="w-px h-3.5 bg-gray-800/40 mx-0.5 shrink-0" />
           </>
         )}
@@ -969,6 +1069,18 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
                 {chapters.length > 0 ? (
                   <>
+                    {/* Guidance — inline above continuation buttons */}
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Guidance</p>
+                      <textarea
+                        value={promptInput}
+                        onChange={(e) => setPromptInput(e.target.value)}
+                        placeholder="A beat, dialogue, rough notes..."
+                        rows={3}
+                        className="w-full resize-none rounded-lg bg-gray-900/30 border border-gray-800/50 p-2.5 text-[12px] text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition leading-relaxed"
+                      />
+                    </div>
+
                     {/* Section label + generation status */}
                     <div className="flex items-center justify-between">
                       <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">
@@ -1174,17 +1286,19 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
             </div>
           )}
 
-          {/* Guidance */}
-          <div className="space-y-1.5">
-            <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Guidance</p>
-            <textarea
-              value={promptInput}
-              onChange={(e) => setPromptInput(e.target.value)}
-              placeholder="A beat, dialogue, rough notes..."
-              rows={3}
-              className="w-full resize-none rounded-lg bg-gray-900/30 border border-gray-800/50 p-2.5 text-[12px] text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition leading-relaxed"
-            />
-          </div>
+          {/* Guidance — only shown before first chapter; after that it moves inline above continuation buttons */}
+          {chapters.length === 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Guidance</p>
+              <textarea
+                value={promptInput}
+                onChange={(e) => setPromptInput(e.target.value)}
+                placeholder="A beat, dialogue, rough notes..."
+                rows={3}
+                className="w-full resize-none rounded-lg bg-gray-900/30 border border-gray-800/50 p-2.5 text-[12px] text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition leading-relaxed"
+              />
+            </div>
+          )}
 
           {/* Direction chips */}
           <div className="space-y-2">

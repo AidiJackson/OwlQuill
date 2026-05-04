@@ -9,6 +9,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { StoryRecord } from '@/lib/types';
 import StoryLabEngine from '@/features/storylab/StoryLabEngine';
+import { isUuidLike, deriveReadableTitle } from '@/lib/storyTitleUtils';
 
 export default function StoryLabSession() {
   const { storyId } = useParams<{ storyId: string }>();
@@ -69,7 +70,11 @@ export default function StoryLabSession() {
           className="w-5 h-5 rounded-md shrink-0"
           style={{ backgroundColor: story.cover_color }}
         />
-        <h1 className="text-base font-semibold text-gray-100 truncate flex-1">{story.title}</h1>
+        <h1 className="text-base font-semibold text-gray-100 truncate flex-1">
+          {story.title && !isUuidLike(story.title)
+            ? story.title
+            : deriveReadableTitle(story.premise)}
+        </h1>
         {story.genre && (
           <span className="text-[11px] text-gray-500 shrink-0 capitalize tracking-wide">{story.genre}</span>
         )}

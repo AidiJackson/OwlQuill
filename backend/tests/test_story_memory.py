@@ -436,3 +436,447 @@ class TestSeedMemory:
         assert count_after == count_before, (
             f"Duplicate entries added: before={count_before}, after={count_after}"
         )
+
+
+# ── Canon Engine v3: forbidden inference tests ────────────────────────────────
+
+def _make_family_memory() -> dict:
+    """Memory fixture: Angelo alive, Demon Wolf trait, father-son relationship with Leo."""
+    return {
+        "canon": {
+            "hard_truths": ["Angelo Baptiste is alive at story start."],
+            "world_rules": [],
+            "forbidden_contradictions": ['Never write: "Angelo Baptiste is dead"'],
+            "forbidden_inferences": [],
+        },
+        "characters": {
+            "Angelo Baptiste": {
+                "identity": ["Role: Father"],
+                "current_status": ["alive"],
+                "abilities_or_traits": ["Demon Wolf supernatural nature"],
+                "goals": [],
+                "growth": [],
+                "secrets": [],
+            }
+        },
+        "relationships": [
+            {
+                "a": "Angelo Baptiste",
+                "b": "Leo Baptiste",
+                "status": "father-son",
+                "tension": "moderate",
+                "recent_change": "",
+            }
+        ],
+        "open_threads": [],
+        "recent_events": [],
+    }
+
+
+class TestDisappearanceInferences:
+    """Surface 3 / _check_alive_name: disappearance phrases blocked for living characters."""
+
+    def test_disappeared_detected(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "Angelo Baptiste disappeared fifteen years ago and was never found.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("disappear" in r.lower() for r in result)
+
+    def test_vanished_detected(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "Angelo Baptiste vanished without a trace the night everything changed.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("disappear" in r.lower() or "vanish" in r.lower() for r in result)
+
+    def test_presumed_dead_name_detected(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "Angelo Baptiste was presumed dead after the incident at the docks.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("presumed dead" in r.lower() or "fake" in r.lower() for r in result)
+
+    def test_faked_death_name_detected(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "Angelo Baptiste faked his death to protect his family from the council.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+
+    def test_no_false_positive_clean_text(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "Angelo Baptiste greeted his son with a firm nod. Leo was grateful.",
+            _make_family_memory(),
+        )
+        assert result == []
+
+
+class TestGeneralInferencePhrases:
+    """Surface 3: general phrases fired when any alive character is in memory."""
+
+    def test_letting_world_believe_dead_detected(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "He had spent fifteen years letting the world believe him dead.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("letting the world believe him dead" in r.lower() for r in result)
+
+    def test_fake_death_general_detected(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "The whole arrangement had been an elaborate fake death.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("fake death" in r.lower() or "faked" in r.lower() for r in result)
+
+    def test_faked_his_death_general_detected(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "He had faked his death to escape the pack.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+
+    def test_general_phrases_no_fire_when_no_living_chars(self):
+        """General inference phrases must NOT fire when memory has no alive characters."""
+        from app.services.story_memory import check_for_contradictions
+        dead_memory = {
+            "canon": {
+                "hard_truths": ["Story premise: A ghost story."],
+                "world_rules": [],
+                "forbidden_contradictions": [],
+                "forbidden_inferences": [],
+            },
+            "characters": {
+                "Ghost": {
+                    "identity": [],
+                    "current_status": ["deceased"],
+                    "abilities_or_traits": [],
+                    "goals": [], "growth": [], "secrets": [],
+                }
+            },
+            "relationships": [],
+            "open_threads": [],
+            "recent_events": [],
+        }
+        result = check_for_contradictions(
+            "He had faked his death to escape the pack.",
+            dead_memory,
+        )
+        assert result == []
+
+
+class TestIdentityTransferInferences:
+    """Surface 4: identity-transfer inferences blocked when family relationships exist."""
+
+    def test_becoming_what_father_is_detected(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "Leo was becoming what his father is — ruthless, unstoppable.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("father" in r.lower() or "identity transfer" in r.lower() for r in result)
+
+    def test_becoming_what_your_father_is_detected(self):
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "You are becoming what your father is, Leo. Accept it.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+
+    def test_becoming_what_name_is_detected(self):
+        """'becoming what Angelo Baptiste is' triggers a name-based identity transfer check."""
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "Step by step, Leo was becoming what Angelo Baptiste is.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("identity transfer" in r.lower() or "angelo baptiste" in r.lower() for r in result)
+
+    def test_becoming_demon_wolf_detected(self):
+        """'becoming the Demon Wolf' triggers trait-noun identity transfer check."""
+        from app.services.story_memory import check_for_contradictions
+        result = check_for_contradictions(
+            "Leo stood at the threshold of becoming the Demon Wolf himself.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("demon wolf" in r.lower() for r in result)
+
+    def test_identity_transfer_no_fire_without_family_rel(self):
+        """Role-based phrases do NOT fire when memory has no family relationships."""
+        from app.services.story_memory import check_for_contradictions
+        no_rel_memory = {
+            "canon": {
+                "hard_truths": ["Angelo Baptiste is alive at story start."],
+                "world_rules": [],
+                "forbidden_contradictions": [],
+                "forbidden_inferences": [],
+            },
+            "characters": {
+                "Angelo Baptiste": {
+                    "identity": [],
+                    "current_status": ["alive"],
+                    "abilities_or_traits": [],
+                    "goals": [], "growth": [], "secrets": [],
+                }
+            },
+            "relationships": [],  # no family relationship
+            "open_threads": [],
+            "recent_events": [],
+        }
+        result = check_for_contradictions(
+            "You are becoming what your father is.",
+            no_rel_memory,
+        )
+        # Role-based check requires a family relationship — should be empty
+        assert result == []
+
+
+class TestForbiddenInferencesSeeding:
+    """seed_memory and injection block include forbidden inferences for living characters."""
+
+    def test_seed_generates_disappearance_inferences(self):
+        from app.services.story_memory import seed_memory_from_story_creation
+        memory = seed_memory_from_story_creation(
+            characters=[{"name": "Angelo Baptiste"}]
+        )
+        inferences = memory["canon"]["forbidden_inferences"]
+        assert any("disappeared" in fi.lower() or "vanish" in fi.lower() for fi in inferences)
+        assert any("estrangement" in fi.lower() or "distance" in fi.lower() for fi in inferences)
+
+    def test_seed_inferences_are_deduplicated(self):
+        from app.services.story_memory import seed_memory_from_story_creation
+        memory = seed_memory_from_story_creation(
+            characters=[{"name": "Angelo Baptiste"}, {"name": "Angelo Baptiste"}]
+        )
+        inferences = memory["canon"]["forbidden_inferences"]
+        disappeared_entries = [fi for fi in inferences if "disappeared" in fi.lower()]
+        unique = set(disappeared_entries)
+        assert len(disappeared_entries) == len(unique), "Inference entries were duplicated"
+
+    def test_injection_block_contains_forbidden_inferences_section(self):
+        from app.services.story_memory import build_canon_injection_block, seed_memory_from_story_creation
+        memory = seed_memory_from_story_creation(
+            characters=[{"name": "Angelo Baptiste"}]
+        )
+        block = build_canon_injection_block(memory)
+        assert "FORBIDDEN INFERENCES" in block
+        assert "Angelo Baptiste" in block
+
+    def test_apply_memory_updates_auto_appends_inferences_when_alive(self):
+        from app.services.story_memory import _apply_memory_updates, _deep_copy_empty
+        base = _deep_copy_empty()
+        updates = {
+            "character_updates": {
+                "Marco Rossi": {"current_status": ["alive"]}
+            }
+        }
+        _apply_memory_updates(base, updates)
+        inferences = base["canon"]["forbidden_inferences"]
+        assert any("marco rossi" in fi.lower() for fi in inferences)
+        assert any("disappeared" in fi.lower() or "vanish" in fi.lower() for fi in inferences)
+
+    def test_forbidden_inferences_merged_by_merge_existing_into(self):
+        from app.services.story_memory import _deep_copy_empty, _merge_existing_into
+        source = _deep_copy_empty()
+        source["canon"]["forbidden_inferences"] = ["Do not imply Angelo disappeared."]
+        dest = _deep_copy_empty()
+        _merge_existing_into(dest, source)
+        assert "Do not imply Angelo disappeared." in dest["canon"]["forbidden_inferences"]
+
+    def test_apply_memory_updates_new_forbidden_inferences(self):
+        from app.services.story_memory import _apply_memory_updates, _deep_copy_empty
+        base = _deep_copy_empty()
+        updates = {"new_forbidden_inferences": ["Do not imply X faked their death."]}
+        _apply_memory_updates(base, updates)
+        assert "Do not imply X faked their death." in base["canon"]["forbidden_inferences"]
+
+
+# ── Canon Engine v4: co-occurrence / substring detection ─────────────────────
+
+
+class TestCooccurrenceDetection:
+    """v4: sentence-level co-occurrence catches first-name-only disappearance references.
+
+    Root cause of the original failure:
+      text = "Angelo disappeared to protect you"
+      stored name = "Angelo Baptiste"
+      Full-name exact match "angelo baptiste disappeared" ← NOT in text → missed.
+      Co-occurrence: "angelo" + "disappear" in same sentence → CAUGHT.
+    """
+
+    def test_first_name_disappear_to_protect_detected(self):
+        """Core failing case: 'Angelo disappeared to protect you' must trigger detection."""
+        from app.services.story_memory import check_for_contradictions
+
+        result = check_for_contradictions(
+            "Angelo disappeared to protect you from what was coming.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0, (
+            "Expected at least one violation for 'Angelo disappeared to protect you'"
+        )
+        assert any("disappear" in r.lower() for r in result)
+
+    def test_first_name_only_vanished_detected(self):
+        """'Angelo vanished' (first name only) must trigger detection."""
+        from app.services.story_memory import check_for_contradictions
+
+        result = check_for_contradictions(
+            "Angelo vanished the night everything changed.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("disappear" in r.lower() or "vanish" in r.lower() for r in result)
+
+    def test_first_name_disappeared_because_detected(self):
+        """'Angelo disappeared because he had to' must trigger."""
+        from app.services.story_memory import check_for_contradictions
+
+        result = check_for_contradictions(
+            "Angelo disappeared because he had no other choice.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+
+    def test_first_name_seemed_to_disappear_detected(self):
+        """'Angelo seemed to disappear' (indirect phrasing) must trigger."""
+        from app.services.story_memory import check_for_contradictions
+
+        result = check_for_contradictions(
+            "To everyone around him, Angelo seemed to disappear overnight.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+
+    def test_disappeared_to_protect_general_pattern_detected(self):
+        """'disappeared to protect' without a name triggers the general inference check."""
+        from app.services.story_memory import check_for_contradictions
+
+        result = check_for_contradictions(
+            "He had disappeared to protect the ones he loved.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+        assert any("disappeared to protect" in r.lower() for r in result)
+
+    def test_vanished_to_save_general_pattern_detected(self):
+        """'vanished to save' without a name triggers the general inference check."""
+        from app.services.story_memory import check_for_contradictions
+
+        result = check_for_contradictions(
+            "She said he vanished to save the family from danger.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+
+    def test_full_name_still_detected(self):
+        """Full name 'Angelo Baptiste disappeared' remains caught by exact phrase check."""
+        from app.services.story_memory import check_for_contradictions
+
+        result = check_for_contradictions(
+            "Angelo Baptiste disappeared fifteen years ago.",
+            _make_family_memory(),
+        )
+        assert len(result) > 0
+
+    def test_no_false_positive_no_disappear_verb(self):
+        """First name in text without any disappearance verb → no violation."""
+        from app.services.story_memory import check_for_contradictions
+
+        result = check_for_contradictions(
+            "Angelo stepped back into the shadows, watching from a distance.",
+            _make_family_memory(),
+        )
+        assert result == []
+
+    def test_no_false_positive_different_first_name(self):
+        """Disappear verb in text but no matching first name → no co-occurrence violation."""
+        from app.services.story_memory import check_for_contradictions
+
+        # Memory has "Angelo Baptiste" — text uses "Marco disappeared"
+        result = check_for_contradictions(
+            "Marco disappeared into the crowd.",
+            _make_family_memory(),
+        )
+        # "marco" does not match first name "angelo" → no co-occurrence hit
+        # Also no full-name match. General pattern fires ("disappeared to"?) — no, just "disappeared"
+        # General inference phrases don't include bare "disappeared"; alive chars are present
+        # so Surface 3 fires only for specific general phrases. "marco disappeared" → only
+        # co-occurrence check for "angelo" which fails. Result: empty.
+        assert result == []
+
+    def test_sentence_cooccur_helper_direct(self):
+        """_sentence_cooccur_disappearance returns a snippet on match, None on miss."""
+        from app.services.story_memory import _sentence_cooccur_disappearance
+
+        snippet = _sentence_cooccur_disappearance("angelo", "Angelo disappeared to protect you.")
+        assert snippet is not None
+        assert "disappear" in snippet
+
+        assert _sentence_cooccur_disappearance("angelo", "Angelo smiled and nodded.") is None
+        assert _sentence_cooccur_disappearance("leo", "Angelo disappeared.") is None
+
+    def test_short_fragment_not_checked(self):
+        """Fragments shorter than 3 chars are skipped to avoid false positives."""
+        from app.services.story_memory import _sentence_cooccur_disappearance
+
+        assert _sentence_cooccur_disappearance("al", "Al disappeared.") is None
+
+
+class TestCorrectionNoteBuilder:
+    """_build_canon_correction_note generates targeted, character-specific instructions."""
+
+    def test_note_names_alive_characters(self):
+        from app.api.routes.storylab import _build_canon_correction_note
+
+        note = _build_canon_correction_note(
+            ["Forbidden inference: 'Angelo Baptiste is alive' — disappearance implied"],
+            _make_family_memory(),
+        )
+        assert "Angelo Baptiste" in note
+
+    def test_note_includes_disappearance_correction_when_relevant(self):
+        from app.api.routes.storylab import _build_canon_correction_note
+
+        note = _build_canon_correction_note(
+            ["Forbidden inference: disappear detected"],
+            _make_family_memory(),
+        )
+        assert "estrangement" in note.lower() or "distance" in note.lower()
+        assert "NOT disappeared" in note or "have NOT disappeared" in note
+
+    def test_note_does_not_include_disappearance_section_when_irrelevant(self):
+        from app.api.routes.storylab import _build_canon_correction_note
+
+        note = _build_canon_correction_note(
+            ["Hard canon violated (hard_truths): 'Angelo Baptiste is alive' — matched: 'angelo is dead'"],
+            _make_family_memory(),
+        )
+        # No disappearance keywords → disappearance-specific paragraph omitted
+        assert "NOT disappeared" not in note
+
+    def test_note_includes_rewrite_instruction(self):
+        from app.api.routes.storylab import _build_canon_correction_note
+
+        note = _build_canon_correction_note(
+            ["some violation"],
+            _make_family_memory(),
+        )
+        assert "rewrite" in note.lower()

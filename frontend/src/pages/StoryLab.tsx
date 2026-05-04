@@ -1,14 +1,32 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StoryLabEngine from '@/features/storylab/StoryLabEngine';
 import CreateStoryModal from '@/features/storylab/CreateStoryModal';
+import { apiClient } from '@/lib/apiClient';
+import type { StoryRecord } from '@/lib/types';
+import { isUuidLike, deriveReadableTitle } from '@/lib/storyTitleUtils';
 
 type Mode = null | 'collaborate';
+
+function storyLabel(s: StoryRecord): string {
+  if (s.title && !isUuidLike(s.title)) return s.title;
+  return deriveReadableTitle(s.premise);
+}
 
 export default function StoryLab() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+
+  const [stories, setStories] = useState<StoryRecord[]>([]);
+  const [loadingStories, setLoadingStories] = useState(true);
+
+  useEffect(() => {
+    apiClient.listStories()
+      .then((s) => setStories(s))
+      .catch(() => { /* non-fatal — no stories visible but app still works */ })
+      .finally(() => setLoadingStories(false));
+  }, []);
 
   function handleStoryCreated(storyId: string) {
     setShowCreateModal(false);
@@ -72,6 +90,53 @@ export default function StoryLab() {
             </p>
           </button>
         </div>
+
+        {/* ── Your Stories ─────────────────────────────────────────────── */}
+
+        {/* Loading skeleton */}
+        {loadingStories && (
+          <div className="mt-10">
+            <div className="h-2.5 w-24 bg-gray-800/60 rounded-full animate-pulse mb-4" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-[60px] rounded-2xl border border-gray-800/60 bg-gray-900/20 animate-pulse" />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Story list */}
+        {!loadingStories && stories.length > 0 && (
+          <div className="mt-10">
+            <h2 className="text-[11px] font-medium text-gray-600 uppercase tracking-widest mb-4">
+              Your Stories
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {stories.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => navigate(`/storylab/${s.id}`)}
+                  className="group text-left flex items-center gap-3 px-4 py-3.5 rounded-2xl border border-gray-800/60 bg-gray-900/20 hover:border-gray-700/70 hover:bg-gray-900/50 transition"
+                >
+                  <div
+                    className="w-8 h-8 rounded-xl shrink-0"
+                    style={{ backgroundColor: s.cover_color }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-200 truncate group-hover:text-gray-100 transition leading-tight">
+                      {storyLabel(s)}
+                    </p>
+                    {s.genre && (
+                      <p className="text-[11px] text-gray-600 mt-0.5 capitalize leading-tight">{s.genre}</p>
+                    )}
+                  </div>
+                  <span className="text-gray-700 group-hover:text-gray-400 transition text-base shrink-0 select-none">›</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Collaborate engine — full-width below selector */}

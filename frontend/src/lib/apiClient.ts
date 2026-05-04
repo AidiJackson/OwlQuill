@@ -357,6 +357,10 @@ class ApiClient {
     });
   }
 
+  async listStories(): Promise<StoryRecord[]> {
+    return this.request<StoryRecord[]>('/storylab/stories');
+  }
+
   async getStory(storyId: string): Promise<StoryRecord> {
     return this.request<StoryRecord>(`/storylab/stories/${encodeURIComponent(storyId)}`);
   }

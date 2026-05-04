@@ -597,6 +597,73 @@ def _has_memory_content(memory: dict[str, Any]) -> bool:
     )
 
 
+def _build_canon_correction_note(
+    contradictions: list[str],
+    canon_memory: dict[str, Any],
+) -> str:
+    """Build a targeted, character-specific correction note from detected violations.
+
+    Extracts alive character names from canon_memory and generates explicit rewrite
+    instructions that name the specific characters and violation types involved.
+    """
+    # Collect all confirmed-alive character names
+    alive_chars: list[str] = []
+    for char_name, char_data in (canon_memory.get("characters") or {}).items():
+        status = char_data.get("current_status", [])
+        if isinstance(status, list) and any("alive" in str(s).lower() for s in status):
+            alive_chars.append(char_name)
+    for ht in (canon_memory.get("canon") or {}).get("hard_truths", []):
+        if " is alive" in ht.lower():
+            nm = ht.split(" is alive")[0].strip()
+            if nm and not nm.lower().startswith("story premise:") and nm not in alive_chars:
+                alive_chars.append(nm)
+
+    char_str = ", ".join(alive_chars[:3]) if alive_chars else "the main characters"
+    many = len(alive_chars) != 1
+
+    has_disappearance = any(
+        any(kw in c.lower() for kw in ("disappear", "vanish", "presumed dead", "fake death", "faked"))
+        for c in contradictions
+    )
+    has_death = any(
+        any(kw in c.lower() for kw in ("hard canon violated", "kill", "is dead", "died"))
+        for c in contradictions
+    )
+    has_identity_transfer = any("identity transfer" in c.lower() for c in contradictions)
+
+    lines: list[str] = [
+        "CANON VIOLATION DETECTED — REWRITE REQUIRED.",
+        "The previous generation violated hard canon: " + "; ".join(contradictions[:3]) + ".",
+        "",
+        f"{char_str} {'are' if many else 'is'} alive in this story. This is absolute hard canon.",
+    ]
+
+    if has_disappearance:
+        lines.append(
+            f"{char_str} {'have' if many else 'has'} NOT disappeared, vanished, or faked"
+            f" their death. This is incorrect and must not be written."
+            f" If {'they are' if many else 'they are'} absent from another character's life,"
+            f" describe it as estrangement, secrecy, distance, or lack of contact —"
+            f" NEVER as disappearance, vanishing, going missing, or presumed dead."
+        )
+    if has_death:
+        lines.append(
+            f"Do NOT kill, imply the death of, or use past-tense death framing for any"
+            f" confirmed-alive character."
+        )
+    if has_identity_transfer:
+        lines.append(
+            f"Do NOT imply any character is becoming or inheriting what another character is"
+            f" unless the current prompt explicitly instructs this."
+        )
+
+    lines.append(
+        "Rewrite the chapter from scratch, ensuring every sentence complies with all"
+        " canon constraints. Do not repeat any of the listed violations."
+    )
+    return "\n".join(lines)
+
+
 def _update_story_summary(
     story_id: str,
     state_row: StoryState,
@@ -1259,29 +1326,28 @@ def generate_chapter_endpoint(
         contradictions = check_for_contradictions(chapter_text, _check_memory)
         if contradictions:
             logger.warning(
-                "[STORY-CANON-AUDIT] story_id=%s chapter=%d contradictions_found=%d "
-                "— attempting correction retry. details=%s",
+                "[STORY-CANON-BLOCKED] story_id=%s chapter=%d violations=%d"
+                " detected_phrases=%s — triggering retry (attempt 2/2).",
                 story_id, chapter_number, len(contradictions), contradictions,
             )
-            correction_note = (
-                "CANON CORRECTION REQUIRED: The previous generation attempt violated hard canon. "
-                "Specifically: " + "; ".join(contradictions[:3]) + ". "
-                "Regenerate this chapter without these violations. "
-                "All characters confirmed alive in canon must remain alive in this chapter."
-            )
+            correction_note = _build_canon_correction_note(contradictions, _check_memory)
             try:
                 # Restore pre-generation state before retry to prevent double
                 # state-delta application for a single chapter.
                 _pre_state.state_json = _pre_state_json_snapshot
                 db.add(_pre_state)
+                logger.info(
+                    "[STORY-CANON-RETRY] story_id=%s chapter=%d attempt=2/2.",
+                    story_id, chapter_number,
+                )
                 chapter_text, suggestions, model_deltas, _post_memory = _run_chapter_generation(
                     story_id, req, db, canon_correction_note=correction_note
                 )
                 retry_contradictions = check_for_contradictions(chapter_text, _check_memory)
                 if retry_contradictions:
                     logger.error(
-                        "[STORY-CANON-AUDIT] story_id=%s chapter=%d retry_also_violated=%d "
-                        "— refusing to save chapter. details=%s",
+                        "[STORY-CANON-BLOCKED] story_id=%s chapter=%d retry_also_violated=%d"
+                        " — refusing to save. violations=%s",
                         story_id, chapter_number, len(retry_contradictions), retry_contradictions,
                     )
                     raise HTTPException(
@@ -1296,7 +1362,7 @@ def generate_chapter_endpoint(
                         },
                     )
                 logger.info(
-                    "[STORY-CANON-AUDIT] story_id=%s chapter=%d correction_retry_succeeded.",
+                    "[STORY-CANON-RETRY] story_id=%s chapter=%d retry_succeeded.",
                     story_id, chapter_number,
                 )
                 word_count = len(chapter_text.split())
@@ -1304,8 +1370,8 @@ def generate_chapter_endpoint(
                 raise
             except Exception as retry_exc:
                 logger.error(
-                    "[STORY-CANON-AUDIT] story_id=%s chapter=%d retry_generation_failed: %s "
-                    "— refusing to save contradictory chapter.",
+                    "[STORY-CANON-BLOCKED] story_id=%s chapter=%d retry_generation_failed: %s"
+                    " — refusing to save.",
                     story_id, chapter_number, retry_exc,
                 )
                 raise HTTPException(
@@ -1416,6 +1482,12 @@ def regenerate_chapter(
         if used >= limit:
             raise _storylab_quota_error(used, limit)
 
+    # Capture pre-generation canon memory and state snapshot for contradiction
+    # checking and retry (mirrors the generate endpoint pattern).
+    _pre_state = _get_or_create_state(story_id, db)
+    _pre_memory: dict[str, Any] = (_pre_state.state_json or {}).get("memory") or {}
+    _pre_state_json_snapshot: dict[str, Any] = dict(_pre_state.state_json or {})
+
     try:
         chapter_text, suggestions, model_deltas, _post_memory = _run_chapter_generation(story_id, req, db)
     except HTTPException:
@@ -1446,6 +1518,70 @@ def regenerate_chapter(
 
     word_count = len(chapter_text.split())
 
+    # ── Blocking canon contradiction check — BEFORE db.commit() ───────────────
+    _check_memory = _pre_memory or _post_memory
+    if _check_memory:
+        contradictions = check_for_contradictions(chapter_text, _check_memory)
+        if contradictions:
+            logger.warning(
+                "[STORY-CANON-BLOCKED] regenerate story_id=%s chapter=%d violations=%d"
+                " detected_phrases=%s — triggering retry (attempt 2/2).",
+                story_id, chapter_number, len(contradictions), contradictions,
+            )
+            correction_note = _build_canon_correction_note(contradictions, _check_memory)
+            try:
+                _pre_state.state_json = _pre_state_json_snapshot
+                db.add(_pre_state)
+                logger.info(
+                    "[STORY-CANON-RETRY] regenerate story_id=%s chapter=%d attempt=2/2.",
+                    story_id, chapter_number,
+                )
+                chapter_text, suggestions, model_deltas, _post_memory = _run_chapter_generation(
+                    story_id, req, db, canon_correction_note=correction_note
+                )
+                retry_contradictions = check_for_contradictions(chapter_text, _check_memory)
+                if retry_contradictions:
+                    logger.error(
+                        "[STORY-CANON-BLOCKED] regenerate story_id=%s chapter=%d retry_also_violated=%d"
+                        " — refusing to save. violations=%s",
+                        story_id, chapter_number, len(retry_contradictions), retry_contradictions,
+                    )
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "error": "canon_contradiction",
+                            "detail": (
+                                "Regenerated chapter contradicts hard canon and could not be "
+                                "corrected automatically. Please adjust your prompt and try again."
+                            ),
+                            "contradictions": retry_contradictions,
+                        },
+                    )
+                logger.info(
+                    "[STORY-CANON-RETRY] regenerate story_id=%s chapter=%d retry_succeeded.",
+                    story_id, chapter_number,
+                )
+                word_count = len(chapter_text.split())
+            except HTTPException:
+                raise
+            except Exception as retry_exc:
+                logger.error(
+                    "[STORY-CANON-BLOCKED] regenerate story_id=%s chapter=%d retry_generation_failed: %s"
+                    " — refusing to save.",
+                    story_id, chapter_number, retry_exc,
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "canon_contradiction",
+                        "detail": (
+                            "Regenerated chapter contradicts hard canon. "
+                            "The correction attempt also failed. Please try again."
+                        ),
+                        "contradictions": contradictions,
+                    },
+                ) from retry_exc
+
     controls_snapshot = {
         "direction": req.controls.direction,
         "tone_intensity": req.controls.tone_intensity,
@@ -1466,6 +1602,10 @@ def regenerate_chapter(
     _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
     state_row = _get_or_create_state(story_id, db)  # re-fetch after summary commit
     _update_character_memory(story_id, user_key, state_row, db)
+
+    # ── Canon memory extraction + contradiction check (non-fatal) ─────────────
+    state_row = _get_or_create_state(story_id, db)  # re-fetch after character memory commit
+    _update_canon_memory(story_id, chapter_text, chapter_number, state_row, db)
 
     return ChapterGenerateResponse(
         chapter_number=chapter_number,
@@ -1596,6 +1736,23 @@ def create_story(
     db.commit()
 
     return _story_to_response(story)
+
+
+@router.get("/stories", response_model=list[StoryResponse])
+def list_stories(
+    limit: int = Query(default=50, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[StoryResponse]:
+    """Return all stories owned by the current user, most recently updated first."""
+    stories = (
+        db.query(StoryModel)
+        .filter(StoryModel.user_id == current_user.id)
+        .order_by(StoryModel.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_story_to_response(s) for s in stories]
 
 
 @router.get("/stories/{story_id}", response_model=StoryResponse)
