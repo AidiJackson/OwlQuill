@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
 from app.core.invite_seed import seed_invite_codes
-from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces
+from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory
 from app.api.routes.story_spaces import published_router
 
 
@@ -92,6 +92,7 @@ app.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 app.include_router(character_visual.router, prefix="/characters", tags=["character-visual"])
 app.include_router(scene_images.router, prefix="/characters", tags=["scene-images"])
 app.include_router(image_generator.router, prefix="/characters", tags=["image-generator"])
+app.include_router(character_accessory.router, prefix="/characters", tags=["character-accessory"])
 app.include_router(messages.router, prefix="/messages", tags=["messages"])
 app.include_router(images.router, prefix="/images", tags=["images"])
 app.include_router(grammar.router, prefix="/grammar", tags=["grammar"])
@@ -116,6 +117,7 @@ api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 api_router.include_router(character_visual.router, prefix="/characters", tags=["character-visual"])
 api_router.include_router(scene_images.router, prefix="/characters", tags=["scene-images"])
 api_router.include_router(image_generator.router, prefix="/characters", tags=["image-generator"])
+api_router.include_router(character_accessory.router, prefix="/characters", tags=["character-accessory"])
 api_router.include_router(messages.router, prefix="/messages", tags=["messages"])
 api_router.include_router(images.router, prefix="/images", tags=["images"])
 api_router.include_router(grammar.router, prefix="/grammar", tags=["grammar"])

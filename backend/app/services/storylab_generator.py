@@ -24,6 +24,7 @@ Public helpers (importable for testing)
     generate_storylab_continuation(...)           -> tuple[str, dict | None]
     generate_chapter(...)                         -> tuple[str, list[str], dict | None]
     generate_story_summary(...)                   -> str
+    _CINEMATIC_PROSE_LAYER                        -> str   # cinematic prose layer block (testable)
 """
 import json
 import logging
@@ -815,6 +816,75 @@ character-consistent path (slower burn, different tactic) — not via out-of-cha
 """
 
 
+# ── cinematic prose layer (static, inserted in both prompt builders) ─────────
+
+_CINEMATIC_PROSE_LAYER = """\
+## CINEMATIC PROSE LAYER
+
+These instructions govern scene physicality and texture. Apply them throughout,
+not only at peak moments.
+
+**Physical space and movement**
+- Every scene occupies a specific physical location. Establish it through the
+  character's sensory contact: what they hear, feel underfoot, smell, or catch
+  at the edge of vision. Filter every setting detail through the character's
+  current emotional state — not a neutral camera.
+- Track where characters are in the space and how they move through it.
+  Proximity, distance, and the act of crossing a room carry meaning.
+  At least one movement through the environment belongs in every sustained scene.
+- Include one environmental detail per scene that is specific to THIS place —
+  not generic atmosphere.
+
+**Body language and micro-reactions**
+- Show character state through physical specifics: where their hands are, how
+  they hold themselves, what their body does that their words contradict.
+- Micro-reactions matter: the pause before answering, a glance toward the exit,
+  a hand that starts to reach and stops. These reveal more than interior narration.
+- Let two characters' bodies relate — mirroring, withdrawing, occupying more
+  space, failing to fully turn toward each other.
+
+**Scene texture (required in every major beat)**
+Every significant beat must include at least one of:
+- a character gesture or deliberate physical action
+- spatial movement (someone crosses the room, steps back, turns away)
+- a non-visual sensory cue (sound, temperature, texture, smell)
+- an environmental detail that shifts or reflects the emotional register
+- an internal physical response to emotional state — shown through the body,
+  not named
+
+**Relationship and tension expression**
+When attraction, rivalry, fear, loyalty, suspicion, or any charged dynamic is
+present, express it through:
+- proximity and the management of distance between characters
+- what one character notices specifically about the other
+- pauses and what is withheld rather than said
+- tactical word choice — what is offered, deflected, redirected
+- body language that contradicts the surface tone
+Do NOT name or explain the dynamic. Let behaviour make it legible.
+
+**Dialogue with competing motives**
+Characters speak from a position — something they want, protect, test, or
+conceal. Their words reflect that even when the surface subject is mundane.
+Allow characters to avoid direct answers, answer a different question, or
+reveal something while appearing to conceal it.
+Let a line misfire occasionally: a question that sounds like an accusation,
+a comfort that lands as a challenge.
+
+**Restraint (MANDATORY)**
+- Richness is not length. Do not inflate with stacked sensory inventories,
+  repetitive internal monologue, or circling introspection.
+- Do not push every scene toward romance or sexuality. Stay in the register
+  the scene actually calls for.
+- Do not manufacture drama by contradicting established facts.
+
+**Canon priority (ABSOLUTE)**
+Canon and memory constraints outrank cinematic style at all times.
+Never add atmosphere, drama, or emotional texture by contradicting protected
+facts, established character behaviour, or world rules in memory.
+If cinematic instinct conflicts with canon, canon wins — always.\
+"""
+
+
 # ── scene momentum block (static, inserted per-request) ─────────────────────
 
 _SCENE_MOMENTUM = """\
@@ -874,12 +944,14 @@ def build_storylab_prompt(
         4. Character fidelity         (always — psychology-first escalation constraint)
         5. Scene momentum requirement (always)
         6. Repetition dampening       (recurring phrases + recent endings, when present)
-        7. Beat instruction           (direction → explicit BEAT: block)
-        8. Boundary / pacing / tone
-        9. Target length
-       10. Recent scene text
-       11. Output constraints
-       12. Task instruction
+        7. Scene state hints          (narrative state as actionable prose guidance)
+        8. Cinematic prose layer      (physical space, body language, texture, restraint)
+        9. Beat instruction           (direction → explicit BEAT: block)
+       10. Boundary / pacing / tone
+       11. Target length
+       12. Recent scene text
+       13. Output constraints
+       14. Task instruction
 
     Args:
         recent_endings: Last N ending phrases from this story's GenerationLog,
@@ -976,6 +1048,8 @@ def build_storylab_prompt(
     ss = state_json.get("story_state", {})
     state_hints = _narrative_state_hints(ss)
     sections.append(f"## Scene state\n{state_hints}")
+
+    sections.append(_CINEMATIC_PROSE_LAYER)
 
     # Beat instruction — direction label + explicit BEAT: block
     sections.append(
@@ -1419,6 +1493,7 @@ def build_chapter_prompt(
         6.  Last chapter                  (immediate prose continuity)
         7.  Current scene state           (narrative state as actionable prose hints)
         8.  Character fidelity            (always)
+        8b. Cinematic prose layer         (physical space, body language, texture, restraint)
         9.  Direction / boundary / pacing / tone
         10. Outcome vs Path               (governs control interpretation)
         11. Target length
@@ -1509,6 +1584,9 @@ def build_chapter_prompt(
 
     # ── 8. Character fidelity ─────────────────────────────────────────────────
     sections.append(_CHARACTER_FIDELITY_BLOCK)
+
+    # ── 8b. Cinematic prose layer ─────────────────────────────────────────────
+    sections.append(_CINEMATIC_PROSE_LAYER)
 
     # ── 9. Direction / boundary / pacing / tone ───────────────────────────────
     sections.append(

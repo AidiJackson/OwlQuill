@@ -264,6 +264,117 @@ def test_state_json_included_in_prompt():
     assert "Scene state" in user_content or "tension" in user_content.lower()
 
 
+# ── cinematic prose layer tests ──────────────────────────────────────────────
+
+def test_cinematic_layer_present_in_chapter_prompt():
+    """CINEMATIC PROSE LAYER block appears in build_chapter_prompt user message."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    messages = build_chapter_prompt(
+        prompt="The party has just started.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert "CINEMATIC PROSE LAYER" in user_content
+
+
+def test_cinematic_layer_ordering_in_chapter_prompt():
+    """In chapter prompt: canon block precedes cinematic layer, cinematic layer precedes task."""
+    from app.services.storylab_generator import build_chapter_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    canon_memory = {
+        "canon": {"hard_truths": ["Carter is alive."], "world_rules": [], "forbidden_contradictions": []},
+        "characters": {},
+        "relationships": [],
+        "open_threads": [],
+        "recent_events": [],
+    }
+    messages = build_chapter_prompt(
+        prompt="Continue the scene.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+        canon_memory=canon_memory,
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+
+    canon_pos = user_content.find("STORY CANON")
+    cinematic_pos = user_content.find("CINEMATIC PROSE LAYER")
+    task_pos = user_content.find("## Task")
+
+    assert canon_pos != -1, "Canon block missing from chapter prompt"
+    assert cinematic_pos != -1, "Cinematic layer missing from chapter prompt"
+    assert task_pos != -1, "Task instruction missing from chapter prompt"
+    assert canon_pos < cinematic_pos, "Canon block must precede cinematic layer"
+    assert cinematic_pos < task_pos, "Cinematic layer must precede task instruction"
+
+
+def test_cinematic_layer_present_in_storylab_prompt():
+    """CINEMATIC PROSE LAYER block appears in build_storylab_prompt user message."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls
+
+    messages = build_storylab_prompt(
+        text="The rain fell outside.",
+        controls=StoryLabControls(),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert "CINEMATIC PROSE LAYER" in user_content
+
+
+def test_cinematic_layer_before_direction_in_storylab_prompt():
+    """Cinematic layer appears before the direction instruction in build_storylab_prompt."""
+    from app.services.storylab_generator import build_storylab_prompt
+    from app.schemas.storylab import StoryLabControls, Direction
+
+    messages = build_storylab_prompt(
+        text="She waited by the window.",
+        controls=StoryLabControls(direction=Direction.sad_moment),
+        state_json={},
+        summary="",
+        characters=[],
+    )
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+
+    cinematic_pos = user_content.find("CINEMATIC PROSE LAYER")
+    direction_pos = user_content.find("## Direction:")
+
+    assert cinematic_pos != -1, "Cinematic layer missing from storylab prompt"
+    assert direction_pos != -1, "Direction section missing from storylab prompt"
+    assert cinematic_pos < direction_pos, "Cinematic layer must precede direction instruction"
+
+
+def test_canon_functions_unchanged():
+    """Canon memory extraction and injection remain functional after cinematic layer addition."""
+    from app.services.story_memory import build_canon_injection_block, extract_and_merge_memory
+
+    assert callable(extract_and_merge_memory)
+
+    memory = {
+        "canon": {
+            "hard_truths": ["The manor burned down in chapter 2."],
+            "world_rules": [],
+            "forbidden_contradictions": [],
+        },
+        "characters": {},
+        "relationships": [],
+        "open_threads": [],
+        "recent_events": [],
+    }
+    block = build_canon_injection_block(memory)
+    assert "STORY CANON" in block
+    assert "manor burned down" in block
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 _BASE_GENERATE = {

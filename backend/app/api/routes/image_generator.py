@@ -41,6 +41,7 @@ from app.models.character_image import (
 from app.schemas.character_image import CharacterImageRead
 from app.services.image_provider import get_provider_for_option, get_fallback_provider
 from app.services.stub_image_generator import generate_placeholder_png
+from app.services.character_accessory import build_accessory_prompt_block
 
 logger = logging.getLogger(__name__)
 
@@ -437,6 +438,16 @@ def generate_image(
                     "DIAG face_ref_load_failed character_id=%s file_path=%s error=%r",
                     character_id, face_ref_img.file_path, str(_fre),
                 )
+
+    # ── Accessory slot injection (v1) ─────────────────────────────
+    # When include_character=True, inject locked accessory block if the prompt
+    # references the accessory type. Appended before the 800-char cap so it
+    # travels with the scene description. No-op when character has no accessories
+    # or prompt does not mention the accessory type.
+    if body.include_character:
+        accessory_block = build_accessory_prompt_block(character, base_prompt)
+        if accessory_block:
+            base_prompt = base_prompt + "\n" + accessory_block
 
     provider_prompt = base_prompt[:800]
 
