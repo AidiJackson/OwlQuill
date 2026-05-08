@@ -8,6 +8,7 @@ import type { CharacterImageRead } from '@/features/characterCreation/shared/typ
 import ImageGrid from '@/features/images/components/ImageGrid';
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import SignatureAccessoryPanel from '@/features/characterCreation/components/SignatureAccessoryPanel';
 
 const VISIBILITY_ICONS = {
   public: Globe,
@@ -369,6 +370,14 @@ export default function CharacterDetail() {
               </span>
             ))}
           </div>
+        )}
+
+        {/* Signature Accessory — owner only, locked characters only */}
+        {currentUser && character.owner_id === currentUser.id && character.visual_locked && (
+          <SignatureAccessoryPanel
+            character={character}
+            onSaved={(updatedJson) => setCharacter({ ...character, identity_anchor_json: updatedJson })}
+          />
         )}
 
         {/* Image gallery */}

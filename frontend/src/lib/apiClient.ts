@@ -335,6 +335,56 @@ class ApiClient {
     });
   }
 
+  async saveIdentityAccessory(
+    characterId: number,
+    payload: { type: string; name: string; description: string; visual_rules?: string[] },
+  ): Promise<{ character_id: number; accessories: Array<Record<string, unknown>> }> {
+    return this.request(`/characters/${characterId}/identity-accessory`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async generateAccessoryAnchor(
+    characterId: number,
+    accessoryId: string,
+  ): Promise<{ character_id: number; accessory: Record<string, unknown> }> {
+    return this.request(`/characters/${characterId}/identity-accessory/generate-anchor`, {
+      method: 'POST',
+      body: JSON.stringify({ accessory_id: accessoryId }),
+    });
+  }
+
+  async lockAccessoryAnchor(
+    characterId: number,
+    accessoryId: string,
+  ): Promise<{ character_id: number; accessory: Record<string, unknown> }> {
+    return this.request(`/characters/${characterId}/identity-accessory/lock-anchor`, {
+      method: 'POST',
+      body: JSON.stringify({ accessory_id: accessoryId }),
+    });
+  }
+
+  async generateFitAnchor(
+    characterId: number,
+    accessoryId: string,
+  ): Promise<{ character_id: number; accessory: Record<string, unknown> }> {
+    return this.request(`/characters/${characterId}/identity-accessory/generate-fit-anchor`, {
+      method: 'POST',
+      body: JSON.stringify({ accessory_id: accessoryId }),
+    });
+  }
+
+  async lockFitAnchor(
+    characterId: number,
+    accessoryId: string,
+  ): Promise<{ character_id: number; accessory: Record<string, unknown> }> {
+    return this.request(`/characters/${characterId}/identity-accessory/lock-fit-anchor`, {
+      method: 'POST',
+      body: JSON.stringify({ accessory_id: accessoryId }),
+    });
+  }
+
   async submitReport(targetType: string, targetId: string, reason: string, detail?: string): Promise<{ id: number }> {
     return this.request<{ id: number }>('/reports', {
       method: 'POST',

@@ -500,3 +500,557 @@ def test_accessory_block_not_injected_when_prompt_does_not_mention_type(client: 
     # SIGNATURE ACCESSORY block should NOT appear since "mask" not in prompt
     prompt_sent = captured.get("prompt", "")
     assert "SIGNATURE ACCESSORY" not in prompt_sent
+
+
+# ── 6. Unit: build_anchor_prompt ──────────────────────────────────────
+
+def test_build_anchor_prompt_contains_description():
+    """build_anchor_prompt uses the accessory description in the prompt."""
+    from app.services.character_accessory import build_anchor_prompt
+    acc = {
+        "name": "Iron Mask",
+        "description": "matte black half-face tactical mask with wolf contours",
+        "visual_rules": ["covers lower face only", "no bright colors"],
+    }
+    prompt = build_anchor_prompt(acc)
+    assert "matte black half-face tactical mask" in prompt
+    assert "no person wearing it" in prompt
+    assert "neutral background" in prompt
+    assert len(prompt) <= 800
+
+
+def test_build_anchor_prompt_falls_back_to_name_when_no_description():
+    """When description is empty, name is used as the base."""
+    from app.services.character_accessory import build_anchor_prompt
+    acc = {"name": "Iron Mask", "description": "", "visual_rules": []}
+    prompt = build_anchor_prompt(acc)
+    assert "Iron Mask" in prompt
+
+
+# ── 7. Unit: get_triggered_accessory ─────────────────────────────────
+
+def test_get_triggered_accessory_returns_dict():
+    """get_triggered_accessory returns the matching accessory dict."""
+    from app.services.character_accessory import get_triggered_accessory
+    anchor_json = json.dumps({
+        "accessories": [
+            {"id": "mask_1", "type": "mask", "name": "Iron Mask", "description": "A mask", "locked": True}
+        ]
+    })
+    result = get_triggered_accessory(anchor_json, "wearing his mask in the rain")
+    assert result is not None
+    assert result["id"] == "mask_1"
+
+
+def test_get_triggered_accessory_returns_none_when_not_triggered():
+    """get_triggered_accessory returns None when prompt doesn't mention the type."""
+    from app.services.character_accessory import get_triggered_accessory
+    anchor_json = json.dumps({
+        "accessories": [
+            {"id": "mask_1", "type": "mask", "name": "Iron Mask", "description": "A mask", "locked": True}
+        ]
+    })
+    result = get_triggered_accessory(anchor_json, "standing in the rain without gear")
+    assert result is None
+
+
+# ── 8. Unit: update_accessory_in_json ────────────────────────────────
+
+def test_update_accessory_in_json_applies_updates():
+    """update_accessory_in_json merges updates onto the target accessory."""
+    from app.services.character_accessory import update_accessory_in_json
+    anchor_json = json.dumps({
+        "accessories": [
+            {"id": "mask_1", "type": "mask", "name": "Iron Mask", "anchor_status": "none"}
+        ]
+    })
+    updated_json, updated_acc = update_accessory_in_json(
+        anchor_json, "mask_1", {"anchor_status": "generated", "anchor_image_url": "http://example.com/img.png"}
+    )
+    assert updated_acc is not None
+    assert updated_acc["anchor_status"] == "generated"
+    assert updated_acc["anchor_image_url"] == "http://example.com/img.png"
+    data = json.loads(updated_json)
+    assert data["accessories"][0]["anchor_status"] == "generated"
+
+
+def test_update_accessory_in_json_returns_none_for_missing_id():
+    """update_accessory_in_json returns (original_json, None) when id not found."""
+    from app.services.character_accessory import update_accessory_in_json
+    anchor_json = json.dumps({"accessories": [{"id": "mask_1", "type": "mask"}]})
+    result_json, result_acc = update_accessory_in_json(anchor_json, "nonexistent_id", {"anchor_status": "locked"})
+    assert result_acc is None
+    assert json.loads(result_json)["accessories"][0]["id"] == "mask_1"
+
+
+# ── 9. HTTP: generate-anchor endpoint ────────────────────────────────
+
+def test_generate_anchor_updates_accessory(client: TestClient):
+    """generate-anchor generates an image, saves it, and stores anchor fields."""
+    token = _register_and_login(client, "anchor_gen@example.com")
+    cid = _create_character(client, token, "Anchor Gen Char")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Create a mask accessory first
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory",
+        json={"type": "mask", "name": "Iron Mask", "description": "A heavy iron mask"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    accessories = resp.json()["accessories"]
+    acc_id = next(a["id"] for a in accessories if a["type"] == "mask")
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    with (
+        patch("app.api.routes.character_accessory.get_provider_for_option", return_value=mock_provider),
+        patch("app.api.routes.character_accessory.save_image", return_value="static/generated/test_anchor.png"),
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-accessory/generate-anchor",
+            json={"accessory_id": acc_id},
+            headers=headers,
+        )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["character_id"] == cid
+    acc = data["accessory"]
+    assert acc["anchor_image_url"] == "static/generated/test_anchor.png"
+    assert acc["anchor_status"] == "generated"
+    assert acc["anchor_prompt"] is not None
+    assert acc["anchor_created_at"] is not None
+    # Verify the prompt is a standalone object prompt (no identity references)
+    mock_provider.generate_image.assert_called_once()
+    call_kwargs = mock_provider.generate_image.call_args.kwargs
+    assert "no person wearing it" in call_kwargs["prompt"]
+
+
+def test_generate_anchor_returns_404_for_unknown_accessory(client: TestClient):
+    """generate-anchor returns 404 when the accessory_id doesn't exist."""
+    token = _register_and_login(client, "anchor_404@example.com")
+    cid = _create_character(client, token, "Anchor 404 Char")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    with patch("app.api.routes.character_accessory.get_provider_for_option", return_value=mock_provider):
+        resp = client.post(
+            f"/characters/{cid}/identity-accessory/generate-anchor",
+            json={"accessory_id": "nonexistent_id_xyz"},
+            headers=headers,
+        )
+
+    assert resp.status_code == 404, resp.text
+
+
+# ── 10. HTTP: lock-anchor endpoint ───────────────────────────────────
+
+def test_lock_anchor_requires_existing_anchor_image(client: TestClient):
+    """lock-anchor returns 409 when no anchor_image_url is set on the accessory."""
+    token = _register_and_login(client, "lock_no_img@example.com")
+    cid = _create_character(client, token, "Lock No Img Char")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory",
+        json={"type": "mask", "name": "Iron Mask", "description": "A mask"},
+        headers=headers,
+    )
+    acc_id = next(a["id"] for a in resp.json()["accessories"] if a["type"] == "mask")
+
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory/lock-anchor",
+        json={"accessory_id": acc_id},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+
+
+def test_lock_anchor_sets_status_locked(client: TestClient):
+    """lock-anchor transitions anchor_status from 'generated' to 'locked'."""
+    from app.models.character import Character as CharacterModel
+    from app.core.database import get_db
+
+    token = _register_and_login(client, "lock_ok@example.com")
+    cid = _create_character(client, token, "Lock OK Char")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory",
+        json={"type": "mask", "name": "Iron Mask", "description": "A mask"},
+        headers=headers,
+    )
+    acc_id = next(a["id"] for a in resp.json()["accessories"] if a["type"] == "mask")
+
+    # Inject anchor_image_url + anchor_status="generated" directly via generate-anchor mock
+    mock_provider = MagicMock()
+    mock_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    with (
+        patch("app.api.routes.character_accessory.get_provider_for_option", return_value=mock_provider),
+        patch("app.api.routes.character_accessory.save_image", return_value="static/generated/test_anchor_lock.png"),
+    ):
+        client.post(
+            f"/characters/{cid}/identity-accessory/generate-anchor",
+            json={"accessory_id": acc_id},
+            headers=headers,
+        )
+
+    # Now lock
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory/lock-anchor",
+        json={"accessory_id": acc_id},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    acc = resp.json()["accessory"]
+    assert acc["anchor_status"] == "locked"
+    assert acc["anchor_image_url"] == "static/generated/test_anchor_lock.png"
+
+
+def test_text_only_accessory_unaffected_by_anchor_fields(client: TestClient):
+    """Existing accessories without anchor fields still work via prompt injection."""
+    # Use the existing test helper to verify prompt block still fires for a
+    # text-only accessory (one without anchor_image_url or anchor_status).
+    acc = {
+        "id": "mask_legacy",
+        "type": "mask",
+        "name": "Legacy Mask",
+        "description": "A plain legacy mask with no anchor image",
+        "visual_rules": ["matte surface"],
+        "locked": True,
+        # Deliberately omit anchor_image_url, anchor_status
+    }
+    character = _mock_character_with_accessories([acc])
+    block = build_accessory_prompt_block(character, "He wore his mask in the storm")
+    assert "Legacy Mask" in block
+    assert "SIGNATURE ACCESSORY" in block
+
+
+def test_locked_anchor_does_not_break_image_generation(client: TestClient):
+    """Image generation still succeeds when the triggered accessory has a locked anchor."""
+    token = _register_and_login(client, "anchor_imggen@example.com")
+    cid = _create_character(client, token, "Anchor ImgGen Char")
+    _lock_character(client, token, cid)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Save a mask accessory
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory",
+        json={"type": "mask", "name": "Iron Mask", "description": "A heavy iron mask"},
+        headers=headers,
+    )
+    acc_id = next(a["id"] for a in resp.json()["accessories"] if a["type"] == "mask")
+
+    # Inject anchor via mocked generate-anchor
+    mock_anchor_provider = MagicMock()
+    mock_anchor_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    with (
+        patch("app.api.routes.character_accessory.get_provider_for_option", return_value=mock_anchor_provider),
+        patch("app.api.routes.character_accessory.save_image", return_value="static/generated/locked_anchor.png"),
+    ):
+        client.post(
+            f"/characters/{cid}/identity-accessory/generate-anchor",
+            json={"accessory_id": acc_id},
+            headers=headers,
+        )
+    client.post(
+        f"/characters/{cid}/identity-accessory/lock-anchor",
+        json={"accessory_id": acc_id},
+        headers=headers,
+    )
+
+    # Now generate a scene image that mentions the mask
+    captured: dict = {}
+
+    def _mock_with_anchors(*, prompt, anchor_images, size="1024x1024"):
+        captured["prompt"] = prompt
+        captured["anchor_count"] = len(anchor_images)
+        return _stub_png_bytes()
+
+    mock_img_provider = MagicMock()
+    mock_img_provider.supports_multi_image_input = True
+    mock_img_provider.generate_with_anchors = _mock_with_anchors
+    mock_img_provider.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    mock_img_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    with (
+        patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_img_provider),
+        patch("app.api.routes.image_generator.load_image_bytes", return_value=_stub_png_bytes()),
+    ):
+        resp = client.post(
+            f"/characters/{cid}/image-generator/generate",
+            json={
+                "prompt": "Leonardo standing in a dark alley wearing his mask",
+                "include_character": True,
+                "provider_option": "option1",
+            },
+            headers=headers,
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert "SIGNATURE ACCESSORY" in captured.get("prompt", "")
+    # Anchor image was appended — anchor count > identity anchor count
+    assert captured.get("anchor_count", 0) > 0
+
+
+# ── 11. Fit anchor: object anchor NOT used as scene reference ─────────
+
+def test_object_anchor_not_used_for_mask_scene(client: TestClient):
+    """Object anchor (anchor_image_url) is never injected into scene generation refs.
+
+    A mask with a locked object anchor but no fit anchor must NOT cause the object
+    anchor image to appear in the anchor_images list sent to the provider. Only the
+    text accessory block is used — confirmed via anchor_types in metadata.
+    """
+    token = _register_and_login(client, "obj_anchor_scene@example.com")
+    cid = _create_character(client, token, "Object Anchor Scene Char")
+    _lock_character(client, token, cid)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Save mask + generate + lock OBJECT anchor (no fit anchor)
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory",
+        json={"type": "mask", "name": "Iron Mask", "description": "A heavy iron mask"},
+        headers=headers,
+    )
+    acc_id = next(a["id"] for a in resp.json()["accessories"] if a["type"] == "mask")
+
+    mock_anchor_provider = MagicMock()
+    mock_anchor_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    with (
+        patch("app.api.routes.character_accessory.get_provider_for_option", return_value=mock_anchor_provider),
+        patch("app.api.routes.character_accessory.save_image", return_value="static/generated/obj_anchor.png"),
+    ):
+        client.post(
+            f"/characters/{cid}/identity-accessory/generate-anchor",
+            json={"accessory_id": acc_id},
+            headers=headers,
+        )
+    client.post(
+        f"/characters/{cid}/identity-accessory/lock-anchor",
+        json={"accessory_id": acc_id},
+        headers=headers,
+    )
+
+    captured: dict = {}
+
+    def _mock_with_anchors(*, prompt, anchor_images, size="1024x1024"):
+        captured["anchor_images"] = anchor_images
+        captured["anchor_count"] = len(anchor_images)
+        return _stub_png_bytes()
+
+    mock_img_provider = MagicMock()
+    mock_img_provider.supports_multi_image_input = True
+    mock_img_provider.generate_with_anchors = _mock_with_anchors
+    mock_img_provider.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    mock_img_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    with (
+        patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_img_provider),
+        patch("app.api.routes.image_generator.load_image_bytes", return_value=_stub_png_bytes()),
+    ):
+        resp = client.post(
+            f"/characters/{cid}/image-generator/generate",
+            json={
+                "prompt": "Leonardo in the rain wearing his mask",
+                "include_character": True,
+                "provider_option": "option1",
+            },
+            headers=headers,
+        )
+
+    assert resp.status_code == 200, resp.text
+    meta = resp.json()["metadata_json"]
+    # accessory_fit_anchor must NOT appear in anchor_types — only identity anchors
+    assert "accessory_fit_anchor" not in (meta.get("anchor_types") or []), (
+        "Object anchor was injected as scene reference — it must NOT be used"
+    )
+
+
+def test_fit_anchor_used_when_locked(client: TestClient):
+    """Locked fit anchor is appended after identity anchors in scene generation."""
+    token = _register_and_login(client, "fit_anchor_scene@example.com")
+    cid = _create_character(client, token, "Fit Anchor Scene Char")
+    _lock_character(client, token, cid)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Save mask accessory
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory",
+        json={"type": "mask", "name": "Iron Mask", "description": "A heavy iron mask"},
+        headers=headers,
+    )
+    acc_id = next(a["id"] for a in resp.json()["accessories"] if a["type"] == "mask")
+
+    mock_gen_provider = MagicMock()
+    mock_gen_provider.supports_multi_image_input = True
+    mock_gen_provider.generate_with_anchors = MagicMock(return_value=_stub_png_bytes())
+    mock_gen_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    # Generate + lock fit anchor
+    with (
+        patch("app.api.routes.character_accessory.get_provider_for_option", return_value=mock_gen_provider),
+        patch("app.api.routes.character_accessory.load_image_bytes", return_value=_stub_png_bytes()),
+        patch("app.api.routes.character_accessory.save_image", return_value="static/generated/fit_anchor.png"),
+    ):
+        resp = client.post(
+            f"/characters/{cid}/identity-accessory/generate-fit-anchor",
+            json={"accessory_id": acc_id},
+            headers=headers,
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["accessory"]["fit_anchor_status"] == "generated"
+
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory/lock-fit-anchor",
+        json={"accessory_id": acc_id},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["accessory"]["fit_anchor_status"] == "locked"
+
+    # Generate a scene image — fit anchor must appear in anchor_types
+    captured: dict = {}
+
+    def _mock_with_anchors(*, prompt, anchor_images, size="1024x1024"):
+        captured["anchor_count"] = len(anchor_images)
+        return _stub_png_bytes()
+
+    mock_img_provider = MagicMock()
+    mock_img_provider.supports_multi_image_input = True
+    mock_img_provider.generate_with_anchors = _mock_with_anchors
+    mock_img_provider.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    mock_img_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    with (
+        patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_img_provider),
+        patch("app.api.routes.image_generator.load_image_bytes", return_value=_stub_png_bytes()),
+    ):
+        resp = client.post(
+            f"/characters/{cid}/image-generator/generate",
+            json={
+                "prompt": "Leonardo standing in a dark alley wearing his mask",
+                "include_character": True,
+                "provider_option": "option1",
+            },
+            headers=headers,
+        )
+
+    assert resp.status_code == 200, resp.text
+    meta = resp.json()["metadata_json"]
+    assert "accessory_fit_anchor" in (meta.get("anchor_types") or []), (
+        "Locked fit anchor must be in anchor_types for scene generation"
+    )
+
+
+def test_text_fallback_when_no_fit_anchor(client: TestClient):
+    """When no fit anchor exists, the accessory text block is the only reference (no image)."""
+    token = _register_and_login(client, "text_fallback@example.com")
+    cid = _create_character(client, token, "Text Fallback Char")
+    _lock_character(client, token, cid)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Mask with no anchor at all
+    client.post(
+        f"/characters/{cid}/identity-accessory",
+        json={"type": "mask", "name": "Iron Mask", "description": "A heavy iron mask"},
+        headers=headers,
+    )
+
+    captured: dict = {}
+
+    def _mock_with_anchors(*, prompt, anchor_images, size="1024x1024"):
+        captured["anchor_count"] = len(anchor_images)
+        return _stub_png_bytes()
+
+    mock_img_provider = MagicMock()
+    mock_img_provider.supports_multi_image_input = True
+    mock_img_provider.generate_with_anchors = _mock_with_anchors
+    mock_img_provider.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    mock_img_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    with (
+        patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_img_provider),
+        patch("app.api.routes.image_generator.load_image_bytes", return_value=_stub_png_bytes()),
+    ):
+        resp = client.post(
+            f"/characters/{cid}/image-generator/generate",
+            json={
+                "prompt": "wearing his mask in the forest",
+                "include_character": True,
+                "provider_option": "option1",
+            },
+            headers=headers,
+        )
+
+    assert resp.status_code == 200, resp.text
+    meta = resp.json()["metadata_json"]
+    # No fit anchor injected — only identity anchors present
+    assert "accessory_fit_anchor" not in (meta.get("anchor_types") or [])
+    assert "accessory_anchor" not in (meta.get("anchor_types") or [])
+
+
+def test_fit_anchor_prompt_includes_must_not_replace_head():
+    """build_fit_anchor_prompt includes the 'must not replace' constraint."""
+    from app.services.character_accessory import build_fit_anchor_prompt
+    acc = {
+        "type": "mask",
+        "name": "Iron Mask",
+        "description": "matte black half-face tactical mask",
+        "visual_rules": ["covers lower face only"],
+    }
+    prompt = build_fit_anchor_prompt(acc, character_name="Leonardo")
+    assert "must not replace the head" in prompt
+    assert "Eyes, forehead, hair" in prompt
+    assert "Leonardo" in prompt
+    assert len(prompt) <= 800
+
+
+def test_fit_anchor_generate_requires_locked_character(client: TestClient):
+    """generate-fit-anchor returns 409 when character is not visually locked."""
+    token = _register_and_login(client, "fit_unlocked@example.com")
+    cid = _create_character(client, token, "Fit Unlocked Char")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Add accessory without locking the character
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory",
+        json={"type": "mask", "name": "Iron Mask", "description": "A mask"},
+        headers=headers,
+    )
+    acc_id = next(a["id"] for a in resp.json()["accessories"] if a["type"] == "mask")
+
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory/generate-fit-anchor",
+        json={"accessory_id": acc_id},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+
+
+def test_lock_fit_anchor_requires_generated_fit_anchor(client: TestClient):
+    """lock-fit-anchor returns 409 when no fit_anchor_image_url is set."""
+    token = _register_and_login(client, "lock_fit_no_img@example.com")
+    cid = _create_character(client, token, "Lock Fit No Img Char")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory",
+        json={"type": "mask", "name": "Iron Mask", "description": "A mask"},
+        headers=headers,
+    )
+    acc_id = next(a["id"] for a in resp.json()["accessories"] if a["type"] == "mask")
+
+    resp = client.post(
+        f"/characters/{cid}/identity-accessory/lock-fit-anchor",
+        json={"accessory_id": acc_id},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text

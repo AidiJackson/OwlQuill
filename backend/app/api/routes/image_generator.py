@@ -41,7 +41,7 @@ from app.models.character_image import (
 from app.schemas.character_image import CharacterImageRead
 from app.services.image_provider import get_provider_for_option, get_fallback_provider
 from app.services.stub_image_generator import generate_placeholder_png
-from app.services.character_accessory import build_accessory_prompt_block
+from app.services.character_accessory import build_accessory_prompt_block, get_triggered_accessory
 
 logger = logging.getLogger(__name__)
 
@@ -439,14 +439,17 @@ def generate_image(
                     character_id, face_ref_img.file_path, str(_fre),
                 )
 
-    # ── Accessory slot injection (v1) ─────────────────────────────
+    # ── Accessory slot injection (v1/v2) ──────────────────────────
     # When include_character=True, inject locked accessory block if the prompt
     # references the accessory type. Appended before the 800-char cap so it
     # travels with the scene description. No-op when character has no accessories
     # or prompt does not mention the accessory type.
+    # v2: also track the triggered accessory for anchor image injection below.
+    triggered_accessory: dict | None = None
     if body.include_character:
         accessory_block = build_accessory_prompt_block(character, base_prompt)
         if accessory_block:
+            triggered_accessory = get_triggered_accessory(character.identity_anchor_json, base_prompt)
             base_prompt = base_prompt + "\n" + accessory_block
 
     provider_prompt = base_prompt[:800]
@@ -513,6 +516,48 @@ def generate_image(
         anchor_images, anchor_types = _prioritise_face_anchors(anchor_images, anchor_types)
 
         provider_supports_multi = getattr(provider, "supports_multi_image_input", False)
+
+        # v2: accessory fit anchor injection.
+        # The standalone object anchor (anchor_image_url) is NEVER used as a scene
+        # reference — it causes the model to paste/scale the mask over the head.
+        # Only the fit anchor (character wearing the accessory correctly) is used.
+        # Prompt hierarchy: identity anchors → fit anchor → accessory text → scene.
+        if triggered_accessory is not None:
+            _acc_id = triggered_accessory.get("id", "?")
+            _fit_status = triggered_accessory.get("fit_anchor_status", "none")
+            _fit_url = triggered_accessory.get("fit_anchor_image_url")
+
+            logger.info(
+                "DIAG accessory_object_anchor_not_used_for_scene character_id=%s accessory_id=%s",
+                character_id, _acc_id,
+            )
+
+            if _fit_status == "locked" and _fit_url:
+                if provider_supports_multi:
+                    try:
+                        _fit_img_bytes = load_image_bytes(_fit_url)
+                        anchor_images = list(anchor_images) + [_fit_img_bytes]
+                        anchor_types = list(anchor_types) + ["accessory_fit_anchor"]
+                        logger.info(
+                            "DIAG accessory_fit_anchor_used character_id=%s accessory_id=%s bytes=%d",
+                            character_id, _acc_id, len(_fit_img_bytes),
+                        )
+                    except Exception as _fit_exc:
+                        logger.warning(
+                            "DIAG accessory_fit_anchor_load_failed character_id=%s accessory_id=%s error=%r",
+                            character_id, _acc_id, str(_fit_exc),
+                        )
+                else:
+                    logger.info(
+                        "DIAG accessory_text_only_fallback character_id=%s accessory_id=%s "
+                        "reason=provider_no_multi_image fit_status=%s",
+                        character_id, _acc_id, _fit_status,
+                    )
+            else:
+                logger.info(
+                    "DIAG accessory_text_only_fallback character_id=%s accessory_id=%s fit_status=%s",
+                    character_id, _acc_id, _fit_status,
+                )
         logger.info(
             "DIAG strict_identity_state character_id=%s provider=%s "
             "anchors_loaded=%d anchor_types=%s multi_image_supported=%s "
