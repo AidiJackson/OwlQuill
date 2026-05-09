@@ -383,7 +383,7 @@ export default function UserProfile() {
     posts: timeline.filter((i) => i.type === 'post').length,
     characters: characters.length,
     realms: 0,
-    followers: 0,
+    collaborators: 0,
   };
 
   const tabs: { id: Tab; label: string }[] = [
@@ -602,7 +602,7 @@ export default function UserProfile() {
                     { label: 'Posts', value: stats.posts },
                     { label: 'Characters', value: stats.characters },
                     { label: 'Realms', value: stats.realms },
-                    { label: 'Followers', value: stats.followers },
+                    { label: 'Collaborators', value: stats.collaborators },
                   ].map((stat) => (
                     <button
                       key={stat.label}
@@ -630,15 +630,15 @@ export default function UserProfile() {
                 )}
                 {!isOwnProfile && (
                   <>
-                    <button className="bg-[#1A1D23]/80 md:bg-[#1A1D23]/60 md:backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg">
-                      <MessageCircle className="w-4 h-4" />
-                      <span className="hidden sm:inline">Message</span>
+                    <button className="bg-[#1A1D23] border border-[#E8ECEF]/15 text-[#E8ECEF]/90 hover:bg-[#252930] hover:border-[#E8ECEF]/30 hover:text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all shadow-lg">
+                      <MessageCircle className="w-4 h-4 flex-shrink-0" />
+                      Message
                     </button>
-                    <button className="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white hover:from-emerald-400 hover:to-emerald-500 px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all shadow-lg shadow-emerald-500/30 border border-white/10">
-                      <UserPlus className="w-4 h-4" />
-                      Follow
+                    <button className="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white hover:from-emerald-400 hover:to-emerald-500 px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all shadow-lg shadow-emerald-500/30 border border-white/10">
+                      <UserPlus className="w-4 h-4 flex-shrink-0" />
+                      Collaborate
                     </button>
-                    <button className="bg-[#1A1D23]/80 md:bg-[#1A1D23]/60 md:backdrop-blur-md border border-[#E8ECEF]/10 text-white hover:bg-[#252930]/80 hover:border-[#E8ECEF]/20 p-2 rounded-lg transition-all shadow-lg">
+                    <button className="bg-[#1A1D23] border border-[#E8ECEF]/10 text-[#E8ECEF]/50 hover:text-[#E8ECEF]/80 hover:border-[#E8ECEF]/20 p-2 rounded-lg transition-all shadow-lg" title="Share profile">
                       <Share2 className="w-4 h-4" />
                     </button>
                   </>

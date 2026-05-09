@@ -77,7 +77,7 @@ export default function StepProfileDetails({ data, onChange, onFinish, onBack, s
             onChange={(e) => set('visibility', e.target.value)}
           >
             <option value="public">Public — visible to everyone</option>
-            <option value="friends">Friends — visible to connections</option>
+            <option value="friends">Collaborators — visible to connections</option>
             <option value="private">Private — only you can see</option>
           </select>
         </div>

@@ -324,14 +324,14 @@ export default function CharacterDetail() {
                 onClick={() => setFollowing((prev) => !prev)}
               >
                 {following ? (
-                  <><UserCheck className="w-3.5 h-3.5" />Following</>
+                  <><UserCheck className="w-3.5 h-3.5" />Collaborating</>
                 ) : (
-                  <><UserPlus className="w-3.5 h-3.5" />Follow</>
+                  <><UserPlus className="w-3.5 h-3.5" />Collaborate</>
                 )}
               </button>
             </div>
             {following && (
-              <p className="text-xs text-gray-500 mt-1">Follow system coming next.</p>
+              <p className="text-xs text-gray-500 mt-1">Collaboration features coming soon.</p>
             )}
             {currentUser && character.owner_id === currentUser.id && (
               <p className="text-xs text-gray-500 mt-1">You can't message your own character.</p>
