@@ -99,6 +99,7 @@ class StorySpacePost(Base):
     character_id = Column(Integer, ForeignKey("characters.id", ondelete="SET NULL"), nullable=True)
     content = Column(Text, nullable=False)
     content_type = Column(String(20), nullable=False, default="ic")  # 'ic' | 'ooc' | 'narration'
+    source_type = Column(String(20), nullable=True, default="user")  # 'user' | 'ai_assisted' | 'ai_generated'
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

@@ -288,6 +288,7 @@ def _to_post_read(post: StorySpacePost) -> StorySpacePostRead:
         character_avatar_url=character_avatar_url,
         content=post.content,
         content_type=post.content_type,
+        source_type=post.source_type or "user",
         created_at=post.created_at,
         updated_at=post.updated_at,
     )
@@ -323,6 +324,7 @@ def create_post(
         character_id=body.character_id,
         content=body.content,
         content_type=body.content_type,
+        source_type=body.source_type,
         created_at=now,
         updated_at=now,
     )

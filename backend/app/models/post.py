@@ -21,6 +21,13 @@ class PostKindEnum(str, enum.Enum):
     FINISHED_PIECE = "finished_piece"
 
 
+class SourceTypeEnum(str, enum.Enum):
+    """Who or what produced the post content."""
+    USER = "user"
+    AI_ASSISTED = "ai_assisted"
+    AI_GENERATED = "ai_generated"
+
+
 class Post(Base):
     """Post model for story snippets and scenes."""
 
@@ -34,6 +41,7 @@ class Post(Base):
     content = Column(Text, nullable=False)
     content_type = Column(SQLEnum(ContentTypeEnum), default=ContentTypeEnum.IC, nullable=False)
     post_kind = Column(String, default="general", nullable=False)
+    source_type = Column(String(20), default=SourceTypeEnum.USER.value, nullable=True)
     image_url = Column(String(512), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

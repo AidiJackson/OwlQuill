@@ -40,6 +40,7 @@ class PublishedStoryRead(BaseModel):
 class StorySpacePostCreate(BaseModel):
     content: str = Field(..., min_length=1)
     content_type: str = Field("ic", pattern="^(ic|ooc|narration)$")
+    source_type: str = Field("user", pattern="^(user|ai_assisted|ai_generated)$")
     character_id: Optional[int] = None
 
 
@@ -54,6 +55,7 @@ class StorySpacePostRead(BaseModel):
     character_avatar_url: Optional[str] = None
     content: str
     content_type: str
+    source_type: str
     created_at: datetime
     updated_at: datetime
 

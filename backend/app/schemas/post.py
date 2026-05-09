@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from app.models.post import ContentTypeEnum, PostKindEnum
+from app.models.post import ContentTypeEnum, PostKindEnum, SourceTypeEnum
 
 
 class PostBase(BaseModel):
@@ -12,6 +12,7 @@ class PostBase(BaseModel):
     content: str = Field(..., min_length=1)
     content_type: ContentTypeEnum = ContentTypeEnum.IC
     post_kind: PostKindEnum = PostKindEnum.GENERAL
+    source_type: SourceTypeEnum = SourceTypeEnum.USER
     character_id: Optional[int] = None
     image_url: Optional[str] = Field(None, max_length=512)
 
@@ -36,6 +37,8 @@ class Post(PostBase):
     author_username: Optional[str] = None
     character_name: Optional[str] = None
     character_avatar_url: Optional[str] = None
+    # Override: DB may have NULL for rows created before this field was added.
+    source_type: Optional[SourceTypeEnum] = SourceTypeEnum.USER
     created_at: datetime
     updated_at: datetime
 

@@ -208,6 +208,20 @@ export default function Home() {
     );
   };
 
+  const getSourceTypePill = (sourceType?: string | null) => {
+    const pills: Record<string, { label: string; className: string }> = {
+      user:          { label: '✍️ User Written', className: 'text-gray-400/80  border-gray-700/60  bg-gray-800/40'    },
+      ai_assisted:   { label: '✨ AI Assisted',  className: 'text-purple-400/80 border-purple-800/50 bg-purple-950/30' },
+      ai_generated:  { label: '🤖 AI Generated', className: 'text-blue-400/70  border-blue-800/40  bg-blue-950/20'   },
+    };
+    const pill = pills[sourceType ?? 'user'] ?? pills.user;
+    return (
+      <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded border select-none ${pill.className}`}>
+        {pill.label}
+      </span>
+    );
+  };
+
   if (loading) {
     return (
       <div className="p-8">
@@ -532,6 +546,7 @@ export default function Home() {
                         ) : null}
                         {getPostTypeBadge(post.content_type)}
                         {getPostKindBadge(post.post_kind)}
+                        {getSourceTypePill(post.source_type)}
                       </div>
                       <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                         {post.character_name && post.author_username && (

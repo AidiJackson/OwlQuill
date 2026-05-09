@@ -86,6 +86,7 @@ export interface Post {
   content: string;
   content_type: 'ic' | 'ooc' | 'narration';
   post_kind?: 'general' | 'open_starter' | 'finished_piece';
+  source_type?: 'user' | 'ai_assisted' | 'ai_generated';
   image_url?: string;
   created_at: string;
   updated_at: string;
@@ -216,6 +217,7 @@ export interface StorySpacePost {
   character_avatar_url?: string;
   content: string;
   content_type: string;
+  source_type?: 'user' | 'ai_assisted' | 'ai_generated';
   created_at: string;
   updated_at: string;
 }
