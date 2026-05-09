@@ -101,6 +101,34 @@ export default function UserProfile() {
   const [selectedCharId, setSelectedCharId] = useState<number | null>(null);
   const [showCharSelector, setShowCharSelector] = useState(false);
 
+  // CTA state for non-own profile buttons
+  const [collaborateRequested, setCollaborateRequested] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [messageHint, setMessageHint] = useState('');
+
+  const handleMessage = () => {
+    if (characters.length === 0) {
+      setMessageHint('This user has no characters yet.');
+      setTimeout(() => setMessageHint(''), 3000);
+      return;
+    }
+    navigate(`/messages/new?characterId=${characters[0].id}`);
+  };
+
+  const handleCollaborate = () => {
+    setCollaborateRequested(true);
+  };
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // clipboard API unavailable — silent fail
+    }
+  };
+
   const coverPresets = [
     { id: 'enchanted_library', label: 'Enchanted Library' },
     { id: 'midnight_citadel', label: 'Midnight Citadel' },
@@ -630,21 +658,51 @@ export default function UserProfile() {
                 )}
                 {!isOwnProfile && (
                   <>
-                    <button className="bg-[#1A1D23] border border-[#E8ECEF]/15 text-[#E8ECEF]/90 hover:bg-[#252930] hover:border-[#E8ECEF]/30 hover:text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all shadow-lg">
+                    <button
+                      onClick={handleMessage}
+                      className="bg-[#1A1D23] border border-[#E8ECEF]/15 text-[#E8ECEF]/90 hover:bg-[#252930] hover:border-[#E8ECEF]/30 hover:text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all shadow-lg"
+                    >
                       <MessageCircle className="w-4 h-4 flex-shrink-0" />
                       Message
                     </button>
-                    <button className="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white hover:from-emerald-400 hover:to-emerald-500 px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all shadow-lg shadow-emerald-500/30 border border-white/10">
+                    <button
+                      onClick={handleCollaborate}
+                      disabled={collaborateRequested}
+                      className={`px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all shadow-lg border ${
+                        collaborateRequested
+                          ? 'bg-[#1A1D23] border-emerald-800/40 text-emerald-400/70 cursor-default'
+                          : 'bg-gradient-to-r from-emerald-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-500 text-white shadow-emerald-500/30 border-white/10'
+                      }`}
+                    >
                       <UserPlus className="w-4 h-4 flex-shrink-0" />
-                      Collaborate
+                      {collaborateRequested ? 'Requested' : 'Collaborate'}
                     </button>
-                    <button className="bg-[#1A1D23] border border-[#E8ECEF]/10 text-[#E8ECEF]/50 hover:text-[#E8ECEF]/80 hover:border-[#E8ECEF]/20 p-2 rounded-lg transition-all shadow-lg" title="Share profile">
-                      <Share2 className="w-4 h-4" />
+                    <button
+                      onClick={handleShare}
+                      className="bg-[#1A1D23] border border-[#E8ECEF]/10 text-[#E8ECEF]/50 hover:text-[#E8ECEF]/80 hover:border-[#E8ECEF]/20 p-2 rounded-lg transition-all shadow-lg"
+                      title={shareCopied ? 'Link copied!' : 'Copy profile link'}
+                    >
+                      {shareCopied ? (
+                        <Check className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <Share2 className="w-4 h-4" />
+                      )}
                     </button>
                   </>
                 )}
               </div>
             </div>
+            {/* Inline feedback hints below the button row */}
+            {!isOwnProfile && (messageHint || collaborateRequested) && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 pl-0">
+                {messageHint && (
+                  <p className="text-xs text-[#E8ECEF]/40">{messageHint}</p>
+                )}
+                {collaborateRequested && (
+                  <p className="text-xs text-[#E8ECEF]/40">Collaboration invites are coming soon — we'll notify you.</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
