@@ -385,6 +385,60 @@ class ApiClient {
     });
   }
 
+  // ── Candidate slot replacement (Identity Evolution Phase 2) ──────────────────
+
+  async createCandidateSlot(
+    characterId: number,
+    payload: { slot: string; image_url: string },
+  ): Promise<{
+    id: number; character_id: number; slot: string; image_url: string;
+    status: string; validation_status: string; validation_notes: string | null; created_at: string;
+  }> {
+    return this.request(`/characters/${characterId}/identity-evolution/candidate-slot`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async validateCandidateSlot(
+    characterId: number,
+    candidateId: number,
+  ): Promise<{
+    id: number; character_id: number; slot: string; image_url: string;
+    status: string; validation_status: string; validation_notes: string | null; created_at: string;
+  }> {
+    return this.request(
+      `/characters/${characterId}/identity-evolution/candidate-slot/${candidateId}/validate`,
+      { method: 'POST' },
+    );
+  }
+
+  async promoteCandidateSlot(
+    characterId: number,
+    candidateId: number,
+  ): Promise<{
+    snapshot: { id: number; character_id: number; snapshot_version: number; anchor_version: number; reason: string | null; created_at: string };
+    candidate: { id: number; character_id: number; slot: string; image_url: string; status: string; validation_status: string; validation_notes: string | null; created_at: string };
+  }> {
+    return this.request(
+      `/characters/${characterId}/identity-evolution/candidate-slot/${candidateId}/promote`,
+      { method: 'POST' },
+    );
+  }
+
+  async rejectCandidateSlot(
+    characterId: number,
+    candidateId: number,
+  ): Promise<{
+    id: number; character_id: number; slot: string; image_url: string;
+    status: string; validation_status: string; validation_notes: string | null; created_at: string;
+  }> {
+    return this.request(
+      `/characters/${characterId}/identity-evolution/candidate-slot/${candidateId}/reject`,
+      { method: 'POST' },
+    );
+  }
+
   async submitReport(targetType: string, targetId: string, reason: string, detail?: string): Promise<{ id: number }> {
     return this.request<{ id: number }>('/reports', {
       method: 'POST',

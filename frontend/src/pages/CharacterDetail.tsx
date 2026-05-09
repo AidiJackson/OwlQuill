@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check } from 'lucide-react';
+import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check, Sparkles, ChevronLeft, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, User } from '@/lib/types';
 import { listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
@@ -29,6 +29,23 @@ export default function CharacterDetail() {
   const justCreated = searchParams.get('created') === '1';
 
   const [following, setFollowing] = useState(false);
+  const [showEvolveModal, setShowEvolveModal] = useState(false);
+
+  // Evolve identity slot replacement state
+  type EvolveView = 'slots' | 'pick' | 'confirm';
+  type CandidateSlotRead = {
+    id: number; character_id: number; slot: string; image_url: string;
+    status: string; validation_status: string; validation_notes: string | null; created_at: string;
+  };
+  const [evolveView, setEvolveView] = useState<EvolveView>('slots');
+  const [evolveSlot, setEvolveSlot] = useState<string | null>(null);
+  const [evolveCandidate, setEvolveCandidate] = useState<CandidateSlotRead | null>(null);
+  const [evolveCreating, setEvolveCreating] = useState(false);
+  const [evolveValidating, setEvolveValidating] = useState(false);
+  const [evolvePromoting, setEvolvePromoting] = useState(false);
+  const [evolveRejecting, setEvolveRejecting] = useState(false);
+  const [evolveError, setEvolveError] = useState('');
+  const [evolveSuccess, setEvolveSuccess] = useState('');
 
   const [galleryImages, setGalleryImages] = useState<CharacterImageRead[]>([]);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
@@ -58,6 +75,107 @@ export default function CharacterDetail() {
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+
+  // ── Evolve identity helpers ────────────────────────────────────────────────
+
+  const SLOT_LABELS: Record<string, string> = {
+    front: 'Front Portrait',
+    three_quarter: 'Three-Quarter',
+    torso: 'Torso',
+    full_body: 'Full Body',
+  };
+  const ALL_SLOTS = ['front', 'three_quarter', 'torso', 'full_body'];
+
+  function parseSlotUrl(slot: string): string | null {
+    if (!character?.identity_anchor_json) return null;
+    try {
+      const data = JSON.parse(character.identity_anchor_json);
+      return data?.anchors?.[slot]?.url ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  function openEvolveModal() {
+    setEvolveView('slots');
+    setEvolveSlot(null);
+    setEvolveCandidate(null);
+    setEvolveError('');
+    setEvolveSuccess('');
+    setShowEvolveModal(true);
+  }
+
+  function closeEvolveModal() {
+    setShowEvolveModal(false);
+    setEvolveView('slots');
+    setEvolveSlot(null);
+    setEvolveCandidate(null);
+    setEvolveError('');
+    setEvolveSuccess('');
+  }
+
+  async function handleSelectCandidate(img: CharacterImageRead) {
+    if (!character || !evolveSlot) return;
+    setEvolveCreating(true);
+    setEvolveError('');
+    try {
+      const imageUrl = resolveImageUrl(img.url);
+      const candidate = await apiClient.createCandidateSlot(character.id, {
+        slot: evolveSlot,
+        image_url: imageUrl,
+      });
+      // Auto-validate after creation
+      setEvolveValidating(true);
+      const validated = await apiClient.validateCandidateSlot(character.id, candidate.id);
+      setEvolveCandidate(validated);
+      setEvolveView('confirm');
+    } catch (err) {
+      setEvolveError(err instanceof Error ? err.message : 'Failed to create candidate.');
+    } finally {
+      setEvolveCreating(false);
+      setEvolveValidating(false);
+    }
+  }
+
+  async function handlePromote() {
+    if (!character || !evolveCandidate) return;
+    setEvolvePromoting(true);
+    setEvolveError('');
+    try {
+      const result = await apiClient.promoteCandidateSlot(character.id, evolveCandidate.id);
+      setEvolveCandidate(result.candidate);
+      setEvolveSuccess(
+        `${SLOT_LABELS[evolveCandidate.slot] ?? evolveCandidate.slot} promoted to canon. ` +
+        `Snapshot #${result.snapshot.id} saved — rollback available.`
+      );
+      // Refresh character to get updated identity_anchor_json
+      const updated = await apiClient.getCharacter(character.id).catch(() => null);
+      if (updated && mountedRef.current) setCharacter(updated);
+      setEvolveView('slots');
+    } catch (err) {
+      setEvolveError(err instanceof Error ? err.message : 'Promotion failed.');
+    } finally {
+      setEvolvePromoting(false);
+    }
+  }
+
+  async function handleReject() {
+    if (!character || !evolveCandidate) return;
+    setEvolveRejecting(true);
+    setEvolveError('');
+    try {
+      await apiClient.rejectCandidateSlot(character.id, evolveCandidate.id);
+      setEvolveView('slots');
+      setEvolveSlot(null);
+      setEvolveCandidate(null);
+    } catch (err) {
+      setEvolveError(err instanceof Error ? err.message : 'Rejection failed.');
+    } finally {
+      setEvolveRejecting(false);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleDeleteCharacter = async () => {
     if (!id) return;
@@ -336,6 +454,15 @@ export default function CharacterDetail() {
             {currentUser && character.owner_id === currentUser.id && (
               <p className="text-xs text-gray-500 mt-1">You can't message your own character.</p>
             )}
+            {currentUser && character.owner_id === currentUser.id && character.visual_locked && (
+              <button
+                onClick={openEvolveModal}
+                className="text-sm flex items-center gap-2 btn btn-secondary mt-1"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Evolve Identity
+              </button>
+            )}
             {currentUser && character.owner_id === currentUser.id && (
               <button
                 className="text-xs text-red-500 hover:text-red-400 transition-colors mt-2 flex items-center gap-1"
@@ -457,6 +584,255 @@ export default function CharacterDetail() {
         </div>
       )}
       </ErrorBoundary>
+
+      {/* Evolve Identity modal — slot replacement */}
+      {showEvolveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3 px-6 pt-6 pb-4 flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                {evolveView !== 'slots' && (
+                  <button
+                    onClick={() => {
+                      setEvolveView(evolveView === 'confirm' ? 'pick' : 'slots');
+                      setEvolveError('');
+                    }}
+                    className="text-gray-400 hover:text-gray-200 transition-colors mr-1"
+                    aria-label="Back"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                )}
+                <div className="w-8 h-8 rounded-lg bg-emerald-900/40 border border-emerald-700/40 flex items-center justify-center flex-shrink-0">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                </div>
+                <h2 className="text-sm font-semibold text-white">
+                  {evolveView === 'slots' && 'Evolve Identity'}
+                  {evolveView === 'pick' && `Replace ${SLOT_LABELS[evolveSlot ?? ''] ?? evolveSlot}`}
+                  {evolveView === 'confirm' && `Confirm Replacement`}
+                </h2>
+              </div>
+              <button
+                onClick={closeEvolveModal}
+                className="text-gray-500 hover:text-gray-300 transition-colors p-1 flex-shrink-0"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body — scrollable */}
+            <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-4 min-h-0">
+
+              {/* Error banner */}
+              {evolveError && (
+                <div className="text-xs text-red-400 bg-red-400/10 rounded-lg px-3 py-2 border border-red-400/20">
+                  {evolveError}
+                </div>
+              )}
+
+              {/* Success banner */}
+              {evolveSuccess && (
+                <div className="text-xs text-emerald-400 bg-emerald-400/10 rounded-lg px-3 py-2 border border-emerald-400/20 flex items-start gap-2">
+                  <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <span>{evolveSuccess}</span>
+                </div>
+              )}
+
+              {/* ── Slots view ─────────────────────────────────────── */}
+              {evolveView === 'slots' && (
+                <>
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    Replace a single identity anchor slot with a candidate image from your gallery.
+                    Your current state is snapshotted before any promotion — rollback is always available.
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {ALL_SLOTS.map((slot) => {
+                      const url = parseSlotUrl(slot);
+                      return (
+                        <div
+                          key={slot}
+                          className="rounded-xl border border-gray-700/60 bg-gray-800/40 overflow-hidden"
+                        >
+                          <div className="aspect-square bg-gray-800 relative">
+                            {url ? (
+                              <img
+                                src={resolveImageUrl(url)}
+                                alt={SLOT_LABELS[slot]}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Feather className="w-6 h-6 text-gray-600" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="px-2.5 py-2 flex items-center justify-between gap-2">
+                            <span className="text-xs text-gray-400 truncate">{SLOT_LABELS[slot]}</span>
+                            <button
+                              onClick={() => {
+                                setEvolveSlot(slot);
+                                setEvolveView('pick');
+                                setEvolveError('');
+                                setEvolveSuccess('');
+                              }}
+                              className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors whitespace-nowrap flex-shrink-0"
+                            >
+                              Replace
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-start gap-2 rounded-lg bg-gray-800/40 border border-gray-700/40 px-3 py-2.5">
+                    <Lock className="w-3.5 h-3.5 text-emerald-500/70 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-gray-500 leading-relaxed">
+                      Face geometry, species, and body morphology are always preserved.
+                      Only the selected slot image changes.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* ── Pick view ──────────────────────────────────────── */}
+              {evolveView === 'pick' && (
+                <>
+                  <p className="text-xs text-gray-400">
+                    Select a candidate from your character's image gallery.
+                  </p>
+
+                  {evolveCreating || evolveValidating ? (
+                    <div className="flex items-center justify-center py-10 text-gray-500 text-xs gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      {evolveCreating ? 'Creating candidate…' : 'Validating…'}
+                    </div>
+                  ) : galleryImages.length === 0 ? (
+                    <div className="text-center py-10 text-xs text-gray-500">
+                      No images in gallery yet. Generate character images first.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {galleryImages.map((img) => (
+                        <button
+                          key={img.id}
+                          onClick={() => handleSelectCandidate(img)}
+                          className="aspect-square rounded-lg overflow-hidden border border-gray-700 hover:border-emerald-500 transition-colors focus:outline-none focus:border-emerald-400"
+                        >
+                          <img
+                            src={resolveImageUrl(img.url)}
+                            alt={img.kind?.replace(/_/g, ' ') ?? ''}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ── Confirm view ───────────────────────────────────── */}
+              {evolveView === 'confirm' && evolveCandidate && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-gray-500 text-center">Current</p>
+                      <div className="aspect-square rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
+                        {parseSlotUrl(evolveCandidate.slot) ? (
+                          <img
+                            src={resolveImageUrl(parseSlotUrl(evolveCandidate.slot)!)}
+                            alt="Current"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Feather className="w-6 h-6 text-gray-600" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-emerald-400 text-center">Candidate</p>
+                      <div className="aspect-square rounded-lg overflow-hidden bg-gray-800 border border-emerald-700/60">
+                        <img
+                          src={resolveImageUrl(evolveCandidate.image_url)}
+                          alt="Candidate"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Validation status */}
+                  <div className={`rounded-lg px-3 py-2.5 border text-xs flex items-start gap-2 ${
+                    evolveCandidate.validation_status === 'invalid'
+                      ? 'bg-red-400/10 border-red-400/20 text-red-400'
+                      : evolveCandidate.validation_status === 'warning'
+                      ? 'bg-amber-400/10 border-amber-400/20 text-amber-300'
+                      : 'bg-emerald-400/10 border-emerald-400/20 text-emerald-400'
+                  }`}>
+                    {evolveCandidate.validation_status === 'invalid' ? (
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    ) : evolveCandidate.validation_status === 'warning' ? (
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-0.5">
+                      <p className="font-medium capitalize">{evolveCandidate.validation_status}</p>
+                      {evolveCandidate.validation_notes && (
+                        <p className="opacity-80 leading-relaxed">{evolveCandidate.validation_notes}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Rollback safety note */}
+                  <div className="flex items-start gap-2 rounded-lg bg-gray-800/40 border border-gray-700/40 px-3 py-2.5">
+                    <Lock className="w-3.5 h-3.5 text-emerald-500/70 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-gray-500 leading-relaxed">
+                      Before promotion, your current identity state is automatically snapshotted.
+                      Rollback is always available from the snapshots list.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={handleReject}
+                      disabled={evolveRejecting || evolvePromoting}
+                      className="flex-1 btn btn-secondary text-sm disabled:opacity-50"
+                    >
+                      {evolveRejecting ? (
+                        <span className="flex items-center justify-center gap-1.5">
+                          <RefreshCw className="w-3 h-3 animate-spin" /> Rejecting…
+                        </span>
+                      ) : 'Reject'}
+                    </button>
+                    <button
+                      onClick={handlePromote}
+                      disabled={
+                        evolvePromoting || evolveRejecting ||
+                        evolveCandidate.validation_status === 'invalid'
+                      }
+                      className="flex-1 btn btn-primary text-sm disabled:opacity-50"
+                    >
+                      {evolvePromoting ? (
+                        <span className="flex items-center justify-center gap-1.5">
+                          <RefreshCw className="w-3 h-3 animate-spin" /> Promoting…
+                        </span>
+                      ) : 'Promote to Canon'}
+                    </button>
+                  </div>
+                </>
+              )}
+
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete character modal */}
       {showDeleteModal && (

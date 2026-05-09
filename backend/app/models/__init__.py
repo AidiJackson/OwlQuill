@@ -26,6 +26,8 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user_image import UserImage
 from app.models.password_reset_token import PasswordResetToken
+from app.models.identity_snapshot import IdentitySnapshot
+from app.models.candidate_slot import CandidateSlot
 
 __all__ = [
     "Story",
@@ -58,6 +60,8 @@ __all__ = [
     "Message",
     "UserImage",
     "PasswordResetToken",
+    "IdentitySnapshot",
+    "CandidateSlot",
     "Block",
     "StorySpace",
     "StorySpaceMember",

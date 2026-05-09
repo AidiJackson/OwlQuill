@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
 from app.core.invite_seed import seed_invite_codes
-from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory
+from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory, identity_evolution, candidate_slot
 from app.api.routes.story_spaces import published_router
 
 
@@ -93,6 +93,8 @@ app.include_router(character_visual.router, prefix="/characters", tags=["charact
 app.include_router(scene_images.router, prefix="/characters", tags=["scene-images"])
 app.include_router(image_generator.router, prefix="/characters", tags=["image-generator"])
 app.include_router(character_accessory.router, prefix="/characters", tags=["character-accessory"])
+app.include_router(identity_evolution.router, prefix="/characters", tags=["identity-evolution"])
+app.include_router(candidate_slot.router, prefix="/characters", tags=["identity-evolution"])
 app.include_router(messages.router, prefix="/messages", tags=["messages"])
 app.include_router(images.router, prefix="/images", tags=["images"])
 app.include_router(grammar.router, prefix="/grammar", tags=["grammar"])
@@ -118,6 +120,8 @@ api_router.include_router(character_visual.router, prefix="/characters", tags=["
 api_router.include_router(scene_images.router, prefix="/characters", tags=["scene-images"])
 api_router.include_router(image_generator.router, prefix="/characters", tags=["image-generator"])
 api_router.include_router(character_accessory.router, prefix="/characters", tags=["character-accessory"])
+api_router.include_router(identity_evolution.router, prefix="/characters", tags=["identity-evolution"])
+api_router.include_router(candidate_slot.router, prefix="/characters", tags=["identity-evolution"])
 api_router.include_router(messages.router, prefix="/messages", tags=["messages"])
 api_router.include_router(images.router, prefix="/images", tags=["images"])
 api_router.include_router(grammar.router, prefix="/grammar", tags=["grammar"])
