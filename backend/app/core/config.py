@@ -116,6 +116,9 @@ class Settings(BaseSettings):
     STORYLAB_MODEL_SFW: str = ""
     STORYLAB_MODEL_FADE: str = ""
     STORYLAB_MODEL_SENSUAL: str = ""
+    # Explicit inferno model override — must be a permissive model (not Claude).
+    # When empty, falls back to the INFERNO_ALLOWED_MODELS priority list in rp_models.py.
+    STORYLAB_MODEL_INFERNO: str = ""
     # Per-user daily chapter generation quota (0 = unlimited)
     STORYLAB_DAILY_LIMIT: int = 20
 

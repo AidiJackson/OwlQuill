@@ -37,6 +37,8 @@ from app.schemas.storylab import (
     ChapterGenerateResponse,
     ChapterListItem,
     Direction,
+    RPReplyGenerateRequest,
+    RPReplyGenerateResponse,
     SafetyInfo,
     StateDelta,
     StoryCreateRequest,
@@ -55,10 +57,31 @@ from app.services.story_memory import (
 from app.services.storylab_generator import (
     extract_ending_phrase,
     generate_chapter,
+    generate_rp_reply,
     generate_story_summary,
     generate_storylab_continuation,
     _fallback_suggestions,
+    _check_rp_reply_output,
+    build_rp_reply_prompt,
+    _rp_length_profile,
 )
+from app.services.rp_behavior_engine import detect_partner_control, detect_scene_stall, score_inferno_anatomy_density
+from app.services.rp_scene_engine import (
+    detect_scene_beats,
+    detect_repeated_beats,
+    determine_next_scene_goal,
+    detect_scene_regression,
+)
+from app.services.rp_escalation import (
+    compute_scene_stage,
+    detect_scene_resolution,
+    get_pacing_warnings,
+    score_collaborative_continuation,
+)
+from app.services.rp_models import effective_heat_level, evaluate_rp_reply_quality
+from app.services.rp_beat_planner import detect_multi_beat_instruction, extract_requested_beats, beat_completion_mode
+from app.services.rp_spatial_engine import detect_spatial_state
+from app.services.rp_style_engine import DEFAULT_ARCHETYPE, detect_ai_cadence, detect_wrong_pov
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -1769,3 +1792,234 @@ def get_story(
     if story is None:
         raise HTTPException(status_code=404, detail="Story not found")
     return _story_to_response(story)
+
+
+# ── RP Reply Generator ────────────────────────────────────────────────────────
+
+def _build_rp_character_context(char: "CharacterModel") -> tuple[str, str]:
+    """Return (character_name, context_block) for injection into RP reply prompt.
+
+    Uses the same protagonist-anchor approach as build_protagonist_anchor in StoryLab
+    chapters: all available identity fields are gathered into a structured block that
+    anchors the model in a specific character before any other context.
+    """
+    name = char.name or ""
+    lines: list[str] = []
+
+    # Identity header
+    identity_frags: list[str] = []
+    if char.role:
+        identity_frags.append(char.role)
+    if char.age:
+        identity_frags.append(char.age)
+    if char.species:
+        identity_frags.append(char.species)
+    if char.era:
+        identity_frags.append(char.era)
+
+    header = f"**{name}**" if name else "**Character**"
+    if identity_frags:
+        header += f" — {', '.join(identity_frags)}"
+    lines.append(header)
+
+    # Short bio (primary narrative anchor)
+    if char.short_bio:
+        lines.append(char.short_bio[:350])
+
+    # Long bio (additional context, capped tighter)
+    if char.long_bio and char.long_bio.strip():
+        long = char.long_bio.strip()
+        if long != (char.short_bio or "").strip():
+            lines.append(long[:400])
+
+    # Tags / traits (DB column, comma-separated)
+    if char.tags and char.tags.strip():
+        lines.append(f"Traits: {char.tags[:180]}")
+
+    # identity_spec_json — extract ALL personality-related fields
+    if char.identity_spec_json:
+        try:
+            spec = (
+                json.loads(char.identity_spec_json)
+                if isinstance(char.identity_spec_json, str)
+                else char.identity_spec_json
+            )
+            if isinstance(spec, dict):
+                _SPEC_FIELDS = [
+                    ("personality", "Personality"),
+                    ("personality_traits", "Traits"),
+                    ("traits", "Traits"),
+                    ("voice", "Voice"),
+                    ("speech_style", "Speech style"),
+                    ("tone", "Tone"),
+                    ("motivation", "Drives"),
+                    ("emotional_pacing", "Emotional pacing"),
+                    ("dominant_submissive", "Dynamic"),
+                    ("power_style", "Power dynamic"),
+                    ("never", "Would never"),
+                ]
+                seen_labels: set[str] = set()
+                for field, label in _SPEC_FIELDS:
+                    if label in seen_labels:
+                        continue
+                    val = spec.get(field)
+                    if not val:
+                        continue
+                    if isinstance(val, list):
+                        val = ", ".join(str(v).strip() for v in val if str(v).strip())
+                    val_str = str(val).strip()[:200]
+                    if val_str:
+                        lines.append(f"{label}: {val_str}")
+                        seen_labels.add(label)
+        except Exception:  # noqa: BLE001
+            pass
+
+    lines.append(
+        "\nWrite through this character's specific voice, emotional register, "
+        "and worldview. Every action and line of dialogue must belong unmistakably to them."
+    )
+
+    return name, "\n".join(lines)
+
+
+@router.post("/rp-reply/generate", response_model=RPReplyGenerateResponse)
+def generate_rp_reply_endpoint(
+    req: RPReplyGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RPReplyGenerateResponse:
+    """Generate an RP reply as the user's character without controlling the partner character."""
+    character_context: str | None = None
+    character_name: str = ""
+    canon_summary: str | None = None
+
+    if req.character_id is not None:
+        char = db.query(CharacterModel).filter(
+            CharacterModel.id == req.character_id,
+            CharacterModel.owner_id == current_user.id,
+        ).first()
+        if char is None:
+            raise HTTPException(status_code=404, detail="Character not found")
+        character_name, character_context = _build_rp_character_context(char)
+
+    if req.story_id is not None:
+        state_row = db.query(StoryState).filter(StoryState.story_id == req.story_id).first()
+        if state_row is not None and state_row.story_summary and state_row.story_summary.strip():
+            canon_summary = state_row.story_summary.strip()[:600]
+
+    effective_archetype = req.style_archetype or DEFAULT_ARCHETYPE
+
+    # Resolve effective heat level (intensity acts as a floor)
+    resolved_heat = effective_heat_level(req.heat_level, req.intensity)
+
+    reply, model_used, generation_time_ms, pov_warnings, max_tokens_used = generate_rp_reply(
+        partner_reply=req.partner_reply,
+        response_length=req.response_length,
+        style_match=req.style_match,
+        perspective=req.perspective,
+        formatting=req.formatting,
+        intensity=req.intensity,
+        instructions=req.instructions,
+        character_context=character_context,
+        canon_summary=canon_summary,
+        character_name=character_name,
+        model_profile=req.model_profile or "default",
+        heat_level=resolved_heat,
+        style_archetype=effective_archetype,
+    )
+
+    warnings = _check_rp_reply_output(reply)
+    warnings.extend(pov_warnings)
+    quality = evaluate_rp_reply_quality(reply)
+
+    # ── escalation analysis (unified 9-stage) ─────────────────────────────────
+    detected_stage = compute_scene_stage(reply)
+    continuation_score = score_collaborative_continuation(reply)
+    resolution = detect_scene_resolution(reply)
+    pacing_warnings = get_pacing_warnings(
+        reply_text=reply,
+        heat_level=resolved_heat,
+        continuation_score=continuation_score,
+        resolution=resolution,
+    )
+
+    # ── prose/cadence quality analysis ────────────────────────────────────────
+    cadence_result = detect_ai_cadence(reply)
+    style_warnings = cadence_result["warnings"]
+
+    # ── behavior engine diagnostics ───────────────────────────────────────────
+    behavior_diag = detect_partner_control(reply)
+    stall_diag = detect_scene_stall(reply)
+    anatomy_density = score_inferno_anatomy_density(reply) if resolved_heat == "inferno" else 0.0
+
+    # ── scene beat engine diagnostics ─────────────────────────────────────────
+    _combined_input = (canon_summary or "") + "\n" + req.partner_reply
+    scene_beats_result = detect_scene_beats(_combined_input)
+    scene_stage_input = scene_beats_result["scene_stage"]
+    next_goal_result = determine_next_scene_goal(scene_stage_input)
+    next_scene_goal = next_goal_result["next_goal"]
+    rep_result = detect_repeated_beats(reply, _combined_input)
+    repetition_score = rep_result["repetition_score"]
+    regression = detect_scene_regression(reply, _combined_input)
+    progression_success = not regression["progression_failure"] and repetition_score < 0.4
+
+    # ── spatial state diagnostics ─────────────────────────────────────────────
+    spatial_state = detect_spatial_state(_combined_input)
+
+    # ── beat planner diagnostics ──────────────────────────────────────────────
+    _raw_beats = extract_requested_beats(req.instructions or "")
+    multi_beat_detected = detect_multi_beat_instruction(req.instructions or "") or len(_raw_beats) >= 4
+    requested_beats = _raw_beats if multi_beat_detected else []
+    requested_beat_count = len(requested_beats)
+    beat_completion_mode_label = beat_completion_mode(requested_beats)
+
+    # ── length profile diagnostics ────────────────────────────────────────────
+    partner_words_for_profile = len(req.partner_reply.split())
+    _length_profile = _rp_length_profile(req.response_length, partner_words_for_profile)
+    resolved_length_profile = str(_length_profile["label"])
+
+    logger.info(
+        "[SL-DIAG] rp_reply_endpoint | words=%d warnings=%d model=%s time_ms=%d "
+        "length=%s style=%s intensity=%s heat=%s resolved_heat=%s archetype=%s "
+        "char_id=%s story_id=%s | "
+        "quality length=%.2f dialogue=%.2f repetition=%.2f godmod=%.2f format=%.2f | "
+        "stage=%s continuation=%.3f resolved=%s pacing_warns=%d style_warns=%d pov_warns=%d | "
+        "partner_control_risk=%.3f scene_stall=%.3f progression=%.3f "
+        "anatomy_density=%.3f repeated_emotion=%.3f ai_cadence=%s | "
+        "scene_stage=%s next_goal=%s rep_score=%.3f prog_success=%s "
+        "spatial_pos=%s dominance=%s regression=%s",
+        len(reply.split()), len(warnings), model_used, generation_time_ms,
+        req.response_length, req.style_match, req.intensity, req.heat_level,
+        resolved_heat, effective_archetype, req.character_id, req.story_id,
+        quality["length_score"], quality["dialogue_score"],
+        quality["repetition_score"], quality["godmodding_risk"], quality["format_score"],
+        detected_stage, continuation_score, resolution["resolved"],
+        len(pacing_warnings), len(style_warnings), len(pov_warnings),
+        behavior_diag["partner_control_risk"], stall_diag["scene_stall_score"],
+        stall_diag["progression_score"], anatomy_density,
+        stall_diag["repeated_emotion_score"], cadence_result["ai_cadence_risk"],
+        scene_stage_input, next_scene_goal, repetition_score, progression_success,
+        spatial_state["current_position"], spatial_state["dominance_state"],
+        regression["regression_flags"],
+    )
+
+    return RPReplyGenerateResponse(
+        reply=reply,
+        warnings=warnings,
+        model_used=model_used,
+        generation_time_ms=generation_time_ms,
+        detected_stage=detected_stage,
+        continuation_score=continuation_score,
+        resolution_detected=resolution["resolved"],
+        pacing_warnings=pacing_warnings,
+        style_warnings=style_warnings,
+        next_scene_goal=next_scene_goal,
+        repetition_score=repetition_score,
+        progression_success=progression_success,
+        multi_beat_detected=multi_beat_detected,
+        requested_beats=requested_beats,
+        resolved_length_profile=resolved_length_profile,
+        max_tokens_used=max_tokens_used,
+        requested_beat_count=requested_beat_count,
+        beat_completion_mode=beat_completion_mode_label,
+    )

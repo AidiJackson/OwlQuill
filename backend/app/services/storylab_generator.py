@@ -29,6 +29,7 @@ Public helpers (importable for testing)
 import json
 import logging
 import re
+import time
 from typing import Any
 
 import httpx
@@ -39,8 +40,50 @@ from app.schemas.storylab import (
     Direction,
     Length,
     Pacing,
+    RPReplyFormatting,
+    RPReplyIntensity,
+    RPReplyPerspective,
+    RPReplyResponseLength,
+    RPReplyStyleMatch,
     StoryLabControls,
     ToneIntensity,
+)
+from app.services.rp_behavior_engine import (
+    build_behavior_enforcement_block,
+    detect_partner_control,
+    detect_scene_stall,
+    score_inferno_anatomy_density,
+    PARTNER_CONTROL_PROTECTION_BLOCK,
+    SCENE_PROGRESSION_BLOCK,
+)
+from app.services.rp_scene_engine import (
+    detect_scene_beats,
+    detect_repeated_beats,
+    determine_next_scene_goal,
+    build_scene_progression_block,
+    detect_scene_regression,
+)
+from app.services.rp_escalation import get_heat_prompt_block
+from app.services.rp_models import (
+    effective_heat_level,
+    resolve_inferno_model,
+    resolve_rp_model,
+)
+from app.services.rp_beat_planner import (
+    beat_completion_mode,
+    build_beat_execution_block,
+    detect_multi_beat_instruction,
+    extract_requested_beats,
+)
+from app.services.rp_spatial_engine import detect_spatial_state, build_spatial_continuity_block
+from app.services.rp_style_engine import (
+    DEFAULT_ARCHETYPE,
+    DARK_ROMANCE_PROSE_LAYER,
+    ESCALATION_STORY_LAYER,
+    detect_ai_cadence,
+    detect_wrong_pov,
+    get_archetype_prompt_block,
+    maintain_scene_continuity,
 )
 
 logger = logging.getLogger(__name__)
@@ -2017,3 +2060,896 @@ def generate_story_summary(
                 logger.warning("OpenRouter summary error (%s); using stub summary", exc)
 
     return _generate_stub_summary(story_id, chapter_number)
+
+
+# ── RP Reply Generator ────────────────────────────────────────────────────────
+
+_RP_REPLY_SYSTEM = """\
+You are a collaborative roleplay writing assistant. Your sole job is to write one character's response.
+
+ABSOLUTE RULES — these override everything else:
+1. Write ONLY the user's character. Never write dialogue, actions, thoughts, physical reactions, or emotional states for any other character.
+2. Do NOT godmod. You may not decide what the partner character feels, thinks, says, does, reacts to, or consents to — in any way, even by implication.
+3. Do NOT narrate the partner character's body language, internal state, or response.
+4. Do NOT resolve the scene from both sides. End at a point where the partner has clear space to respond.
+5. Match the emotional momentum of the partner's reply. Respond to what just happened — do not ignore it.
+6. Leave the door open. The last beat must invite a response, not close one.
+
+OUTPUT: Return the reply text inside <REPLY>...</REPLY> tags. Nothing else — no preamble, no author notes.\
+"""
+
+# ── length profiles ────────────────────────────────────────────────────────────
+#
+# Each profile carries:
+#   word_target   — target prose word count injected into the prompt
+#   max_tokens    — hard token cap sent to the model
+#   label         — human-readable descriptor for the prompt
+#
+# short    1–2 beats, immediate reply
+# match    mirrors partner reply scope
+# long     several beats, strong progression
+# novella  full narrative sequence; may include scene transitions / time-skips
+
+_RP_LENGTH_PROFILES: dict[str, dict[str, object]] = {
+    RPReplyResponseLength.short: {
+        "word_target": 100,
+        "max_tokens":  900,
+        "label":       "short (immediate reply, 1–2 beats)",
+    },
+    RPReplyResponseLength.match: {
+        "word_target": None,   # computed dynamically from partner word count
+        "max_tokens":  None,   # computed dynamically
+        "label":       "match",
+    },
+    RPReplyResponseLength.long: {
+        "word_target": 350,
+        "max_tokens":  2600,
+        "label":       "long (several beats, rich prose)",
+    },
+    RPReplyResponseLength.novella: {
+        "word_target": 700,
+        "max_tokens":  4000,
+        "label":       "novella-length (full narrative sequence, scene transitions allowed)",
+    },
+}
+
+_MATCH_MAX_TOKENS_CAP = 2000   # safety ceiling for match mode
+
+
+def _rp_length_profile(response_length: str, partner_word_count: int) -> dict[str, object]:
+    """Return a resolved profile dict with numeric word_target and max_tokens."""
+    base = _RP_LENGTH_PROFILES.get(response_length, _RP_LENGTH_PROFILES[RPReplyResponseLength.match])
+    if response_length == RPReplyResponseLength.match:
+        wt = max(60, partner_word_count)
+        mt = min(_MATCH_MAX_TOKENS_CAP, max(400, int(wt * 2.2)))
+        return {"word_target": wt, "max_tokens": mt, "label": f"match (~{wt} words)"}
+    return dict(base)
+
+
+def _rp_reply_word_target(response_length: str, partner_word_count: int) -> int:
+    return int(_rp_length_profile(response_length, partner_word_count)["word_target"])
+
+
+def _rp_reply_max_tokens(response_length: str, partner_word_count: int) -> int:
+    return int(_rp_length_profile(response_length, partner_word_count)["max_tokens"])
+
+
+# ── length instruction text ────────────────────────────────────────────────────
+
+_NOVELLA_BEAT_HINT = (
+    "Complete the major requested beats. "
+    "Do not spend more than one third of the reply on the opening exchange. "
+    "Use concise transitions when needed."
+)
+
+
+def _rp_length_instruction(response_length: str, partner_word_count: int) -> str:
+    profile = _rp_length_profile(response_length, partner_word_count)
+    wt = int(profile["word_target"])
+    label = profile["label"]
+    if response_length == RPReplyResponseLength.match:
+        return (
+            f"Response length: approximately {wt} words — roughly matching the partner reply's length. "
+            "Do not pad. If the scene calls for brevity, be brief."
+        )
+    if response_length == RPReplyResponseLength.novella:
+        return (
+            f"Response length: {label} — approximately {wt} words. "
+            f"{_NOVELLA_BEAT_HINT}"
+        )
+    return f"Response length: {label} — approximately {wt} words."
+
+
+# ── style match instruction ────────────────────────────────────────────────────
+
+def _rp_style_instruction(style_match: str) -> str:
+    if style_match == RPReplyStyleMatch.off:
+        return "Style: write naturally in your character's voice. Do not mirror the partner's style."
+    if style_match == RPReplyStyleMatch.soft:
+        return (
+            "Style match (soft): roughly mirror the partner's paragraph structure and energy, "
+            "without copying their phrasing or vocabulary."
+        )
+    # strong
+    return (
+        "Style match (strong): closely mirror the partner reply's paragraph count, sentence length patterns, "
+        "prose density, and formatting choices. Do not copy their phrases — mirror the rhythm and shape, "
+        "not the words."
+    )
+
+
+# ── perspective instruction ────────────────────────────────────────────────────
+
+def _rp_perspective_instruction(perspective: str, character_name: str) -> str:
+    if perspective == RPReplyPerspective.first_person:
+        return 'Perspective: first person ("I", "me", "my"). Write entirely as "I".'
+    name_note = f' ("{character_name}")' if character_name else ""
+    return (
+        f"Perspective: third person limited{name_note}. "
+        "Stay tightly inside your character's viewpoint — their observations, sensations, and thoughts only."
+    )
+
+
+# ── formatting instruction ─────────────────────────────────────────────────────
+
+def _rp_formatting_instruction(formatting: str) -> str:
+    if formatting == RPReplyFormatting.roleplay_bars:
+        return (
+            "Formatting: roleplay bars. Wrap every narrative paragraph in || delimiters. "
+            "Dialogue sits outside the bars. Example:\n"
+            '||He stepped closer, jaw tight against whatever he was holding back.||\n\n'
+            '"You already knew," he said quietly.\n\n'
+            '||He did not look away.||'
+        )
+    return "Formatting: plain prose. No || delimiters."
+
+
+# ── layered prompt composition ────────────────────────────────────────────────
+
+def build_rp_prompt_layers(
+    partner_reply: str,
+    response_length: str,
+    style_match: str,
+    perspective: str,
+    formatting: str,
+    heat_level: str = "flame",
+    instructions: str | None = None,
+    character_context: str | None = None,
+    canon_summary: str | None = None,
+    character_name: str = "",
+    style_archetype: str = DEFAULT_ARCHETYPE,
+) -> dict[str, str]:
+    """Return a named dict of prompt layers for RP reply generation.
+
+    Priority order per spec (1 = highest):
+        1. identity lock              — role_lock (POV anchor)
+        2. partner control protection — partner_control
+        3. scene progression engine   — scene_engine (dynamic beat-aware block)
+        4. behavior enforcement       — behavior_enforcement (HIGHEST in system)
+        5. heat layer                 — heat
+        6. archetype                  — prose style archetype guidance
+        7. cinematic prose polish     — prose_polish (LOWEST style)
+        —  identity                   — character context (system)
+        —  etiquette                  — anti-godmodding (system)
+        —  style                      — perspective + formatting + style_match
+        —  continuity                 — environmental continuity (conditional)
+        —  pacing                     — length target
+        —  scene_state                — story context + partner reply + instructions
+        —  continuation               — task instruction (final directive)
+
+    prose_style is retained as an alias for prose_polish + archetype combined
+    for backward-compatibility with existing tests.
+    """
+    partner_word_count = len(partner_reply.split())
+
+    # ── scene beat analysis (drives scene_engine layer) ───────────────────────
+    combined_context = (canon_summary or "") + "\n" + partner_reply
+    _beats = detect_scene_beats(combined_context)
+    _scene_stage = _beats["scene_stage"]
+    _goal = determine_next_scene_goal(_scene_stage)
+    _next_goal = _goal["next_goal"]
+    # Use combined_context as prior_text so beat detection works even without canon_summary
+    _rep = detect_repeated_beats(partner_reply, canon_summary or "")
+    _repeated_beats = _rep["repeated_beats"]
+
+    # ── spatial continuity engine ─────────────────────────────────────────────
+    _spatial = detect_spatial_state(combined_context)
+    _spatial_block = build_spatial_continuity_block(_spatial)
+
+    # ── scene engine layer: beat-aware block + static progression rules merged ─
+    # Static SCENE_PROGRESSION_BLOCK is folded into the dynamic block (not separate layer)
+    _dynamic_progression = build_scene_progression_block(
+        scene_stage=_scene_stage,
+        beats=_beats,
+        next_goal=_next_goal,
+        repeated_beats=_repeated_beats,
+        heat_level=heat_level,
+    )
+    scene_engine_parts = ["## Scene Beat Engine\n" + _dynamic_progression]
+    if _spatial_block:
+        scene_engine_parts.append("## Spatial Continuity\n" + _spatial_block)
+    scene_engine = "\n\n".join(scene_engine_parts)
+
+    # ── behavior_enforcement (system-level, HIGHEST PRIORITY) ─────────────────
+    behavior_enforcement = (
+        "## RP BEHAVIORAL ENFORCEMENT\n"
+        + build_behavior_enforcement_block(heat_level=heat_level, instructions=instructions)
+    )
+
+    # ── identity ─────────────────────────────────────────────────────────────
+    identity_parts = [
+        "You are a collaborative roleplay writing assistant. "
+        "Your sole job is to write one character's response.\n\n"
+        "OUTPUT: Return the reply text inside <REPLY>...</REPLY> tags. "
+        "Nothing else — no preamble, no author notes."
+    ]
+    if character_context and character_context.strip():
+        identity_parts.append(f"## Your Character\n{character_context.strip()}")
+    identity = "\n\n".join(identity_parts)
+
+    # ── role lock (POV lock) ─────────────────────────────────────────────────
+    if character_name:
+        role_lock = (
+            "## ROLE LOCK — POV LOCK\n"
+            f"You are writing ONLY as {character_name}.\n"
+            "The partner reply is READ-ONLY context — it is NOT your voice.\n"
+            f"Do NOT continue from the partner character's perspective.\n"
+            "Do NOT start your reply with the partner character's pronoun or name.\n"
+            f"Every sentence belongs to {character_name}: "
+            f"their actions, their voice, their body, their interiority."
+        )
+    else:
+        role_lock = (
+            "## ROLE LOCK — POV LOCK\n"
+            "You are writing ONLY as the selected character.\n"
+            "The partner reply is READ-ONLY context — it is NOT your voice.\n"
+            "Do NOT continue from the partner character's perspective.\n"
+            "Do NOT start with the partner character's pronoun or name.\n"
+            "Write only what the selected character does, says, thinks, and feels."
+        )
+
+    # ── partner-control protection ────────────────────────────────────────────
+    # Partner control layer: focused entirely on anti-godmodding rules.
+    # The output format tag is in identity; repetition here is intentional (different priority layer).
+    partner_control = "## Partner-Control Protection\n" + PARTNER_CONTROL_PROTECTION_BLOCK
+
+    # ── heat ──────────────────────────────────────────────────────────────────
+    heat = f"## {get_heat_prompt_block(heat_level)}"
+
+    # ── style (formatting/perspective/style_match) ─────────────────────────────
+    style_lines = [
+        _rp_perspective_instruction(perspective, character_name),
+        _rp_style_instruction(style_match),
+        _rp_formatting_instruction(formatting),
+    ]
+    style = "## Style\n" + "\n".join(f"- {l}" for l in style_lines)
+
+    # ── scene continuity (environmental) ─────────────────────────────────────
+    continuity_data = maintain_scene_continuity(partner_reply, prior_context=canon_summary)
+    continuity = (
+        f"## Scene Continuity\n{continuity_data['continuity_prompt']}"
+        if continuity_data["continuity_prompt"]
+        else ""
+    )
+
+    # ── pacing ────────────────────────────────────────────────────────────────
+    pacing = f"## Pacing\n- {_rp_length_instruction(response_length, partner_word_count)}"
+
+    # ── beat planner (multi-beat instruction sequencing) ──────────────────────
+    _multi_beat = detect_multi_beat_instruction(instructions or "")
+    _req_beats = extract_requested_beats(instructions or "") if _multi_beat else []
+    _beat_block = build_beat_execution_block(_req_beats)
+
+    # ── scene state (context + instructions + beat block + partner reply) ─────
+    # Beat execution block is injected between instructions and partner reply
+    # so the model reads the sequencing directive before encountering the partner text.
+    scene_parts: list[str] = []
+    if canon_summary and canon_summary.strip():
+        scene_parts.append(f"## Story Context\n{canon_summary.strip()}")
+    if instructions and instructions.strip():
+        scene_parts.append(f"## Your Instructions\n{instructions.strip()}")
+        if _beat_block:
+            scene_parts.append(_beat_block)
+    scene_parts.append(f"## Partner's Reply\n{partner_reply.strip()}")
+    scene_state = "\n\n".join(scene_parts)
+
+    # ── archetype (style archetype) ───────────────────────────────────────────
+    archetype = "## Style Archetype\n" + get_archetype_prompt_block(style_archetype)
+
+    # ── prose polish (cinematic prose — LOWEST style priority) ────────────────
+    # At inferno heat, ESCALATION_STORY_LAYER ("Do not jump rapidly between stages") is
+    # omitted — it would throttle explicit escalation that's already been cleared.
+    if heat_level == "inferno":
+        prose_polish = "## Prose Polish\n" + DARK_ROMANCE_PROSE_LAYER
+    else:
+        prose_polish = "## Prose Polish\n" + DARK_ROMANCE_PROSE_LAYER + "\n\n" + ESCALATION_STORY_LAYER
+
+    # prose_style alias: retained for backward-compatibility with existing tests
+    from app.services.rp_style_engine import build_style_layer
+    prose_style = "## Prose Style\n" + build_style_layer(style_archetype)
+
+    # ── continuation (final task directive — always last) ─────────────────────
+    char_clause = f" Write as {character_name}." if character_name else ""
+    anti_godmod_reminder = (
+        "REMINDER: Write ONLY your character's response. "
+        "Do not write any dialogue, action, thought, or reaction for the partner character."
+    )
+    continuation = (
+        f"## Task\n"
+        f"Write your character's reply to the partner's post above.{char_clause} "
+        f"Apply all behavioral, heat, and pacing instructions above. {anti_godmod_reminder} "
+        f"Return the reply inside <REPLY>...</REPLY> tags."
+    )
+
+    layers: dict[str, str] = {
+        "identity": identity,
+        "behavior_enforcement": behavior_enforcement,
+        "role_lock": role_lock,
+        "partner_control": partner_control,
+        "scene_engine": scene_engine,
+        "heat": heat,
+        "style": style,
+        "prose_style": prose_style,
+        "archetype": archetype,
+        "prose_polish": prose_polish,
+        "pacing": pacing,
+        "scene_state": scene_state,
+        "continuation": continuation,
+        # Expose beat metadata for caller diagnostics
+        "_scene_stage": _scene_stage,
+        "_next_goal": _next_goal,
+        "_repetition_score": str(_rep["repetition_score"]),
+        "_repeated_beats": ", ".join(_repeated_beats) if _repeated_beats else "",
+        # Beat planner diagnostics
+        "_multi_beat_detected": "true" if _multi_beat else "false",
+        "_requested_beats": ",".join(_req_beats),
+    }
+    if continuity:
+        layers["continuity"] = continuity
+    return layers
+
+
+# ── prompt builder (public) ───────────────────────────────────────────────────
+
+def build_rp_reply_prompt(
+    partner_reply: str,
+    response_length: str,
+    style_match: str,
+    perspective: str,
+    formatting: str,
+    intensity: str,
+    instructions: str | None = None,
+    character_context: str | None = None,
+    canon_summary: str | None = None,
+    character_name: str = "",
+    heat_level: str = "flame",
+    style_archetype: str = DEFAULT_ARCHETYPE,
+) -> list[dict[str, str]]:
+    """Build the messages payload for an RP reply generation call.
+
+    Uses layered prompt composition via build_rp_prompt_layers().
+    heat_level (embers/flame/inferno) drives content guidance; intensity is kept
+    for API compat but heat_level takes precedence for the heat block.
+    style_archetype selects the prose style layer from rp_style_engine.
+
+    Returns:
+        [{"role": "system", "content": ...}, {"role": "user", "content": ...}]
+    """
+    layers = build_rp_prompt_layers(
+        partner_reply=partner_reply,
+        response_length=response_length,
+        style_match=style_match,
+        perspective=perspective,
+        formatting=formatting,
+        heat_level=heat_level,
+        instructions=instructions,
+        character_context=character_context,
+        canon_summary=canon_summary,
+        character_name=character_name,
+        style_archetype=style_archetype,
+    )
+
+    # System: identity (includes output format) + behavioral enforcement (highest priority)
+    # etiquette is removed as a separate block — behavior_enforcement fully covers it.
+    system_content = (
+        layers["identity"]
+        + "\n\n"
+        + layers["behavior_enforcement"]
+    )
+
+    # User message priority order:
+    #   1. role_lock        — POV anchor (highest user-message priority)
+    #   2. partner_control  — anti-godmodding rules
+    #   3. heat             — content level rules
+    #   4. style            — formatting/perspective/style_match
+    #   5. pacing           — length target
+    #   6. scene_state      — context + instructions + partner reply
+    #   7. continuation     — task directive (always last)
+    user_sections = [
+        layers["role_lock"],
+        layers["partner_control"],
+        layers["heat"],
+        layers["style"],
+        layers["pacing"],
+        layers["scene_state"],
+        layers["continuation"],
+    ]
+    user_content = "\n\n".join(user_sections)
+
+    return [
+        {"role": "system", "content": system_content},
+        {"role": "user", "content": user_content},
+    ]
+
+
+# ── retry correction block ────────────────────────────────────────────────────
+
+def build_retry_correction_block(character_name: str = "") -> str:
+    """Build a partner-control correction for a generation retry.
+
+    Injected at the TOP of the system message, before all other instructions.
+    Only called when authored_dialogue or authored_consent is detected.
+    """
+    char_label = character_name or "the selected character"
+    return (
+        "CORRECTION — READ FIRST — OVERRIDES ALL OTHER INSTRUCTIONS:\n"
+        "Your previous generation wrote the partner character.\n"
+        f"Rewrite the reply. Write only as {char_label}. "
+        "Do not author the partner's dialogue, thoughts, choices, climax, or major reactions."
+    )
+
+
+# ── output parser ──────────────────────────────────────────────────────────────
+
+_RP_REPLY_TAG_RE = re.compile(r"<REPLY>(.*?)</REPLY>", re.DOTALL)
+
+
+def _parse_rp_reply_output(raw: str) -> str:
+    m = _RP_REPLY_TAG_RE.search(raw)
+    if m:
+        return m.group(1).strip()
+    return raw.strip()
+
+
+# ── anti-godmodding output guard ───────────────────────────────────────────────
+
+def _check_rp_reply_output(reply: str) -> list[str]:
+    """Return warning strings for anti-godmodding and quality issues. Non-blocking in V1.
+
+    Checks (in order):
+      1. Empty / too short
+      2. Direct partner dialogue  — multiple attributed quote blocks
+      3. Partner internal state   — dense pronoun + interior-verb combos
+      4. Forced physical reactions — partner's body described reacting
+      5. Consent / agency resolution — partner's choice resolved by the writer
+    """
+    warnings: list[str] = []
+    words = reply.split()
+
+    if len(words) < 20:
+        warnings.append("Generated reply is very short — consider regenerating.")
+        return warnings
+
+    # 1. Multiple dialogue attribution patterns suggest both characters speaking
+    attributions = re.findall(
+        r'"[^"]{3,}"[^"]*?(?:said|replied|answered|responded|asked|laughed|'
+        r'whispered|snapped|muttered|called|breathed|hissed|drawled)\b',
+        reply, re.IGNORECASE,
+    )
+    if len(attributions) >= 3:
+        warnings.append(
+            "Reply may include dialogue from more than one character — review before sending."
+        )
+
+    # 2. Dense third-person interior-state narration likely means partner POV was written
+    interior = re.findall(
+        r'\b(?:she|he|they)\s+(?:felt|thought|knew|realized|wondered|decided|'
+        r'chose|wanted|needed|understood|believed|hoped|feared|expected)\b',
+        reply, re.IGNORECASE,
+    )
+    if len(interior) >= 4:
+        warnings.append(
+            "Reply may be narrating another character's internal state — "
+            "ensure you are only writing your own character."
+        )
+
+    # 3. Forced physical reactions — partner's body described reacting
+    reactions = re.findall(
+        r'\b(?:she|he|they)\s+(?:gasped|flinched|trembled|shuddered|stiffened|'
+        r'recoiled|tensed|froze|staggered|startled|whimpered|shrank|winced|'
+        r'stepped back|pulled away|leaned away|drew back)\b',
+        reply, re.IGNORECASE,
+    )
+    if len(reactions) >= 2:
+        warnings.append(
+            "Reply appears to describe the partner character's physical reactions — "
+            "avoid writing their body's responses."
+        )
+
+    # 4. Consent / agency resolution — partner's choice resolved by the writer
+    consent = re.findall(
+        r'\b(?:let|allowed|permitted|accepted|welcomed|gave)\s+(?:him|her|them|it)\b',
+        reply, re.IGNORECASE,
+    )
+    if len(consent) >= 2:
+        warnings.append(
+            "Reply may be resolving the partner character's consent or agency — "
+            "leave their choices to the other writer."
+        )
+
+    return warnings
+
+
+# ── stub ───────────────────────────────────────────────────────────────────────
+
+_RP_REPLY_STUBS = [
+    (
+        "He let the silence absorb what she'd said, the words settling into him slowly, "
+        "the way cold water settles into stone. There was something in what she wasn't saying "
+        "that pulled harder than the words themselves.\n\n"
+        '"I heard you," he said at last. His voice was quieter than he intended. '
+        "He did not look away from the window, but his focus had long since left it."
+    ),
+    (
+        "She did not move immediately. Let the weight of it land — because it deserved that, "
+        "at least. A breath. Another.\n\n"
+        "When she finally turned, her expression had resolved into something careful and "
+        "deliberately still. The kind of still that took effort.\n\n"
+        '"That\'s one way to put it," she said.'
+    ),
+    (
+        "Something shifted in his chest that he hadn't been expecting. Not surprise, exactly — "
+        "more like recognition. The kind that arrives a beat too late to do anything useful with.\n\n"
+        "He crossed to the table. Poured water he didn't need. Set the glass down without drinking.\n\n"
+        '"You\'re asking me to choose." It wasn\'t a question.'
+    ),
+]
+
+
+def _rp_reply_stub(partner_reply: str, formatting: str, perspective: str) -> str:
+    idx = hash(partner_reply[:60]) % len(_RP_REPLY_STUBS)
+    text = _RP_REPLY_STUBS[idx]
+
+    if perspective == RPReplyPerspective.first_person:
+        text = (
+            text.replace("He let the silence", "I let the silence")
+            .replace("his chest", "my chest")
+            .replace("he'd", "I'd")
+            .replace("He did not", "I did not")
+            .replace("his focus", "my focus")
+            .replace("She did not", "I did not")
+            .replace("she'd", "I'd")
+            .replace("her expression", "my expression")
+            .replace("she said", "I said")
+            .replace("He crossed", "I crossed")
+            .replace("he didn't", "I didn't")
+        )
+
+    if formatting == RPReplyFormatting.roleplay_bars:
+        parts = []
+        for para in text.split("\n\n"):
+            para = para.strip()
+            if para.startswith('"'):
+                parts.append(para)
+            else:
+                parts.append(f"||{para}||")
+        text = "\n\n".join(parts)
+
+    return text
+
+
+# ── OpenRouter caller ──────────────────────────────────────────────────────────
+
+def _call_openrouter_rp_reply(
+    partner_reply: str,
+    response_length: str,
+    style_match: str,
+    perspective: str,
+    formatting: str,
+    intensity: str,
+    model_slug: str,
+    instructions: str | None = None,
+    character_context: str | None = None,
+    canon_summary: str | None = None,
+    character_name: str = "",
+    heat_level: str = "flame",
+    style_archetype: str = DEFAULT_ARCHETYPE,
+    pov_correction: str | None = None,
+) -> tuple[str, int, int]:
+    """Call OpenRouter for RP reply generation; return (reply, generation_time_ms, max_tokens_used).
+
+    pov_correction: when provided (on a retry after wrong-POV detection), this string
+    is prepended to the system message at the highest priority position.
+    """
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    messages = build_rp_reply_prompt(
+        partner_reply=partner_reply,
+        response_length=response_length,
+        style_match=style_match,
+        perspective=perspective,
+        formatting=formatting,
+        intensity=intensity,
+        instructions=instructions,
+        character_context=character_context,
+        canon_summary=canon_summary,
+        character_name=character_name,
+        heat_level=heat_level,
+        style_archetype=style_archetype,
+    )
+    # On retry: inject correction at the very top of the system message so it
+    # has maximum weight over every other instruction.
+    if pov_correction:
+        messages[0]["content"] = pov_correction + "\n\n" + messages[0]["content"]
+    partner_words = len(partner_reply.split())
+    # Use the length profile's explicit max_tokens rather than computing from word target
+    max_tokens = _rp_reply_max_tokens(response_length, partner_words)
+
+    payload = {
+        "model": model_slug,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.88,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://ficshon.com",
+        "X-Title": "Ficshon StoryLab",
+    }
+
+    user_content_len = len(messages[1]["content"]) if len(messages) > 1 else 0
+    logger.info(
+        "[SL-DIAG] _call_openrouter_rp_reply | model=%s max_tokens=%d prompt_chars=%d partner_words=%d",
+        model_slug, max_tokens, user_content_len, partner_words,
+    )
+
+    t_start = time.monotonic()
+    with httpx.Client(timeout=_REQUEST_TIMEOUT) as client:
+        resp = client.post(url, json=payload, headers=headers)
+        logger.info("[SL-DIAG] _call_openrouter_rp_reply HTTP status=%d", resp.status_code)
+        resp.raise_for_status()
+    generation_time_ms = int((time.monotonic() - t_start) * 1000)
+
+    data = resp.json()
+    raw: str = data["choices"][0]["message"]["content"]
+    logger.info(
+        "[SL-DIAG] _call_openrouter_rp_reply raw_chars=%d has_reply_tag=%s time_ms=%d",
+        len(raw), "<REPLY>" in raw, generation_time_ms,
+    )
+
+    reply = _parse_rp_reply_output(raw)
+    if not reply:
+        raise ValueError("Model returned empty RP reply after parsing")
+    return reply, generation_time_ms, max_tokens
+
+
+# ── public entry point ────────────────────────────────────────────────────────
+
+def generate_rp_reply(
+    partner_reply: str,
+    response_length: str = RPReplyResponseLength.match,
+    style_match: str = RPReplyStyleMatch.soft,
+    perspective: str = RPReplyPerspective.third_person_limited,
+    formatting: str = RPReplyFormatting.plain,
+    intensity: str = RPReplyIntensity.standard,
+    instructions: str | None = None,
+    character_context: str | None = None,
+    canon_summary: str | None = None,
+    character_name: str = "",
+    model_profile: str = "default",
+    heat_level: str = "flame",
+    style_archetype: str = DEFAULT_ARCHETYPE,
+) -> tuple[str, str, int, list[str], int]:
+    """Return (reply, model_used, generation_time_ms, pov_warnings, max_tokens_used).
+
+    Routes to OpenRouter when STORYLAB_PROVIDER=openrouter and
+    OPENROUTER_API_KEY is set; falls back to the deterministic stub
+    on any error so the endpoint never returns empty-handed.
+
+    Heat routing:
+    - intensity acts as a floor for heat_level (explicit → inferno, mature → flame, standard → embers)
+    - inferno heat auto-routes to a permissive model, never Claude
+    model_profile selects from RP_REPLY_MODELS; inferno may override.
+    style_archetype selects prose style from rp_style_engine.
+
+    Quality retries: after first generation, if serious issues are detected
+    (progression failure, partner control, repetition, regression) a single
+    correction-injected retry is attempted.
+
+    POV validation: if the generated reply starts from the partner character's
+    POV, retries once with a POV correction injected at system-message priority.
+    """
+    provider = settings.STORYLAB_PROVIDER
+
+    # ── intensity → heat floor ─────────────────────────────────────────────────
+    heat_level = effective_heat_level(heat_level, intensity)
+
+    # ── model routing ──────────────────────────────────────────────────────────
+    inferno_model_override = False
+    original_model = ""
+    if heat_level == "inferno":
+        resolved_profile, model_slug, inferno_model_override = resolve_inferno_model(
+            model_profile, _EFFECTIVE_STORYLAB_MODEL,
+            inferno_override=settings.STORYLAB_MODEL_INFERNO,
+        )
+        original_model = _EFFECTIVE_STORYLAB_MODEL
+        if inferno_model_override:
+            logger.info(
+                "[SL-DIAG] inferno_model_override=True original_model=%s resolved_model=%s",
+                original_model, model_slug,
+            )
+    else:
+        resolved_profile, model_slug = resolve_rp_model(model_profile, _EFFECTIVE_STORYLAB_MODEL)
+
+    logger.info(
+        "[SL-DIAG] generate_rp_reply | provider=%s key_present=%s profile=%s model=%s "
+        "length=%s style=%s formatting=%s intensity=%s heat=%s archetype=%s "
+        "inferno_override=%s",
+        provider, bool(settings.OPENROUTER_API_KEY), resolved_profile, model_slug,
+        response_length, style_match, formatting, intensity, heat_level, style_archetype,
+        inferno_model_override,
+    )
+
+    if provider == "openrouter":
+        if not settings.OPENROUTER_API_KEY:
+            logger.warning("STORYLAB_PROVIDER=openrouter but OPENROUTER_API_KEY is empty; using stub for RP reply")
+        else:
+            t_start = time.monotonic()
+            try:
+                reply, generation_time_ms, max_tokens_used = _call_openrouter_rp_reply(
+                    partner_reply=partner_reply,
+                    response_length=response_length,
+                    style_match=style_match,
+                    perspective=perspective,
+                    formatting=formatting,
+                    intensity=intensity,
+                    model_slug=model_slug,
+                    instructions=instructions,
+                    character_context=character_context,
+                    canon_summary=canon_summary,
+                    character_name=character_name,
+                    heat_level=heat_level,
+                    style_archetype=style_archetype,
+                )
+
+                # ── quality diagnostics ───────────────────────────────────────
+                _pc = detect_partner_control(reply)
+                _ss = detect_scene_stall(reply)
+                _anatomy = score_inferno_anatomy_density(reply) if heat_level == "inferno" else 0.0
+                combined_ctx = (canon_summary or "") + "\n" + partner_reply
+                _reg = detect_scene_regression(reply, combined_ctx)
+                _rep_post = detect_repeated_beats(reply, combined_ctx)
+                _cadence = detect_ai_cadence(reply)
+
+                logger.info(
+                    "[SL-DIAG] rp_reply_generation | profile=%s model=%s "
+                    "reply_words=%d time_ms=%d heat=%s | "
+                    "partner_control_risk=%.3f scene_stall_score=%.3f "
+                    "progression_score=%.3f inferno_anatomy_density=%.3f "
+                    "repeated_emotion_score=%.3f ai_cadence_risk=%s",
+                    resolved_profile, model_slug,
+                    len(reply.split()), generation_time_ms, heat_level,
+                    _pc["partner_control_risk"], _ss["scene_stall_score"],
+                    _ss["progression_score"], _anatomy,
+                    _ss["repeated_emotion_score"], _cadence["ai_cadence_risk"],
+                )
+
+                # ── partner-control retry ─────────────────────────────────────
+                # Only retry when the model authored the partner's dialogue or consent.
+                # Style, cadence, and progression issues are passive diagnostics — no retry.
+                retry_triggered = False
+                pov_warnings: list[str] = []
+
+                if _pc["authored_dialogue"] or _pc["authored_consent"]:
+                    retry_triggered = True
+                    correction = build_retry_correction_block(character_name)
+                    logger.info(
+                        "[SL-DIAG] partner_control_retry triggered | authored_dialogue=%s authored_consent=%s | model=%s",
+                        _pc["authored_dialogue"], _pc["authored_consent"], model_slug,
+                    )
+                    try:
+                        retry_reply, retry_ms, _ = _call_openrouter_rp_reply(
+                            partner_reply=partner_reply,
+                            response_length=response_length,
+                            style_match=style_match,
+                            perspective=perspective,
+                            formatting=formatting,
+                            intensity=intensity,
+                            model_slug=model_slug,
+                            instructions=instructions,
+                            character_context=character_context,
+                            canon_summary=canon_summary,
+                            character_name=character_name,
+                            heat_level=heat_level,
+                            style_archetype=style_archetype,
+                            pov_correction=correction,
+                        )
+                        generation_time_ms += retry_ms
+                        reply = retry_reply
+                    except Exception as retry_exc:  # noqa: BLE001
+                        logger.warning(
+                            "[SL-DIAG] partner_control_retry failed: %s — using original reply",
+                            retry_exc,
+                        )
+
+                # ── POV validation ────────────────────────────────────────────
+                # Skip POV retry if partner-control retry was already triggered (one retry max)
+                if not retry_triggered:
+                    pov_result = detect_wrong_pov(reply, character_name, partner_reply)
+                    if pov_result["wrong_pov"]:
+                        logger.warning(
+                            "[SL-DIAG] wrong POV detected | char=%s reason=%s — retrying",
+                            character_name or "(none)", pov_result["reason"],
+                        )
+                        char_label = character_name or "the selected character"
+                        pov_correction = (
+                            f"CRITICAL CORRECTION — READ FIRST:\n"
+                            f"Your previous output continued from the partner character's perspective. "
+                            f"This is incorrect.\n"
+                            f"You MUST rewrite ONLY from {char_label}'s perspective.\n"
+                            f"Do NOT open with the partner character's pronoun or name.\n"
+                            f"The partner reply is context for you to respond TO, not a voice to continue."
+                        )
+                        try:
+                            retry_reply, retry_ms, _ = _call_openrouter_rp_reply(
+                                partner_reply=partner_reply,
+                                response_length=response_length,
+                                style_match=style_match,
+                                perspective=perspective,
+                                formatting=formatting,
+                                intensity=intensity,
+                                model_slug=model_slug,
+                                instructions=instructions,
+                                character_context=character_context,
+                                canon_summary=canon_summary,
+                                character_name=character_name,
+                                heat_level=heat_level,
+                                style_archetype=style_archetype,
+                                pov_correction=pov_correction,
+                            )
+                            generation_time_ms += retry_ms
+                            retry_pov = detect_wrong_pov(retry_reply, character_name, partner_reply)
+                            if retry_pov["wrong_pov"]:
+                                pov_warnings.append(
+                                    f"POV warning: reply may still be written from the partner's "
+                                    f"perspective after retry. ({retry_pov['reason']})"
+                                )
+                            reply = retry_reply
+                        except Exception as retry_exc:  # noqa: BLE001
+                            logger.warning(
+                                "[SL-DIAG] POV retry failed: %s — using original reply",
+                                retry_exc,
+                            )
+                            pov_warnings.append(
+                                f"POV warning: wrong-POV detected but retry failed. "
+                                f"({pov_result['reason']})"
+                            )
+
+                return reply, model_slug, generation_time_ms, pov_warnings, max_tokens_used
+
+            except httpx.TimeoutException:
+                logger.warning(
+                    "[SL-DIAG] generate_rp_reply FALLBACK: timed out | profile=%s model=%s time_ms=%d",
+                    resolved_profile, model_slug,
+                    int((time.monotonic() - t_start) * 1000),
+                )
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "[SL-DIAG] generate_rp_reply FALLBACK: HTTP %s | profile=%s model=%s body=%s",
+                    exc.response.status_code, resolved_profile, model_slug,
+                    exc.response.text[:300],
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "[SL-DIAG] generate_rp_reply FALLBACK: %s: %s | profile=%s model=%s",
+                    type(exc).__name__, exc, resolved_profile, model_slug,
+                )
+
+    logger.warning(
+        "[SL-DIAG] generate_rp_reply returning STUB | provider=%s profile=%s",
+        provider, resolved_profile,
+    )
+    stub = _rp_reply_stub(partner_reply, formatting, perspective)
+    partner_words = len(partner_reply.split())
+    stub_max_tokens = _rp_reply_max_tokens(response_length, partner_words)
+    return stub, "stub", 0, [], stub_max_tokens

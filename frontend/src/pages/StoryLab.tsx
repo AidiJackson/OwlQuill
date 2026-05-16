@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StoryLabEngine from '@/features/storylab/StoryLabEngine';
 import CreateStoryModal from '@/features/storylab/CreateStoryModal';
+import RPReplyGenerator from '@/features/storylab/RPReplyGenerator';
 import { apiClient } from '@/lib/apiClient';
 import type { StoryRecord } from '@/lib/types';
 import { isUuidLike, deriveReadableTitle } from '@/lib/storyTitleUtils';
 
-type Mode = null | 'collaborate';
+type Mode = null | 'collaborate' | 'rp_reply';
 
 function storyLabel(s: StoryRecord): string {
   if (s.title && !isUuidLike(s.title)) return s.title;
@@ -89,6 +90,23 @@ export default function StoryLab() {
               Direction chips, pacing, tone, and AI-guided continuations — all in one view.
             </p>
           </button>
+
+          {/* Roleplay Reply */}
+          <button
+            type="button"
+            onClick={() => setMode(mode === 'rp_reply' ? null : 'rp_reply')}
+            className={`group text-left p-6 rounded-2xl border transition-all ${
+              mode === 'rp_reply'
+                ? 'border-violet-500/50 bg-violet-900/20'
+                : 'border-gray-800 bg-gray-900/50 hover:border-gray-700 hover:bg-gray-900/80'
+            }`}
+          >
+            <div className="mb-3 text-2xl select-none">💬</div>
+            <p className="font-semibold text-gray-100 text-base mb-1">Roleplay Reply</p>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              Paste your partner's reply and generate your character's response without taking control of theirs.
+            </p>
+          </button>
         </div>
 
         {/* ── Your Stories ─────────────────────────────────────────────── */}
@@ -143,6 +161,13 @@ export default function StoryLab() {
       {mode === 'collaborate' && (
         <div className="flex-1 flex flex-col border-t border-gray-800/60 min-h-0">
           <StoryLabEngine />
+        </div>
+      )}
+
+      {/* RP Reply Generator — full-width below selector */}
+      {mode === 'rp_reply' && (
+        <div className="border-t border-gray-800/60">
+          <RPReplyGenerator />
         </div>
       )}
 

@@ -294,3 +294,68 @@ export interface StoryRecord {
   created_at: string;
   updated_at: string;
 }
+
+// RP Reply Generator
+export type RPReplyResponseLength = 'short' | 'match' | 'long' | 'novella';
+export type RPReplyStyleMatch = 'off' | 'soft' | 'strong';
+export type RPReplyPerspective = 'first_person' | 'third_person_limited';
+export type RPReplyFormatting = 'plain' | 'roleplay_bars';
+export type RPReplyIntensity = 'standard' | 'mature' | 'explicit';
+export type RPReplyHeatLevel = 'embers' | 'flame' | 'inferno';
+export type RPStyleArchetype =
+  | 'cinematic_dark_romance'
+  | 'gothic_obsession'
+  | 'slow_burn_tension'
+  | 'dangerous_devotion'
+  | 'primal_restraint';
+
+export interface RPReplyRequest {
+  partner_reply: string;
+  instructions?: string;
+  character_id?: number | null;
+  story_id?: string | null;
+  response_length: RPReplyResponseLength;
+  style_match: RPReplyStyleMatch;
+  perspective: RPReplyPerspective;
+  formatting: RPReplyFormatting;
+  intensity: RPReplyIntensity;
+  heat_level: RPReplyHeatLevel;
+  model_profile?: string | null;
+  style_archetype?: RPStyleArchetype | null;
+}
+
+export interface RPReplyResponse {
+  reply: string;
+  warnings: string[];
+  model_used: string;
+  generation_time_ms: number;
+  detected_stage: string;
+  continuation_score: number;
+  resolution_detected: boolean;
+  pacing_warnings: string[];
+  style_warnings: string[];
+  // Internal dev mode diagnostics
+  next_scene_goal?: string;
+  repetition_score?: number;
+  progression_success?: boolean;
+  // Orchestration stabilization diagnostics (internal)
+  ai_cadence_risk?: boolean;
+  breath_gaze_density?: number;
+  spatial_position?: string;
+  spatial_dominance?: string;
+  inferno_model_override?: boolean;
+  resolved_heat?: string;
+  // Beat planner diagnostics (internal dev mode)
+  multi_beat_detected?: boolean;
+  requested_beats?: string[];
+  // Length profile diagnostics (internal dev mode)
+  resolved_length_profile?: string;
+  max_tokens_used?: number;
+  requested_beat_count?: number;
+  beat_completion_mode?: string;
+}
+
+export interface RPModelOption {
+  profile: string;
+  label: string;
+}

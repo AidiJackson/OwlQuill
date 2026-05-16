@@ -1,7 +1,7 @@
 """Schemas for the StoryLab generate + state + chapter endpoints."""
 from enum import Enum
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Direction(str, Enum):
@@ -165,3 +165,108 @@ class StoryResponse(BaseModel):
     cover_color: str
     created_at: str
     updated_at: str
+
+
+# ── RP Reply schemas ──────────────────────────────────────────────────────────
+
+class RPReplyResponseLength(str, Enum):
+    short = "short"
+    match = "match"
+    long = "long"
+    novella = "novella"
+
+
+class RPReplyStyleMatch(str, Enum):
+    off = "off"
+    soft = "soft"
+    strong = "strong"
+
+
+class RPReplyPerspective(str, Enum):
+    first_person = "first_person"
+    third_person_limited = "third_person_limited"
+
+
+class RPReplyFormatting(str, Enum):
+    plain = "plain"
+    roleplay_bars = "roleplay_bars"
+
+
+class RPReplyIntensity(str, Enum):
+    standard = "standard"
+    mature = "mature"
+    explicit = "explicit"   # maps to inferno heat via intensity_to_heat()
+
+
+_VALID_HEAT_LEVELS = frozenset({"embers", "flame", "inferno"})
+
+
+class RPReplyGenerateRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    partner_reply: str = Field(..., min_length=1, max_length=20_000, description="The partner's RP reply text")
+    instructions: Optional[str] = Field(None, max_length=2_000)
+    character_id: Optional[int] = None
+    story_id: Optional[str] = None
+    response_length: RPReplyResponseLength = RPReplyResponseLength.match
+    style_match: RPReplyStyleMatch = RPReplyStyleMatch.soft
+    perspective: RPReplyPerspective = RPReplyPerspective.third_person_limited
+    formatting: RPReplyFormatting = RPReplyFormatting.plain
+    intensity: RPReplyIntensity = RPReplyIntensity.standard
+    heat_level: str = Field("flame", description="Content heat level: embers / flame / inferno")
+    model_profile: Optional[str] = Field(
+        None,
+        description="Internal model profile for bake-off testing. Default: None (uses default model).",
+    )
+    style_archetype: Optional[str] = Field(
+        None,
+        description=(
+            "Internal prose style archetype. "
+            "One of: cinematic_dark_romance, gothic_obsession, slow_burn_tension, "
+            "dangerous_devotion, primal_restraint. Default: cinematic_dark_romance."
+        ),
+    )
+
+    @field_validator("heat_level")
+    @classmethod
+    def validate_heat_level(cls, v: str) -> str:
+        if v not in _VALID_HEAT_LEVELS:
+            return "flame"
+        return v
+
+    @field_validator("style_archetype")
+    @classmethod
+    def validate_style_archetype(cls, v: Optional[str]) -> Optional[str]:
+        _VALID_ARCHETYPES = frozenset({
+            "cinematic_dark_romance", "gothic_obsession", "slow_burn_tension",
+            "dangerous_devotion", "primal_restraint",
+        })
+        if v and v not in _VALID_ARCHETYPES:
+            return None
+        return v
+
+
+class RPReplyGenerateResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    reply: str
+    warnings: list[str] = Field(default_factory=list)
+    model_used: str = Field("", description="Actual model slug used for generation")
+    generation_time_ms: int = Field(0, description="Wall-clock generation time in milliseconds")
+    detected_stage: str = Field("", description="Scene stage detected in the reply")
+    continuation_score: float = Field(0.0, description="Collaborative continuation score 0–1")
+    resolution_detected: bool = Field(False, description="Whether the reply appears to resolve the scene")
+    pacing_warnings: list[str] = Field(default_factory=list, description="Non-blocking escalation pacing warnings")
+    style_warnings: list[str] = Field(default_factory=list, description="Prose cadence / repetition warnings from style engine")
+    # Scene beat engine fields (internal dev mode)
+    next_scene_goal: str = Field("", description="Recommended next scene beat from the beat engine")
+    repetition_score: float = Field(0.0, description="Repetition/regression score 0–1 for the reply")
+    progression_success: bool = Field(False, description="True if the reply advances the scene rather than stalling")
+    # Beat planner diagnostics (internal dev mode)
+    multi_beat_detected: bool = Field(False, description="True if multi-beat instruction sequence was detected")
+    requested_beats: list[str] = Field(default_factory=list, description="Ordered beat labels extracted from instructions")
+    # Length profile diagnostics (internal dev mode)
+    resolved_length_profile: str = Field("", description="Human-readable label for the resolved length profile")
+    max_tokens_used: int = Field(0, description="Max token cap sent to the model for this request")
+    requested_beat_count: int = Field(0, description="Number of named beats extracted from instructions")
+    beat_completion_mode: str = Field("single", description="Beat execution mode: single / multi_beat / full_sequence")

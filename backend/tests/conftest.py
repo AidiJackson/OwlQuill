@@ -11,6 +11,8 @@ os.environ.pop("FAL_KEY", None)
 # Force deterministic stub provider for all StoryLab tests — never call live OpenRouter
 os.environ["STORYLAB_PROVIDER"] = "stub"
 os.environ.pop("OPENROUTER_API_KEY", None)
+# Disable invite-code gate in tests — no invite codes are seeded in the test DB
+os.environ["BETA_INVITE_REQUIRED"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient

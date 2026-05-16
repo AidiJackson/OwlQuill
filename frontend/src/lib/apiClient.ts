@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -443,6 +443,14 @@ class ApiClient {
     return this.request<{ id: number }>('/reports', {
       method: 'POST',
       body: JSON.stringify({ target_type: targetType, target_id: targetId, reason, detail }),
+    });
+  }
+
+  // RP Reply Generator
+  async generateRPReply(data: RPReplyRequest): Promise<RPReplyResponse> {
+    return this.request<RPReplyResponse>('/storylab/rp-reply/generate', {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 
