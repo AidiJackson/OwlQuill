@@ -3,7 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ficDebug } from '@/lib/ficDebug';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
-import type { PublicUserProfile, ProfileTimelineItem, CharacterSearchResult } from '@/lib/types';
+import type { PublicUserProfile, ProfileTimelineItem, CharacterSearchResult, Post } from '@/lib/types';
+import MentionText from '@/components/MentionText';
 import {
   Camera,
   MapPin,
@@ -33,6 +34,8 @@ export default function UserProfile() {
   const [profile, setProfile] = useState<PublicUserProfile | null>(null);
   const [timeline, setTimeline] = useState<ProfileTimelineItem[]>([]);
   const [characters, setCharacters] = useState<CharacterSearchResult[]>([]);
+  const [mentionedPosts, setMentionedPosts] = useState<Post[]>([]);
+  const [mentionsLoading, setMentionsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('timeline');
@@ -318,6 +321,17 @@ export default function UserProfile() {
     setSelectedCharId(null);
     setShowCharSelector(false);
   }, [username]);
+
+  // Fetch mentions when mentions tab is first activated
+  useEffect(() => {
+    if (activeTab !== 'mentions' || !username) return;
+    if (mentionedPosts.length > 0) return; // already loaded
+    setMentionsLoading(true);
+    apiClient.getUserMentions(username)
+      .then(setMentionedPosts)
+      .catch(() => setMentionedPosts([]))
+      .finally(() => setMentionsLoading(false));
+  }, [activeTab, username]);
 
   useEffect(() => {
     if (!username) return;
@@ -985,14 +999,39 @@ export default function UserProfile() {
             )}
 
             {activeTab === 'mentions' && (
-              <div className="rounded-2xl p-12 sm:p-16 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
-                <MessageCircle className="w-12 h-12 sm:w-14 sm:h-14 text-[#E8ECEF]/30 mx-auto mb-4 sm:mb-5" />
-                <h3 className="text-white text-xl font-semibold mb-2">
-                  No Mentions Yet
-                </h3>
-                <p className="text-[#E8ECEF]/60">
-                  Posts where you've been mentioned will appear here
-                </p>
+              <div className="space-y-4">
+                {mentionsLoading && (
+                  <div className="flex justify-center py-12">
+                    <div className="w-8 h-8 border-4 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+                  </div>
+                )}
+                {!mentionsLoading && mentionedPosts.length === 0 && (
+                  <div className="rounded-2xl p-12 sm:p-16 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
+                    <MessageCircle className="w-12 h-12 sm:w-14 sm:h-14 text-[#E8ECEF]/30 mx-auto mb-4 sm:mb-5" />
+                    <h3 className="text-white text-xl font-semibold mb-2">
+                      No Mentions Yet
+                    </h3>
+                    <p className="text-[#E8ECEF]/60">
+                      Posts where you've been mentioned will appear here
+                    </p>
+                  </div>
+                )}
+                {!mentionsLoading && mentionedPosts.map((post) => (
+                  <div key={post.id} className="rounded-2xl p-5 bg-[#1A1D23]/40 border border-[#2D3139]/60">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-medium text-violet-400">@{post.author_username}</span>
+                      <span className="text-xs text-[#E8ECEF]/40">
+                        {new Date(post.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    </div>
+                    {post.title && (
+                      <h4 className="font-semibold text-white mb-2">{post.title}</h4>
+                    )}
+                    <p className="text-white/90 whitespace-pre-wrap leading-relaxed">
+                      <MentionText text={post.content} mentions={post.mentions} />
+                    </p>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -1147,6 +1186,7 @@ function TimelineItemCard({
     image_url?: string;
     character_name?: string;
     character_avatar_url?: string;
+    mentions?: import('@/lib/types').PostMention[];
   };
 
   // Character-first identity: use character if available, fall back to user profile
@@ -1195,7 +1235,7 @@ function TimelineItemCard({
       )}
 
       <p className="text-white/90 whitespace-pre-wrap leading-relaxed">
-        {post.content}
+        <MentionText text={post.content ?? ''} mentions={post.mentions} />
       </p>
 
       {post.image_url && (

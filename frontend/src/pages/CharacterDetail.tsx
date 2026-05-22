@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check, Sparkles, ChevronLeft, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check, Sparkles, ChevronLeft, ShieldCheck, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, User } from '@/lib/types';
 import { listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
@@ -9,6 +9,7 @@ import ImageGrid from '@/features/images/components/ImageGrid';
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SignatureAccessoryPanel from '@/features/characterCreation/components/SignatureAccessoryPanel';
+import StyleShopsPanel from '@/components/StyleShopsPanel';
 
 const VISIBILITY_ICONS = {
   public: Globe,
@@ -454,6 +455,15 @@ export default function CharacterDetail() {
             {currentUser && character.owner_id === currentUser.id && (
               <p className="text-xs text-gray-500 mt-1">You can't message your own character.</p>
             )}
+            {currentUser && character.owner_id === currentUser.id && (
+              <button
+                onClick={() => navigate(`/images?characterId=${character.id}`)}
+                className="text-sm flex items-center gap-2 btn btn-secondary mt-1"
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                Generate Images
+              </button>
+            )}
             {currentUser && character.owner_id === currentUser.id && character.visual_locked && (
               <button
                 onClick={openEvolveModal}
@@ -496,6 +506,16 @@ export default function CharacterDetail() {
                 {tag.trim()}
               </span>
             ))}
+          </div>
+        )}
+
+        {/* Style Shops — owner only */}
+        {currentUser && character.owner_id === currentUser.id && (
+          <div className="border-t border-gray-800 pt-6">
+            <StyleShopsPanel
+              characterId={character.id}
+              isOwner={true}
+            />
           </div>
         )}
 

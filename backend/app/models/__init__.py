@@ -28,6 +28,8 @@ from app.models.user_image import UserImage
 from app.models.password_reset_token import PasswordResetToken
 from app.models.identity_snapshot import IdentitySnapshot
 from app.models.candidate_slot import CandidateSlot
+from app.models.post_mention import PostMention
+from app.models.style_shop import StylePreset, CharacterStyleElement, ShopTypeEnum, AttachmentModeEnum, PlacementEnum, StyleElementStatusEnum
 
 __all__ = [
     "Story",
@@ -62,6 +64,13 @@ __all__ = [
     "PasswordResetToken",
     "IdentitySnapshot",
     "CandidateSlot",
+    "PostMention",
+    "StylePreset",
+    "CharacterStyleElement",
+    "ShopTypeEnum",
+    "AttachmentModeEnum",
+    "PlacementEnum",
+    "StyleElementStatusEnum",
     "Block",
     "StorySpace",
     "StorySpaceMember",

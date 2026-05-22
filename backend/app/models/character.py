@@ -44,6 +44,7 @@ class Character(Base):
     identity_spec_json = Column(Text, nullable=True)      # Structured identity spec (JSON string)
     identity_spec_version = Column(Integer, default=0, nullable=False, server_default="0")
     identity_anchor_json = Column(Text, nullable=True)    # Compact anchor snapshot saved on lock
+    body_canon_json = Column(Text, nullable=True)         # Persistent body markings (tattoos, scars, burns, birthmarks)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -53,3 +54,4 @@ class Character(Base):
     comments = relationship("Comment", back_populates="character")
     dna = relationship("CharacterDNA", back_populates="character", uselist=False, cascade="all, delete-orphan")
     images = relationship("CharacterImage", back_populates="character", cascade="all, delete-orphan")
+    style_elements = relationship("CharacterStyleElement", back_populates="character", cascade="all, delete-orphan")

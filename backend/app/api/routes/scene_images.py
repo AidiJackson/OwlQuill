@@ -18,6 +18,8 @@ from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatu
 from app.schemas.character_image import CharacterImageRead
 from app.services.image_provider import get_image_provider, get_fallback_provider
 from app.services.stub_image_generator import generate_placeholder_png
+from app.services.style_elements import apply_style_elements_to_image_prompt
+from app.services.body_canon import load_markings, build_body_canon_lock_string
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ _VALID_STYLES = {"realistic", "anime", "cartoon", "illustration", "comic", "pixe
 
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
 
-_PROVIDER_PROMPT_CAP = 250
+_PROVIDER_PROMPT_CAP = 500
 
 # Prepended to the prompt when a face-reference image is used as grounding seed.
 # Tells the model to preserve only facial identity, not outfit/pose from the reference.
@@ -105,17 +107,27 @@ def generate_scene_image(
     identity_hash = anchor_data.get("identity_prompt_hash")
     style = body.style
 
-    # Combine user prompt + lock string, keeping under 800 total
-    if identity_lock:
-        combined = f"{body.prompt}, {identity_lock}"
-        if len(combined) > 800:
-            # Trim lock string to fit
-            budget = 800 - len(body.prompt) - 2  # 2 for ", "
-            combined = f"{body.prompt}, {identity_lock[:max(budget, 0)]}" if budget > 0 else body.prompt
-    else:
-        combined = body.prompt
+    # ── Body canon — append to identity lock ──────────────────────
+    # Persistent anatomical markings are part of the identity layer,
+    # not conditional style modifiers.
+    body_canon_str = build_body_canon_lock_string(load_markings(character))
+    if body_canon_str:
+        identity_lock = f"{identity_lock}, {body_canon_str}" if identity_lock else body_canon_str
 
-    # Provider prompt hard-capped at 250 for the image API
+    # ── Style Shops element injection (hair + removables only) ────
+    # Tattoos and scars are now in body_canon — not injected here.
+    enriched_user_prompt = apply_style_elements_to_image_prompt(character, body.prompt, db)
+
+    # Combine enriched prompt + identity lock (includes body canon)
+    if identity_lock:
+        combined = f"{enriched_user_prompt}, {identity_lock}"
+        if len(combined) > 800:
+            budget = 800 - len(enriched_user_prompt) - 2
+            combined = f"{enriched_user_prompt}, {identity_lock[:max(budget, 0)]}" if budget > 0 else enriched_user_prompt
+    else:
+        combined = enriched_user_prompt
+
+    # Provider prompt capped at 500 chars
     provider_prompt = combined[:_PROVIDER_PROMPT_CAP]
 
     # ── Resolve front anchor URL for reference-image edits ────────
@@ -170,6 +182,41 @@ def generate_scene_image(
     _face_sig_prefix = (
         f"FACE SIGNATURE (canonical): {_face_sig_text}. " if _face_sig_text else ""
     )
+
+    # DIAG: full identity payload snapshot before provider call
+    _diag_spec_hair: dict = {}
+    if character.identity_spec_json:
+        try:
+            _sd = _json.loads(character.identity_spec_json)
+            _id = _sd.get("identity") or {}
+            _diag_spec_hair = {
+                "hair_color": _id.get("hair_color"),
+                "hair_length": _id.get("hair_length"),
+                "hair_style": _sd.get("hair_style"),
+                "hair_texture": _sd.get("hair_texture"),
+                "hairline_type": _sd.get("hairline_type"),
+            }
+        except Exception:
+            pass
+    _HAIR_PATTERNS = ["long hair", "shoulder-length", "shoulder length", "flowing hair",
+                      "ponytail", "tied back", "waist-length", "waist length"]
+    _kw_hits = [p for p in _HAIR_PATTERNS if p in provider_prompt.lower()]
+    logger.info(
+        "DIAG scene_identity_payload character_id=%s provider=%s "
+        "lock_string=%r spec_hair=%s face_ref_available=%s "
+        "provider_prompt_len=%d hair_kw_hits=%s",
+        character_id, settings.IMAGE_PROVIDER.lower(),
+        (identity_lock or "")[:120],
+        _diag_spec_hair,
+        face_ref_bytes is not None,
+        len(provider_prompt),
+        _kw_hits,
+    )
+    if _kw_hits:
+        logger.warning(
+            "DIAG hair_keyword_in_scene_prompt character_id=%s hits=%s snippet=%r",
+            character_id, _kw_hits, provider_prompt[:200],
+        )
 
     # Tier A: grounded generation from face reference (facial identity only)
     if provider is not None and face_ref_bytes is not None:

@@ -9,6 +9,7 @@ import CommentSection from '@/components/CommentSection';
 import ReactionBar from '@/components/ReactionBar';
 import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
+import MentionText from '@/components/MentionText';
 
 const WORKSPACE_PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
 
@@ -90,23 +91,22 @@ export default function Home() {
 
   useEffect(() => {
     const loadData = async () => {
-      try {
-        // Load feed posts from realms the user is a member of
-        const feedPosts = await apiClient.getFeed();
-        setPosts(feedPosts);
+      const [feedResult, realmsResult, charsResult] = await Promise.allSettled([
+        apiClient.getFeed(),
+        apiClient.getRealms(),
+        apiClient.getCharacters(),
+      ]);
 
-        // Load realms and characters for display mapping
-        const [realmsData, charactersData] = await Promise.all([
-          apiClient.getRealms(),
-          apiClient.getCharacters()
-        ]);
-        setRealms(realmsData);
-        setCharacters(charactersData);
-      } catch (error) {
-        console.error('Failed to load data:', error);
-      } finally {
-        setLoading(false);
-      }
+      if (feedResult.status === 'fulfilled') setPosts(feedResult.value);
+      else console.error('Failed to load feed:', feedResult.reason);
+
+      if (realmsResult.status === 'fulfilled') setRealms(realmsResult.value);
+      else console.error('Failed to load realms:', realmsResult.reason);
+
+      if (charsResult.status === 'fulfilled') setCharacters(charsResult.value);
+      else console.error('Failed to load characters:', charsResult.reason);
+
+      setLoading(false);
     };
 
     loadData();
@@ -576,7 +576,7 @@ export default function Home() {
                 {post.title && (
                   <h3 className="text-xl font-semibold mb-2 text-gray-100">{post.title}</h3>
                 )}
-                <p className="text-gray-200 whitespace-pre-wrap leading-[1.75] mt-1">{post.content}</p>
+                <p className="text-gray-200 whitespace-pre-wrap leading-[1.75] mt-1"><MentionText text={post.content} mentions={post.mentions} /></p>
 
                 {post.image_url && (
                   <img

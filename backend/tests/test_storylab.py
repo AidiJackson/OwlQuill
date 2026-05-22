@@ -577,6 +577,8 @@ def test_openrouter_provider_returns_model_text(monkeypatch):
 
     monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
     monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key-abc")
+    # Suppress the word-count retry so this test stays focused on routing/payload shape
+    monkeypatch.setattr(gen, "_minimum_words", lambda _length: 0)
 
     model_output = "The door creaked open, revealing a silhouette neither of them expected."
     mock_client = _make_openrouter_mock(model_output)
@@ -860,9 +862,9 @@ def test_build_prompt_includes_word_target_and_cap():
     from app.schemas.storylab import StoryLabControls, Length
 
     for length, (target, cap) in [
-        (Length.short, (350, 500)),
-        (Length.medium, (1000, 1300)),
-        (Length.long, (2000, 2400)),
+        (Length.short, (500, 600)),
+        (Length.medium, (900, 1100)),
+        (Length.long, (1500, 2000)),
     ]:
         controls = StoryLabControls(length=length)
         messages = build_storylab_prompt(
@@ -1914,8 +1916,8 @@ def test_chapter_generate_quota_is_per_user(client):
     assert resp.status_code == 200
 
 
-def test_regenerate_counts_toward_quota(client):
-    """Regenerate is subject to the same quota — blocked when daily limit is reached."""
+def test_regenerate_not_blocked_by_quota(client):
+    """Regenerate overwrites an existing row; it must NOT count against the daily quota."""
     from unittest.mock import patch
     from app.core.config import settings as app_settings
 
@@ -1932,14 +1934,14 @@ def test_regenerate_counts_toward_quota(client):
     assert gen_resp.status_code == 200
     chapter_number = gen_resp.json()["chapter_number"]
 
-    # Regenerate is blocked — user has hit daily limit
+    # Regenerate must succeed — it rewrites an existing row, no new quota slot consumed.
     with patch.object(app_settings, "STORYLAB_DAILY_LIMIT", 1):
         resp = client.post(
             f"/api/storylab/chapters/{chapter_number}/regenerate?story_id={story_id}",
             json=_CH_GENERATE_BODY,
             headers=headers,
         )
-    assert resp.status_code == 429
+    assert resp.status_code == 200, resp.text
 
 
 def test_user_id_param_ignored_or_rejected(client):

@@ -6,16 +6,25 @@ All rules in this module outrank style, archetype, and prose polish layers.
 Provides
 --------
 COLLABORATIVE_RP_ENFORCEMENT_LAYER  — hard behavioral rules block
+PARTNER_SILENCE_LAYER               — softened silence rule (no authored dialogue/choices)
+SELECTED_CHARACTER_DRIVES_SCENE     — positive directive: SC carries scene, no waiting loop
 INFERNO_EXPLICITNESS_LAYER          — explicit content rules for inferno heat
 DEFAULT_CONTINUATION_INTENT         — fallback intent when instructions are empty
+NO_PARTNER_BRIDGE_INSTRUCTION       — multi-beat addendum: no partner bridge, no stall
 
-detect_partner_control()   — flags authored partner dialogue / thoughts / consent
-detect_scene_stall()       — detects repetitive emotional loops; scores progression
-score_inferno_anatomy_density() — explicit anatomy term density per 100 words
-build_behavior_enforcement_block()  — assembles full block for prompt injection
+detect_partner_control()         — flags authored partner dialogue / thoughts / consent
+detect_partner_silence_severe()  — strict single-quoted-line severity check for retry
+detect_waiting_loop()            — detects anticipation/stall vocabulary loops
+detect_scene_stall()             — detects repetitive emotional loops; scores progression
+score_inferno_anatomy_density()  — explicit anatomy term density per 100 words
+build_behavior_enforcement_block()   — assembles full block for prompt injection
+build_partner_silence_correction()   — retry correction block for silence violations
+build_waiting_loop_correction()      — retry correction block for waiting-loop violations
 """
 import re
 from collections import Counter
+
+from app.services._rp_constants import _SPEECH_VERBS
 
 
 # ── Layer 1 — Collaborative RP enforcement (HIGHEST PRIORITY) ─────────────────
@@ -85,6 +94,44 @@ NOT ALLOWED authored partner reactions:
   "I choose you" / "Don't stop" / "I've never been more sure" / "I want this"
   Any dialogue, thought, or decision that resolves the partner's inner state.
 """.strip()
+
+
+# ── Partner silence layer ──────────────────────────────────────────────────────
+
+PARTNER_SILENCE_LAYER = """
+PARTNER SILENCE:
+
+Do not author new dialogue, choices, consent, climax, or inner thoughts for the partner character.
+The partner may remain silent, physically present, or minimally/reactively described only when necessary for continuity.
+
+NOT ALLOWED for the partner:
+  quoted speech / "she said" / "he replied" / any emotional choice, decision, or resolution
+
+ALLOWED minimal partner reactions (physical, non-authored):
+  breath caught / shifted slightly / did not move away / silence / stillness
+
+The selected character must carry the scene forward.
+Do not stop and wait for the partner to respond between beats.
+""".strip()
+
+
+# ── Selected-character drive directive ────────────────────────────────────────
+
+SELECTED_CHARACTER_DRIVES_SCENE = (
+    "The selected character must carry the scene forward. "
+    "Do not wait repeatedly for the partner to respond. "
+    "If the partner stays silent, continue through the selected character's actions, "
+    "dialogue, movement, choices, internal conflict, time-skip, or scene transition. "
+    "Do not loop anticipation."
+)
+
+
+# ── No-partner-bridge instruction (multi-beat / novella addendum) ──────────────
+
+NO_PARTNER_BRIDGE_INSTRUCTION = (
+    "Do not use the partner character to bridge beats, and do not stop and wait. "
+    "Bridge beats using the selected character's movement, narration, dialogue, time-skip, or choices."
+)
 
 
 # ── Scene progression enforcement block ───────────────────────────────────────
@@ -201,6 +248,191 @@ def detect_partner_control(reply: str) -> dict:
         "authored_consent": authored_consent,
         "flags": flags,
     }
+
+
+# ── detect_partner_silence_severe ────────────────────────────────────────────
+#
+# Checks for partner-dialogue, speech-verb, and decision violations.
+#
+# Key design decision: "quote" he/she said matches the SELECTED character's own
+# speech when that character is gendered (male "he said", female "she said").
+# A single such match is therefore NOT a reliable godmod signal on its own.
+#
+# We add cross_gender_godmod: True when BOTH "he [...] said" AND "she [...] said"
+# appear in the reply — strongly indicating both characters were written.
+# The retry trigger in generate_rp_reply uses this flag plus a raised threshold.
+
+# Gender-specific variants for cross-pronoun detection (used by detect_partner_silence_severe)
+_SEVERE_HE_DIALOGUE_RE = re.compile(
+    r'"[^"]{3,}"[^"]*?\bhe\s+(?:' + _SPEECH_VERBS + r')\b',
+    re.IGNORECASE,
+)
+
+_SEVERE_SHE_DIALOGUE_RE = re.compile(
+    r'"[^"]{3,}"[^"]*?\bshe\s+(?:' + _SPEECH_VERBS + r')\b',
+    re.IGNORECASE,
+)
+
+_SEVERE_SPEECH_VERB_RE = re.compile(
+    r'\b(?:she|he|they)\s+(?:' + _SPEECH_VERBS + r')\b',
+    re.IGNORECASE,
+)
+
+_SEVERE_DIALOGUE_RE = re.compile(
+    r'"[^"]{3,}"[^"]*?(?:she|he|they)\s+(?:' + _SPEECH_VERBS + r')',
+    re.IGNORECASE,
+)
+
+_SEVERE_DECISION_RE = re.compile(
+    r'\b(?:she|he|they)\s+'
+    r'(?:decided|chose|consented|permitted|allowed|accepted|surrendered|'
+    r'gave in|gave herself|gave himself|let him|let her|welcomed)\b',
+    re.IGNORECASE,
+)
+
+
+def detect_partner_silence_severe(reply: str) -> dict:
+    """Return a severity assessment for partner-silence violations.
+
+    Uses shared speech-verb vocabulary from _rp_constants alongside local
+    pattern logic. Cross-gender and decision thresholds differ intentionally
+    from detect_godmod_violations: this function is a diagnostic adapter with
+    its own severity semantics (single attributed line counts, lower decision bar).
+
+    Returns
+    -------
+    {
+        "severe":              bool    — True when cross-gender godmod, 2+ attributed lines,
+                                         or partner decision/consent detected
+        "cross_gender_godmod": bool    — True when BOTH he-attributed AND she-attributed
+                                         dialogue appear (strong two-character signal)
+        "dialogue_count":      int     — number of attributed quoted lines found
+        "speech_verb_count":   int     — number of bare speech-verb attributions
+        "decision_count":      int     — number of partner-decision attributions
+        "flags":               list[str]
+    }
+    """
+    flags: list[str] = []
+
+    dialogue_matches = _SEVERE_DIALOGUE_RE.findall(reply)
+    dialogue_count = len(dialogue_matches)
+
+    # Cross-gender: both masculine AND feminine dialogue attribution present.
+    # A reply that says "he said" once is likely just the selected character speaking.
+    # A reply with BOTH "he said" and "she said" almost certainly writes two characters.
+    has_he = bool(_SEVERE_HE_DIALOGUE_RE.search(reply))
+    has_she = bool(_SEVERE_SHE_DIALOGUE_RE.search(reply))
+    cross_gender_godmod = has_he and has_she
+
+    speech_verb_matches = _SEVERE_SPEECH_VERB_RE.findall(reply)
+    speech_verb_count = len(speech_verb_matches)
+
+    decision_matches = _SEVERE_DECISION_RE.findall(reply)
+    decision_count = len(decision_matches)
+
+    severe = False
+
+    if cross_gender_godmod:
+        severe = True
+        flags.append("cross-gender dialogue: both he-attributed and she-attributed speech")
+    elif dialogue_count >= 2:
+        # 2+ attributed lines strongly suggests both characters were given dialogue,
+        # even when both use the same pronoun (same-gender character pairs).
+        severe = True
+        flags.append(f"attributed partner dialogue ({dialogue_count} line(s))")
+    elif dialogue_count == 1:
+        # Single attributed line — could be the selected character's own speech.
+        # Record the count but do not set severe; let the caller apply context.
+        flags.append("single attributed line — possible selected-character speech")
+
+    # Raised bar for bare speech-verb: require 2+ to avoid false positives when
+    # the selected character is gendered ("he said" / "she said" for selected char).
+    if speech_verb_count >= 2:
+        severe = True
+        flags.append(f"partner speech verb ({speech_verb_count} instance(s))")
+
+    if decision_count >= 1:
+        severe = True
+        flags.append(f"partner decision/consent ({decision_count} instance(s))")
+
+    return {
+        "severe": severe,
+        "cross_gender_godmod": cross_gender_godmod,
+        "dialogue_count": dialogue_count,
+        "speech_verb_count": speech_verb_count,
+        "decision_count": decision_count,
+        "flags": flags,
+    }
+
+
+def build_partner_silence_correction(character_name: str = "") -> str:
+    """Build the retry correction block for a partner-silence violation."""
+    char_label = character_name or "the selected character"
+    return (
+        "CORRECTION — READ FIRST — OVERRIDES ALL OTHER INSTRUCTIONS:\n"
+        "Your previous generation wrote the partner character's dialogue or decisions.\n"
+        f"Rewrite. Remove all partner dialogue and decisions. "
+        f"Progress the scene only through {char_label}'s actions, speech, and narration."
+    )
+
+
+# ── detect_waiting_loop ───────────────────────────────────────────────────────
+
+_WAITING_LOOP_PATTERNS: list[re.Pattern] = [
+    re.compile(r'\bwaiting\s+for\s+(?:her|him|their|a)\b', re.IGNORECASE),
+    re.compile(r'\bsilence\s+stretched\b', re.IGNORECASE),
+    re.compile(r'\bmoment\s+stretched\b', re.IGNORECASE),
+    re.compile(r'\banticipation\b', re.IGNORECASE),
+    re.compile(r'\beyes?\s+(?:(?:were|are|remained|still|grew)\s+)?locked\b', re.IGNORECASE),
+    re.compile(r'\b(?:pulse|heart)\s+(?:was\s+|is\s+)?pound(?:ing|ed)\b', re.IGNORECASE),
+    re.compile(r'\bnot\s+sure\s+what\s+(?:happens|would\s+happen)\s+next\b', re.IGNORECASE),
+    re.compile(r'\bready\s+for\s+whatever\s+comes\s+next\b', re.IGNORECASE),
+    re.compile(r'\bshow\s+(?:me|him|her)\s+what\s+you\s+want\b', re.IGNORECASE),
+    re.compile(r'\bheld?\s+(?:his|her|their)\s+breath\b', re.IGNORECASE),
+    re.compile(r'\btime\s+seem(?:ed|s)?\s+to\s+(?:slow|stop|freeze|stand)\b', re.IGNORECASE),
+]
+
+
+def detect_waiting_loop(reply: str) -> dict:
+    """Detect whether the reply is stuck in an anticipation/waiting loop.
+
+    Returns
+    -------
+    {
+        "waiting_loop":  bool    — True when 3+ waiting/anticipation patterns found
+        "pattern_count": int     — total matched instances across all patterns
+        "flags":         list[str]
+    }
+    """
+    if not reply:
+        return {"waiting_loop": False, "pattern_count": 0, "flags": []}
+
+    flags: list[str] = []
+    total_count = 0
+    for pat in _WAITING_LOOP_PATTERNS:
+        matches = pat.findall(reply)
+        cnt = len(matches)
+        if cnt:
+            total_count += cnt
+            flags.append(f"{matches[0]!r} ×{cnt}")
+
+    return {
+        "waiting_loop": total_count >= 3,
+        "pattern_count": total_count,
+        "flags": flags,
+    }
+
+
+def build_waiting_loop_correction(character_name: str = "") -> str:
+    """Build the retry correction block for a waiting-loop violation."""
+    char_label = character_name or "the selected character"
+    return (
+        "CORRECTION — READ FIRST — OVERRIDES ALL OTHER INSTRUCTIONS:\n"
+        "Your previous generation stalled in an anticipation loop. "
+        f"Rewrite. Do not stop and wait for the partner. "
+        f"Continue through {char_label}'s own actions, dialogue, movement, or scene transition "
+        f"while preserving partner agency."
+    )
 
 
 # ── detect_scene_stall ────────────────────────────────────────────────────────

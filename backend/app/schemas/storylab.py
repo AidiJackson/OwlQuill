@@ -30,9 +30,9 @@ class Pacing(str, Enum):
 
 
 class Length(str, Enum):
-    short = "short"    # ~75 words
-    medium = "medium"  # ~150 words
-    long = "long"      # ~250 words
+    short = "short"    # ~500 words target
+    medium = "medium"  # ~900 words target
+    long = "long"      # ~1500 words target
 
 
 class Boundary(str, Enum):
@@ -99,7 +99,7 @@ class StoryLabStateResponse(BaseModel):
 
 class ChapterGenerateRequest(BaseModel):
     prompt: str = Field("", description="User guidance for this chapter (beats, notes, prose)")
-    mode: str = Field("roleplay", description="Generation mode: roleplay, duet, or play")
+    mode: Literal["roleplay", "duet", "play", "solo"] = Field("roleplay", description="Generation mode: roleplay, duet, play, or solo")
     controls: StoryLabControls = Field(default_factory=StoryLabControls)
     variant: Literal["default", "alt"] = "default"
     beat_type: Optional[str] = Field(None, description="Structured beat direction (continue/escalate/reveal/shift/slow/end)")
@@ -133,16 +133,6 @@ class ChapterGenerateResponse(BaseModel):
 
 
 # ── story schemas ──────────────────────────────────────────────────────────────
-
-_VALID_GENRES = {
-    "literary", "romance", "fantasy", "thriller",
-    "horror", "adventure", "sci-fi", "mystery", "other",
-}
-
-_COVER_COLORS = [
-    "#1a1a2e", "#16213e", "#0f3460", "#1b1b2f",
-    "#2c1810", "#1a2a1a", "#2a1a2e", "#1e2a1e",
-]
 
 
 class StoryCreateRequest(BaseModel):
@@ -270,3 +260,15 @@ class RPReplyGenerateResponse(BaseModel):
     max_tokens_used: int = Field(0, description="Max token cap sent to the model for this request")
     requested_beat_count: int = Field(0, description="Number of named beats extracted from instructions")
     beat_completion_mode: str = Field("single", description="Beat execution mode: single / multi_beat / full_sequence")
+    # Narrative engine diagnostics (internal dev mode)
+    progression_density: float = Field(0.0, description="Action/movement event density in the reply, 0–1")
+    floating_scene_risk: float = Field(0.0, description="Risk of floating dialogue with no movement/environment, 0–1")
+    static_scene_risk: float = Field(0.0, description="Risk of low-progression static scene, 0–1")
+    recursive_emotion_risk: float = Field(0.0, description="Risk of emotional loop without forward progression, 0–1")
+    progression_event_count: int = Field(0, description="Count of distinct progression events detected in the reply")
+    paragraph_monotony: float = Field(0.0, description="Paragraph purpose monotony score, 0–1 (1 = all same type)")
+    environment_usage_density: float = Field(0.0, description="Environment object reference density in the reply, 0–1")
+    # Godmod output gate diagnostics
+    godmod_detected: bool = Field(False, description="True if a hard godmod violation was detected in the final output")
+    godmod_severity: str = Field("none", description="Godmod severity: none | soft | hard")
+    godmod_warnings: list[str] = Field(default_factory=list, description="Excerpts / reasons for any godmod violations found")

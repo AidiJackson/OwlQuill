@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
+import { apiClient } from '@/lib/apiClient';
 
 export default function Layout() {
   const { user, logout } = useAuthStore();
@@ -10,6 +11,7 @@ export default function Layout() {
   const [messagesSeen, setMessagesSeen] = useState(
     () => localStorage.getItem('ficshon.messages_seen') === 'true'
   );
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
 
   useEffect(() => {
     if (location.pathname.startsWith('/messages')) {
@@ -19,6 +21,14 @@ export default function Layout() {
       setMessagesSeen(true);
     }
   }, [location.pathname]);
+
+  // Fetch unread notification count on mount and when navigating away from /notifications
+  useEffect(() => {
+    if (!user) return;
+    apiClient.getUnreadCount()
+      .then(({ count }) => setUnreadNotifCount(count))
+      .catch(() => setUnreadNotifCount(0));
+  }, [user, location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -35,15 +45,16 @@ export default function Layout() {
   }
 
   const p = location.pathname;
-  const isHome       = p === '/';
-  const isRealms     = p.startsWith('/realms');
-  const isSpaces     = p.startsWith('/spaces');
-  const isChars      = p.startsWith('/characters');
-  const isWorkspace  = p.startsWith('/workspace');
-  const isStoryLab   = p.startsWith('/storylab');
-  const isImages     = p.startsWith('/images');
-  const isMessages   = p.startsWith('/messages');
-  const isProfile    = p.startsWith('/u/') || p === '/profile';
+  const isHome          = p === '/';
+  const isRealms        = p.startsWith('/realms');
+  const isSpaces        = p.startsWith('/spaces');
+  const isChars         = p.startsWith('/characters');
+  const isWorkspace     = p.startsWith('/workspace');
+  const isStoryLab      = p.startsWith('/storylab');
+  const isImages        = p.startsWith('/images');
+  const isMessages      = p.startsWith('/messages');
+  const isNotifications = p.startsWith('/notifications');
+  const isProfile       = p.startsWith('/u/') || p === '/profile';
 
   const sidebarContent = (
     <>
@@ -112,6 +123,18 @@ export default function Layout() {
           Messages
           {!messagesSeen && (
             <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+          )}
+        </Link>
+        <Link
+          to="/notifications"
+          className={navCls(isNotifications)}
+          onClick={closeSidebar}
+        >
+          Notifications
+          {unreadNotifCount > 0 && (
+            <span className="ml-auto text-[11px] font-semibold bg-violet-600 text-white rounded-full px-1.5 py-0.5 leading-none">
+              {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
+            </span>
           )}
         </Link>
         <Link

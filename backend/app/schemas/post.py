@@ -6,6 +6,17 @@ from pydantic import BaseModel, Field
 from app.models.post import ContentTypeEnum, PostKindEnum, SourceTypeEnum
 
 
+class PostMentionRead(BaseModel):
+    """Serialised representation of a PostMention ORM row."""
+    mention_text: str
+    target_type: str   # "user" | "character" | "unresolved"
+    target_id: Optional[int] = None
+    display_name: str
+    url: str
+
+    model_config = {"from_attributes": True}
+
+
 class PostBase(BaseModel):
     """Base post schema."""
     title: Optional[str] = None
@@ -41,5 +52,6 @@ class Post(PostBase):
     source_type: Optional[SourceTypeEnum] = SourceTypeEnum.USER
     created_at: datetime
     updated_at: datetime
+    mentions: list[PostMentionRead] = []
 
     model_config = {"from_attributes": True}

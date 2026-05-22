@@ -1383,3 +1383,371 @@ def test_prose_polish_absent_from_user_message():
     )
     user = msgs[1]["content"]
     assert "Prose Polish" not in user
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Godmod output gate — detect_godmod_violations()
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from app.services.godmod_validator import detect_godmod_violations as _dgv
+
+
+def _vtype(result: dict, vtype: str) -> bool:
+    return any(v["type"] == vtype for v in result["violations"])
+
+
+# ── Return shape ──────────────────────────────────────────────────────────────
+
+class TestGodmodReturnShape:
+    def test_returns_expected_keys(self):
+        result = _dgv("Some text.")
+        assert set(result.keys()) == {
+            "has_violation",
+            "severity",
+            "violations",
+            "partner_dialogue_count",
+            "partner_decision_count",
+            "partner_inner_state_count",
+            "partner_major_action_count",
+        }
+
+    def test_clean_text_returns_none_severity(self):
+        result = _dgv(
+            "He reached into the darkness and pulled the door closed.",
+            selected_character_name="Marcus",
+        )
+        assert result["severity"] == "none"
+        assert result["has_violation"] is False
+        assert result["violations"] == []
+
+
+# ── Partner named dialogue — hard ────────────────────────────────────────────
+
+class TestPartnerNamedDialogue:
+    def test_name_speech_verb_is_hard(self):
+        result = _dgv('"You shouldn\'t be here," Lennox said.', partner_character_name="Lennox")
+        assert result["severity"] == "hard"
+
+    def test_name_whispered_is_hard(self):
+        result = _dgv('"Don\'t do this," Lennox whispered.', partner_character_name="Lennox")
+        assert result["severity"] == "hard"
+
+    def test_name_replied_is_hard(self):
+        result = _dgv('"I know," Lennox replied.', partner_character_name="Lennox")
+        assert result["severity"] == "hard"
+
+    def test_tagged_dialogue_format_is_hard(self):
+        result = _dgv('Lennox: "I can\'t keep doing this."', partner_character_name="Lennox")
+        assert result["severity"] == "hard"
+        assert _vtype(result, "partner_dialogue")
+
+    def test_partner_name_case_insensitive(self):
+        result = _dgv('"Fine," lennox said.', partner_character_name="Lennox")
+        assert result["severity"] == "hard"
+
+    def test_selected_name_near_dialogue_not_flagged(self):
+        result = _dgv(
+            '"I\'ll find a way," Leo said.',
+            selected_character_name="Leo",
+            partner_character_name="Elly",
+        )
+        assert result["severity"] == "none"
+
+
+# ── Partner attributed speech — hard ─────────────────────────────────────────
+
+class TestPartnerAttributedSpeech:
+    def test_partner_name_bare_speech_verb_is_hard(self):
+        result = _dgv("Lennox spoke first.", partner_character_name="Lennox")
+        assert result["severity"] == "hard"
+        assert _vtype(result, "partner_attributed_speech")
+
+    def test_cross_gender_dialogue_is_hard(self):
+        text = '"I need to know," he said.\n"Then ask," she replied.'
+        result = _dgv(text)
+        assert result["severity"] == "hard"
+        assert _vtype(result, "partner_dialogue")
+
+    def test_two_same_gender_lines_is_hard(self):
+        text = '"Where were you?" she asked.\n"That doesn\'t matter," she replied.'
+        result = _dgv(text)
+        assert result["severity"] == "hard"
+
+    def test_single_he_said_sc_male_not_hard(self):
+        result = _dgv(
+            '"I know you\'re afraid," he said.',
+            selected_character_name="Marco",
+            selected_pronouns=["he", "him"],
+        )
+        assert result["severity"] != "hard"
+
+    def test_single_she_said_sc_female_not_hard(self):
+        result = _dgv(
+            '"You have no idea," she said.',
+            selected_character_name="Clara",
+            selected_pronouns=["she", "her"],
+        )
+        assert result["severity"] != "hard"
+
+
+# ── Partner consent — hard ────────────────────────────────────────────────────
+
+class TestPartnerConsent:
+    def test_quoted_im_ready_is_hard(self):
+        result = _dgv('"I\'m ready," she said.')
+        assert result["severity"] == "hard"
+        assert _vtype(result, "partner_consent")
+
+    def test_im_all_in_is_hard(self):
+        result = _dgv('"I\'m all in," she whispered.')
+        assert result["severity"] == "hard"
+
+    def test_dont_stop_is_hard(self):
+        result = _dgv('"Don\'t stop," she breathed.')
+        assert result["severity"] == "hard"
+
+    def test_pronoun_surrendered_is_hard(self):
+        result = _dgv(
+            "She surrendered to the pull between them.",
+            selected_character_name="Marco",
+            selected_pronouns=["he", "him"],
+        )
+        assert result["severity"] == "hard"
+        assert _vtype(result, "partner_consent")
+
+    def test_named_partner_gave_in_is_hard(self):
+        result = _dgv("Elly gave in.", partner_character_name="Elly")
+        assert result["severity"] == "hard"
+
+
+# ── Partner climax — hard ─────────────────────────────────────────────────────
+
+class TestPartnerClimax:
+    def test_she_climaxed_is_hard(self):
+        result = _dgv(
+            "She climaxed, trembling.",
+            selected_character_name="Marco",
+            selected_pronouns=["he", "him"],
+        )
+        assert result["severity"] == "hard"
+        assert _vtype(result, "partner_climax")
+
+    def test_her_orgasm_possessive_is_hard(self):
+        result = _dgv(
+            "Her orgasm rolled through her in waves.",
+            selected_character_name="Marco",
+            selected_pronouns=["he", "him"],
+        )
+        assert result["severity"] == "hard"
+
+    def test_named_partner_came_undone_is_hard(self):
+        result = _dgv("Elly came undone in his arms.", partner_character_name="Elly")
+        assert result["severity"] == "hard"
+
+    def test_came_from_across_room_not_climax(self):
+        result = _dgv("He came from across the room to stand beside her.")
+        assert not _vtype(result, "partner_climax")
+
+    def test_sc_climax_not_flagged_when_pronouns_known(self):
+        result = _dgv(
+            "He came with a low groan, collapsing against her.",
+            selected_character_name="Marco",
+            selected_pronouns=["he", "him"],
+            partner_pronouns=["she", "her"],
+        )
+        assert not _vtype(result, "partner_climax")
+
+
+# ── Partner inner emotional conclusion — hard ─────────────────────────────────
+
+class TestPartnerInnerState:
+    def test_named_partner_thought_is_hard(self):
+        result = _dgv("Elly thought he understood her.", partner_character_name="Elly")
+        assert result["severity"] == "hard"
+        assert _vtype(result, "partner_inner_state")
+
+    def test_named_partner_realized_is_hard(self):
+        result = _dgv("Elly realized she had been wrong.", partner_character_name="Elly")
+        assert result["severity"] == "hard"
+
+    def test_named_partner_knew_is_hard(self):
+        result = _dgv("Elly knew what she wanted.", partner_character_name="Elly")
+        assert result["severity"] == "hard"
+
+    def test_dense_pronoun_inner_state_is_hard(self):
+        text = (
+            "She thought he was finally seeing her. "
+            "She knew this was what she'd been waiting for. "
+            "She realized the fear had dissolved."
+        )
+        result = _dgv(text, selected_character_name="Marco", selected_pronouns=["he", "him"])
+        assert result["severity"] == "hard"
+        assert result["partner_inner_state_count"] >= 3
+
+    def test_single_pronoun_inner_state_not_hard_without_name(self):
+        result = _dgv("She thought the room felt different now.")
+        assert result["severity"] != "hard"
+
+
+# ── Selected character dialogue allowed ───────────────────────────────────────
+
+class TestSelectedCharacterAllowed:
+    def test_sc_speech_not_flagged_by_name(self):
+        result = _dgv(
+            '"You don\'t understand," Marcus said.',
+            selected_character_name="Marcus",
+            partner_character_name="Vera",
+        )
+        assert result["severity"] == "none"
+
+    def test_only_sc_speaks_no_hard_violation(self):
+        text = '"This is the only way," he said. "You know it."'
+        result = _dgv(
+            text,
+            selected_character_name="Dante",
+            selected_pronouns=["he", "him"],
+            partner_pronouns=["she", "her"],
+        )
+        assert result["severity"] != "hard"
+
+
+# ── Minimal physical reactions allowed ───────────────────────────────────────
+
+class TestMinimalReactionsAllowed:
+    def test_breath_caught_not_flagged(self):
+        result = _dgv("Her breath caught when he said her name.")
+        assert result["severity"] == "none"
+
+    def test_did_not_pull_away_not_flagged(self):
+        result = _dgv("She didn't pull away when his hand found her shoulder.")
+        assert result["severity"] == "none"
+
+    def test_stayed_silent_not_flagged(self):
+        result = _dgv("She stayed silent, watching him.")
+        assert result["severity"] == "none"
+
+    def test_pulse_quickened_not_flagged(self):
+        result = _dgv("Her pulse quickened as he stepped closer.")
+        assert result["severity"] == "none"
+
+    def test_shifted_slightly_not_flagged(self):
+        result = _dgv("She shifted slightly to make room.")
+        assert result["severity"] == "none"
+
+
+# ── generate_rp_reply integration ────────────────────────────────────────────
+
+class TestGenerateRPReplyGodmodGate:
+    def _make_mock_client(self, replies: list[str]):
+        from unittest.mock import MagicMock
+        reply_iter = iter(replies)
+
+        def _next_response(*a, **kw):
+            content = next(reply_iter, replies[-1])
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status = MagicMock(return_value=None)
+            mock_resp.json.return_value = {
+                "choices": [{"message": {"content": f"<REPLY>{content}</REPLY>"}}]
+            }
+            return mock_resp
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post = MagicMock(side_effect=_next_response)
+        return mock_client
+
+    def test_clean_reply_no_godmod_metadata(self, monkeypatch):
+        from unittest.mock import patch
+        import app.services.storylab_generator as gen
+        monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+        monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+        monkeypatch.setattr(gen, "_minimum_words", lambda _l: 0)
+
+        clean = (
+            "He set the glass down and turned to face the window. "
+            "His reflection looked back: steady, unreadable."
+        )
+        mock_client = self._make_mock_client([clean])
+        with patch.object(gen.httpx, "Client", return_value=mock_client):
+            _r, _m, _t, _w, _tok, godmod_meta = gen.generate_rp_reply(
+                partner_reply="She turned away.",
+                character_name="Marcus",
+            )
+        assert godmod_meta["detected"] is False
+        assert godmod_meta["severity"] in ("none", "soft")
+
+    def test_hard_violation_triggers_retry(self, monkeypatch):
+        from unittest.mock import patch
+        import app.services.storylab_generator as gen
+        monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+        monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+        monkeypatch.setattr(gen, "_minimum_words", lambda _l: 0)
+
+        godmod_reply = '"I\'m ready," she said, holding his gaze with certainty.'
+        clean_reply = "He stepped forward. The silence was palpable. He reached for her hand."
+        mock_client = self._make_mock_client([godmod_reply, clean_reply])
+        with patch.object(gen.httpx, "Client", return_value=mock_client):
+            _r, _m, _t, _w, _tok, godmod_meta = gen.generate_rp_reply(
+                partner_reply="She waited.",
+                character_name="Marcus",
+            )
+
+        # Retry fired: post called at least twice (initial + godmod retry)
+        assert mock_client.post.call_count >= 2
+        assert godmod_meta["detected"] is False
+
+    def test_still_hard_after_retry_reports_warning_metadata(self, monkeypatch):
+        from unittest.mock import patch
+        import app.services.storylab_generator as gen
+        monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+        monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+        monkeypatch.setattr(gen, "_minimum_words", lambda _l: 0)
+
+        godmod_reply = '"I\'m all in," she whispered, pulling him closer.'
+        mock_client = self._make_mock_client([godmod_reply, godmod_reply])
+        with patch.object(gen.httpx, "Client", return_value=mock_client):
+            _r, _m, _t, _w, _tok, godmod_meta = gen.generate_rp_reply(
+                partner_reply="She waited.",
+                character_name="Marcus",
+            )
+
+        assert godmod_meta["detected"] is True
+        assert godmod_meta["severity"] == "hard"
+        assert len(godmod_meta["warnings"]) >= 1
+
+    def test_retry_result_accepted_if_clean(self, monkeypatch):
+        from unittest.mock import patch
+        import app.services.storylab_generator as gen
+        monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+        monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+        monkeypatch.setattr(gen, "_minimum_words", lambda _l: 0)
+
+        godmod_reply = '"Don\'t stop," she breathed, arching into him.'
+        clean_reply = "He kept moving. The room felt smaller than five minutes ago."
+        mock_client = self._make_mock_client([godmod_reply, clean_reply])
+        with patch.object(gen.httpx, "Client", return_value=mock_client):
+            reply, _m, _t, _w, _tok, godmod_meta = gen.generate_rp_reply(
+                partner_reply="She was close.",
+                character_name="Marcus",
+            )
+
+        assert godmod_meta["detected"] is False
+        assert "kept moving" in reply or "smaller" in reply
+
+    def test_no_retry_when_no_violation(self, monkeypatch):
+        from unittest.mock import patch
+        import app.services.storylab_generator as gen
+        monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+        monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+        monkeypatch.setattr(gen, "_minimum_words", lambda _l: 0)
+
+        clean = "He turned to the window and said nothing for a long moment."
+        mock_client = self._make_mock_client([clean])
+        with patch.object(gen.httpx, "Client", return_value=mock_client):
+            gen.generate_rp_reply(
+                partner_reply="She entered the room.",
+                character_name="Marcus",
+            )
+
+        assert mock_client.post.call_count == 1

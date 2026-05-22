@@ -22,6 +22,7 @@ from app.models.user_image import UserImage
 from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_image import CharacterImage, ImageStatusEnum
 from app.models.post import Post as PostModel
+from app.models.post_mention import PostMention as PostMentionModel
 from app.models.scene import Scene as SceneModel, SceneVisibilityEnum
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
 from app.schemas.post import Post
@@ -330,6 +331,32 @@ def list_my_images(
     if kind:
         query = query.filter(UserImage.kind == kind)
     return query.order_by(UserImage.created_at.desc()).all()
+
+
+@router.get("/{username}/mentions", response_model=List[Post])
+def get_user_mentions(
+    username: str,
+    limit: int = 50,
+    skip: int = 0,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list:
+    """Get posts where the user (or their public characters) are mentioned."""
+    target = db.query(UserModel).filter(UserModel.username == username).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Posts where the user is directly mentioned
+    posts = (
+        db.query(PostModel)
+        .join(PostMentionModel, PostMentionModel.post_id == PostModel.id)
+        .filter(PostMentionModel.mentioned_user_id == target.id)
+        .order_by(PostModel.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return posts
 
 
 @router.get("/{username}", response_model=PublicUserProfile)

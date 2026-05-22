@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -517,6 +517,50 @@ class ApiClient {
 
   async getPublishedStory(id: number): Promise<PublishedStory> {
     return this.request<PublishedStory>(`/published-stories/${id}`);
+  }
+
+  // Notifications
+  async getNotifications(limit = 30): Promise<Notification[]> {
+    return this.request<Notification[]>(`/notifications?limit=${limit}`);
+  }
+
+  async getUnreadCount(): Promise<{ count: number }> {
+    return this.request<{ count: number }>('/notifications/unread-count');
+  }
+
+  async markNotificationRead(id: number): Promise<void> {
+    return this.request<void>(`/notifications/${id}/read`, { method: 'PATCH' });
+  }
+
+  async markAllNotificationsRead(): Promise<void> {
+    return this.request<void>('/notifications/mark-all-read', { method: 'POST' });
+  }
+
+  async getUserMentions(username: string): Promise<Post[]> {
+    return this.request<Post[]>(`/users/${encodeURIComponent(username)}/mentions`);
+  }
+
+  // Style Shops
+  async getStylePresets(shopType?: string): Promise<StylePreset[]> {
+    const q = shopType ? `?shop_type=${shopType}` : '';
+    return this.request<StylePreset[]>(`/style-shops/presets${q}`);
+  }
+
+  async getCharacterStyleElements(characterId: number): Promise<StyleElementsResponse> {
+    return this.request<StyleElementsResponse>(`/characters/${characterId}/style-elements`);
+  }
+
+  async applyStyleElement(characterId: number, presetId: number, placement?: string): Promise<StyleElementsResponse> {
+    return this.request<StyleElementsResponse>(`/characters/${characterId}/style-elements`, {
+      method: 'POST',
+      body: JSON.stringify({ preset_id: presetId, placement }),
+    });
+  }
+
+  async archiveStyleElement(characterId: number, elementId: number): Promise<StyleElementsResponse> {
+    return this.request<StyleElementsResponse>(`/characters/${characterId}/style-elements/${elementId}`, {
+      method: 'DELETE',
+    });
   }
 }
 

@@ -113,6 +113,52 @@ def create_post_in_realm(
     db.add(db_post)
     db.commit()
     db.refresh(db_post)
+
+    # Parse + store mentions, fire notifications
+    from app.services.mentions import parse_mention_texts, resolve_mentions
+    from app.models.post_mention import PostMention as PostMentionModel
+    from app.models.notification import Notification
+    import json as _json
+
+    mention_texts = parse_mention_texts(post_data.content)
+    if mention_texts:
+        resolved = resolve_mentions(mention_texts, db)
+        for r in resolved:
+            pm = PostMentionModel(
+                post_id=db_post.id,
+                mention_text=r["mention_text"],
+                mentioned_user_id=r.get("mentioned_user_id"),
+                mentioned_character_id=r.get("mentioned_character_id"),
+            )
+            db.add(pm)
+        db.flush()
+
+        # Fire notifications (skip self-mentions)
+        for r in resolved:
+            notif_user_id = None
+            if r["target_type"] == "user" and r["target_id"] != current_user.id:
+                notif_user_id = r["target_id"]
+            elif r["target_type"] == "character":
+                char = db.query(CharacterModel).filter(
+                    CharacterModel.id == r["target_id"]
+                ).first()
+                if char and char.owner_id != current_user.id:
+                    notif_user_id = char.owner_id
+            if notif_user_id:
+                db.add(Notification(
+                    user_id=notif_user_id,
+                    type="mention",
+                    payload=_json.dumps({
+                        "post_id": db_post.id,
+                        "author_username": current_user.username,
+                        "mention_text": r["mention_text"],
+                        "post_preview": post_data.content[:120],
+                        "target_type": r["target_type"],
+                    }),
+                ))
+        db.commit()
+        db.refresh(db_post)
+
     return db_post
 
 

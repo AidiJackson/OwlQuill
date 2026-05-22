@@ -42,6 +42,8 @@ from app.schemas.character_image import CharacterImageRead
 from app.services.image_provider import get_provider_for_option, get_fallback_provider
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.character_accessory import build_accessory_prompt_block, get_triggered_accessory
+from app.services.style_elements import apply_style_elements_to_image_prompt
+from app.services.body_canon import load_markings, build_body_canon_lock_string
 
 logger = logging.getLogger(__name__)
 
@@ -276,10 +278,12 @@ def _build_strict_identity_prompt(
     anchor_data: dict,
     character_name: str = "",
     retry: bool = False,
+    body_canon_str: str = "",
 ) -> str:
     """Build a tightened strict-identity prompt (B19).
 
-    Short, punchy directive + character name + identity lock string + scene prompt.
+    Short, punchy directive + character name + identity lock string
+    + body canon markings + scene prompt.
     Face-signature text and anchor-ref listing are omitted here — actual image
     inputs carry that information when the provider supports multi-image input.
 
@@ -291,10 +295,14 @@ def _build_strict_identity_prompt(
     if character_name:
         parts.append(f"Character: {character_name}")
 
-    # Identity lock string already includes hair/eyes/skin and body morphology (B16)
+    # Identity lock string: hair/eyes/skin and body morphology (B16)
     lock = anchor_data.get("identity_lock_string") or ""
     if lock:
         parts.append(lock)
+
+    # Body canon: persistent tattoos, scars, burns, birthmarks
+    if body_canon_str:
+        parts.append(body_canon_str)
 
     # User's scene prompt last
     parts.append(base_prompt)
@@ -438,6 +446,34 @@ def generate_image(
                     "DIAG face_ref_load_failed character_id=%s file_path=%s error=%r",
                     character_id, face_ref_img.file_path, str(_fre),
                 )
+
+    # ── Style Shops element injection (hair + removables only) ────────
+    # Tattoos and scars are now body canon — injected via identity lock.
+    # When include_character=True (identity mode) skip permanent/hair tokens:
+    # the identity_lock_string already encodes hair from the identity spec, and
+    # injecting a conflicting barber token causes visual drift from the anchor pack.
+    try:
+        base_prompt = apply_style_elements_to_image_prompt(
+            character, base_prompt, db,
+            include_permanent=not body.include_character,
+        )
+    except Exception as _se:
+        logger.warning(
+            "style_elements_injection_failed character_id=%s error=%r — skipping",
+            character_id, str(_se),
+        )
+
+    # ── Body canon lock string ─────────────────────────────────────
+    # Persistent anatomical markings (tattoos, scars, burns, birthmarks)
+    # injected as part of the identity layer, not as conditional modifiers.
+    try:
+        _body_canon_str = build_body_canon_lock_string(load_markings(character))
+    except Exception as _bce:
+        logger.warning(
+            "body_canon_load_failed character_id=%s error=%r — skipping",
+            character_id, str(_bce),
+        )
+        _body_canon_str = ""
 
     # ── Accessory slot injection (v1/v2) ──────────────────────────
     # When include_character=True, inject locked accessory block if the prompt
@@ -600,7 +636,45 @@ def generate_image(
             anchor_data=anchor_data,  # type: ignore[arg-type]
             character_name=character.name,
             retry=False,
+            body_canon_str=_body_canon_str,
         )
+
+        # DIAG: full identity payload snapshot — what is actually sent to the provider
+        _diag_lock = (anchor_data or {}).get("identity_lock_string", "") or ""  # type: ignore[union-attr]
+        _diag_spec_hair: dict = {}
+        if character.identity_spec_json:
+            try:
+                _sd = _json.loads(character.identity_spec_json)
+                _id = _sd.get("identity") or {}
+                _diag_spec_hair = {
+                    "hair_color": _id.get("hair_color"),
+                    "hair_length": _id.get("hair_length"),
+                    "hair_style": _sd.get("hair_style"),
+                    "hair_texture": _sd.get("hair_texture"),
+                    "hairline_type": _sd.get("hairline_type"),
+                }
+            except Exception:
+                pass
+        _HAIR_PATTERNS = ["long hair", "shoulder-length", "shoulder length", "flowing hair",
+                          "ponytail", "tied back", "waist-length", "waist length"]
+        _kw_hits = [p for p in _HAIR_PATTERNS if p in strict_prompt.lower()]
+        logger.info(
+            "DIAG identity_payload_debug character_id=%s provider=%s "
+            "lock_string=%r spec_hair=%s anchor_slots=%s face_ref_available=%s "
+            "final_prompt_len=%d hair_kw_hits=%s",
+            character_id, resolved_provider_name,
+            _diag_lock[:120],
+            _diag_spec_hair,
+            list(((anchor_data or {}).get("anchors") or {}).keys()),  # type: ignore[union-attr]
+            face_ref_bytes is not None,
+            len(strict_prompt),
+            _kw_hits,
+        )
+        if _kw_hits:
+            logger.warning(
+                "DIAG hair_keyword_in_prompt character_id=%s hits=%s snippet=%r",
+                character_id, _kw_hits, strict_prompt[:200],
+            )
 
         # Tier 1: multi-image anchor conditioning (B19)
         if provider_supports_multi and anchor_images:
@@ -692,6 +766,7 @@ def generate_image(
                 anchor_data=anchor_data,  # type: ignore[arg-type]
                 character_name=character.name,
                 retry=True,
+                body_canon_str=_body_canon_str,
             )
 
             if provider_supports_multi and anchor_images:
@@ -831,6 +906,7 @@ def generate_image(
             anchor_data=anchor_data,  # type: ignore[arg-type]
             character_name=character.name,
             retry=False,
+            body_canon_str=_body_canon_str,
         )
         cover_retry_png: bytes | None = None
         if provider_supports_multi and anchor_images:

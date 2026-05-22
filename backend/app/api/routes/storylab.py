@@ -65,7 +65,7 @@ from app.services.storylab_generator import (
     build_rp_reply_prompt,
     _rp_length_profile,
 )
-from app.services.rp_behavior_engine import detect_partner_control, detect_scene_stall, score_inferno_anatomy_density
+from app.services.rp_behavior_engine import detect_partner_control, detect_partner_silence_severe, detect_scene_stall, score_inferno_anatomy_density
 from app.services.rp_scene_engine import (
     detect_scene_beats,
     detect_repeated_beats,
@@ -82,6 +82,11 @@ from app.services.rp_models import effective_heat_level, evaluate_rp_reply_quali
 from app.services.rp_beat_planner import detect_multi_beat_instruction, extract_requested_beats, beat_completion_mode
 from app.services.rp_spatial_engine import detect_spatial_state
 from app.services.rp_style_engine import DEFAULT_ARCHETYPE, detect_ai_cadence, detect_wrong_pov
+from app.services.rp_narrative_engine import (
+    detect_scene_mechanics,
+    detect_scene_progression_events,
+    detect_paragraph_monotony,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -250,19 +255,59 @@ def apply_model_deltas(
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
-def _fetch_recent_endings(story_id: str, db: Session, n: int = 3) -> list[str]:
+def _validate_story_ownership(story_id: str, current_user: User, db: Session) -> "StoryModel | None":
+    """Validate that current_user owns the story if a StoryModel record exists.
+
+    Returns the StoryModel when ownership is confirmed.  Returns None when there
+    is no StoryModel record for this story_id (legacy ``storylab:`` IDs,
+    unregistered scratch IDs) — there is nothing to protect in that case since
+    any generated state would be empty/fresh.
+
+    Raises 403 when a StoryModel record exists but belongs to a different user.
+    """
+    if story_id.startswith("storylab:"):
+        # Legacy client-generated IDs have no StoryModel row; skip validation.
+        return None
+    story = db.query(StoryModel).filter(StoryModel.id == story_id).first()
+    if story is None:
+        # No record — nothing to protect; state auto-creates empty if needed.
+        return None
+    if story.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your story")
+    return story
+
+
+def _fetch_recent_endings(
+    story_id: str, db: Session, n: int = 3, user_id: int | None = None
+) -> list[str]:
     """Return the last *n* ending phrases from the GenerationLog for *story_id*.
 
     Each entry is the final sentence/line of a past response_text, used to
-    populate the prompt's anti-repetition block.
+    populate the prompt's anti-repetition block.  When *user_id* is provided
+    and the story_id is a UUID (not a legacy ``storylab:`` ID), the query joins
+    through StoryModel to guarantee we only read data for stories owned by that
+    user.
     """
-    rows = (
-        db.query(GenerationLog.response_text)
-        .filter(GenerationLog.story_id == story_id)
-        .order_by(GenerationLog.created_at.desc())
-        .limit(n)
-        .all()
-    )
+    if user_id is not None and not story_id.startswith("storylab:"):
+        rows = (
+            db.query(GenerationLog.response_text)
+            .join(StoryModel, StoryModel.id == GenerationLog.story_id)
+            .filter(
+                GenerationLog.story_id == story_id,
+                StoryModel.user_id == user_id,
+            )
+            .order_by(GenerationLog.created_at.desc())
+            .limit(n)
+            .all()
+        )
+    else:
+        rows = (
+            db.query(GenerationLog.response_text)
+            .filter(GenerationLog.story_id == story_id)
+            .order_by(GenerationLog.created_at.desc())
+            .limit(n)
+            .all()
+        )
     endings: list[str] = []
     for (response_text,) in rows:
         if not response_text:
@@ -294,9 +339,10 @@ def _get_or_create_state(story_id: str, db: Session) -> StoryState:
 def get_state(
     story_id: str = Query(..., description="Story workspace identifier"),
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> StoryLabStateResponse:
     """Return the current story state, creating a default row if none exists."""
+    _validate_story_ownership(story_id, current_user, db)
     row = _get_or_create_state(story_id, db)
     return StoryLabStateResponse(
         story_id=row.story_id,
@@ -310,9 +356,11 @@ def get_state(
 def generate(
     req: StoryLabGenerateRequest,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> StoryLabGenerateResponse:
     """Generate a story continuation and persist updated state."""
+    _validate_story_ownership(req.story_id, current_user, db)
+
     # ── input validation ──────────────────────────────────────────────────────
     text_stripped = req.text.strip()
     if not text_stripped:
@@ -357,7 +405,7 @@ def generate(
     )
 
     # ── fetch recent endings for anti-repetition guidance ─────────────────────
-    recent_endings = _fetch_recent_endings(req.story_id, db)
+    recent_endings = _fetch_recent_endings(req.story_id, db, user_id=current_user.id)
 
     # ── generate continuation (provider-routed; stub is fallback) ─────────────
     generated_text, model_deltas = generate_storylab_continuation(
@@ -1250,12 +1298,18 @@ def _update_canon_memory(
 def list_chapters(
     story_id: str = Query(..., description="Story workspace identifier"),
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> list[ChapterListItem]:
     """Return all chapters for a story, ordered by chapter_number."""
+    _validate_story_ownership(story_id, current_user, db)
+    user_key = str(current_user.id)
     rows = (
         db.query(StoryChapter)
-        .filter(StoryChapter.story_id == story_id)
+        .filter(
+            StoryChapter.story_id == story_id,
+            # Legacy rows have empty user_id; include them only for the owner of the session.
+            (StoryChapter.user_id == "") | (StoryChapter.user_id == user_key),
+        )
         .order_by(StoryChapter.chapter_number)
         .all()
     )
@@ -1267,14 +1321,17 @@ def get_chapter(
     chapter_number: int,
     story_id: str = Query(..., description="Story workspace identifier"),
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> ChapterDetail:
     """Return a specific chapter with suggestions derived from current state."""
+    _validate_story_ownership(story_id, current_user, db)
+    user_key = str(current_user.id)
     ch = (
         db.query(StoryChapter)
         .filter(
             StoryChapter.story_id == story_id,
             StoryChapter.chapter_number == chapter_number,
+            (StoryChapter.user_id == "") | (StoryChapter.user_id == user_key),
         )
         .first()
     )
@@ -1294,12 +1351,26 @@ def generate_chapter_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> ChapterGenerateResponse:
     """Generate a new chapter and store it."""
+    _validate_story_ownership(story_id, current_user, db)
+
+    import time as _time
+    _endpoint_t0 = _time.time()
+
     user_key = str(current_user.id)
     limit = settings.STORYLAB_DAILY_LIMIT
     if limit > 0:
         used = _count_daily_chapters_for_user(user_key, db)
         if used >= limit:
             raise _storylab_quota_error(used, limit)
+
+    logger.info(
+        "[SL-PATH] generate_chapter_endpoint | story_id=%s length=%s pacing=%s "
+        "tone=%s boundary=%s direction=%s mode=%s provider=%s model=%s",
+        story_id,
+        req.controls.length, req.controls.pacing, req.controls.tone_intensity,
+        req.controls.boundary, req.controls.direction, req.mode,
+        settings.STORYLAB_PROVIDER, settings.STORYLAB_MODEL,
+    )
 
     # Capture pre-generation canon memory for contradiction checking.
     # For first chapters this will be empty; the seeded memory is returned
@@ -1442,12 +1513,38 @@ def generate_chapter_endpoint(
     # ── Canon memory extraction + contradiction check (non-fatal) ─────────────
     _update_canon_memory(story_id, chapter_text, chapter_number, state_row, db)
 
+    _endpoint_ms = int((_time.time() - _endpoint_t0) * 1000)
+    _using_stub = chapter_text.startswith("[DEV-STUB-FALLBACK]") or (model_deltas is None and settings.STORYLAB_PROVIDER == "stub")
+    logger.info(
+        "[SL-PATH] generate_chapter_endpoint COMPLETE | story_id=%s chapter=%d "
+        "word_count=%d endpoint_ms=%d using_stub=%s",
+        story_id, chapter_number, word_count, _endpoint_ms, _using_stub,
+    )
+    if _endpoint_ms < 1500 and settings.STORYLAB_PROVIDER == "openrouter":
+        logger.warning(
+            "[SL-PATH] SUSPICIOUS: endpoint completed in %dms with provider=openrouter — "
+            "possible silent fallback to stub. Check SL-DIAG logs above for fallback_reason.",
+            _endpoint_ms,
+        )
+
     return ChapterGenerateResponse(
         chapter_number=chapter_number,
         generated_text=chapter_text,
         prompt_text=req.prompt or "",
         suggestions=suggestions,
-        meta={"words": word_count, "delta": model_deltas},
+        meta={
+            "words": word_count,
+            "delta": model_deltas,
+            "diag": {
+                "provider": settings.STORYLAB_PROVIDER,
+                "model": settings.STORYLAB_MODEL,
+                "endpoint_ms": _endpoint_ms,
+                "length": req.controls.length,
+                "pacing": req.controls.pacing,
+                "tone": req.controls.tone_intensity,
+                "using_stub": _using_stub,
+            },
+        },
     )
 
 
@@ -1487,23 +1584,20 @@ def regenerate_chapter(
     current_user: User = Depends(get_current_user),
 ) -> ChapterGenerateResponse:
     """Regenerate a chapter in-place, overwriting its generated_text."""
+    _validate_story_ownership(story_id, current_user, db)
+
+    user_key = str(current_user.id)
     ch = (
         db.query(StoryChapter)
         .filter(
             StoryChapter.story_id == story_id,
             StoryChapter.chapter_number == chapter_number,
+            (StoryChapter.user_id == "") | (StoryChapter.user_id == user_key),
         )
         .first()
     )
     if ch is None:
         raise HTTPException(status_code=404, detail="Chapter not found")
-
-    user_key = str(current_user.id)
-    limit = settings.STORYLAB_DAILY_LIMIT
-    if limit > 0:
-        used = _count_daily_chapters_for_user(user_key, db)
-        if used >= limit:
-            raise _storylab_quota_error(used, limit)
 
     # Capture pre-generation canon memory and state snapshot for contradiction
     # checking and retry (mirrors the generate endpoint pattern).
@@ -1726,7 +1820,7 @@ def create_story(
         genre=req.genre or "",
         premise=req.premise or "",
         characters=story_char_dicts,
-        opening_prompt=req.opening_prompt if hasattr(req, "opening_prompt") else "",
+        opening_prompt="",
     )
 
     now = datetime.utcnow()
@@ -1912,7 +2006,7 @@ def generate_rp_reply_endpoint(
     # Resolve effective heat level (intensity acts as a floor)
     resolved_heat = effective_heat_level(req.heat_level, req.intensity)
 
-    reply, model_used, generation_time_ms, pov_warnings, max_tokens_used = generate_rp_reply(
+    reply, model_used, generation_time_ms, pov_warnings, max_tokens_used, godmod_meta = generate_rp_reply(
         partner_reply=req.partner_reply,
         response_length=req.response_length,
         style_match=req.style_match,
@@ -1949,6 +2043,7 @@ def generate_rp_reply_endpoint(
 
     # ── behavior engine diagnostics ───────────────────────────────────────────
     behavior_diag = detect_partner_control(reply)
+    silence_diag = detect_partner_silence_severe(reply)
     stall_diag = detect_scene_stall(reply)
     anatomy_density = score_inferno_anatomy_density(reply) if resolved_heat == "inferno" else 0.0
 
@@ -1965,6 +2060,11 @@ def generate_rp_reply_endpoint(
 
     # ── spatial state diagnostics ─────────────────────────────────────────────
     spatial_state = detect_spatial_state(_combined_input)
+
+    # ── narrative engine diagnostics ──────────────────────────────────────────
+    _narr_mechanics = detect_scene_mechanics(reply)
+    _narr_events    = detect_scene_progression_events(reply)
+    _narr_monotony  = detect_paragraph_monotony(reply)
 
     # ── beat planner diagnostics ──────────────────────────────────────────────
     _raw_beats = extract_requested_beats(req.instructions or "")
@@ -1984,10 +2084,12 @@ def generate_rp_reply_endpoint(
         "char_id=%s story_id=%s | "
         "quality length=%.2f dialogue=%.2f repetition=%.2f godmod=%.2f format=%.2f | "
         "stage=%s continuation=%.3f resolved=%s pacing_warns=%d style_warns=%d pov_warns=%d | "
-        "partner_control_risk=%.3f scene_stall=%.3f progression=%.3f "
+        "partner_control_risk=%.3f silence_severe=%s scene_stall=%.3f progression=%.3f "
         "anatomy_density=%.3f repeated_emotion=%.3f ai_cadence=%s | "
         "scene_stage=%s next_goal=%s rep_score=%.3f prog_success=%s "
-        "spatial_pos=%s dominance=%s regression=%s",
+        "spatial_pos=%s dominance=%s regression=%s | "
+        "narr prog_density=%.3f float_risk=%.3f static_risk=%.3f recur_risk=%.3f "
+        "prog_events=%d monotony=%.3f env_density=%.3f",
         len(reply.split()), len(warnings), model_used, generation_time_ms,
         req.response_length, req.style_match, req.intensity, req.heat_level,
         resolved_heat, effective_archetype, req.character_id, req.story_id,
@@ -1995,12 +2097,16 @@ def generate_rp_reply_endpoint(
         quality["repetition_score"], quality["godmodding_risk"], quality["format_score"],
         detected_stage, continuation_score, resolution["resolved"],
         len(pacing_warnings), len(style_warnings), len(pov_warnings),
-        behavior_diag["partner_control_risk"], stall_diag["scene_stall_score"],
+        behavior_diag["partner_control_risk"], silence_diag["severe"], stall_diag["scene_stall_score"],
         stall_diag["progression_score"], anatomy_density,
         stall_diag["repeated_emotion_score"], cadence_result["ai_cadence_risk"],
         scene_stage_input, next_scene_goal, repetition_score, progression_success,
         spatial_state["current_position"], spatial_state["dominance_state"],
         regression["regression_flags"],
+        _narr_mechanics["progression_density"], _narr_mechanics["floating_scene_risk"],
+        _narr_mechanics["static_scene_risk"], _narr_mechanics["recursive_emotion_risk"],
+        _narr_events["progression_event_count"], _narr_monotony["monotony_score"],
+        _narr_mechanics["environment_usage_density"],
     )
 
     return RPReplyGenerateResponse(
@@ -2022,4 +2128,14 @@ def generate_rp_reply_endpoint(
         max_tokens_used=max_tokens_used,
         requested_beat_count=requested_beat_count,
         beat_completion_mode=beat_completion_mode_label,
+        progression_density=_narr_mechanics["progression_density"],
+        floating_scene_risk=_narr_mechanics["floating_scene_risk"],
+        static_scene_risk=_narr_mechanics["static_scene_risk"],
+        recursive_emotion_risk=_narr_mechanics["recursive_emotion_risk"],
+        progression_event_count=_narr_events["progression_event_count"],
+        paragraph_monotony=_narr_monotony["monotony_score"],
+        environment_usage_density=_narr_mechanics["environment_usage_density"],
+        godmod_detected=godmod_meta["detected"],
+        godmod_severity=godmod_meta["severity"],
+        godmod_warnings=godmod_meta["warnings"],
     )

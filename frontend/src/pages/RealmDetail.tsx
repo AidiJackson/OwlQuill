@@ -8,6 +8,7 @@ import CommentSection from '@/components/CommentSection';
 import ReactionBar from '@/components/ReactionBar';
 import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
+import MentionText from '@/components/MentionText';
 
 export default function RealmDetail() {
   const { realmId } = useParams<{ realmId: string }>();
@@ -656,7 +657,7 @@ export default function RealmDetail() {
 
                   {/* Post content */}
                   {post.title && <h3 className="text-xl font-semibold mb-2">{post.title}</h3>}
-                  <p className="text-gray-300 whitespace-pre-wrap leading-relaxed mt-1">{post.content}</p>
+                  <p className="text-gray-300 whitespace-pre-wrap leading-relaxed mt-1"><MentionText text={post.content} mentions={post.mentions} /></p>
 
                   {post.image_url && (
                     <img

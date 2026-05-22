@@ -100,7 +100,8 @@ _BEAT_EXECUTION_BLOCK = (
     "Use concise transitions where needed.\n"
     "Do not summarize; dramatize the key beats.\n"
     "Preserve partner agency.\n"
-    "Do not spend more than roughly one third of the reply on the first beat."
+    "Do not spend more than roughly one third of the reply on the first beat.\n"
+    "Do not stop and wait for the partner between beats; bridge using the selected character's movement, narration, dialogue, time-skip, or choices."
 )
 
 _BEAT_COMPLETION_BLOCK = (
@@ -111,7 +112,8 @@ _BEAT_COMPLETION_BLOCK = (
     "Do not spend more than roughly one third of the reply on the first beat.\n"
     "Use concise scene transitions where needed.\n"
     "Do not summarize; dramatize each key beat.\n"
-    "Preserve partner agency throughout."
+    "Preserve partner agency throughout.\n"
+    "Do not stop and wait for the partner between beats; bridge using the selected character's movement, narration, dialogue, time-skip, or choices."
 )
 
 

@@ -28,6 +28,7 @@ import StorySpaces from '@/pages/StorySpaces';
 import StorySpaceDetail from '@/pages/StorySpaceDetail';
 import StorySpacePublish from '@/pages/StorySpacePublish';
 import PublishedStoryReader from '@/pages/PublishedStoryReader';
+import Notifications from '@/pages/Notifications';
 
 function RouteLogger() {
   const location = useLocation();
@@ -79,6 +80,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/realms" element={<Realms />} />
           <Route path="/realms/:realmId" element={<RealmDetail />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route path="/spaces" element={<StorySpaces />} />
           <Route path="/spaces/:spaceId" element={<StorySpaceDetail />} />
           <Route path="/spaces/:spaceId/publish" element={<StorySpacePublish />} />

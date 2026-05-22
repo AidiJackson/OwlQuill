@@ -74,6 +74,54 @@ export interface Realm {
   updated_at: string;
 }
 
+// ── Style Shops ───────────────────────────────────────────────────────
+
+export type ShopType = 'barber' | 'tattoo' | 'mask' | 'jewellery' | 'weapon';
+export type AttachmentMode = 'permanent' | 'removable';
+export type StylePlacement = 'hair' | 'face' | 'lower_face' | 'right_arm' | 'left_arm' | 'chest' | 'back' | 'neck' | 'hand' | 'custom';
+export type StyleElementStatus = 'active' | 'archived';
+
+export interface StylePreset {
+  id: number;
+  shop_type: ShopType;
+  name: string;
+  slug: string;
+  description: string;
+  attachment_mode: AttachmentMode;
+  placement: StylePlacement;
+  prompt_token: string;
+  preview_image_url?: string | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface StyleElementRead {
+  id: number;
+  character_id: number;
+  preset_id: number;
+  placement: StylePlacement;
+  status: StyleElementStatus;
+  created_at: string;
+  updated_at: string;
+  preset: StylePreset;
+}
+
+export interface StyleElementsResponse {
+  character_id: number;
+  elements: StyleElementRead[];
+}
+
+// ─────────────────────────────────────────────────────────────────────
+
+export interface PostMention {
+  mention_text: string;
+  target_type: 'user' | 'character' | 'unresolved';
+  target_id?: number;
+  display_name: string;
+  url: string;
+}
+
 export interface Post {
   id: number;
   realm_id?: number;
@@ -90,6 +138,15 @@ export interface Post {
   image_url?: string;
   created_at: string;
   updated_at: string;
+  mentions?: PostMention[];
+}
+
+export interface Notification {
+  id: number;
+  type: string;
+  payload?: string;
+  is_read: boolean;
+  created_at: string;
 }
 
 export interface Comment {
@@ -353,6 +410,10 @@ export interface RPReplyResponse {
   max_tokens_used?: number;
   requested_beat_count?: number;
   beat_completion_mode?: string;
+  // Godmod output gate diagnostics
+  godmod_detected?: boolean;
+  godmod_severity?: string;
+  godmod_warnings?: string[];
 }
 
 export interface RPModelOption {

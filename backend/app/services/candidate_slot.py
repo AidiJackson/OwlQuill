@@ -7,17 +7,31 @@ writes the new url into identity_anchor_json["anchors"][slot] while
 preserving accessories and all other anchor slots.
 """
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.storage import load_image_bytes, save_image
 from app.models.candidate_slot import CandidateSlot, VALID_SLOTS
 from app.models.character import Character
+from app.models.character_image import (
+    CharacterImage,
+    ImageKindEnum,
+    ImageStatusEnum,
+    ImageVisibilityEnum,
+)
 from app.services.identity_evolution import (
     IMMUTABLE_CANON_FIELDS,
     take_snapshot,
 )
+
+logger = logging.getLogger(__name__)
+
+# Hair fields that become stale after a visual slot promotion.
+# Clearing them lets the new anchor images drive hairstyle; color is preserved.
+_STALE_HAIR_FIELDS = frozenset({"hair_length", "hair_style", "hair_texture", "hairline_type"})
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
@@ -178,6 +192,10 @@ def promote_candidate(
     anchors[candidate.slot] = existing
     anchor_data["anchors"] = anchors
 
+    # Recompile identity text canon so stale hair descriptors no longer drive generation.
+    # Best-effort: failure leaves anchor_data unchanged rather than blocking promotion.
+    _recompile_identity_canon(character, anchor_data)
+
     character.identity_anchor_json = json.dumps(anchor_data)
     character.updated_at = datetime.utcnow()
     db.add(character)
@@ -187,6 +205,20 @@ def promote_candidate(
 
     db.commit()
     db.refresh(candidate)
+
+    # Refresh the face-reference crop when the front anchor is replaced.
+    # Best-effort: failure is logged but does not roll back the promotion.
+    if candidate.slot == "front":
+        try:
+            _refresh_face_ref(db, character, candidate)
+            db.commit()
+        except Exception as _exc:
+            db.rollback()
+            logger.warning(
+                "promote_candidate: face_ref refresh failed character_id=%s error=%s",
+                character.id, _exc,
+            )
+
     return snapshot, candidate
 
 
@@ -203,6 +235,101 @@ def reject_candidate(
     db.commit()
     db.refresh(candidate)
     return candidate
+
+
+# ── Promotion helpers ─────────────────────────────────────────────────────────
+
+def _recompile_identity_canon(character: Character, anchor_data: dict) -> None:
+    """Clear stale hair fields from identity_spec_json and recompile the lock string.
+
+    Called after a slot URL is updated so the text canon matches the new visuals.
+    Mutates character.identity_spec_json and anchor_data in-place.
+    """
+    if not character.identity_spec_json:
+        return
+    try:
+        spec_dict = json.loads(character.identity_spec_json)
+    except (json.JSONDecodeError, TypeError):
+        return
+
+    # Remove stale hair fields at both spec root and nested identity sub-object
+    for _f in _STALE_HAIR_FIELDS:
+        spec_dict.pop(_f, None)
+        if isinstance(spec_dict.get("identity"), dict):
+            spec_dict["identity"].pop(_f, None)
+    character.identity_spec_json = json.dumps(spec_dict)
+
+    try:
+        from app.schemas.character_visual import CharacterIdentitySpec
+        from app.services.identity_compiler import (
+            compile_identity_lock_string,
+            identity_prompt_hash as _compute_hash,
+        )
+        spec_obj = CharacterIdentitySpec(**spec_dict)
+        anchor_data["identity_lock_string"] = compile_identity_lock_string(spec_obj)
+        anchor_data["identity_prompt_hash"] = _compute_hash(spec_obj)
+    except Exception as _exc:
+        logger.warning(
+            "_recompile_identity_canon: lock string recompile failed character_id=%s error=%s",
+            character.id, _exc,
+        )
+
+
+def _refresh_face_ref(db: Session, character: Character, candidate: CandidateSlot) -> None:
+    """Archive the stale IDENTITY_FACE_REF and create a new one from the promoted front anchor."""
+    old_refs = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.character_id == character.id,
+            CharacterImage.kind == ImageKindEnum.IDENTITY_FACE_REF,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .all()
+    )
+    for ref in old_refs:
+        ref.status = ImageStatusEnum.ARCHIVED
+        db.add(ref)
+
+    raw_bytes = load_image_bytes(candidate.image_url)
+    cropped = _crop_face_ref(raw_bytes)
+    face_ref_path = save_image(cropped)
+
+    db.add(CharacterImage(
+        character_id=character.id,
+        kind=ImageKindEnum.IDENTITY_FACE_REF,
+        status=ImageStatusEnum.ACTIVE,
+        visibility=ImageVisibilityEnum.PRIVATE,
+        prompt_summary="face reference crop",
+        metadata_json={
+            "source": "evolution_promote",
+            "candidate_id": candidate.id,
+            "is_temp": False,
+        },
+        file_path=face_ref_path,
+    ))
+    logger.info(
+        "promote_candidate: face_ref refreshed character_id=%s candidate_id=%s",
+        character.id, candidate.id,
+    )
+
+
+def _crop_face_ref(png_bytes: bytes) -> bytes:
+    """Crop a tight face region (x=20-80%, y=5-60%) resized to 512×512."""
+    try:
+        import io
+        from PIL import Image
+        with Image.open(io.BytesIO(png_bytes)) as img:
+            w, h = img.size
+            left, right = int(w * 0.20), int(w * 0.80)
+            top, bottom = int(h * 0.05), int(h * 0.60)
+            if right <= left or bottom <= top:
+                return png_bytes
+            resized = img.crop((left, top, right, bottom)).resize((512, 512), Image.LANCZOS)
+            buf = io.BytesIO()
+            resized.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception:
+        return png_bytes
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

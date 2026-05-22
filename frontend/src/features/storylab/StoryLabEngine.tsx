@@ -545,7 +545,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
     void handleGenerate({
       direction: action.direction,
       pacing: action.pacing,
-      length: action.length,
+      // length intentionally omitted — beat actions respect the user's Length setting
       ...(action.tone_intensity ? { tone_intensity: action.tone_intensity } : {}),
     }, action.beat_type);
   }

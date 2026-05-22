@@ -76,7 +76,6 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
   const [progressionSuccess, setProgressionSuccess] = useState<boolean | null>(null);
   // Orchestration stabilization diagnostics (internal)
   const [aiCadenceRisk, setAiCadenceRisk] = useState<boolean | null>(null);
-  const [infernoModelOverride, setInfernoModelOverride] = useState<boolean | null>(null);
   const [spatialPosition, setSpatialPosition] = useState('');
   // Beat planner diagnostics (internal)
   const [multiBeatDetected, setMultiBeatDetected] = useState<boolean | null>(null);
@@ -87,6 +86,10 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
   const [beatCompletionMode, setBeatCompletionMode] = useState('');
   const [spatialDominance, setSpatialDominance] = useState('');
   const [resolvedHeat, setResolvedHeat] = useState('');
+  // Godmod output gate diagnostics (internal)
+  const [godmodDetected, setGodmodDetected] = useState<boolean | null>(null);
+  const [godmodSeverity, setGodmodSeverity] = useState('');
+  const [godmodWarnings, setGodmodWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -116,7 +119,6 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
     setRepetitionScore(null);
     setProgressionSuccess(null);
     setAiCadenceRisk(null);
-    setInfernoModelOverride(null);
     setSpatialPosition('');
     setSpatialDominance('');
     setResolvedHeat('');
@@ -125,6 +127,9 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
     setResolvedLengthProfile('');
     setMaxTokensUsed(null);
     setBeatCompletionMode('');
+    setGodmodDetected(null);
+    setGodmodSeverity('');
+    setGodmodWarnings([]);
     try {
       const result = await apiClient.generateRPReply({
         partner_reply: partnerReply.trim(),
@@ -152,7 +157,6 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
       setRepetitionScore(result.repetition_score ?? null);
       setProgressionSuccess(result.progression_success ?? null);
       setAiCadenceRisk(result.ai_cadence_risk ?? null);
-      setInfernoModelOverride(result.inferno_model_override ?? null);
       setSpatialPosition(result.spatial_position ?? '');
       setSpatialDominance(result.spatial_dominance ?? '');
       setResolvedHeat(result.resolved_heat ?? '');
@@ -161,6 +165,9 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
       setResolvedLengthProfile(result.resolved_length_profile ?? '');
       setMaxTokensUsed(result.max_tokens_used ?? null);
       setBeatCompletionMode(result.beat_completion_mode ?? '');
+      setGodmodDetected(result.godmod_detected ?? null);
+      setGodmodSeverity(result.godmod_severity ?? '');
+      setGodmodWarnings(result.godmod_warnings ?? []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
     } finally {
@@ -555,8 +562,44 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
             </div>
           )}
 
+          {/* Godmod output gate panel — internal dev mode only */}
+          {IS_INTERNAL && godmodDetected !== null && (
+            <div className={`border rounded-xl p-3 space-y-2 ${
+              godmodDetected
+                ? 'border-red-800/50 bg-red-950/20'
+                : 'border-gray-800/40 bg-gray-900/20'
+            }`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-semibold text-red-500/80 uppercase tracking-widest">
+                  Godmod Gate
+                </span>
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
+                  godmodDetected
+                    ? 'bg-red-900/40 text-red-400 border-red-700/50'
+                    : godmodSeverity === 'soft'
+                    ? 'bg-amber-900/30 text-amber-400/80 border-amber-800/30'
+                    : 'bg-emerald-900/30 text-emerald-400/80 border-emerald-800/30'
+                }`}>
+                  {godmodDetected ? 'violation in output' : godmodSeverity === 'soft' ? 'soft (advisory)' : 'clean'}
+                </span>
+                {godmodSeverity && (
+                  <span className="text-[10px] text-gray-600 font-mono">{godmodSeverity}</span>
+                )}
+              </div>
+              {godmodWarnings.length > 0 && (
+                <div className="space-y-1">
+                  {godmodWarnings.map((w, i) => (
+                    <p key={i} className="text-[11px] text-red-400/70 font-mono bg-red-950/30 rounded px-2 py-1 leading-relaxed">
+                      {w}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Scene Beat Engine panel — internal dev mode only */}
-          {IS_INTERNAL && (nextSceneGoal || repetitionScore !== null || progressionSuccess !== null || aiCadenceRisk !== null || infernoModelOverride !== null || spatialPosition || resolvedHeat || multiBeatDetected !== null || resolvedLengthProfile || maxTokensUsed !== null) && (
+          {IS_INTERNAL && (nextSceneGoal || repetitionScore !== null || progressionSuccess !== null || aiCadenceRisk !== null || spatialPosition || resolvedHeat || multiBeatDetected !== null || resolvedLengthProfile || maxTokensUsed !== null) && (
             <div className="border border-violet-900/30 bg-violet-950/10 rounded-xl p-3 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-semibold text-violet-500/80 uppercase tracking-widest">
@@ -569,11 +612,6 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
                       : 'bg-amber-900/30 text-amber-500/70 border border-amber-800/30'
                   }`}>
                     {progressionSuccess ? 'progressed' : 'stalled'}
-                  </span>
-                )}
-                {infernoModelOverride && (
-                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-orange-900/40 text-orange-400/80 border border-orange-800/40">
-                    inferno routed
                   </span>
                 )}
                 {aiCadenceRisk && (
