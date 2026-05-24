@@ -49,6 +49,7 @@ from app.services.body_canon import (
     is_sleeve_marking,
     get_arm_side,
     build_sleeve_enforcement_str,
+    sync_tattoo_style_elements_to_body_canon,
 )
 from app.api.routes.body_identity import _load_body_slots
 from app.services.identity_evolution import compute_pack_stages
@@ -770,6 +771,16 @@ def generate_image(
         _bc_visible_regions = _detect_visible_body_regions(provider_prompt.lower())
         _bc_anchors_used: list[str] = []
         _bc_anchors_missing: list[str] = []
+
+        # Lazy sync: backfill body_canon_json from active tattoo style elements.
+        # Mirrors the same pattern used by GET /body-markings to ensure generation
+        # sees up-to-date markings even if the user never visited the body-markings
+        # page after their tattoos were applied (pre-migration or first-time setup).
+        _bc_sync = sync_tattoo_style_elements_to_body_canon(character, db)
+        if _bc_sync["created"] > 0 or _bc_sync["updated"] > 0:
+            db.commit()
+            db.refresh(character)
+
         _bc_markings = load_markings(character)
 
         # Visibility discipline: tattoo anchors and text tokens only when skin is explicitly bare.

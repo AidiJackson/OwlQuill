@@ -1345,7 +1345,18 @@ def accept_identity_pack(
         except Exception:
             pass  # graceful fallback — lock/hash stay null
 
-    character.identity_anchor_json = _json.dumps({
+    # Preserve body_slots and pack_stages from the existing identity_anchor_json
+    # so that a locked tattoo_layout or body_front is not wiped on pack acceptance.
+    _existing_anchor_data: dict = {}
+    if character.identity_anchor_json:
+        try:
+            _existing_anchor_data = _json.loads(character.identity_anchor_json)
+        except (ValueError, TypeError):
+            pass
+    _preserved_body_slots = _existing_anchor_data.get("body_slots") or {}
+    _preserved_pack_stages = _existing_anchor_data.get("pack_stages") or {}
+
+    _new_anchor: dict = {
         "version": 1,
         "locked_at": datetime.now(timezone.utc).isoformat(),
         "style": _style,
@@ -1354,7 +1365,12 @@ def accept_identity_pack(
         "anchors": anchors_dict,
         "height": _anchor_height,
         "build": _anchor_build,
-    })
+    }
+    if _preserved_body_slots:
+        _new_anchor["body_slots"] = _preserved_body_slots
+    if _preserved_pack_stages:
+        _new_anchor["pack_stages"] = _preserved_pack_stages
+    character.identity_anchor_json = _json.dumps(_new_anchor)
 
     # Create a tight face-reference crop from the accepted front anchor.
     # Stored as IDENTITY_FACE_REF so future scene generation can use it as a
