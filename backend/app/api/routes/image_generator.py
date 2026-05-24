@@ -367,6 +367,23 @@ _BOTH_ARMS_SIGNALS = frozenset({
     "t-shirt", "tshirt", "tee shirt", "tee-shirt",
     "short sleeve", "short-sleeve", "short sleeved", "short-sleeved",
 })
+
+# Arm exposure mode: "full" = bare arms entirely (sleeveless/shirtless);
+#                   "partial" = t-shirt / short-sleeve (forearm + partial upper arm).
+# Used to tune prompt language and anchor selection.
+_FULL_ARM_EXPOSURE_SIGNALS = frozenset({
+    "shirtless", "bare-chested", "bare chested", "no shirt", "topless",
+    "sleeveless", "tank top", "vest", "crop top",
+    "swimwear", "swimming", "pool", "beach", "paddling",
+    "both arms visible", "bare arms", "arms out", "arms visible",
+    "paddling pool", "swimming pool", "poolside",
+    "ice bath", "cold bath", "sitting in water", "submerged", "upper body visible",
+})
+_PARTIAL_ARM_EXPOSURE_SIGNALS = frozenset({
+    "t-shirt", "tshirt", "tee shirt", "tee-shirt",
+    "short sleeve", "short-sleeve", "short sleeved", "short-sleeved",
+})
+
 _RIGHT_ARM_SIGNALS = frozenset({
     "right arm", "right forearm", "right sleeve", "right bicep",
     "right hand", "right wrist",
@@ -463,6 +480,23 @@ def _detect_visible_body_regions(prompt_lower: str) -> set[str]:
     return visible
 
 
+def _detect_arm_visibility_mode(prompt_lower: str) -> str:
+    """Return arm exposure mode for the given prompt.
+
+    "full"    — sleeveless / shirtless / bare arms: full arm skin exposed
+    "partial" — t-shirt / short-sleeve: forearm + partial upper arm exposed
+    "covered" — hoodie / jacket / long-sleeve: arm skin is hidden
+    "none"    — no arm-relevant garment signal detected
+    """
+    if any(sig in prompt_lower for sig in _CLOTHING_COVER_SIGNALS):
+        return "covered"
+    if any(sig in prompt_lower for sig in _FULL_ARM_EXPOSURE_SIGNALS):
+        return "full"
+    if any(sig in prompt_lower for sig in _PARTIAL_ARM_EXPOSURE_SIGNALS):
+        return "partial"
+    return "none"
+
+
 def _build_strict_identity_prompt(
     *,
     base_prompt: str,
@@ -473,6 +507,8 @@ def _build_strict_identity_prompt(
     sleeve_enforcement_str: str = "",
     scene_complex: bool = False,
     character_id: int | None = None,
+    arm_visibility_mode: str = "none",
+    provider_name: str = "",
 ) -> str:
     """Build a scene-first strict-identity prompt.
 
@@ -511,13 +547,48 @@ def _build_strict_identity_prompt(
     section_lock = (anchor_data.get("identity_lock_string") or "").strip()
 
     # 5. Body canon: markings where skin is naturally exposed.
-    section_body_canon = (
-        body_canon_str.rstrip(". ")
-        + ". Render only where skin is naturally exposed; do not alter wardrobe or costume to reveal."
-    ) if body_canon_str else ""
+    if body_canon_str:
+        # Core skin-surface rule: tattoos are on skin, never printed on fabric.
+        _skin_rule = (
+            "Tattoos are permanent ink on exposed skin only — "
+            "never printed on clothing or fabric"
+        )
+        # Arm-mode qualifier: partial exposure only shows forearm.
+        _arm_note = {
+            "partial": (
+                "only forearm and exposed upper arm are visible — "
+                "hide any portion beneath the shirt sleeve"
+            ),
+            "full": "render complete sleeve on bare skin",
+        }.get(arm_visibility_mode, "render only where skin is naturally exposed")
+        # OpenAI extra: reinforce shirt-print prohibition.
+        _provider_note = (
+            "; do not render tattoo as a printed pattern on the shirt"
+            if provider_name == "openai" else ""
+        )
+        section_body_canon = (
+            body_canon_str.rstrip(". ")
+            + f". {_skin_rule}; {_arm_note}{_provider_note}."
+        )
+    else:
+        section_body_canon = ""
 
     # 6. Sleeve enforcement: hard identity for visible full-arm sleeves.
-    section_sleeve = sleeve_enforcement_str.strip() if sleeve_enforcement_str else ""
+    if sleeve_enforcement_str:
+        _base_sleeve = sleeve_enforcement_str.strip()
+        _sleeve_mode_note = {
+            "partial": (
+                "Partial arm exposure only — render tattoo on exposed forearm and "
+                "uncovered upper arm; hide any portion beneath the shirt sleeve."
+            ),
+            "full": "Do not print sleeve on shirt fabric.",
+        }.get(arm_visibility_mode, "")
+        section_sleeve = (
+            _base_sleeve.rstrip(".") + ". " + _sleeve_mode_note
+            if _sleeve_mode_note else _base_sleeve
+        )
+    else:
+        section_sleeve = ""
 
     # Join all non-empty sections, stripping trailing punctuation per section.
     sections = [
@@ -768,6 +839,10 @@ def generate_image(
         # Compute before anchor loading so full_body gate can be applied.
         _scene_complexity, _full_body_gated = _detect_scene_complexity(provider_prompt.lower())
 
+        # Arm visibility mode: full/partial/covered/none — governs prompt language
+        # and anchor selection (tattoo_layout excluded for partial/none).
+        _arm_visibility_mode = _detect_arm_visibility_mode(provider_prompt.lower())
+
         # B19: load actual anchor images from disk
         anchor_images, anchor_types = _load_anchor_images(
             anchor_data,  # type: ignore[arg-type]
@@ -941,7 +1016,8 @@ def generate_image(
 
         # ── Body identity anchor injection ────────────────────────────
         # Load tattoo_layout (design map) and body_front (full-body context) when relevant.
-        # tattoo_layout supplements body_anchor:* refs — it does NOT replace them.
+        # tattoo_layout: only for full arm exposure (sleeveless/shirtless) — skipped for
+        # partial (t-shirt) to avoid the full design map encouraging shirt-printing.
         _bi_slots = _load_body_slots(character)
         _body_visible = any(sig in provider_prompt.lower() for sig in _BODY_VISIBLE_SIGNALS)
         _markings_visible = _tattoo_visibility_requested
@@ -949,7 +1025,10 @@ def generate_image(
         _tattoo_layout_used = False
         if provider_supports_multi:
             _tl_entry = _bi_slots.get("tattoo_layout") or {}
-            if _tattoo_visibility_requested and _tl_entry.get("status") == "locked" and _tl_entry.get("url"):
+            # Only send tattoo_layout when arms are fully bare — for partial coverage
+            # (t-shirt) the abstract design map can cause the model to render full
+            # shoulder-to-wrist sleeves through shirt fabric.
+            if _arm_visibility_mode == "full" and _tl_entry.get("status") == "locked" and _tl_entry.get("url"):
                 try:
                     _tl_bytes = load_image_bytes(_tl_entry["url"])
                     # tattoo_layout supplements body anchors — do NOT remove them.
@@ -1131,6 +1210,25 @@ def generate_image(
         # ── Provider ref check ────────────────────────────────────────────
         _tl_ref_in_types = any(t == "body_identity:tattoo_layout" for t in anchor_types)
         _ba_ref_count = sum(1 for t in anchor_types if t.startswith("body_anchor:"))
+
+        # Google-specific: when both arm anchors are sent, the model can merge the two
+        # tattoo designs into one arm.  Inject a hard separation rule into the sleeve
+        # enforcement block so the text and image signals both reinforce separation.
+        if resolved_provider_name == "google" and _ba_ref_count >= 2:
+            _anti_merge = (
+                "Left and right tattoos must remain separate — "
+                "do not combine designs onto one arm."
+            )
+            _sleeve_enforcement_str = (
+                _sleeve_enforcement_str.rstrip(". ") + ". " + _anti_merge
+                if _sleeve_enforcement_str else _anti_merge
+            )
+            logger.info(
+                "PROVIDER-REF-CHECK character_id=%s google_anti_merge_injected=True "
+                "body_anchor_count=%d",
+                character_id, _ba_ref_count,
+            )
+
         logger.info(
             "PROVIDER-REF-CHECK character_id=%s "
             "provider_supports_multi=%s tattoo_layout_ref_present=%s tattoo_layout_ref_sent=%s "
@@ -1181,6 +1279,8 @@ def generate_image(
             sleeve_enforcement_str=_sleeve_enforcement_str,
             scene_complex=_scene_complexity != "low",
             character_id=character_id,
+            arm_visibility_mode=_arm_visibility_mode,
+            provider_name=resolved_provider_name,
         )
 
         # DIAG: full identity payload snapshot — what is actually sent to the provider
@@ -1314,6 +1414,8 @@ def generate_image(
                 sleeve_enforcement_str=_sleeve_enforcement_str,
                 scene_complex=_scene_complexity != "low",
                 character_id=character_id,
+                arm_visibility_mode=_arm_visibility_mode,
+                provider_name=resolved_provider_name,
             )
 
             if provider_supports_multi and anchor_images:
@@ -1457,6 +1559,8 @@ def generate_image(
             sleeve_enforcement_str=_sleeve_enforcement_str,
             scene_complex=_scene_complexity != "low",
             character_id=character_id,
+            arm_visibility_mode=_arm_visibility_mode,
+            provider_name=resolved_provider_name,
         )
         cover_retry_png: bytes | None = None
         if provider_supports_multi and anchor_images:
