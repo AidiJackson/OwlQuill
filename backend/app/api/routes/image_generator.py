@@ -304,6 +304,9 @@ _BOTH_ARMS_SIGNALS = frozenset({
     "both arms visible", "bare arms",
     "paddling pool", "swimming", "swimming pool", "beach", "poolside",
     "ice bath", "cold bath", "sitting in water", "submerged", "upper body visible",
+    # Short-sleeve garments expose forearms and partial sleeves.
+    "t-shirt", "tshirt", "tee shirt", "tee-shirt",
+    "short sleeve", "short-sleeve", "short sleeved", "short-sleeved",
 })
 _RIGHT_ARM_SIGNALS = frozenset({
     "right arm", "right forearm", "right sleeve", "right bicep",
