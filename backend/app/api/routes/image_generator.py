@@ -92,11 +92,9 @@ _ANCHOR_LOAD_ORDER = ("front", "three_quarter", "torso", "full_body")
 # _COVER_CHARACTER_FRAMING — appended additionally when is_cover=True AND
 #                            include_character=True (~140 chars).
 #
-# Combined budget: up to ~365 chars of cover instructions, leaving ~435 chars
-# for the user's scene description inside the 800-char provider_prompt cap.
-# When include_character=True, _build_strict_identity_prompt wraps the result
-# and hard-caps the final combined output at 800 chars; cover instructions
-# travel at the tail of that prompt where image models weight them well.
+# Combined budget: up to ~365 chars of cover instructions.
+# When include_character=True, _build_strict_identity_prompt wraps the result;
+# cover instructions travel at the tail of the prompt where image models weight them well.
 
 _COVER_BANNER_PREFIX = (
     "PROFILE HEADER BANNER — ultra-wide 2.84:1 panoramic ratio. Not a portrait, not centered. "
@@ -115,7 +113,7 @@ _COVER_CHARACTER_FRAMING = (
 # Used for the single deterministic retry issued when a character-inclusive
 # cover is generated. The retry escalates framing language and re-anchors
 # the composition rule to give the model a second chance at banner layout.
-# Kept to ~230 chars so it fits comfortably inside _build_strict_identity_prompt.
+# Kept to ~230 chars — travels comfortably inside _build_strict_identity_prompt.
 _COVER_RETRY_PROMPT = (
     "COVER RETRY — PROFILE HEADER BANNER, ultra-wide 2.84:1. "
     "Subject in LEFT THIRD, chest-up or waist-up ONLY, full face visible. "
@@ -294,6 +292,11 @@ _BODY_VISIBLE_SIGNALS = frozenset({
 
 _MAX_PROVIDER_REFS = 6  # hard cap on total reference images sent to provider
 
+# Maximum characters for the final composed prompt sent to the provider.
+# Raised from the original 800-char limit: identity lock + body canon + sleeve
+# enforcement together exceeded that budget, silently dropping tattoo signal.
+_STRICT_IDENTITY_PROMPT_MAX_CHARS = 2000
+
 # ── Body canon visibility detection ──────────────────────────────────
 # Signals that EXPLICITLY expose bare arms/skin — tattoo anchors only sent when these match.
 # A hidden tattoo is correct; a forced costume change is not.
@@ -413,57 +416,93 @@ def _build_strict_identity_prompt(
     body_canon_str: str = "",
     sleeve_enforcement_str: str = "",
     scene_complex: bool = False,
+    character_id: int | None = None,
 ) -> str:
     """Build a scene-first strict-identity prompt.
 
     Scene dominates — WHO this person is wraps WHAT they are doing, not the reverse.
 
-    Order:
+    Section order (all required — none are silently truncated):
       1. [SCENE]       user prompt — highest model weight
       2. [SCENE GUARD] anti-studio note when scene has complexity
       3. [IDENTITY]    face/build directive + lock string
       4. [BODY CANON]  markings only where skin is naturally exposed
       5. [SLEEVE]      hard enforcement for visible full sleeves
 
-    Hard-capped at 800 characters.
+    Capped at _STRICT_IDENTITY_PROMPT_MAX_CHARS.  All sections are included
+    in full; if the total still exceeds the cap a warning is logged but the
+    complete string is returned so that tattoo/sleeve signal is never silently
+    dropped mid-sentence.
     """
-    parts: list[str] = []
+    _sep = ". "
 
     # 1. Scene first — model weights earlier tokens more heavily.
-    parts.append(base_prompt)
+    section_scene = base_prompt
 
-    # 2. Scene preservation guard — prevents full-body / studio anchor bleed-through.
-    if scene_complex:
-        parts.append(
-            "Preserve the exact scene, pose, clothing, setting, and composition as described. "
-            "Do not revert to studio portrait, neutral standing pose, or identity-pack composition."
-        )
+    # 2. Scene preservation guard.
+    section_guard = (
+        "Preserve the exact scene, pose, clothing, setting, and composition as described. "
+        "Do not revert to studio portrait, neutral standing pose, or identity-pack composition."
+    ) if scene_complex else ""
 
-    # 3. Identity directive (WHO this person is, not what they are doing)
+    # 3. Identity directive.
     prefix = _STRICT_IDENTITY_RETRY_PREFIX if retry else _STRICT_IDENTITY_PREFIX
-    parts.append(prefix.rstrip())
-
+    section_identity = prefix.rstrip()
     if character_name:
-        parts.append(f"Character: {character_name}")
+        section_identity = section_identity + _sep + f"Character: {character_name}"
 
-    # 4. Identity lock: hair/eyes/skin/morphology
-    lock = anchor_data.get("identity_lock_string") or ""
-    if lock:
-        parts.append(lock)
+    # 4. Identity lock: hair/eyes/skin/morphology.
+    section_lock = (anchor_data.get("identity_lock_string") or "").strip()
 
-    # 5. Body canon: preserve markings only where skin is naturally exposed.
-    if body_canon_str:
-        parts.append(
-            body_canon_str
-            + ". Render only where skin is naturally exposed; do not alter wardrobe or costume to reveal."
-        )
+    # 5. Body canon: markings where skin is naturally exposed.
+    section_body_canon = (
+        body_canon_str.rstrip(". ")
+        + ". Render only where skin is naturally exposed; do not alter wardrobe or costume to reveal."
+    ) if body_canon_str else ""
 
     # 6. Sleeve enforcement: hard identity for visible full-arm sleeves.
-    if sleeve_enforcement_str:
-        parts.append(sleeve_enforcement_str)
+    section_sleeve = sleeve_enforcement_str.strip() if sleeve_enforcement_str else ""
 
-    combined = ". ".join(p.rstrip(". ") for p in parts)
-    return combined[:800]
+    # Join all non-empty sections, stripping trailing punctuation per section.
+    sections = [
+        s.rstrip(". ")
+        for s in [
+            section_scene,
+            section_guard,
+            section_identity,
+            section_lock,
+            section_body_canon,
+            section_sleeve,
+        ]
+        if s
+    ]
+    combined = _sep.join(sections)
+
+    # Budget check: log but never silently truncate required sections.
+    body_canon_preserved = not body_canon_str or body_canon_str.rstrip(". ") in combined
+    sleeve_preserved = not sleeve_enforcement_str or sleeve_enforcement_str.strip() in combined
+    if len(combined) > _STRICT_IDENTITY_PROMPT_MAX_CHARS:
+        logger.warning(
+            "PROMPT-BUDGET character_id=%s max_chars=%d final_chars=%d "
+            "body_canon_preserved=%s sleeve_preserved=%s — over budget, returning full",
+            character_id, _STRICT_IDENTITY_PROMPT_MAX_CHARS, len(combined),
+            body_canon_preserved, sleeve_preserved,
+        )
+    logger.info(
+        "PROMPT-BUDGET character_id=%s max_chars=%d final_chars=%d "
+        "scene_chars=%d identity_chars=%d body_canon_chars=%d sleeve_chars=%d "
+        "body_canon_preserved=%s sleeve_preserved=%s",
+        character_id,
+        _STRICT_IDENTITY_PROMPT_MAX_CHARS,
+        len(combined),
+        len(section_scene),
+        len(section_identity) + len(section_lock),
+        len(section_body_canon),
+        len(section_sleeve),
+        body_canon_preserved,
+        sleeve_preserved,
+    )
+    return combined
 
 
 # ── Endpoint ─────────────────────────────────────────────────────────
@@ -853,7 +892,6 @@ def generate_image(
         _markings_visible = _tattoo_visibility_requested
         _bi_refs_used: list[str] = []
         _tattoo_layout_used = False
-
         if provider_supports_multi:
             _tl_entry = _bi_slots.get("tattoo_layout") or {}
             if _tattoo_visibility_requested and _tl_entry.get("status") == "locked" and _tl_entry.get("url"):
@@ -1033,6 +1071,28 @@ def generate_image(
             _full_body_gated,
         )
 
+        # ── Provider ref check ────────────────────────────────────────────
+        _tl_ref_in_types = any(t == "body_identity:tattoo_layout" for t in anchor_types)
+        logger.info(
+            "PROVIDER-REF-CHECK character_id=%s "
+            "provider_supports_multi=%s tattoo_layout_ref_present=%s tattoo_layout_ref_sent=%s "
+            "body_canon_has_text=%s sleeve_has_text=%s",
+            character_id,
+            provider_supports_multi,
+            bool((_bi_slots.get("tattoo_layout") or {}).get("url")),
+            _tl_ref_in_types,
+            bool(_body_canon_str),
+            bool(_sleeve_enforcement_str),
+        )
+        if not provider_supports_multi and (_body_canon_str or _sleeve_enforcement_str):
+            logger.info(
+                "PROVIDER-REF-CHECK character_id=%s note=single_image_path_text_only "
+                "body_canon_chars=%d sleeve_chars=%d — tattoo identity carried by text only",
+                character_id,
+                len(_body_canon_str),
+                len(_sleeve_enforcement_str),
+            )
+
         # Provider is required — stub fallback is never acceptable for character images
         if provider is None:
             logger.info(
@@ -1057,6 +1117,7 @@ def generate_image(
             body_canon_str=_body_canon_str,
             sleeve_enforcement_str=_sleeve_enforcement_str,
             scene_complex=_scene_complexity != "low",
+            character_id=character_id,
         )
 
         # DIAG: full identity payload snapshot — what is actually sent to the provider
@@ -1189,6 +1250,7 @@ def generate_image(
                 body_canon_str=_body_canon_str,
                 sleeve_enforcement_str=_sleeve_enforcement_str,
                 scene_complex=_scene_complexity != "low",
+                character_id=character_id,
             )
 
             if provider_supports_multi and anchor_images:
@@ -1324,13 +1386,14 @@ def generate_image(
         cover_retry_attempted = True
         retry_base = _COVER_RETRY_PROMPT + body.prompt.strip()
         cover_retry_str_prompt = _build_strict_identity_prompt(
-            base_prompt=retry_base[:800],
+            base_prompt=retry_base[:_STRICT_IDENTITY_PROMPT_MAX_CHARS],
             anchor_data=anchor_data,  # type: ignore[arg-type]
             character_name=character.name,
             retry=False,
             body_canon_str=_body_canon_str,
             sleeve_enforcement_str=_sleeve_enforcement_str,
             scene_complex=_scene_complexity != "low",
+            character_id=character_id,
         )
         cover_retry_png: bytes | None = None
         if provider_supports_multi and anchor_images:
