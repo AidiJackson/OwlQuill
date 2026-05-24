@@ -1,10 +1,12 @@
-"""Image generation weekly allowance service (B22).
+"""Image generation weekly allowance service (B22) and identity-pack rate limit.
 
-Rolling 7-day window per user. Admin users are unlimited.
-
-Public API:
+Rolling 7-day window per user (weekly quota):
 - ``check_weekly_quota(user, db)``  → 429 JSONResponse or None
 - ``get_quota_status(user, db)``    → dict with used/limit/remaining/unlimited/reset_at
+
+Per-character 24-hour identity-pack rate limit:
+- ``check_identity_pack_quota(character_id, user, db)``         → 429 JSONResponse or None
+- ``get_identity_pack_quota_status(character_id, user, db)``    → dict with used/limit/remaining
 """
 from datetime import datetime, timedelta
 
@@ -16,6 +18,7 @@ from app.models.character_image import CharacterImage
 from app.models.user import User
 
 _WINDOW_DAYS = 7
+_IDENTITY_PACK_WINDOW_HOURS = 24
 
 
 def _is_admin(user: User) -> bool:
@@ -89,6 +92,90 @@ def _format_reset_duration(reset_in_seconds: int | None) -> str:
         return f"in about {hours} hour{'s' if hours != 1 else ''}"
     days = max(1, round(hours / 24))
     return f"in about {days} day{'s' if days != 1 else ''}"
+
+
+def _count_identity_pack_generations(character_id: int, db: Session) -> int:
+    """Count identity pack generation attempts for a character in the last 24 hours.
+
+    Counts CharacterImage records that have ``pack_role == "anchor_front"`` in
+    their metadata_json.  One such record is created per generation attempt
+    (the front anchor is always the first image written).  The count is stable
+    through accept — accept updates kind/is_temp but preserves pack_role in
+    metadata, so accepted packs are still counted toward the limit.
+    """
+    now = datetime.utcnow()
+    since = now - timedelta(hours=_IDENTITY_PACK_WINDOW_HOURS)
+
+    images = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.character_id == character_id,
+            CharacterImage.created_at >= since,
+        )
+        .all()
+    )
+
+    return sum(
+        1 for img in images
+        if isinstance(img.metadata_json, dict)
+        and img.metadata_json.get("pack_role") == "anchor_front"
+    )
+
+
+def get_identity_pack_quota_status(character_id: int, user: User, db: Session) -> dict:
+    """Return identity-pack rate-limit status for a character.
+
+    Admins are unlimited.  Regular users get used/limit/remaining for the
+    rolling 24-hour window scoped to this character.
+    """
+    if _is_admin(user):
+        return {
+            "used": 0,
+            "limit": None,
+            "remaining": None,
+            "unlimited": True,
+            "window_hours": _IDENTITY_PACK_WINDOW_HOURS,
+        }
+
+    used = _count_identity_pack_generations(character_id, db)
+    limit = settings.IDENTITY_PACK_DAILY_LIMIT
+    return {
+        "used": used,
+        "limit": limit,
+        "remaining": max(0, limit - used),
+        "unlimited": False,
+        "window_hours": _IDENTITY_PACK_WINDOW_HOURS,
+    }
+
+
+def check_identity_pack_quota(character_id: int, user: User, db: Session) -> JSONResponse | None:
+    """Return a 429 JSONResponse if this character has hit its per-day identity-pack limit.
+
+    Returns None when generation may proceed (within limit or admin bypass).
+    Only counts generate attempts that actually run the generation pipeline —
+    dry-run calls and accept/lock operations are not counted.
+    """
+    if _is_admin(user):
+        return None
+
+    status = get_identity_pack_quota_status(character_id, user, db)
+    if status["remaining"] == 0:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": "identity_pack_rate_limited",
+                "detail": (
+                    f"You have used all {status['limit']} identity pack generations "
+                    f"for this character today. The limit resets after "
+                    f"{_IDENTITY_PACK_WINDOW_HOURS} hours."
+                ),
+                "limit": status["limit"],
+                "used": status["used"],
+                "remaining": 0,
+                "window_hours": _IDENTITY_PACK_WINDOW_HOURS,
+            },
+        )
+    return None
 
 
 def check_weekly_quota(user: User, db: Session) -> JSONResponse | None:

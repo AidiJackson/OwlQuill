@@ -103,6 +103,9 @@ class Settings(BaseSettings):
     # Image quota — rolling 7-day window per user
     IMAGE_WEEKLY_LIMIT: int = 10
 
+    # Identity pack rate limit — per character, rolling 24-hour window
+    IDENTITY_PACK_DAILY_LIMIT: int = 10
+
     # StoryLab narrative engine
     # STORYLAB_PROVIDER: "stub" (deterministic, no key needed) | "openrouter"
     # STORYLAB_MODEL: any OpenRouter-supported model slug.

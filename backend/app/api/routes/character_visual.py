@@ -31,6 +31,7 @@ from app.schemas.character_visual import (
 )
 from app.services.character_visual import upsert_character_dna, get_character_dna
 from app.services.identity_evolution import write_pack_stages
+from app.services.image_quota import check_identity_pack_quota
 from app.services.appearance_spec import (
     build_appearance_spec,
     build_generation_prompt,
@@ -564,6 +565,13 @@ def generate_identity_pack(
                 "You can generate new moment images instead."
             ),
         )
+
+    # Rate limit: max IDENTITY_PACK_DAILY_LIMIT real generations per character per 24 h.
+    # Dry-run calls are exempt — they compile prompts but never call the provider.
+    if not dry_run:
+        _rate_guard = check_identity_pack_quota(character_id, current_user, db)
+        if _rate_guard is not None:
+            return _rate_guard
 
     pack_id = uuid.uuid4().hex
 
