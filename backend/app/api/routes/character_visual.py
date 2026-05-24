@@ -613,9 +613,8 @@ def generate_identity_pack(
         identity_spec.style = "realistic"
 
     if use_structured_spec:
-        # Store the identity spec on the character for future use
-        character.identity_spec_json = _json.dumps(identity_spec.model_dump())
-        character.identity_spec_version = (character.identity_spec_version or 0) + 1
+        # identity_spec_json and identity_spec_version are written only at accept time
+        # (bound to the accepted pack, not the most-recently-generated pack).
         spec_meta = {"did_rewrite": False, "reasons": [], "original_len": 0, "final_len": 0}
     else:
         identity_spec = None
@@ -743,6 +742,7 @@ def generate_identity_pack(
                 "pack_id": pack_id,
                 "is_temp": True,
                 "library": False,
+                "identity_spec": identity_spec.model_dump() if identity_spec is not None else None,
             },
             file_path=file_path,
         )
@@ -1300,21 +1300,40 @@ def accept_identity_pack(
         short_key = _role_key_map.get(role, role)
         anchors_dict[short_key] = {"id": img.id, "url": file_path_to_url(img.file_path)}
 
-    # Derive identity lock/hash from stored spec if available
+    # Derive identity lock/hash from the accepted pack's bound spec.
+    # Primary: identity_spec stored in pack image metadata at generation time —
+    #   this is the spec that was actually used to generate these images.
+    # Fallback: character.identity_spec_json for packs generated before spec binding.
     _lock_string = None
     _prompt_hash = None
     _style = "realistic"
     _anchor_height: str | None = None
     _anchor_build: str | None = None
-    if character.identity_spec_json:
+
+    _pack_spec_raw = (matching[0].metadata_json or {}).get("identity_spec")
+    if not isinstance(_pack_spec_raw, dict):
+        # Backward compat: packs generated before spec binding lack the metadata field.
+        _pack_spec_raw = None
+        if character.identity_spec_json:
+            try:
+                _pack_spec_raw = _json.loads(character.identity_spec_json)
+            except (ValueError, TypeError):
+                pass
+
+    if isinstance(_pack_spec_raw, dict):
         try:
             from app.schemas.character_visual import CharacterIdentitySpec
-            spec_obj = CharacterIdentitySpec(**_json.loads(character.identity_spec_json))
+            spec_obj = CharacterIdentitySpec(**_pack_spec_raw)
             _lock_string = compile_identity_lock_string(spec_obj)
             _prompt_hash = identity_prompt_hash(spec_obj)
             _style = spec_obj.style
             _anchor_height = getattr(spec_obj, "body_height", None)
             _anchor_build = getattr(spec_obj, "body_build", None)
+            # Commit the accepted pack's spec as the canonical identity spec (Fix 1 + Fix 2):
+            # identity_spec_json reflects the spec whose images are now locked in canon,
+            # and identity_spec_version counts committed identity revisions, not generate calls.
+            character.identity_spec_json = _json.dumps(_pack_spec_raw)
+            character.identity_spec_version = (character.identity_spec_version or 0) + 1
         except Exception:
             pass  # graceful fallback — lock/hash stay null
 
