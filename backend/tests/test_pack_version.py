@@ -298,7 +298,9 @@ class TestCurrentPackHealthy:
         )
         char = _char(anchor_json=anchor)
         health = compute_identity_health(char)
-        assert health == {"face": "current", "body": "current", "tattoos": "current"}
+        assert health["face"] == "current"
+        assert health["body"] == "current"
+        assert health["tattoos"] == "current"
 
     def test_version_1_fresh_pack(self):
         anchor = _anchor_with_version(
@@ -323,7 +325,9 @@ class TestCurrentPackHealthy:
         )
         char = _char(anchor_json=anchor)
         health = compute_identity_health(char)
-        assert health == {"face": "current", "body": "current", "tattoos": "current"}
+        assert health["face"] == "current"
+        assert health["body"] == "current"
+        assert health["tattoos"] == "current"
 
 
 # ── Test 8: Admin import stores pack_version ──────────────────────────

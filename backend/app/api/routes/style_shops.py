@@ -25,7 +25,7 @@ from app.schemas.style_shop import (
     StylePresetRead,
 )
 from app.services.body_canon import sync_tattoo_style_elements_to_body_canon
-from app.services.pack_version import increment_pack_version
+from app.services.pack_version import increment_pack_version, mark_slots_stale
 from app.services.style_elements import (
     MAX_REMOVABLE_ACTIVE,
     count_active_removable,
@@ -184,15 +184,23 @@ def apply_style_element(
                 character_id, preset.slug, str(exc),
             )
 
-    # ── Pack version increment ──────────────────────────────────────────
-    # Increment once per canonical mutation so stale health checks work.
+    # ── Pack version increment + slot invalidation ─────────────────────
+    # Increment once per canonical mutation, then mark affected slots stale.
     # Priority order: spec patch > tattoo (body_canon) > other permanent elements.
+    # Removable elements reach none of these branches — state unchanged.
     if _spec_patched:
         increment_pack_version(character, reason="identity_spec_mutation")
+        mark_slots_stale(character, "identity_spec_mutation")
     elif preset.shop_type == ShopTypeEnum.TATTOO:
         increment_pack_version(character, reason="body_canon_mutation")
+        mark_slots_stale(character, "body_canon_mutation")
     elif preset.attachment_mode == AttachmentModeEnum.PERMANENT:
         increment_pack_version(character, reason="permanent_style_element")
+        mark_slots_stale(
+            character,
+            "permanent_style_element",
+            placement=effective_placement.value,
+        )
 
     db.commit()
 
