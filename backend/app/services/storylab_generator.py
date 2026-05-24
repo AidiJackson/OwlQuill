@@ -62,6 +62,7 @@ from app.services.rp_behavior_engine import (
     PARTNER_SILENCE_LAYER,
     SCENE_PROGRESSION_BLOCK,
     SELECTED_CHARACTER_DRIVES_SCENE,
+    TURN_BOUNDARY_FOOTER,
 )
 from app.services.godmod_validator import detect_godmod_violations
 from app.services.rp_scene_engine import (
@@ -3449,14 +3450,15 @@ def build_rp_prompt_layers(
     char_label = character_name or "your character"
     anti_godmod_reminder = (
         f"WRITE ONLY {char_label.upper()}'S RESPONSE. "
-        "The partner's turn is over — do not give the partner new dialogue, actions, reactions, "
-        "thoughts, or decisions. Every sentence must belong to your character."
+        "The partner's turn is over — do not give the partner new dialogue, actions, consent, climax, "
+        "reactions, thoughts, or decisions. Every sentence must belong to your character."
     )
     continuation = (
         f"## Task — Your Turn\n"
-        f"The partner has finished their turn. Now write {char_label}'s reply.{char_clause} "
+        f"The partner's turn is complete. Write only {char_label}'s next turn.{char_clause} "
         f"Apply all behavioral, heat, and pacing instructions above.\n"
         f"{anti_godmod_reminder}\n"
+        f"{TURN_BOUNDARY_FOOTER}\n"
         f"Return the reply inside <REPLY>...</REPLY> tags."
     )
 

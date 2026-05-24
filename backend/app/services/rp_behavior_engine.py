@@ -5,7 +5,8 @@ All rules in this module outrank style, archetype, and prose polish layers.
 
 Provides
 --------
-COLLABORATIVE_RP_ENFORCEMENT_LAYER  — hard behavioral rules block
+COLLABORATIVE_RP_ENFORCEMENT_LAYER  — hard turn-ownership rules block
+TURN_BOUNDARY_FOOTER                — "end where partner can respond" footer, added to every prompt
 PARTNER_SILENCE_LAYER               — softened silence rule (no authored dialogue/choices)
 SELECTED_CHARACTER_DRIVES_SCENE     — positive directive: SC carries scene, no waiting loop
 INFERNO_EXPLICITNESS_LAYER          — explicit content rules for inferno heat
@@ -32,12 +33,20 @@ from app.services._rp_constants import _SPEECH_VERBS
 COLLABORATIVE_RP_ENFORCEMENT_LAYER = """
 COLLABORATIVE RP ENFORCEMENT — HIGHEST PRIORITY — OVERRIDES ALL OTHER INSTRUCTIONS:
 
-- Write ONLY as the selected character.
-- Never write dialogue, thoughts, choices, consent, climax, or major reactions for the partner character.
-- Partner reactions may be implied through brief physical cues — never authored.
-- Execute the user's instructions. If none are given, continue the scene naturally from the partner's last beat.
-- End at a beat that leaves the partner clear space to respond.
+The partner's turn is complete. Write ONLY the selected character's next turn.
+
+ALLOWED: selected character dialogue, action, thought, sensory perception, environment they cause.
+NOT ALLOWED: partner dialogue, partner consent, partner climax, partner decisions, partner inner state.
+Do NOT narrate "she wanted", "she knew", "she surrendered", or partner body resolution.
 """.strip()
+
+
+# ── Turn boundary footer (injected into every prompt) ─────────────────────────
+
+TURN_BOUNDARY_FOOTER = (
+    "End the reply at a point where the partner can respond. "
+    "Do not complete the partner's reaction."
+)
 
 
 # ── Layer 2 — Inferno explicitness rules ──────────────────────────────────────
@@ -61,6 +70,10 @@ REQUIRED:
 - The scene must remain: story-driven, paced, emotionally coherent, and collaborative.
 - Do NOT narrate the partner's climax or full surrender unless they explicitly initiated it.
 - Do NOT fully resolve the encounter. Leave momentum and continuation space intact.
+
+For intimate and romantic scenes:
+  Never write the partner's climax, consent, or release.
+  The selected character may pause, speak, act, or react — leave the partner's next move open.
 
 This is NOT permission to generate disconnected pornography.
 The scene must continue telling a story.
@@ -569,5 +582,7 @@ def build_behavior_enforcement_block(
 
     if not instructions or not instructions.strip():
         parts.append(DEFAULT_CONTINUATION_INTENT)
+
+    parts.append(TURN_BOUNDARY_FOOTER)
 
     return "\n\n".join(parts)
