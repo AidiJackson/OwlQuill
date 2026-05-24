@@ -279,6 +279,59 @@ def _prioritise_face_anchors(
     return prioritised_bytes, prioritised_keys
 
 
+def _reorder_anchor_refs(
+    anchor_images: list[bytes],
+    anchor_types: list[str],
+) -> tuple[list[bytes], list[str]]:
+    """Reorder collected anchor refs to prioritise tattoo grounding.
+
+    Target order:
+      1. front (single copy — dup removed when body anchors exist)
+      2. body_anchor:* (actual tattoo-on-arm close-ups, high visual weight)
+      3. body_identity:body_front (full-body anatomical context)
+      4. three_quarter, torso and any other supporting anchors
+      5. body_identity:tattoo_layout (abstract design map, lowest weight)
+
+    When no body_anchor:* entries are present the front duplicate is kept
+    so the existing face-boost behaviour is preserved.
+    """
+    has_body_anchors = any(t.startswith("body_anchor:") for t in anchor_types)
+
+    front_single: list[tuple[bytes, str]] = []
+    body_anchor_bucket: list[tuple[bytes, str]] = []
+    body_front_bucket: list[tuple[bytes, str]] = []
+    supporting_bucket: list[tuple[bytes, str]] = []  # three_quarter, torso, accessory, …
+    tattoo_layout_bucket: list[tuple[bytes, str]] = []
+
+    front_seen = False
+    for img, t in zip(anchor_images, anchor_types):
+        if t == "front":
+            if not front_seen:
+                front_single.append((img, t))
+                front_seen = True
+            elif not has_body_anchors:
+                # Keep the boost-duplicate only when no body anchors supply grounding.
+                front_single.append((img, t))
+            # else: discard the duplicate — body anchors provide stronger grounding
+        elif t.startswith("body_anchor:"):
+            body_anchor_bucket.append((img, t))
+        elif t == "body_identity:body_front":
+            body_front_bucket.append((img, t))
+        elif t == "body_identity:tattoo_layout":
+            tattoo_layout_bucket.append((img, t))
+        else:
+            supporting_bucket.append((img, t))
+
+    ordered = (
+        front_single
+        + body_anchor_bucket
+        + body_front_bucket
+        + supporting_bucket
+        + tattoo_layout_bucket
+    )
+    return [p[0] for p in ordered], [p[1] for p in ordered]
+
+
 # ── Body visibility / identity anchor signals ─────────────────────────
 # Signals that imply the torso / full body is meaningfully exposed.
 # Used to decide whether to load body identity anchors.
@@ -288,6 +341,9 @@ _BODY_VISIBLE_SIGNALS = frozenset({
     "swimwear", "swimming", "pool", "beach", "paddling",
     "full body", "full-body", "standing", "walking", "running",
     "torso", "chest", "abs", "abdomen",
+    # Short-sleeve garments expose arms — body_front needed for anatomical context.
+    "t-shirt", "tshirt", "tee shirt", "tee-shirt",
+    "short sleeve", "short-sleeve", "short sleeved", "short-sleeved",
 })
 
 _MAX_PROVIDER_REFS = 6  # hard cap on total reference images sent to provider
@@ -884,9 +940,8 @@ def generate_image(
         )
 
         # ── Body identity anchor injection ────────────────────────────
-        # Load body_front and/or tattoo_layout locked slots when relevant.
-        # tattoo_layout supersedes individual body-canon arm anchors to avoid
-        # overloading the provider with redundant close-up refs.
+        # Load tattoo_layout (design map) and body_front (full-body context) when relevant.
+        # tattoo_layout supplements body_anchor:* refs — it does NOT replace them.
         _bi_slots = _load_body_slots(character)
         _body_visible = any(sig in provider_prompt.lower() for sig in _BODY_VISIBLE_SIGNALS)
         _markings_visible = _tattoo_visibility_requested
@@ -897,13 +952,11 @@ def generate_image(
             if _tattoo_visibility_requested and _tl_entry.get("status") == "locked" and _tl_entry.get("url"):
                 try:
                     _tl_bytes = load_image_bytes(_tl_entry["url"])
-                    # Remove individual body-canon arm anchors — tattoo_layout covers them
-                    _filtered = [
-                        (b, t) for b, t in zip(anchor_images, anchor_types)
-                        if not t.startswith("body_anchor:")
-                    ]
-                    anchor_images = [p[0] for p in _filtered] + [_tl_bytes]
-                    anchor_types = [p[1] for p in _filtered] + ["body_identity:tattoo_layout"]
+                    # tattoo_layout supplements body anchors — do NOT remove them.
+                    # Individual body_anchor:* refs are contextual per-arm photos;
+                    # tattoo_layout is an abstract design map. Both carry distinct signal.
+                    anchor_images = list(anchor_images) + [_tl_bytes]
+                    anchor_types = list(anchor_types) + ["body_identity:tattoo_layout"]
                     _tattoo_layout_used = True
                     _bi_refs_used.append("tattoo_layout")
                 except Exception as _tl_exc:
@@ -912,7 +965,7 @@ def generate_image(
                         character_id, str(_tl_exc),
                     )
 
-            if _body_visible and not _tattoo_layout_used:
+            if _body_visible:
                 _bf_entry = _bi_slots.get("body_front") or {}
                 if _bf_entry.get("status") == "locked" and _bf_entry.get("url"):
                     try:
@@ -926,7 +979,11 @@ def generate_image(
                             character_id, str(_bf_exc),
                         )
 
-        # Apply provider ref cap
+        # Reorder: face → body_anchor (tattoo grounding) → body_front → supporting → tattoo_layout.
+        # This runs before the cap so the highest-priority refs survive truncation.
+        anchor_images, anchor_types = _reorder_anchor_refs(anchor_images, anchor_types)
+
+        # Apply provider ref cap — lowest-priority refs (tattoo_layout) are cut first.
         if len(anchor_images) > _MAX_PROVIDER_REFS:
             anchor_images = anchor_images[:_MAX_PROVIDER_REFS]
             anchor_types = anchor_types[:_MAX_PROVIDER_REFS]
@@ -1073,16 +1130,22 @@ def generate_image(
 
         # ── Provider ref check ────────────────────────────────────────────
         _tl_ref_in_types = any(t == "body_identity:tattoo_layout" for t in anchor_types)
+        _ba_ref_count = sum(1 for t in anchor_types if t.startswith("body_anchor:"))
         logger.info(
             "PROVIDER-REF-CHECK character_id=%s "
             "provider_supports_multi=%s tattoo_layout_ref_present=%s tattoo_layout_ref_sent=%s "
-            "body_canon_has_text=%s sleeve_has_text=%s",
+            "body_front_sent=%s body_anchor_count=%d "
+            "body_canon_has_text=%s sleeve_has_text=%s "
+            "final_ordered_refs=%s",
             character_id,
             provider_supports_multi,
             bool((_bi_slots.get("tattoo_layout") or {}).get("url")),
             _tl_ref_in_types,
+            any(t == "body_identity:body_front" for t in anchor_types),
+            _ba_ref_count,
             bool(_body_canon_str),
             bool(_sleeve_enforcement_str),
+            anchor_types,
         )
         if not provider_supports_multi and (_body_canon_str or _sleeve_enforcement_str):
             logger.info(
