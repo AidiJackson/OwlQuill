@@ -282,53 +282,83 @@ def _prioritise_face_anchors(
 def _reorder_anchor_refs(
     anchor_images: list[bytes],
     anchor_types: list[str],
+    *,
+    tattoo_primary: bool = False,
 ) -> tuple[list[bytes], list[str]]:
-    """Reorder collected anchor refs to prioritise tattoo grounding.
+    """Reorder collected anchor refs to optimise provider grounding.
 
-    Target order:
-      1. front (single copy — dup removed when body anchors exist)
-      2. body_anchor:* (actual tattoo-on-arm close-ups, high visual weight)
-      3. body_identity:body_front (full-body anatomical context)
-      4. three_quarter, torso and any other supporting anchors
-      5. body_identity:tattoo_layout (abstract design map, lowest weight)
+    Face-first mode (tattoo_primary=False) — normal generation:
+      front → body_anchor:* → body_front → three_quarter → torso → other → tattoo_layout
 
-    When no body_anchor:* entries are present the front duplicate is kept
-    so the existing face-boost behaviour is preserved.
+      The front duplicate from _prioritise_face_anchors is kept only when no
+      body_anchor:* entries are present (face-boost for face-only scenes).
+
+    Tattoo-primary mode (tattoo_primary=True) — tattoo/body-visible generation:
+      tattoo_layout → body_front → front (no dup) → three_quarter → body_anchor:* → other → torso
+
+      Body canon is first so the provider establishes WHERE tattoos live before
+      the face anchors condition its general appearance.  Front duplicate is
+      always dropped — the body refs supply the dominant grounding signal.
+
+      Both OpenAI (images.edit treats first image as the edit base) and Google
+      (earlier tokens/images receive higher attention weight) benefit from having
+      the body-canon reference at position 0 in tattoo-visible scenes.
     """
     has_body_anchors = any(t.startswith("body_anchor:") for t in anchor_types)
 
-    front_single: list[tuple[bytes, str]] = []
+    front_bucket: list[tuple[bytes, str]] = []
+    three_quarter_bucket: list[tuple[bytes, str]] = []
+    torso_bucket: list[tuple[bytes, str]] = []
     body_anchor_bucket: list[tuple[bytes, str]] = []
     body_front_bucket: list[tuple[bytes, str]] = []
-    supporting_bucket: list[tuple[bytes, str]] = []  # three_quarter, torso, accessory, …
     tattoo_layout_bucket: list[tuple[bytes, str]] = []
+    other_bucket: list[tuple[bytes, str]] = []  # full_body, accessory_fit_anchor, …
 
     front_seen = False
     for img, t in zip(anchor_images, anchor_types):
         if t == "front":
             if not front_seen:
-                front_single.append((img, t))
+                front_bucket.append((img, t))
                 front_seen = True
-            elif not has_body_anchors:
-                # Keep the boost-duplicate only when no body anchors supply grounding.
-                front_single.append((img, t))
-            # else: discard the duplicate — body anchors provide stronger grounding
+            elif not has_body_anchors and not tattoo_primary:
+                # Keep face-boost dup only in face-first mode with no body anchors.
+                front_bucket.append((img, t))
+            # else: discard duplicate
         elif t.startswith("body_anchor:"):
             body_anchor_bucket.append((img, t))
         elif t == "body_identity:body_front":
             body_front_bucket.append((img, t))
         elif t == "body_identity:tattoo_layout":
             tattoo_layout_bucket.append((img, t))
+        elif t == "three_quarter":
+            three_quarter_bucket.append((img, t))
+        elif t == "torso":
+            torso_bucket.append((img, t))
         else:
-            supporting_bucket.append((img, t))
+            other_bucket.append((img, t))
 
-    ordered = (
-        front_single
-        + body_anchor_bucket
-        + body_front_bucket
-        + supporting_bucket
-        + tattoo_layout_bucket
-    )
+    if tattoo_primary:
+        # Body canon first — establish tattoo location before face conditioning.
+        ordered = (
+            tattoo_layout_bucket   # 1. abstract design map (primary canon)
+            + body_front_bucket    # 2. full-body anatomical context with tattoos
+            + front_bucket         # 3. face anchor (single, no duplicate)
+            + three_quarter_bucket # 4. face angle support
+            + body_anchor_bucket   # 5. per-arm close-up photos
+            + other_bucket         # 6. accessories etc.
+            + torso_bucket         # 7. lowest priority in tattoo mode
+        )
+    else:
+        # Face-first — normal character generation.
+        ordered = (
+            front_bucket           # 1. face anchor (with possible boost dup)
+            + body_anchor_bucket   # 2. per-arm tattoo close-ups
+            + body_front_bucket    # 3. anatomical context
+            + three_quarter_bucket # 4. face angle support
+            + torso_bucket         # 5. body context
+            + other_bucket         # 6. accessories etc.
+            + tattoo_layout_bucket # 7. abstract design map (lowest priority)
+        )
     return [p[0] for p in ordered], [p[1] for p in ordered]
 
 
@@ -1058,9 +1088,16 @@ def generate_image(
                             character_id, str(_bf_exc),
                         )
 
-        # Reorder: face → body_anchor (tattoo grounding) → body_front → supporting → tattoo_layout.
-        # This runs before the cap so the highest-priority refs survive truncation.
-        anchor_images, anchor_types = _reorder_anchor_refs(anchor_images, anchor_types)
+        # Reorder anchor refs.  When tattoos are visible (tattoo_primary=True) the
+        # body-canon reference becomes the dominant grounding signal — tattoo_layout /
+        # body_front at position 0 so OpenAI's images.edit base and Google's attention
+        # head both lock onto body canon before the face portrait.
+        # Covered clothing falls through to face-first ordering unchanged.
+        _tattoo_primary = _tattoo_visibility_requested
+        anchor_images, anchor_types = _reorder_anchor_refs(
+            anchor_images, anchor_types,
+            tattoo_primary=_tattoo_primary,
+        )
 
         # Apply provider ref cap — lowest-priority refs (tattoo_layout) are cut first.
         if len(anchor_images) > _MAX_PROVIDER_REFS:
@@ -1231,11 +1268,13 @@ def generate_image(
 
         logger.info(
             "PROVIDER-REF-CHECK character_id=%s "
-            "provider_supports_multi=%s tattoo_layout_ref_present=%s tattoo_layout_ref_sent=%s "
+            "tattoo_primary=%s provider_supports_multi=%s "
+            "tattoo_layout_ref_present=%s tattoo_layout_ref_sent=%s "
             "body_front_sent=%s body_anchor_count=%d "
             "body_canon_has_text=%s sleeve_has_text=%s "
-            "final_ordered_refs=%s",
+            "first_ref=%s final_ordered_refs=%s",
             character_id,
+            _tattoo_primary,
             provider_supports_multi,
             bool((_bi_slots.get("tattoo_layout") or {}).get("url")),
             _tl_ref_in_types,
@@ -1243,6 +1282,7 @@ def generate_image(
             _ba_ref_count,
             bool(_body_canon_str),
             bool(_sleeve_enforcement_str),
+            anchor_types[0] if anchor_types else "none",
             anchor_types,
         )
         if not provider_supports_multi and (_body_canon_str or _sleeve_enforcement_str):
