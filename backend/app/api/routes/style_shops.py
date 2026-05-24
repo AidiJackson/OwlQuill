@@ -24,6 +24,7 @@ from app.schemas.style_shop import (
     StyleElementsResponse,
     StylePresetRead,
 )
+from app.services.body_canon import sync_tattoo_style_elements_to_body_canon
 from app.services.style_elements import (
     MAX_REMOVABLE_ACTIVE,
     count_active_removable,
@@ -31,6 +32,7 @@ from app.services.style_elements import (
     get_active_style_elements,
     patch_identity_spec_with_hair,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +166,20 @@ def apply_style_element(
                     "style_shop spec_patch_failed character_id=%s preset=%s error=%r",
                     character_id, preset.slug, str(exc),
                 )
+
+    # ── Tattoo → body canon sync ────────────────────────────────────────
+    # After the new element is flushed, run the full sync so all active tattoo
+    # elements (including this one and any pre-existing ones) are mirrored.
+
+    if preset.shop_type == ShopTypeEnum.TATTOO:
+        db.flush()  # make new_element visible to the sync query
+        try:
+            sync_tattoo_style_elements_to_body_canon(character, db)
+        except Exception as exc:
+            logger.warning(
+                "style_shop tattoo_body_canon_sync_failed character_id=%s preset=%s error=%r",
+                character_id, preset.slug, str(exc),
+            )
 
     db.commit()
 

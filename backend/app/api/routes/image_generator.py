@@ -43,7 +43,15 @@ from app.services.image_provider import get_provider_for_option, get_fallback_pr
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.character_accessory import build_accessory_prompt_block, get_triggered_accessory
 from app.services.style_elements import apply_style_elements_to_image_prompt
-from app.services.body_canon import load_markings, build_body_canon_lock_string
+from app.services.body_canon import (
+    load_markings,
+    build_body_canon_lock_string,
+    is_sleeve_marking,
+    get_arm_side,
+    build_sleeve_enforcement_str,
+)
+from app.api.routes.body_identity import _load_body_slots
+from app.services.identity_evolution import compute_pack_stages
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +280,126 @@ def _prioritise_face_anchors(
     return prioritised_bytes, prioritised_keys
 
 
+# ── Body visibility / identity anchor signals ─────────────────────────
+# Signals that imply the torso / full body is meaningfully exposed.
+# Used to decide whether to load body identity anchors.
+_BODY_VISIBLE_SIGNALS = frozenset({
+    "shirtless", "bare-chested", "bare chested", "no shirt", "topless",
+    "sleeveless", "tank top", "vest", "crop top",
+    "swimwear", "swimming", "pool", "beach", "paddling",
+    "full body", "full-body", "standing", "walking", "running",
+    "torso", "chest", "abs", "abdomen",
+})
+
+_MAX_PROVIDER_REFS = 6  # hard cap on total reference images sent to provider
+
+# ── Body canon visibility detection ──────────────────────────────────
+# Signals that EXPLICITLY expose bare arms/skin — tattoo anchors only sent when these match.
+# A hidden tattoo is correct; a forced costume change is not.
+_BOTH_ARMS_SIGNALS = frozenset({
+    "shirtless", "bare-chested", "bare chested", "no shirt", "topless",
+    "sleeveless", "tank top", "vest", "both arms", "both tattoos",
+    "tattoos visible", "tattoos showing", "arms visible", "arms out",
+    "both arms visible", "bare arms",
+    "paddling pool", "swimming", "swimming pool", "beach", "poolside",
+    "ice bath", "cold bath", "sitting in water", "submerged", "upper body visible",
+})
+_RIGHT_ARM_SIGNALS = frozenset({
+    "right arm", "right forearm", "right sleeve", "right bicep",
+    "right hand", "right wrist",
+})
+_LEFT_ARM_SIGNALS = frozenset({
+    "left arm", "left forearm", "left sleeve", "left bicep",
+    "left hand", "left wrist",
+})
+# Placement groups: which body canon placement values count as each region
+_BODY_REGION_PLACEMENTS: dict[str, frozenset[str]] = {
+    "right_arm": frozenset({"right_arm", "right_upper_arm", "right_forearm", "right_full_arm", "right_hand"}),
+    "left_arm": frozenset({"left_arm", "left_upper_arm", "left_forearm", "left_full_arm", "left_hand"}),
+    "chest": frozenset({"chest", "abdomen", "ribs", "side"}),
+    "back": frozenset({"upper_back", "lower_back", "full_back"}),
+    "neck": frozenset({"neck", "throat"}),
+}
+
+# Clothing/costume signals that indicate arm and torso skin is covered.
+# When detected and no explicit visibility request exists, tattoo tokens and
+# anchors for arm/torso placements are suppressed entirely.
+_CLOTHING_COVER_SIGNALS = frozenset({
+    "costume", "superhero", "armor", "armour", "uniform",
+    "jacket", "coat", "suit", "robe", "hoodie",
+    "long sleeve", "long-sleeve", "sweater", "cardigan", "blazer",
+})
+
+# Face, neck, and hand placements are naturally visible regardless of clothing.
+# Markings here are always included in the identity lock text.
+_ALWAYS_VISIBLE_PLACEMENTS = frozenset({
+    "neck", "throat", "right_cheek", "left_cheek", "forehead", "chin", "jaw",
+    "left_hand", "right_hand", "knuckles",
+})
+
+# ── Scene complexity detection ────────────────────────────────────────
+# Full-body anchor shows studio composition; gate it out for actioned scenes.
+# These signals imply the character is doing something / somewhere specific.
+_FULL_BODY_GATE_SIGNALS = frozenset({
+    "sitting", "lying", "lying down", "sleeping", "leaning",
+    "crouching", "kneeling", "running", "walking", "fighting",
+    "jumping", "climbing", "driving", "riding", "holding", "hugging",
+    "ice bath", "cold bath", "bath", "pool", "rooftop", "forest",
+    "rain", "snow", "street", "alley", "city",
+})
+
+# Broader set for measuring complexity → triggers anti-studio-leak injection.
+_SCENE_COMPLEXITY_SIGNALS = frozenset({
+    "sitting", "lying", "sleeping", "leaning", "crouching", "kneeling",
+    "running", "walking", "fighting", "jumping", "climbing", "driving",
+    "riding", "holding", "hugging", "exhausted", "angry", "crying",
+    "smiling", "laughing",
+    "ice bath", "cold bath", "bath", "pool", "rooftop", "forest",
+    "rain", "snow", "fire", "street", "alley", "city",
+    "bed", "chair", "floor", "water",
+    "vest", "hoodie", "sweater", "coat", "jacket",
+})
+
+
+def _detect_scene_complexity(prompt_lower: str) -> tuple[str, bool]:
+    """Analyse the prompt for scene complexity.
+
+    Returns:
+        scene_complexity: "low" | "medium" | "high"
+        full_body_gated: True when full_body anchor should be excluded to prevent
+                         studio-composition bleed-through into actioned scenes.
+    """
+    gate_hits = sum(1 for sig in _FULL_BODY_GATE_SIGNALS if sig in prompt_lower)
+    complexity_hits = sum(1 for sig in _SCENE_COMPLEXITY_SIGNALS if sig in prompt_lower)
+
+    full_body_gated = gate_hits >= 1
+
+    if complexity_hits >= 3:
+        scene_complexity = "high"
+    elif complexity_hits >= 1:
+        scene_complexity = "medium"
+    else:
+        scene_complexity = "low"
+
+    return scene_complexity, full_body_gated
+
+
+def _detect_visible_body_regions(prompt_lower: str) -> set[str]:
+    """Return set of body region names visible in the given prompt.
+
+    Returns region keys that match _BODY_REGION_PLACEMENTS keys.
+    """
+    visible: set[str] = set()
+    if any(sig in prompt_lower for sig in _BOTH_ARMS_SIGNALS):
+        visible.add("right_arm")
+        visible.add("left_arm")
+    if any(sig in prompt_lower for sig in _RIGHT_ARM_SIGNALS):
+        visible.add("right_arm")
+    if any(sig in prompt_lower for sig in _LEFT_ARM_SIGNALS):
+        visible.add("left_arm")
+    return visible
+
+
 def _build_strict_identity_prompt(
     *,
     base_prompt: str,
@@ -279,33 +407,56 @@ def _build_strict_identity_prompt(
     character_name: str = "",
     retry: bool = False,
     body_canon_str: str = "",
+    sleeve_enforcement_str: str = "",
+    scene_complex: bool = False,
 ) -> str:
-    """Build a tightened strict-identity prompt (B19).
+    """Build a scene-first strict-identity prompt.
 
-    Short, punchy directive + character name + identity lock string
-    + body canon markings + scene prompt.
-    Face-signature text and anchor-ref listing are omitted here — actual image
-    inputs carry that information when the provider supports multi-image input.
+    Scene dominates — WHO this person is wraps WHAT they are doing, not the reverse.
+
+    Order:
+      1. [SCENE]       user prompt — highest model weight
+      2. [SCENE GUARD] anti-studio note when scene has complexity
+      3. [IDENTITY]    face/build directive + lock string
+      4. [BODY CANON]  markings only where skin is naturally exposed
+      5. [SLEEVE]      hard enforcement for visible full sleeves
 
     Hard-capped at 800 characters.
     """
+    parts: list[str] = []
+
+    # 1. Scene first — model weights earlier tokens more heavily.
+    parts.append(base_prompt)
+
+    # 2. Scene preservation guard — prevents full-body / studio anchor bleed-through.
+    if scene_complex:
+        parts.append(
+            "Preserve the exact scene, pose, clothing, setting, and composition as described. "
+            "Do not revert to studio portrait, neutral standing pose, or identity-pack composition."
+        )
+
+    # 3. Identity directive (WHO this person is, not what they are doing)
     prefix = _STRICT_IDENTITY_RETRY_PREFIX if retry else _STRICT_IDENTITY_PREFIX
-    parts: list[str] = [prefix.rstrip()]
+    parts.append(prefix.rstrip())
 
     if character_name:
         parts.append(f"Character: {character_name}")
 
-    # Identity lock string: hair/eyes/skin and body morphology (B16)
+    # 4. Identity lock: hair/eyes/skin/morphology
     lock = anchor_data.get("identity_lock_string") or ""
     if lock:
         parts.append(lock)
 
-    # Body canon: persistent tattoos, scars, burns, birthmarks
+    # 5. Body canon: preserve markings only where skin is naturally exposed.
     if body_canon_str:
-        parts.append(body_canon_str)
+        parts.append(
+            body_canon_str
+            + ". Render only where skin is naturally exposed; do not alter wardrobe or costume to reveal."
+        )
 
-    # User's scene prompt last
-    parts.append(base_prompt)
+    # 6. Sleeve enforcement: hard identity for visible full-arm sleeves.
+    if sleeve_enforcement_str:
+        parts.append(sleeve_enforcement_str)
 
     combined = ". ".join(p.rstrip(". ") for p in parts)
     return combined[:800]
@@ -463,17 +614,13 @@ def generate_image(
             character_id, str(_se),
         )
 
-    # ── Body canon lock string ─────────────────────────────────────
-    # Persistent anatomical markings (tattoos, scars, burns, birthmarks)
-    # injected as part of the identity layer, not as conditional modifiers.
-    try:
-        _body_canon_str = build_body_canon_lock_string(load_markings(character))
-    except Exception as _bce:
-        logger.warning(
-            "body_canon_load_failed character_id=%s error=%r — skipping",
-            character_id, str(_bce),
-        )
-        _body_canon_str = ""
+    # Body canon, sleeve enforcement, and scene complexity are computed inside the
+    # include_character block. Initialise here so they're always in scope.
+    _body_canon_str = ""
+    _sleeve_enforcement_str = ""
+    _scene_complexity = "low"
+    _full_body_gated = False
+    _full_body_anchor_used = False
 
     # ── Accessory slot injection (v1/v2) ──────────────────────────
     # When include_character=True, inject locked accessory block if the prompt
@@ -518,11 +665,32 @@ def generate_image(
             character.identity_anchor_json is not None,
         )
 
+        # ── Scene complexity detection ────────────────────────────────
+        # Compute before anchor loading so full_body gate can be applied.
+        _scene_complexity, _full_body_gated = _detect_scene_complexity(provider_prompt.lower())
+
         # B19: load actual anchor images from disk
         anchor_images, anchor_types = _load_anchor_images(
             anchor_data,  # type: ignore[arg-type]
             character_id,
         )
+
+        # Gate: drop full_body anchor for actioned / environment scenes.
+        # Full-body studio shots dominate pose and clothing when the user
+        # has asked for a specific scene — face/torso refs are sufficient.
+        _full_body_anchor_used = "full_body" in anchor_types
+        if _full_body_gated and _full_body_anchor_used:
+            _fb_filtered = [
+                (b, t) for b, t in zip(anchor_images, anchor_types) if t != "full_body"
+            ]
+            anchor_images = [p[0] for p in _fb_filtered]
+            anchor_types = [p[1] for p in _fb_filtered]
+            _full_body_anchor_used = False
+            logger.info(
+                "DIAG full_body_anchor_suppressed character_id=%s "
+                "reason=scene_action_detected scene_complexity=%s",
+                character_id, _scene_complexity,
+            )
 
         # ── Identity reference gate ───────────────────────────────────
         # If the character has identity anchors stored in JSON but none could
@@ -594,6 +762,222 @@ def generate_image(
                     "DIAG accessory_text_only_fallback character_id=%s accessory_id=%s fit_status=%s",
                     character_id, _acc_id, _fit_status,
                 )
+
+        # ── Body canon anchor injection ───────────────────────────────
+        # For each body marking with a locked anchor image, check if the
+        # prompt implies that body area is visible. If so, append the anchor
+        # as a reference image. Priority: identity anchors → body anchors → text.
+        _bc_visible_regions = _detect_visible_body_regions(provider_prompt.lower())
+        _bc_anchors_used: list[str] = []
+        _bc_anchors_missing: list[str] = []
+        _bc_markings = load_markings(character)
+
+        # Visibility discipline: tattoo anchors and text tokens only when skin is explicitly bare.
+        # A hidden tattoo is correct; never force a costume change to expose markings.
+        _tattoo_visibility_requested = bool(_bc_visible_regions)
+        _clothing_detected = any(sig in provider_prompt.lower() for sig in _CLOTHING_COVER_SIGNALS)
+
+        # Build body canon text only for markings whose skin area is naturally visible.
+        # Face/neck/hand markings are always included; arm/torso only when explicitly bare.
+        _bc_text_markings = [
+            m for m in _bc_markings
+            if m.placement in _ALWAYS_VISIBLE_PLACEMENTS
+            or any(
+                m.placement in placements and region in _bc_visible_regions
+                for region, placements in _BODY_REGION_PLACEMENTS.items()
+            )
+        ]
+        _body_canon_str = build_body_canon_lock_string(_bc_text_markings)
+
+        if _bc_visible_regions:
+            for _bm in _bc_markings:
+                _bm_placement = _bm.placement
+                # Determine which region this marking belongs to
+                _bm_region = next(
+                    (r for r, placements in _BODY_REGION_PLACEMENTS.items() if _bm_placement in placements),
+                    None,
+                )
+                if _bm_region not in _bc_visible_regions:
+                    continue
+                if _bm.anchor_status == "locked" and _bm.anchor_image_url:
+                    if provider_supports_multi:
+                        try:
+                            _bm_bytes = load_image_bytes(_bm.anchor_image_url)
+                            anchor_images = list(anchor_images) + [_bm_bytes]
+                            anchor_types = list(anchor_types) + [f"body_anchor:{_bm.id}"]
+                            _bc_anchors_used.append(f"{_bm.id}({_bm_placement})")
+                        except Exception as _bm_exc:
+                            logger.warning(
+                                "BODY-CANON anchor_load_failed character_id=%s marking_id=%s error=%r",
+                                character_id, _bm.id, str(_bm_exc),
+                            )
+                            _bc_anchors_missing.append(f"{_bm.id}({_bm_placement}):load_err")
+                    else:
+                        _bc_anchors_missing.append(f"{_bm.id}({_bm_placement}):no_multi_image")
+                elif _bm_region in _bc_visible_regions:
+                    _bc_anchors_missing.append(f"{_bm.id}({_bm_placement}):status={_bm.anchor_status}")
+
+        logger.info(
+            "BODY-CANON character_id=%s markings_count=%d "
+            "visible_regions=%s anchors_used=%s anchors_missing=%s "
+            "text_token_len=%d provider_ref_count=%d",
+            character_id,
+            len(_bc_markings),
+            sorted(_bc_visible_regions),
+            _bc_anchors_used,
+            _bc_anchors_missing,
+            len(_body_canon_str),
+            len(anchor_images),
+        )
+
+        # ── Body identity anchor injection ────────────────────────────
+        # Load body_front and/or tattoo_layout locked slots when relevant.
+        # tattoo_layout supersedes individual body-canon arm anchors to avoid
+        # overloading the provider with redundant close-up refs.
+        _bi_slots = _load_body_slots(character)
+        _body_visible = any(sig in provider_prompt.lower() for sig in _BODY_VISIBLE_SIGNALS)
+        _markings_visible = _tattoo_visibility_requested
+        _bi_refs_used: list[str] = []
+        _tattoo_layout_used = False
+
+        if provider_supports_multi:
+            _tl_entry = _bi_slots.get("tattoo_layout") or {}
+            if _tattoo_visibility_requested and _tl_entry.get("status") == "locked" and _tl_entry.get("url"):
+                try:
+                    _tl_bytes = load_image_bytes(_tl_entry["url"])
+                    # Remove individual body-canon arm anchors — tattoo_layout covers them
+                    _filtered = [
+                        (b, t) for b, t in zip(anchor_images, anchor_types)
+                        if not t.startswith("body_anchor:")
+                    ]
+                    anchor_images = [p[0] for p in _filtered] + [_tl_bytes]
+                    anchor_types = [p[1] for p in _filtered] + ["body_identity:tattoo_layout"]
+                    _tattoo_layout_used = True
+                    _bi_refs_used.append("tattoo_layout")
+                except Exception as _tl_exc:
+                    logger.warning(
+                        "BODY-IDENTITY tattoo_layout_load_failed character_id=%s error=%r",
+                        character_id, str(_tl_exc),
+                    )
+
+            if _body_visible and not _tattoo_layout_used:
+                _bf_entry = _bi_slots.get("body_front") or {}
+                if _bf_entry.get("status") == "locked" and _bf_entry.get("url"):
+                    try:
+                        _bf_bytes = load_image_bytes(_bf_entry["url"])
+                        anchor_images = list(anchor_images) + [_bf_bytes]
+                        anchor_types = list(anchor_types) + ["body_identity:body_front"]
+                        _bi_refs_used.append("body_front")
+                    except Exception as _bf_exc:
+                        logger.warning(
+                            "BODY-IDENTITY body_front_load_failed character_id=%s error=%r",
+                            character_id, str(_bf_exc),
+                        )
+
+        # Apply provider ref cap
+        if len(anchor_images) > _MAX_PROVIDER_REFS:
+            anchor_images = anchor_images[:_MAX_PROVIDER_REFS]
+            anchor_types = anchor_types[:_MAX_PROVIDER_REFS]
+
+        logger.info(
+            "BODY-IDENTITY-REFS character_id=%s body_visible=%s markings_visible=%s "
+            "body_refs_used=%s tattoo_layout_used=%s body_canon_refs_used=%s total_refs=%d",
+            character_id,
+            _body_visible,
+            _markings_visible,
+            _bi_refs_used,
+            _tattoo_layout_used,
+            _bc_anchors_used,
+            len(anchor_images),
+        )
+
+        # ── BODY-CANON-VISIBILITY diagnostic ─────────────────────────────
+        if not _tattoo_visibility_requested and _clothing_detected:
+            _bc_skipped_reason = "covered_by_clothing"
+        elif not _tattoo_visibility_requested:
+            _bc_skipped_reason = "not_requested"
+        elif _tattoo_visibility_requested and _clothing_detected:
+            _bc_skipped_reason = "prompt_costume_priority"
+        else:
+            _bc_skipped_reason = "none"
+        logger.info(
+            "BODY-CANON-VISIBILITY character_id=%s "
+            "clothing_detected=%s tattoo_visibility_requested=%s "
+            "body_anchor_used=%s tattoo_layout_used=%s "
+            "skipped_reason=%s",
+            character_id,
+            _clothing_detected,
+            _tattoo_visibility_requested,
+            bool(_bc_anchors_used),
+            _tattoo_layout_used,
+            _bc_skipped_reason,
+        )
+
+        # ── Sleeve enforcement ────────────────────────────────────────────
+        # Full-arm sleeve tattoos are hard anatomical identity when the arm is
+        # visible. Build firm per-arm sentences; warn when layout anchor is absent.
+        _sleeve_left_required = False
+        _sleeve_right_required = False
+        _sleeve_missing_refs: list[str] = []
+
+        for _bm in _bc_markings:
+            if not is_sleeve_marking(_bm):
+                continue
+            _bm_side = get_arm_side(_bm.placement)
+            if _bm_side == "left" and "left_arm" in _bc_visible_regions:
+                _sleeve_left_required = True
+                if _bm.anchor_status != "locked":
+                    _sleeve_missing_refs.append(f"left_sleeve_anchor:status={_bm.anchor_status}({_bm.id})")
+            elif _bm_side == "right" and "right_arm" in _bc_visible_regions:
+                _sleeve_right_required = True
+                if _bm.anchor_status != "locked":
+                    _sleeve_missing_refs.append(f"right_sleeve_anchor:status={_bm.anchor_status}({_bm.id})")
+
+        _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _bc_visible_regions)
+
+        if (_sleeve_left_required or _sleeve_right_required) and not _tattoo_layout_used:
+            _tl_status = (_bi_slots.get("tattoo_layout") or {}).get("status", "missing")
+            if _tl_status != "locked":
+                _sleeve_missing_refs.append(f"tattoo_layout:status={_tl_status}")
+                logger.warning(
+                    "BODY-CANON-WARNING sleeve_visible_but_no_layout_anchor=true "
+                    "character_id=%s left_sleeve_required=%s right_sleeve_required=%s",
+                    character_id, _sleeve_left_required, _sleeve_right_required,
+                )
+
+        _left_anchor_used = any("(left_" in a for a in _bc_anchors_used)
+        _right_anchor_used = any("(right_" in a for a in _bc_anchors_used)
+        logger.info(
+            "BODY-CANON-SLEEVE character_id=%s "
+            "exposed_arms=%s "
+            "left_sleeve_required=%s right_sleeve_required=%s "
+            "tattoo_layout_used=%s "
+            "left_anchor_used=%s right_anchor_used=%s "
+            "missing_required_refs=%s",
+            character_id,
+            bool(_bc_visible_regions),
+            _sleeve_left_required,
+            _sleeve_right_required,
+            _tattoo_layout_used,
+            _left_anchor_used,
+            _right_anchor_used,
+            _sleeve_missing_refs,
+        )
+
+        # ── SCENE-IDENTITY-BALANCE diagnostic ────────────────────────────
+        _identity_lock_str = (anchor_data or {}).get("identity_lock_string", "") or ""  # type: ignore[union-attr]
+        logger.info(
+            "SCENE-IDENTITY-BALANCE character_id=%s "
+            "scene_complexity=%s full_body_anchor_used=%s suppressed_reason=%s "
+            "scene_tokens_count=%d identity_tokens_count=%d",
+            character_id,
+            _scene_complexity,
+            _full_body_anchor_used,
+            "scene_override" if _full_body_gated else "none",
+            len(provider_prompt.split()),
+            len(_identity_lock_str.split()),
+        )
+
         logger.info(
             "DIAG strict_identity_state character_id=%s provider=%s "
             "anchors_loaded=%d anchor_types=%s multi_image_supported=%s "
@@ -613,6 +997,26 @@ def generate_image(
             len(anchor_images),
             anchor_types,
             provider_supports_multi,
+        )
+
+        # ── IDENTITY-REFS unified summary ─────────────────────────────────
+        _pack_stages = compute_pack_stages(character)
+        logger.info(
+            "IDENTITY-REFS character_id=%s "
+            "pack_face=%s pack_body=%s pack_marks=%s "
+            "anchor_types=%s "
+            "face_ref=%s body_front=%s tattoo_layout=%s "
+            "scene_complexity=%s full_body_gated=%s",
+            character_id,
+            _pack_stages["face"],
+            _pack_stages["body"],
+            _pack_stages["marks"],
+            anchor_types,
+            face_ref_bytes is not None,
+            any(t == "body_identity:body_front" for t in anchor_types),
+            any(t == "body_identity:tattoo_layout" for t in anchor_types),
+            _scene_complexity,
+            _full_body_gated,
         )
 
         # Provider is required — stub fallback is never acceptable for character images
@@ -637,6 +1041,8 @@ def generate_image(
             character_name=character.name,
             retry=False,
             body_canon_str=_body_canon_str,
+            sleeve_enforcement_str=_sleeve_enforcement_str,
+            scene_complex=_scene_complexity != "low",
         )
 
         # DIAG: full identity payload snapshot — what is actually sent to the provider
@@ -767,6 +1173,8 @@ def generate_image(
                 character_name=character.name,
                 retry=True,
                 body_canon_str=_body_canon_str,
+                sleeve_enforcement_str=_sleeve_enforcement_str,
+                scene_complex=_scene_complexity != "low",
             )
 
             if provider_supports_multi and anchor_images:
@@ -907,6 +1315,8 @@ def generate_image(
             character_name=character.name,
             retry=False,
             body_canon_str=_body_canon_str,
+            sleeve_enforcement_str=_sleeve_enforcement_str,
+            scene_complex=_scene_complexity != "low",
         )
         cover_retry_png: bytes | None = None
         if provider_supports_multi and anchor_images:

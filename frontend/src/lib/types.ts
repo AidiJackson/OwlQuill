@@ -112,6 +112,77 @@ export interface StyleElementsResponse {
   elements: StyleElementRead[];
 }
 
+// ── Body Canon ────────────────────────────────────────────────────────
+
+export type MarkingType = 'tattoo' | 'scar' | 'burn' | 'birthmark';
+export type MarkingAnchorStatus = 'missing' | 'generated' | 'locked';
+export type MarkingPlacement =
+  | 'left_upper_arm' | 'left_forearm' | 'left_full_arm'
+  | 'right_upper_arm' | 'right_forearm' | 'right_full_arm'
+  | 'chest' | 'upper_back' | 'lower_back' | 'full_back' | 'side' | 'ribs' | 'abdomen'
+  | 'neck' | 'throat' | 'right_cheek' | 'left_cheek' | 'forehead' | 'chin' | 'jaw'
+  | 'left_hand' | 'right_hand' | 'knuckles'
+  | 'left_thigh' | 'right_thigh' | 'left_calf' | 'right_calf';
+
+export type MarkingSize = 'small' | 'medium' | 'large' | 'full_sleeve' | 'full_back';
+
+export interface BodyMarkingRead {
+  id: string;
+  type: MarkingType;
+  placement: MarkingPlacement;
+  style: string;
+  size: MarkingSize;
+  description: string;
+  anchor_image_url: string | null;
+  anchor_status: MarkingAnchorStatus;
+  anchor_prompt: string | null;
+  compact_token: string;
+}
+
+export interface BodyCanonRead {
+  character_id: number;
+  markings: BodyMarkingRead[];
+}
+
+export interface BodyAnchorResponse {
+  character_id: number;
+  marking: BodyMarkingRead;
+}
+
+// ── Body Identity Slots ───────────────────────────────────────────────
+
+export type BodySlotKey = 'body_front' | 'body_three_quarter' | 'body_back' | 'tattoo_layout';
+export type BodySlotStatus = 'missing' | 'generated' | 'locked';
+
+export interface BodySlotEntry {
+  key: BodySlotKey;
+  label: string;
+  url: string | null;
+  status: BodySlotStatus;
+  prompt: string | null;
+}
+
+export interface BodySlotsResponse {
+  character_id: number;
+  slots: BodySlotEntry[];
+}
+
+export type PackStageValue = 'missing' | 'partial' | 'locked';
+
+export interface PackStages {
+  face: PackStageValue;
+  body: PackStageValue;
+  marks: PackStageValue;
+}
+
+export interface CanonImportResponse {
+  character_id: number;
+  target_slot: string;
+  url: string;
+  image_id: number;
+  pack_stages: PackStages;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 
 export interface PostMention {

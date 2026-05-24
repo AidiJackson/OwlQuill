@@ -17,6 +17,10 @@ class ImageKindEnum(str, enum.Enum):
     COVER = "cover"                           # character cover/banner image
     IDENTITY_FACE_REF = "identity_face_ref"  # tight face crop used as reference seed
     IDENTITY_SKETCH = "identity_sketch"       # pre-pack pencil/charcoal/dossier sketch anchor
+    IDENTITY_BODY_FRONT = "identity_body_front"              # full-body front morphology reference
+    IDENTITY_BODY_THREE_QUARTER = "identity_body_three_quarter"  # body 3/4 angle reference
+    IDENTITY_BODY_BACK = "identity_body_back"                # back view / back markings reference
+    IDENTITY_TATTOO_LAYOUT = "identity_tattoo_layout"        # both arms/body markings reference
 
 
 class ImageStatusEnum(str, enum.Enum):

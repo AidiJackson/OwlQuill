@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -561,6 +561,97 @@ class ApiClient {
     return this.request<StyleElementsResponse>(`/characters/${characterId}/style-elements/${elementId}`, {
       method: 'DELETE',
     });
+  }
+
+  // Body Canon
+  async getBodyMarkings(characterId: number): Promise<BodyCanonRead> {
+    return this.request<BodyCanonRead>(`/characters/${characterId}/body-markings`);
+  }
+
+  async generateBodyAnchor(characterId: number, markingId: string): Promise<BodyAnchorResponse> {
+    return this.request<BodyAnchorResponse>(
+      `/characters/${characterId}/body-markings/${markingId}/generate-anchor`,
+      { method: 'POST' },
+    );
+  }
+
+  async lockBodyAnchor(characterId: number, markingId: string): Promise<BodyAnchorResponse> {
+    return this.request<BodyAnchorResponse>(
+      `/characters/${characterId}/body-markings/${markingId}/lock-anchor`,
+      { method: 'POST' },
+    );
+  }
+
+  async replaceBodyAnchor(characterId: number, markingId: string): Promise<BodyAnchorResponse> {
+    return this.request<BodyAnchorResponse>(
+      `/characters/${characterId}/body-markings/${markingId}/replace-anchor`,
+      { method: 'POST' },
+    );
+  }
+
+  // Body Identity Slots
+  async getBodySlots(characterId: number): Promise<BodySlotsResponse> {
+    return this.request<BodySlotsResponse>(`/characters/${characterId}/identity/body-slots`);
+  }
+
+  async generateBodySlot(characterId: number, slot: string): Promise<BodySlotsResponse> {
+    return this.request<BodySlotsResponse>(
+      `/characters/${characterId}/identity/body-slots/${slot}/generate`,
+      { method: 'POST' },
+    );
+  }
+
+  async lockBodySlot(characterId: number, slot: string): Promise<BodySlotsResponse> {
+    return this.request<BodySlotsResponse>(
+      `/characters/${characterId}/identity/body-slots/${slot}/lock`,
+      { method: 'POST' },
+    );
+  }
+
+  async replaceBodySlot(characterId: number, slot: string): Promise<BodySlotsResponse> {
+    return this.request<BodySlotsResponse>(
+      `/characters/${characterId}/identity/body-slots/${slot}/replace`,
+      { method: 'POST' },
+    );
+  }
+
+  async useExistingBodySlot(characterId: number, slot: string, imageId: number): Promise<BodySlotsResponse> {
+    return this.request<BodySlotsResponse>(
+      `/characters/${characterId}/identity/body-slots/${slot}/use-existing`,
+      { method: 'POST', body: JSON.stringify({ image_id: imageId }) },
+    );
+  }
+
+  async useExistingBodyAnchor(characterId: number, markingId: string, imageId: number): Promise<BodyAnchorResponse> {
+    return this.request<BodyAnchorResponse>(
+      `/characters/${characterId}/body-markings/${markingId}/use-existing-anchor`,
+      { method: 'POST', body: JSON.stringify({ image_id: imageId }) },
+    );
+  }
+
+  async adminCanonImport(
+    characterId: number,
+    targetSlot: 'body_front' | 'tattoo_layout',
+    file: File,
+    sourceNote?: string,
+  ): Promise<CanonImportResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('target_slot', targetSlot);
+    if (sourceNote) formData.append('source_note', sourceNote);
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const resp = await fetch(`${API_BASE_URL}/characters/${characterId}/identity/canon-import`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
+    }
+    return resp.json();
   }
 }
 

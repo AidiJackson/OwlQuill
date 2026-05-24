@@ -31,6 +31,8 @@ class IdentitySnapshot(Base):
     identity_anchor_json = Column(Text, nullable=True)
     # Full copy of identity_spec_json (CharacterIdentitySpec structure)
     identity_spec_json = Column(Text, nullable=True)
+    # Full copy of body_canon_json (tattoos, scars, burns, birthmarks)
+    body_canon_json = Column(Text, nullable=True)
     # Why this snapshot was taken
     reason = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

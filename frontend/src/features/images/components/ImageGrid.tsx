@@ -1,11 +1,14 @@
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
-import ImageCard from './ImageCard';
+import ImageCard, { type BodyAnchorOption } from './ImageCard';
 
 interface Props {
   images: CharacterImageRead[];
   onImageClick?: (index: number) => void;
   onUseInPost?: (image: CharacterImageRead) => void;
   onSetAsCover?: (image: CharacterImageRead) => void;
+  /** Owner-only body anchor assignment options forwarded to each card. */
+  bodyAnchorOptions?: BodyAnchorOption[];
+  onBodyAnchorAssign?: (image: CharacterImageRead, value: string) => void | Promise<void>;
   /** Renders a pulsing placeholder tile as the first cell while a scene is generating. */
   showPlaceholder?: boolean;
   /** ID of the most-recently generated image — receives a fade-in transition. */
@@ -19,6 +22,8 @@ export default function ImageGrid({
   onImageClick,
   onUseInPost,
   onSetAsCover,
+  bodyAnchorOptions,
+  onBodyAnchorAssign,
   showPlaceholder,
   newestId,
   newestVisible,
@@ -27,7 +32,6 @@ export default function ImageGrid({
 
   return (
     <div className="grid grid-cols-3 gap-3">
-      {/* Placeholder tile — shown while the next scene image is being generated */}
       {showPlaceholder && (
         <div className="rounded-lg border border-gray-800 bg-gray-800 aspect-[2/3] animate-pulse" />
       )}
@@ -48,6 +52,8 @@ export default function ImageGrid({
               onClick={onImageClick ? () => onImageClick(idx) : undefined}
               onUseInPost={onUseInPost}
               onSetAsCover={onSetAsCover}
+              bodyAnchorOptions={bodyAnchorOptions}
+              onBodyAnchorAssign={onBodyAnchorAssign}
             />
           </div>
         );

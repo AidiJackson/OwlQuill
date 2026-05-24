@@ -9,6 +9,7 @@ rollback primitives used by future evolution flows.
 See docs/IDENTITY_EVOLUTION_ARCHITECTURE.md for full design rationale.
 """
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -17,6 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.models.character import Character
 from app.models.identity_snapshot import IdentitySnapshot
+
+logger = logging.getLogger(__name__)
 
 
 # ── Canon field classification ────────────────────────────────────────────────
@@ -94,6 +97,7 @@ def take_snapshot(
         anchor_version=anchor_version,
         identity_anchor_json=character.identity_anchor_json,
         identity_spec_json=character.identity_spec_json,
+        body_canon_json=character.body_canon_json,
         reason=reason,
         created_at=datetime.utcnow(),
     )
@@ -115,6 +119,8 @@ def rollback_to_snapshot(
     """
     character.identity_anchor_json = snapshot.identity_anchor_json
     character.identity_spec_json = snapshot.identity_spec_json
+    if snapshot.body_canon_json is not None:
+        character.body_canon_json = snapshot.body_canon_json
     character.updated_at = datetime.utcnow()
     db.add(character)
     db.commit()
@@ -202,6 +208,89 @@ def compute_immutable_fingerprint(spec_json: Optional[str]) -> Optional[str]:
         if val is not None:
             parts.append(f"{field_name}:{val}")
     return "|".join(parts) or None
+
+
+# ── Pack stages ───────────────────────────────────────────────────────────────
+
+def compute_pack_stages(character: Character) -> dict:
+    """Derive current pack stage values from character state.
+
+    Returns dict with keys: face, body, marks.
+    Values: "missing" | "partial" | "locked"
+
+    Face:  locked  = visual_locked is True
+           missing = otherwise
+
+    Body:  locked  = body_front slot is "locked"
+           partial = body_front slot exists but not locked
+           missing = no body_front slot
+
+    Marks: locked  = tattoo_layout slot is "locked"
+           partial = markings exist in body_canon_json but tattoo_layout not locked
+           missing = no markings at all
+    """
+    # Face stage
+    face_stage = "locked" if character.visual_locked else "missing"
+
+    # Body stage — keyed on body_front slot status
+    body_stage = "missing"
+    if character.identity_anchor_json:
+        try:
+            anchor_data = json.loads(character.identity_anchor_json)
+            body_slots = anchor_data.get("body_slots") or {}
+            bf = body_slots.get("body_front") or {}
+            if bf.get("status") == "locked":
+                body_stage = "locked"
+            elif bf.get("url"):
+                body_stage = "partial"
+        except (ValueError, TypeError):
+            pass
+
+    # Marks stage — keyed on body_canon_json + tattoo_layout slot
+    marks_stage = "missing"
+    has_markings = False
+    if character.body_canon_json:
+        try:
+            bc = json.loads(character.body_canon_json)
+            has_markings = bool(bc.get("markings"))
+        except (ValueError, TypeError):
+            pass
+
+    if has_markings:
+        marks_stage = "partial"
+        if character.identity_anchor_json:
+            try:
+                anchor_data = json.loads(character.identity_anchor_json)
+                body_slots = anchor_data.get("body_slots") or {}
+                tl = body_slots.get("tattoo_layout") or {}
+                if tl.get("status") == "locked":
+                    marks_stage = "locked"
+            except (ValueError, TypeError):
+                pass
+
+    return {"face": face_stage, "body": body_stage, "marks": marks_stage}
+
+
+def write_pack_stages(character: Character) -> dict:
+    """Compute and persist pack_stages into identity_anchor_json. Returns the stages dict."""
+    stages = compute_pack_stages(character)
+    if character.identity_anchor_json:
+        try:
+            data = json.loads(character.identity_anchor_json)
+        except (ValueError, TypeError):
+            data = {}
+    else:
+        data = {}
+    data["pack_stages"] = stages
+    character.identity_anchor_json = json.dumps(data)
+    logger.info(
+        "PACK-STAGES character_id=%s face=%s body=%s marks=%s",
+        character.id,
+        stages["face"],
+        stages["body"],
+        stages["marks"],
+    )
+    return stages
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

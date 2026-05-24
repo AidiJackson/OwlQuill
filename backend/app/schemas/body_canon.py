@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -57,6 +57,19 @@ class MarkingSize(str, enum.Enum):
     FULL_BACK = "full_back"
 
 
+class MarkingCoverage(str, enum.Enum):
+    """How much of the body area the marking covers.
+
+    Distinct from MarkingSize so sleeve semantics can be expressed explicitly
+    even on markings that use a non-sleeve MarkingSize value.
+    """
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+    SLEEVE = "sleeve"
+    FULL_SLEEVE = "full_sleeve"
+
+
 class BodyMarkingCreate(BaseModel):
     """Request body for adding a body marking."""
     type: MarkingType
@@ -66,11 +79,22 @@ class BodyMarkingCreate(BaseModel):
     size: MarkingSize
     description: str = Field(..., min_length=1, max_length=400,
                               description="Full visual description for identity lock string")
+    coverage: Optional[MarkingCoverage] = Field(
+        default=None,
+        description="Coverage level — inferred from size/style when None. "
+                    "sleeve/full_sleeve marks this as hard anatomical identity when the arm is exposed.",
+    )
+
+
+AnchorStatus = Literal["missing", "generated", "locked"]
 
 
 class BodyMarking(BodyMarkingCreate):
     """A single persisted body marking."""
     id: str = Field(default_factory=lambda: f"bm_{uuid.uuid4().hex[:8]}")
+    anchor_image_url: Optional[str] = None
+    anchor_status: AnchorStatus = "missing"
+    anchor_prompt: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

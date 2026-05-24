@@ -30,6 +30,7 @@ from app.schemas.character_visual import (
     IdentitySketchGenerateResponse,
 )
 from app.services.character_visual import upsert_character_dna, get_character_dna
+from app.services.identity_evolution import write_pack_stages
 from app.services.appearance_spec import (
     build_appearance_spec,
     build_generation_prompt,
@@ -1397,6 +1398,7 @@ def accept_identity_pack(
                 character_id, _face_ref_exc,
             )
 
+    write_pack_stages(character)
     db.commit()
 
     # Refresh everything

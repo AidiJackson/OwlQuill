@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check, Sparkles, ChevronLeft, ShieldCheck, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check, Sparkles, ChevronLeft, ShieldCheck, AlertTriangle, Image as ImageIcon, CheckCircle2, AlertCircle, Loader2, Library } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { Character, User } from '@/lib/types';
+import type { Character, User, BodyMarkingRead, MarkingAnchorStatus, BodySlotEntry, BodySlotStatus, PackStages } from '@/lib/types';
 import { listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 import ImageGrid from '@/features/images/components/ImageGrid';
+import type { BodyAnchorOption } from '@/features/images/components/ImageCard';
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SignatureAccessoryPanel from '@/features/characterCreation/components/SignatureAccessoryPanel';
 import StyleShopsPanel from '@/components/StyleShopsPanel';
+import BodyCanonPanel from '@/components/BodyCanonPanel';
 
 const VISIBILITY_ICONS = {
   public: Globe,
@@ -47,6 +49,38 @@ export default function CharacterDetail() {
   const [evolveRejecting, setEvolveRejecting] = useState(false);
   const [evolveError, setEvolveError] = useState('');
   const [evolveSuccess, setEvolveSuccess] = useState('');
+
+  // Body canon state (loaded when evolve modal opens)
+  const [bodyMarkings, setBodyMarkings] = useState<BodyMarkingRead[]>([]);
+  const [bodyMarkingsLoading, setBodyMarkingsLoading] = useState(false);
+  const [bodyMarkingsError, setBodyMarkingsError] = useState('');
+  const [bodyAnchorBusy, setBodyAnchorBusy] = useState<Record<string, 'generate' | 'lock' | 'replace'>>({});
+
+  // Body identity slot state (loaded when evolve modal opens)
+  const [bodySlots, setBodySlots] = useState<BodySlotEntry[]>([]);
+  const [bodySlotsLoading, setBodySlotsLoading] = useState(false);
+  const [bodySlotsError, setBodySlotsError] = useState('');
+  const [bodySlotBusy, setBodySlotBusy] = useState<Record<string, 'generate' | 'lock' | 'replace' | 'use-existing'>>({});
+
+  // Body slot library picker (inside evolve modal — slot key or null)
+  const [bodySlotLibraryTarget, setBodySlotLibraryTarget] = useState<string | null>(null);
+  const [bodySlotLibraryBusy, setBodySlotLibraryBusy] = useState(false);
+
+  // Body canon library picker (inside evolve modal — marking ID or null)
+  const [bodyCanonLibraryTarget, setBodyCanonLibraryTarget] = useState<string | null>(null);
+  const [bodyCanonLibraryBusy, setBodyCanonLibraryBusy] = useState(false);
+
+  // Pack stages (derived from identity_anchor_json.pack_stages)
+  const [packStages, setPackStages] = useState<PackStages | null>(null);
+
+  // Admin canon import state (body_front / tattoo_layout upload)
+  const [adminImportSlot, setAdminImportSlot] = useState<'body_front' | 'tattoo_layout' | null>(null);
+  const [adminImportBusy, setAdminImportBusy] = useState(false);
+  const [adminImportError, setAdminImportError] = useState('');
+
+  // Body canon anchor picker (triggered from gallery "Anchor" dropdown — image selected first, then pick marking)
+  const [anchorPickImage, setAnchorPickImage] = useState<CharacterImageRead | null>(null);
+  const [anchorPickBusy, setAnchorPickBusy] = useState<string | null>(null);
 
   const [galleryImages, setGalleryImages] = useState<CharacterImageRead[]>([]);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
@@ -97,13 +131,44 @@ export default function CharacterDetail() {
     }
   }
 
-  function openEvolveModal() {
+  async function openEvolveModal() {
     setEvolveView('slots');
     setEvolveSlot(null);
     setEvolveCandidate(null);
     setEvolveError('');
     setEvolveSuccess('');
+    setBodyMarkings([]);
+    setBodyMarkingsError('');
+    setBodySlots([]);
+    setBodySlotsError('');
     setShowEvolveModal(true);
+    if (character) {
+      // Derive pack stages from identity_anchor_json if present
+      try {
+        const anchorData = character.identity_anchor_json ? JSON.parse(character.identity_anchor_json) : {};
+        if (anchorData.pack_stages) setPackStages(anchorData.pack_stages as PackStages);
+      } catch { /* ignore */ }
+
+      // Load body markings and body slots in parallel
+      setBodyMarkingsLoading(true);
+      setBodySlotsLoading(true);
+      Promise.all([
+        apiClient.getBodyMarkings(character.id).then(data => {
+          if (mountedRef.current) setBodyMarkings(data.markings);
+        }).catch(() => {
+          if (mountedRef.current) setBodyMarkingsError('Could not load body markings.');
+        }).finally(() => {
+          if (mountedRef.current) setBodyMarkingsLoading(false);
+        }),
+        apiClient.getBodySlots(character.id).then(data => {
+          if (mountedRef.current) setBodySlots(data.slots);
+        }).catch(() => {
+          if (mountedRef.current) setBodySlotsError('Could not load body identity slots.');
+        }).finally(() => {
+          if (mountedRef.current) setBodySlotsLoading(false);
+        }),
+      ]);
+    }
   }
 
   function closeEvolveModal() {
@@ -113,6 +178,149 @@ export default function CharacterDetail() {
     setEvolveCandidate(null);
     setEvolveError('');
     setEvolveSuccess('');
+    setBodyMarkings([]);
+    setBodyMarkingsError('');
+    setBodyAnchorBusy({});
+    setBodySlots([]);
+    setBodySlotsError('');
+    setBodySlotBusy({});
+    setBodySlotLibraryTarget(null);
+    setBodyCanonLibraryTarget(null);
+  }
+
+  async function handleBodyAnchorAction(
+    marking: BodyMarkingRead,
+    action: 'generate' | 'lock' | 'replace',
+  ) {
+    if (!character) return;
+    setBodyAnchorBusy(prev => ({ ...prev, [marking.id]: action }));
+    try {
+      let resp;
+      if (action === 'generate') resp = await apiClient.generateBodyAnchor(character.id, marking.id);
+      else if (action === 'lock') resp = await apiClient.lockBodyAnchor(character.id, marking.id);
+      else resp = await apiClient.replaceBodyAnchor(character.id, marking.id);
+      if (mountedRef.current) {
+        setBodyMarkings(prev => prev.map(m => m.id === resp.marking.id ? resp.marking : m));
+      }
+    } catch {
+      // action failure is silent — button re-enables
+    } finally {
+      if (mountedRef.current) {
+        setBodyAnchorBusy(prev => { const n = { ...prev }; delete n[marking.id]; return n; });
+      }
+    }
+  }
+
+  async function handleBodySlotAction(
+    slot: BodySlotEntry,
+    action: 'generate' | 'lock' | 'replace',
+  ) {
+    if (!character) return;
+    setBodySlotBusy(prev => ({ ...prev, [slot.key]: action }));
+    try {
+      let resp;
+      if (action === 'generate') resp = await apiClient.generateBodySlot(character.id, slot.key);
+      else if (action === 'lock') resp = await apiClient.lockBodySlot(character.id, slot.key);
+      else resp = await apiClient.replaceBodySlot(character.id, slot.key);
+      if (mountedRef.current) {
+        setBodySlots(resp.slots);
+      }
+    } catch {
+      // action failure is silent — button re-enables
+    } finally {
+      if (mountedRef.current) {
+        setBodySlotBusy(prev => { const n = { ...prev }; delete n[slot.key]; return n; });
+      }
+    }
+  }
+
+  // Use an existing gallery image for a body identity slot (from within modal library picker)
+  async function handleBodySlotUseExisting(slotKey: string, img: CharacterImageRead) {
+    if (!character) return;
+    setBodySlotLibraryBusy(true);
+    try {
+      const resp = await apiClient.useExistingBodySlot(character.id, slotKey, img.id);
+      if (mountedRef.current) {
+        setBodySlots(resp.slots);
+        setBodySlotLibraryTarget(null);
+      }
+    } catch {
+      // silent
+    } finally {
+      if (mountedRef.current) setBodySlotLibraryBusy(false);
+    }
+  }
+
+  // Assign an existing gallery image to a body canon marking anchor (from modal library picker)
+  async function handleBodyCanonLibraryAssign(img: CharacterImageRead) {
+    if (!character || !bodyCanonLibraryTarget) return;
+    setBodyCanonLibraryBusy(true);
+    try {
+      const resp = await apiClient.useExistingBodyAnchor(character.id, bodyCanonLibraryTarget, img.id);
+      if (mountedRef.current) {
+        setBodyMarkings(prev => prev.map(m => m.id === resp.marking.id ? resp.marking : m));
+        setBodyCanonLibraryTarget(null);
+      }
+    } catch {
+      // silent
+    } finally {
+      if (mountedRef.current) setBodyCanonLibraryBusy(false);
+    }
+  }
+
+  // Use an existing gallery image as a body slot anchor (from image card dropdown)
+  async function handleBodyAnchorAssign(img: CharacterImageRead, value: string) {
+    if (!character) return;
+    if (value === 'body_canon_anchor') {
+      // Open marking picker
+      setAnchorPickImage(img);
+      return;
+    }
+    // Body identity slot targets
+    try {
+      const resp = await apiClient.useExistingBodySlot(character.id, value, img.id);
+      if (mountedRef.current) setBodySlots(resp.slots);
+    } catch {
+      // silent
+    }
+  }
+
+  // Admin canon import — file upload for body_front or tattoo_layout
+  async function handleAdminCanonImport(slot: 'body_front' | 'tattoo_layout', file: File, sourceNote?: string) {
+    if (!character) return;
+    setAdminImportBusy(true);
+    setAdminImportError('');
+    try {
+      const resp = await apiClient.adminCanonImport(character.id, slot, file, sourceNote);
+      if (mountedRef.current) {
+        setPackStages(resp.pack_stages);
+        // Refresh body slots to reflect new locked state
+        const slotsResp = await apiClient.getBodySlots(character.id);
+        if (mountedRef.current) setBodySlots(slotsResp.slots);
+        setAdminImportSlot(null);
+      }
+    } catch (err: unknown) {
+      if (mountedRef.current) setAdminImportError(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      if (mountedRef.current) setAdminImportBusy(false);
+    }
+  }
+
+  // Assign picked image to a specific body canon marking anchor
+  async function handleAnchorPickConfirm(markingId: string) {
+    if (!character || !anchorPickImage) return;
+    setAnchorPickBusy(markingId);
+    try {
+      const resp = await apiClient.useExistingBodyAnchor(character.id, markingId, anchorPickImage.id);
+      if (mountedRef.current) {
+        setBodyMarkings(prev => prev.map(m => m.id === resp.marking.id ? resp.marking : m));
+        setAnchorPickImage(null);
+      }
+    } catch {
+      // silent
+    } finally {
+      if (mountedRef.current) setAnchorPickBusy(null);
+    }
   }
 
   async function handleSelectCandidate(img: CharacterImageRead) {
@@ -519,6 +727,16 @@ export default function CharacterDetail() {
           </div>
         )}
 
+        {/* Body Canon — owner only, separate from Style Shops */}
+        {currentUser && character.owner_id === currentUser.id && (
+          <div className="border-t border-gray-800 pt-6">
+            <BodyCanonPanel
+              characterId={character.id}
+              isOwner={true}
+            />
+          </div>
+        )}
+
         {/* Signature Accessory — owner only, locked characters only */}
         {currentUser && character.owner_id === currentUser.id && character.visual_locked && (
           <SignatureAccessoryPanel
@@ -532,12 +750,26 @@ export default function CharacterDetail() {
           <div className="border-t border-gray-800 pt-6 space-y-3">
             <h2 className="text-sm font-medium text-gray-300">Images</h2>
             <ErrorBoundary>
-              <ImageGrid
-                images={galleryImages}
-                onImageClick={(idx) => setLightboxIdx(idx)}
-                onUseInPost={currentUser && character.owner_id === currentUser.id ? handleUseInPost : undefined}
-                onSetAsCover={currentUser && character.owner_id === currentUser.id ? handleSetAsCover : undefined}
-              />
+              {(() => {
+                const isOwner = !!(currentUser && character.owner_id === currentUser.id);
+                const anchorOpts: BodyAnchorOption[] = isOwner ? [
+                  { value: 'body_front', label: 'Use as Body Front Reference' },
+                  { value: 'body_three_quarter', label: 'Use as Body 3/4 Reference' },
+                  { value: 'tattoo_layout', label: 'Use as Tattoo Layout Reference' },
+                  { value: 'body_back', label: 'Use as Body Back Reference' },
+                  ...(bodyMarkings.length > 0 ? [{ value: 'body_canon_anchor', label: 'Use as Body Canon Anchor…' }] : []),
+                ] : [];
+                return (
+                  <ImageGrid
+                    images={galleryImages}
+                    onImageClick={(idx) => setLightboxIdx(idx)}
+                    onUseInPost={isOwner ? handleUseInPost : undefined}
+                    onSetAsCover={isOwner ? handleSetAsCover : undefined}
+                    bodyAnchorOptions={isOwner ? anchorOpts : undefined}
+                    onBodyAnchorAssign={isOwner ? handleBodyAnchorAssign : undefined}
+                  />
+                );
+              })()}
             </ErrorBoundary>
           </div>
         )}
@@ -605,6 +837,55 @@ export default function CharacterDetail() {
       )}
       </ErrorBoundary>
 
+      {/* Body Canon Anchor picker — triggered from gallery image "Anchor" dropdown */}
+      {anchorPickImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700/60">
+              <h2 className="text-sm font-semibold text-white">Assign as Body Canon Anchor</h2>
+              <button onClick={() => setAnchorPickImage(null)} className="p-1 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <img
+                src={resolveImageUrl(anchorPickImage.url)}
+                alt="Selected"
+                className="w-full max-h-40 object-cover rounded-lg"
+              />
+              <p className="text-xs text-gray-400">Which marking should use this image as its reference anchor?</p>
+              {bodyMarkings.length === 0 && (
+                <p className="text-xs text-gray-500">No body markings loaded. Open the Evolve Identity modal first to load markings.</p>
+              )}
+              <div className="space-y-1.5">
+                {bodyMarkings.map((m) => {
+                  const isBusy = anchorPickBusy === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      disabled={!!anchorPickBusy}
+                      onClick={() => handleAnchorPickConfirm(m.id)}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-left transition-colors disabled:opacity-50"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs text-gray-300 font-medium capitalize">{m.type}</span>
+                        <span className="text-xs text-gray-500 truncate">{m.placement.replace(/_/g, ' ')}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {m.anchor_status === 'locked' && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                        {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-400" /> : (
+                          <span className="text-xs text-violet-400">Use</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Evolve Identity modal — slot replacement */}
       {showEvolveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -669,6 +950,12 @@ export default function CharacterDetail() {
                     Your current state is snapshotted before any promotion — rollback is always available.
                   </p>
 
+                  {/* Section 1: Core Identity */}
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-white">Core Identity</h3>
+                    <span className="text-xs text-gray-500">Face &amp; portrait anchors</span>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     {ALL_SLOTS.map((slot) => {
                       const url = parseSlotUrl(slot);
@@ -715,6 +1002,415 @@ export default function CharacterDetail() {
                       Face geometry, species, and body morphology are always preserved.
                       Only the selected slot image changes.
                     </p>
+                  </div>
+
+                  {/* ── Section 2: Body Identity slots ──────────────── */}
+                  <div className="pt-2 border-t border-gray-700/50 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-white">Body Identity</h3>
+                        {packStages && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                            packStages.body === 'locked' ? 'bg-emerald-900/40 text-emerald-400' :
+                            packStages.body === 'partial' ? 'bg-amber-900/40 text-amber-400' :
+                            'bg-gray-700/60 text-gray-500'
+                          }`}>
+                            {packStages.body}
+                          </span>
+                        )}
+                      </div>
+                      {bodySlotLibraryTarget ? (
+                        <button
+                          onClick={() => setBodySlotLibraryTarget(null)}
+                          className="text-xs text-gray-400 hover:text-white flex items-center gap-1 transition-colors"
+                        >
+                          <ChevronLeft className="w-3 h-3" />Back
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-500">Morphology &amp; tattoo layout</span>
+                      )}
+                    </div>
+
+                    {/* Helper text */}
+                    {!bodySlotLibraryTarget && (
+                      <p className="text-xs text-gray-500 leading-relaxed">
+                        Generation can create a new reference, but choosing a proven image from your library is the most reliable way to lock body canon.
+                      </p>
+                    )}
+
+                    {bodySlotsLoading && (
+                      <div className="flex items-center gap-2 py-3 text-xs text-gray-500">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Loading body slots…
+                      </div>
+                    )}
+
+                    {bodySlotsError && (
+                      <p className="text-xs text-red-400">{bodySlotsError}</p>
+                    )}
+
+                    {/* Library picker sub-view */}
+                    {bodySlotLibraryTarget && !bodySlotsLoading && (
+                      <>
+                        {galleryImages.length === 0 ? (
+                          <p className="text-xs text-gray-500">No gallery images yet. Generate character images first.</p>
+                        ) : bodySlotLibraryBusy ? (
+                          <div className="flex items-center gap-2 py-3 text-xs text-gray-500">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Assigning…
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-2">
+                            {galleryImages.map((img) => (
+                              <button
+                                key={img.id}
+                                type="button"
+                                onClick={() => handleBodySlotUseExisting(bodySlotLibraryTarget, img)}
+                                className="rounded-lg overflow-hidden border border-gray-700 hover:border-violet-500 transition-colors"
+                              >
+                                <img
+                                  src={resolveImageUrl(img.url)}
+                                  alt=""
+                                  className="w-full aspect-[2/3] object-cover"
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Slot cards */}
+                    {!bodySlotLibraryTarget && !bodySlotsLoading && !bodySlotsError && (
+                      <div className="grid grid-cols-2 gap-3">
+                        {(bodySlots.length > 0 ? bodySlots : [
+                          { key: 'body_front', label: 'Body Front Reference', url: null, status: 'missing' as BodySlotStatus, prompt: null },
+                          { key: 'body_three_quarter', label: 'Body 3/4 Reference', url: null, status: 'missing' as BodySlotStatus, prompt: null },
+                          { key: 'body_back', label: 'Body Back Reference', url: null, status: 'missing' as BodySlotStatus, prompt: null },
+                          { key: 'tattoo_layout', label: 'Tattoo / Marking Layout', url: null, status: 'missing' as BodySlotStatus, prompt: null },
+                        ] as BodySlotEntry[]).map((bslot) => {
+                          const slotBusy = bodySlotBusy[bslot.key];
+                          const slotStatusNode = (s: BodySlotStatus) => {
+                            if (s === 'locked') return (
+                              <span className="flex items-center gap-1 text-xs text-emerald-400">
+                                <CheckCircle2 className="w-3 h-3" />Locked
+                              </span>
+                            );
+                            if (s === 'generated') return (
+                              <span className="flex items-center gap-1 text-xs text-amber-400">
+                                <AlertCircle className="w-3 h-3" />Generated
+                              </span>
+                            );
+                            return (
+                              <span className="flex items-center gap-1 text-xs text-gray-500">
+                                <AlertCircle className="w-3 h-3" />Missing
+                              </span>
+                            );
+                          };
+                          return (
+                            <div
+                              key={bslot.key}
+                              className="rounded-xl border border-gray-700/60 bg-gray-800/40 overflow-hidden"
+                            >
+                              <div className="aspect-square bg-gray-800 relative">
+                                {bslot.url ? (
+                                  <img
+                                    src={resolveImageUrl(bslot.url)}
+                                    alt={bslot.label}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <ImageIcon className="w-6 h-6 text-gray-600" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="px-2.5 py-2 space-y-1.5">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-xs text-gray-400 truncate">{bslot.label}</span>
+                                  {slotStatusNode(bslot.status)}
+                                </div>
+                                <div className="flex gap-1.5 flex-wrap">
+                                  {/* Choose from Library — always available */}
+                                  <button
+                                    disabled={!!slotBusy}
+                                    onClick={() => setBodySlotLibraryTarget(bslot.key)}
+                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-violet-700/30 text-violet-300 hover:bg-violet-700/50 disabled:opacity-50 transition-colors"
+                                  >
+                                    <Library className="w-3 h-3" />
+                                    Library
+                                  </button>
+                                  {bslot.status === 'missing' && (
+                                    <button
+                                      disabled={!!slotBusy}
+                                      onClick={() => handleBodySlotAction(bslot, 'generate')}
+                                      className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-emerald-700/30 text-emerald-400 hover:bg-emerald-700/50 disabled:opacity-50 transition-colors"
+                                    >
+                                      {slotBusy === 'generate' ? <Loader2 className="w-3 h-3 animate-spin" /> : <ImageIcon className="w-3 h-3" />}
+                                      Generate
+                                    </button>
+                                  )}
+                                  {bslot.status === 'generated' && (
+                                    <>
+                                      <button
+                                        disabled={!!slotBusy}
+                                        onClick={() => handleBodySlotAction(bslot, 'lock')}
+                                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-emerald-700/30 text-emerald-400 hover:bg-emerald-700/50 disabled:opacity-50 transition-colors"
+                                      >
+                                        {slotBusy === 'lock' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                        Lock
+                                      </button>
+                                      <button
+                                        disabled={!!slotBusy}
+                                        onClick={() => handleBodySlotAction(bslot, 'replace')}
+                                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-gray-700/60 text-gray-400 hover:bg-gray-600/60 disabled:opacity-50 transition-colors"
+                                      >
+                                        {slotBusy === 'replace' ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                        Regenerate
+                                      </button>
+                                    </>
+                                  )}
+                                  {bslot.status === 'locked' && (
+                                    <button
+                                      disabled={!!slotBusy}
+                                      onClick={() => handleBodySlotAction(bslot, 'replace')}
+                                      className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-gray-700/60 text-gray-400 hover:bg-gray-600/60 disabled:opacity-50 transition-colors"
+                                    >
+                                      {slotBusy === 'replace' ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                      Replace
+                                    </button>
+                                  )}
+                                  {/* Admin-only import button for body_front and tattoo_layout */}
+                                  {currentUser?.is_admin && (bslot.key === 'body_front' || bslot.key === 'tattoo_layout') && (
+                                    <label className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-orange-900/30 text-orange-400 hover:bg-orange-900/50 cursor-pointer transition-colors">
+                                      {adminImportBusy && adminImportSlot === bslot.key
+                                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                                        : <ShieldCheck className="w-3 h-3" />}
+                                      Import
+                                      <input
+                                        type="file"
+                                        accept="image/png,image/jpeg,image/webp"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                          const f = e.target.files?.[0];
+                                          if (f && (bslot.key === 'body_front' || bslot.key === 'tattoo_layout')) {
+                                            setAdminImportSlot(bslot.key);
+                                            handleAdminCanonImport(bslot.key, f);
+                                          }
+                                          e.target.value = '';
+                                        }}
+                                      />
+                                    </label>
+                                  )}
+                                </div>
+                                {adminImportError && adminImportSlot === bslot.key && (
+                                  <p className="text-xs text-red-400">{adminImportError}</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Section 3: Body Canon ────────────────────────── */}
+                  <div className="pt-2 border-t border-gray-700/50 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-white">Body Canon</h3>
+                        {packStages && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                            packStages.marks === 'locked' ? 'bg-emerald-900/40 text-emerald-400' :
+                            packStages.marks === 'partial' ? 'bg-amber-900/40 text-amber-400' :
+                            'bg-gray-700/60 text-gray-500'
+                          }`}>
+                            {packStages.marks}
+                          </span>
+                        )}
+                      </div>
+                      {bodyCanonLibraryTarget ? (
+                        <button
+                          onClick={() => setBodyCanonLibraryTarget(null)}
+                          className="text-xs text-gray-400 hover:text-white flex items-center gap-1 transition-colors"
+                        >
+                          <ChevronLeft className="w-3 h-3" />Back
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-500">Locked tattoos, scars &amp; markings</span>
+                      )}
+                    </div>
+
+                    {/* Body Canon library picker sub-view */}
+                    {bodyCanonLibraryTarget && (
+                      <>
+                        <p className="text-xs text-gray-400">Select an image to use as the anchor for this marking.</p>
+                        {galleryImages.length === 0 ? (
+                          <p className="text-xs text-gray-500">No gallery images yet.</p>
+                        ) : bodyCanonLibraryBusy ? (
+                          <div className="flex items-center gap-2 py-3 text-xs text-gray-500">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />Assigning…
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-2">
+                            {galleryImages.map((img) => (
+                              <button
+                                key={img.id}
+                                type="button"
+                                onClick={() => handleBodyCanonLibraryAssign(img)}
+                                className="rounded-lg overflow-hidden border border-gray-700 hover:border-violet-500 transition-colors"
+                              >
+                                <img src={resolveImageUrl(img.url)} alt="" className="w-full aspect-[2/3] object-cover" />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {!bodyCanonLibraryTarget && bodyMarkingsLoading && (
+                      <div className="flex items-center gap-2 py-3 text-xs text-gray-500">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Loading markings…
+                      </div>
+                    )}
+
+                    {!bodyCanonLibraryTarget && bodyMarkingsError && (
+                      <p className="text-xs text-red-400">{bodyMarkingsError}</p>
+                    )}
+
+                    {!bodyCanonLibraryTarget && !bodyMarkingsLoading && !bodyMarkingsError && bodyMarkings.length === 0 && (
+                      <p className="text-xs text-gray-500 leading-relaxed">
+                        No body canon yet. Tattoos and scars added from Style Shops will appear here.
+                      </p>
+                    )}
+
+                    {!bodyCanonLibraryTarget && bodyMarkings.length > 0 && (
+                      <div className="space-y-2">
+                        {bodyMarkings.map((marking) => {
+                          const busy = bodyAnchorBusy[marking.id];
+                          const PLACEMENT_LABELS: Record<string, string> = {
+                            left_upper_arm: 'Left Upper Arm', left_forearm: 'Left Forearm',
+                            left_full_arm: 'Left Arm (Sleeve)', right_upper_arm: 'Right Upper Arm',
+                            right_forearm: 'Right Forearm', right_full_arm: 'Right Arm (Sleeve)',
+                            chest: 'Chest', upper_back: 'Upper Back', lower_back: 'Lower Back',
+                            full_back: 'Full Back', neck: 'Neck', throat: 'Throat',
+                          };
+                          const TYPE_LABELS: Record<string, string> = {
+                            tattoo: 'Tattoo', scar: 'Scar', burn: 'Burn', birthmark: 'Birthmark',
+                          };
+                          const anchorStatusNode = (status: MarkingAnchorStatus) => {
+                            if (status === 'locked') return (
+                              <span className="flex items-center gap-1 text-xs text-emerald-400">
+                                <CheckCircle2 className="w-3 h-3" />Locked
+                              </span>
+                            );
+                            if (status === 'generated') return (
+                              <span className="flex items-center gap-1 text-xs text-amber-400">
+                                <AlertCircle className="w-3 h-3" />Not locked
+                              </span>
+                            );
+                            return (
+                              <span className="flex items-center gap-1 text-xs text-gray-500">
+                                <AlertCircle className="w-3 h-3" />No anchor
+                              </span>
+                            );
+                          };
+                          return (
+                            <div
+                              key={marking.id}
+                              className="rounded-xl border border-gray-700/60 bg-gray-800/40 overflow-hidden"
+                            >
+                              {/* Anchor image */}
+                              {marking.anchor_image_url && (
+                                <div className="aspect-[3/1] bg-gray-800 overflow-hidden">
+                                  <img
+                                    src={marking.anchor_image_url}
+                                    alt={PLACEMENT_LABELS[marking.placement] ?? marking.placement}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                              )}
+                              {!marking.anchor_image_url && (
+                                <div className="h-12 bg-gray-800/60 flex items-center justify-center">
+                                  <ImageIcon className="w-5 h-5 text-gray-600" />
+                                </div>
+                              )}
+
+                              {/* Info row */}
+                              <div className="px-2.5 py-2 space-y-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="text-xs font-medium text-gray-300 bg-gray-700/60 px-1.5 py-0.5 rounded shrink-0">
+                                      {TYPE_LABELS[marking.type] ?? marking.type}
+                                    </span>
+                                    <span className="text-xs text-gray-400 truncate">
+                                      {PLACEMENT_LABELS[marking.placement] ?? marking.placement.replace(/_/g, ' ')}
+                                    </span>
+                                  </div>
+                                  {anchorStatusNode(marking.anchor_status)}
+                                </div>
+
+                                <p className="text-xs text-gray-500 truncate">{marking.style}</p>
+
+                                {/* Action buttons */}
+                                <div className="flex gap-1.5 flex-wrap">
+                                  {/* Choose from Library — always available */}
+                                  <button
+                                    disabled={!!busy}
+                                    onClick={() => setBodyCanonLibraryTarget(marking.id)}
+                                    className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-violet-700/30 text-violet-300 hover:bg-violet-700/50 disabled:opacity-50 transition-colors"
+                                  >
+                                    <Library className="w-3 h-3" />
+                                    Library
+                                  </button>
+                                  {marking.anchor_status === 'missing' && (
+                                    <button
+                                      disabled={!!busy}
+                                      onClick={() => handleBodyAnchorAction(marking, 'generate')}
+                                      className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-emerald-700/30 text-emerald-400 hover:bg-emerald-700/50 disabled:opacity-50 transition-colors"
+                                    >
+                                      {busy === 'generate' ? <Loader2 className="w-3 h-3 animate-spin" /> : <ImageIcon className="w-3 h-3" />}
+                                      Generate Anchor
+                                    </button>
+                                  )}
+                                  {marking.anchor_status === 'generated' && (
+                                    <>
+                                      <button
+                                        disabled={!!busy}
+                                        onClick={() => handleBodyAnchorAction(marking, 'lock')}
+                                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-emerald-700/30 text-emerald-400 hover:bg-emerald-700/50 disabled:opacity-50 transition-colors"
+                                      >
+                                        {busy === 'lock' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                        Lock
+                                      </button>
+                                      <button
+                                        disabled={!!busy}
+                                        onClick={() => handleBodyAnchorAction(marking, 'replace')}
+                                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-gray-700/60 text-gray-400 hover:bg-gray-600/60 disabled:opacity-50 transition-colors"
+                                      >
+                                        {busy === 'replace' ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                        Regenerate
+                                      </button>
+                                    </>
+                                  )}
+                                  {marking.anchor_status === 'locked' && (
+                                    <button
+                                      disabled={!!busy}
+                                      onClick={() => handleBodyAnchorAction(marking, 'replace')}
+                                      className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-gray-700/60 text-gray-400 hover:bg-gray-600/60 disabled:opacity-50 transition-colors"
+                                    >
+                                      {busy === 'replace' ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                      Replace
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
