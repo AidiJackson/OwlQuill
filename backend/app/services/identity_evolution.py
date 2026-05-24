@@ -122,6 +122,9 @@ def rollback_to_snapshot(
     if snapshot.body_canon_json is not None:
         character.body_canon_json = snapshot.body_canon_json
     character.updated_at = datetime.utcnow()
+    # Recompute pack_stages from restored state so the UI never reads stale
+    # locked/missing values baked into the snapshot's identity_anchor_json.
+    write_pack_stages(character)
     db.add(character)
     db.commit()
 

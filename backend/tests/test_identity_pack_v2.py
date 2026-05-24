@@ -516,3 +516,166 @@ def test_pack_stages_written_when_face_locked(client, db_session):
     from app.services.identity_evolution import compute_pack_stages
     stages = compute_pack_stages(char)
     assert stages["face"] == "locked"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 11. Rollback pack-stage regression — write_pack_stages called after restore
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _rollback_char(visual_locked=True, identity_anchor_json=None, body_canon_json=None):
+    """Build a MagicMock Character for rollback tests."""
+    from unittest.mock import MagicMock
+    from app.models.character import Character
+    char = MagicMock(spec=Character)
+    char.id = 99
+    char.visual_locked = visual_locked
+    char.identity_anchor_json = identity_anchor_json
+    char.body_canon_json = body_canon_json
+    return char
+
+
+def _rollback_snap(identity_anchor_json=None, identity_spec_json=None, body_canon_json=None):
+    """Build a MagicMock IdentitySnapshot for rollback tests."""
+    from unittest.mock import MagicMock
+    from app.models.identity_snapshot import IdentitySnapshot
+    snap = MagicMock(spec=IdentitySnapshot)
+    snap.identity_anchor_json = identity_anchor_json
+    snap.identity_spec_json = identity_spec_json
+    snap.body_canon_json = body_canon_json
+    return snap
+
+
+def test_rollback_body_slot_removed_stage_updates_to_missing():
+    """After rolling back to a snapshot with no body_front slot, pack_stages.body = 'missing'."""
+    from app.services.identity_evolution import rollback_to_snapshot
+    from unittest.mock import MagicMock
+
+    # Current state: body was locked; stale pack_stages baked into live JSON
+    char = _rollback_char(
+        visual_locked=True,
+        identity_anchor_json=json.dumps({
+            "body_slots": {"body_front": {"url": "http://x/old.png", "status": "locked"}},
+            "pack_stages": {"face": "locked", "body": "locked", "marks": "missing"},
+        }),
+        body_canon_json=None,
+    )
+
+    # Snapshot: taken before body was locked — no body_front slot, stale stages in JSON
+    snap = _rollback_snap(
+        identity_anchor_json=json.dumps({
+            "pack_stages": {"face": "locked", "body": "locked", "marks": "missing"},
+        }),
+        body_canon_json=None,
+    )
+
+    db = MagicMock()
+    rollback_to_snapshot(db, char, snap)
+
+    data = json.loads(char.identity_anchor_json)
+    assert data["pack_stages"]["body"] == "missing", (
+        "pack_stages.body must be 'missing' after rolling back to a snapshot with no body_front slot"
+    )
+
+
+def test_rollback_tattoo_layout_removed_marks_stage_updates():
+    """After rolling back to a snapshot without tattoo_layout, pack_stages.marks = 'partial'."""
+    from app.services.identity_evolution import rollback_to_snapshot
+    from unittest.mock import MagicMock
+
+    bc_json = json.dumps({"markings": [{"id": "bm_x1"}]})
+
+    char = _rollback_char(
+        visual_locked=True,
+        identity_anchor_json=json.dumps({
+            "body_slots": {
+                "body_front": {"url": "http://x/body.png", "status": "locked"},
+                "tattoo_layout": {"url": "http://x/tl.png", "status": "locked"},
+            },
+            "pack_stages": {"face": "locked", "body": "locked", "marks": "locked"},
+        }),
+        body_canon_json=bc_json,
+    )
+
+    # Snapshot: has body_front locked but no tattoo_layout
+    snap = _rollback_snap(
+        identity_anchor_json=json.dumps({
+            "body_slots": {"body_front": {"url": "http://x/body.png", "status": "locked"}},
+            "pack_stages": {"face": "locked", "body": "locked", "marks": "locked"},
+        }),
+        body_canon_json=bc_json,
+    )
+
+    db = MagicMock()
+    rollback_to_snapshot(db, char, snap)
+
+    data = json.loads(char.identity_anchor_json)
+    assert data["pack_stages"]["marks"] == "partial", (
+        "marks must be 'partial' when markings exist but tattoo_layout slot is absent"
+    )
+    assert data["pack_stages"]["body"] == "locked", "body slot still present — must stay locked"
+
+
+def test_rollback_to_face_only_snapshot_body_and_marks_missing():
+    """Rolling back to a face-only snapshot leaves body and marks as 'missing'."""
+    from app.services.identity_evolution import rollback_to_snapshot
+    from unittest.mock import MagicMock
+
+    char = _rollback_char(
+        visual_locked=True,
+        identity_anchor_json=json.dumps({
+            "body_slots": {
+                "body_front": {"url": "http://x/body.png", "status": "locked"},
+                "tattoo_layout": {"url": "http://x/tl.png", "status": "locked"},
+            },
+            "pack_stages": {"face": "locked", "body": "locked", "marks": "locked"},
+        }),
+        body_canon_json=json.dumps({"markings": [{"id": "bm_y1"}]}),
+    )
+
+    # Face-only snapshot: no body_slots, no body_canon markings
+    snap = _rollback_snap(
+        identity_anchor_json=json.dumps({"identity_lock_string": "IDENTITY: v1"}),
+        body_canon_json=json.dumps({"markings": []}),
+    )
+
+    db = MagicMock()
+    rollback_to_snapshot(db, char, snap)
+
+    data = json.loads(char.identity_anchor_json)
+    assert data["pack_stages"]["face"] == "locked", "face must remain locked (visual_locked not touched)"
+    assert data["pack_stages"]["body"] == "missing", "body must be missing — no body_front slot in snapshot"
+    assert data["pack_stages"]["marks"] == "missing", "marks must be missing — no markings in restored body_canon"
+
+
+def test_rollback_preserves_locked_stages_when_slots_still_present():
+    """Rolling back to a snapshot with locked slots keeps pack_stages correct."""
+    from app.services.identity_evolution import rollback_to_snapshot
+    from unittest.mock import MagicMock
+
+    bc_json = json.dumps({"markings": [{"id": "bm_z1"}]})
+
+    char = _rollback_char(
+        visual_locked=True,
+        identity_anchor_json=json.dumps({"pack_stages": {"face": "locked", "body": "missing", "marks": "missing"}}),
+        body_canon_json=None,
+    )
+
+    # Snapshot: body_front and tattoo_layout both locked, markings present
+    snap = _rollback_snap(
+        identity_anchor_json=json.dumps({
+            "body_slots": {
+                "body_front": {"url": "http://x/body.png", "status": "locked"},
+                "tattoo_layout": {"url": "http://x/tl.png", "status": "locked"},
+            },
+            "pack_stages": {"face": "locked", "body": "locked", "marks": "locked"},
+        }),
+        body_canon_json=bc_json,
+    )
+
+    db = MagicMock()
+    rollback_to_snapshot(db, char, snap)
+
+    data = json.loads(char.identity_anchor_json)
+    assert data["pack_stages"]["face"] == "locked"
+    assert data["pack_stages"]["body"] == "locked", "body slot still locked in restored snapshot"
+    assert data["pack_stages"]["marks"] == "locked", "marks still locked — slot + markings both present"
