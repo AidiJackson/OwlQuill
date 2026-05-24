@@ -46,6 +46,7 @@ from app.services.style_elements import apply_style_elements_to_image_prompt
 from app.services.body_canon import (
     load_markings,
     build_body_canon_lock_string,
+    build_arm_side_binding_str,
     is_sleeve_marking,
     get_arm_side,
     build_sleeve_enforcement_str,
@@ -337,6 +338,18 @@ def _reorder_anchor_refs(
         else:
             other_bucket.append((img, t))
 
+    # Canonical anchor side ordering: right_arm before left_arm.
+    # Matches the ARM BINDING text block order so image and text signals align.
+    def _ba_sort(pair: tuple[bytes, str]) -> int:
+        t = pair[1]
+        if "right_arm" in t:
+            return 0
+        if "left_arm" in t:
+            return 1
+        return 2
+
+    body_anchor_bucket.sort(key=_ba_sort)
+
     if tattoo_primary:
         # Body canon first — establish tattoo location before face conditioning.
         ordered = (
@@ -534,6 +547,7 @@ def _build_strict_identity_prompt(
     character_name: str = "",
     retry: bool = False,
     body_canon_str: str = "",
+    arm_side_binding_str: str = "",
     sleeve_enforcement_str: str = "",
     scene_complex: bool = False,
     character_id: int | None = None,
@@ -545,11 +559,12 @@ def _build_strict_identity_prompt(
     Scene dominates — WHO this person is wraps WHAT they are doing, not the reverse.
 
     Section order (all required — none are silently truncated):
-      1. [SCENE]       user prompt — highest model weight
-      2. [SCENE GUARD] anti-studio note when scene has complexity
-      3. [IDENTITY]    face/build directive + lock string
-      4. [BODY CANON]  markings only where skin is naturally exposed
-      5. [SLEEVE]      hard enforcement for visible full sleeves
+      1. [SCENE]        user prompt — highest model weight
+      2. [SCENE GUARD]  anti-studio note when scene has complexity
+      3. [IDENTITY]     face/build directive + lock string
+      4. [BODY CANON]   markings only where skin is naturally exposed
+      5. [ARM BINDING]  hard left/right exclusivity rules (prevents arm swap)
+      6. [SLEEVE]       hard enforcement for visible full sleeves
 
     Capped at _STRICT_IDENTITY_PROMPT_MAX_CHARS.  All sections are included
     in full; if the total still exceeds the cap a warning is logged but the
@@ -603,7 +618,11 @@ def _build_strict_identity_prompt(
     else:
         section_body_canon = ""
 
-    # 6. Sleeve enforcement: hard identity for visible full-arm sleeves.
+    # 6. Arm side binding: explicit left/right exclusivity rules.
+    # This dedicated block prevents the provider from swapping tattoos between arms.
+    section_arm_binding = arm_side_binding_str.strip() if arm_side_binding_str else ""
+
+    # 7. Sleeve enforcement: hard identity for visible full-arm sleeves.
     if sleeve_enforcement_str:
         _base_sleeve = sleeve_enforcement_str.strip()
         _sleeve_mode_note = {
@@ -629,6 +648,7 @@ def _build_strict_identity_prompt(
             section_identity,
             section_lock,
             section_body_canon,
+            section_arm_binding,
             section_sleeve,
         ]
         if s
@@ -647,7 +667,8 @@ def _build_strict_identity_prompt(
         )
     logger.info(
         "PROMPT-BUDGET character_id=%s max_chars=%d final_chars=%d "
-        "scene_chars=%d identity_chars=%d body_canon_chars=%d sleeve_chars=%d "
+        "scene_chars=%d identity_chars=%d body_canon_chars=%d "
+        "arm_binding_chars=%d sleeve_chars=%d "
         "body_canon_preserved=%s sleeve_preserved=%s",
         character_id,
         _STRICT_IDENTITY_PROMPT_MAX_CHARS,
@@ -655,6 +676,7 @@ def _build_strict_identity_prompt(
         len(section_scene),
         len(section_identity) + len(section_lock),
         len(section_body_canon),
+        len(section_arm_binding),
         len(section_sleeve),
         body_canon_preserved,
         sleeve_preserved,
@@ -1018,8 +1040,10 @@ def generate_image(
                         try:
                             _bm_bytes = load_image_bytes(_bm.anchor_image_url)
                             anchor_images = list(anchor_images) + [_bm_bytes]
-                            anchor_types = list(anchor_types) + [f"body_anchor:{_bm.id}"]
-                            _bc_anchors_used.append(f"{_bm.id}({_bm_placement})")
+                            # Semantic label (e.g. "body_anchor:right_arm") so
+                            # _reorder_anchor_refs can sort by arm side consistently.
+                            anchor_types = list(anchor_types) + [f"body_anchor:{_bm_region}"]
+                            _bc_anchors_used.append(f"{_bm_region}:{_bm.id}({_bm_placement})")
                         except Exception as _bm_exc:
                             logger.warning(
                                 "BODY-CANON anchor_load_failed character_id=%s marking_id=%s error=%r",
@@ -1160,6 +1184,19 @@ def generate_image(
 
         _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _bc_visible_regions)
 
+        # Arm side binding: explicit LEFT/RIGHT exclusivity block to prevent arm swap.
+        _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _bc_visible_regions)
+
+        # Mirror guard: when tattoo_layout is used, prepend anti-swap directive.
+        # The abstract design map shows both tattoo designs — reinforce that they
+        # are not interchangeable between arms.
+        if _tattoo_layout_used and _tattoo_visibility_requested:
+            _mirror_guard = "Mirror errors are incorrect. Do not swap left and right arm tattoos."
+            _sleeve_enforcement_str = (
+                _mirror_guard + ". " + _sleeve_enforcement_str
+                if _sleeve_enforcement_str else _mirror_guard
+            )
+
         if (_sleeve_left_required or _sleeve_right_required) and not _tattoo_layout_used:
             _tl_status = (_bi_slots.get("tattoo_layout") or {}).get("status", "missing")
             if _tl_status != "locked":
@@ -1170,8 +1207,8 @@ def generate_image(
                     character_id, _sleeve_left_required, _sleeve_right_required,
                 )
 
-        _left_anchor_used = any("(left_" in a for a in _bc_anchors_used)
-        _right_anchor_used = any("(right_" in a for a in _bc_anchors_used)
+        _left_anchor_used = any("left_arm" in a for a in _bc_anchors_used)
+        _right_anchor_used = any("right_arm" in a for a in _bc_anchors_used)
         logger.info(
             "BODY-CANON-SLEEVE character_id=%s "
             "exposed_arms=%s "
@@ -1316,6 +1353,7 @@ def generate_image(
             character_name=character.name,
             retry=False,
             body_canon_str=_body_canon_str,
+            arm_side_binding_str=_arm_side_binding_str,
             sleeve_enforcement_str=_sleeve_enforcement_str,
             scene_complex=_scene_complexity != "low",
             character_id=character_id,
@@ -1451,6 +1489,7 @@ def generate_image(
                 character_name=character.name,
                 retry=True,
                 body_canon_str=_body_canon_str,
+                arm_side_binding_str=_arm_side_binding_str,
                 sleeve_enforcement_str=_sleeve_enforcement_str,
                 scene_complex=_scene_complexity != "low",
                 character_id=character_id,
@@ -1596,6 +1635,7 @@ def generate_image(
             character_name=character.name,
             retry=False,
             body_canon_str=_body_canon_str,
+            arm_side_binding_str=_arm_side_binding_str,
             sleeve_enforcement_str=_sleeve_enforcement_str,
             scene_complex=_scene_complexity != "low",
             character_id=character_id,

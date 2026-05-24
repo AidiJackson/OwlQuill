@@ -103,6 +103,36 @@ def get_arm_side(placement: str) -> Optional[str]:
     return None
 
 
+def build_arm_side_binding_str(markings: list[BodyMarking], visible_regions: set) -> str:
+    """Build explicit anatomical side-binding rules for visible arm markings.
+
+    Emits a dedicated 'ARM BINDING' block with hard left/right exclusivity
+    statements — prevents providers from swapping tattoos between arms.
+
+    Right arm is listed before left arm to match the canonical anchor ref
+    ordering (right_arm anchor → left_arm anchor) for consistent signal
+    alignment across text and image channels.
+    """
+    right_parts: list[str] = []
+    left_parts: list[str] = []
+    for m in markings:
+        side = get_arm_side(m.placement)
+        if side == "right" and "right_arm" in visible_regions:
+            right_parts.append(
+                f"RIGHT ARM ONLY: {m.style} — on right arm exclusively, "
+                "never on left arm"
+            )
+        elif side == "left" and "left_arm" in visible_regions:
+            left_parts.append(
+                f"LEFT ARM ONLY: {m.style} — on left arm exclusively, "
+                "never on right arm"
+            )
+    parts = right_parts + left_parts  # right first to match anchor ordering
+    if not parts:
+        return ""
+    return "ARM BINDING: " + ". ".join(parts)
+
+
 def build_sleeve_enforcement_str(markings: list[BodyMarking], visible_regions: set) -> str:
     """Build hard identity text for full-sleeve tattoos on exposed arms.
 
