@@ -14,6 +14,13 @@ export interface User {
   updated_at: string;
 }
 
+export interface IdentityHealth {
+  face: 'current' | 'stale';
+  body: 'current' | 'stale';
+  tattoos: 'current' | 'stale';
+  slots: Record<string, { stale: boolean }>;
+}
+
 export interface Character {
   id: number;
   owner_id: number;
@@ -39,6 +46,7 @@ export interface Character {
   visibility: 'public' | 'friends' | 'private';
   visual_locked?: boolean;
   identity_anchor_json?: string | null;
+  identity_health?: IdentityHealth | null;
   created_at: string;
   updated_at: string;
 }

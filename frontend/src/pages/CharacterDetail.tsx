@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check, Sparkles, ChevronLeft, ShieldCheck, AlertTriangle, Image as ImageIcon, CheckCircle2, AlertCircle, Loader2, Library } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { Character, User, BodyMarkingRead, MarkingAnchorStatus, BodySlotEntry, BodySlotStatus, PackStages } from '@/lib/types';
+import type { Character, User, BodyMarkingRead, MarkingAnchorStatus, BodySlotEntry, BodySlotStatus, PackStages, IdentityHealth } from '@/lib/types';
 import { listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 import ImageGrid from '@/features/images/components/ImageGrid';
@@ -950,6 +950,41 @@ export default function CharacterDetail() {
                     Your current state is snapshotted before any promotion — rollback is always available.
                   </p>
 
+                  {/* Identity health status cards */}
+                  {character?.identity_health && (() => {
+                    const h = character.identity_health as IdentityHealth;
+                    return (
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['face', 'body', 'tattoos'] as const).map((domain) => {
+                          const isStale = h[domain] === 'stale';
+                          return (
+                            <div
+                              key={domain}
+                              className={`rounded-lg px-2.5 py-2 border text-center ${
+                                isStale
+                                  ? 'bg-amber-900/20 border-amber-800/40'
+                                  : 'bg-emerald-900/20 border-emerald-800/40'
+                              }`}
+                            >
+                              <p className="text-xs text-gray-400 capitalize mb-1">{domain}</p>
+                              {isStale ? (
+                                <span className="flex items-center justify-center gap-1 text-xs text-amber-400 font-medium">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  Refresh recommended
+                                </span>
+                              ) : (
+                                <span className="flex items-center justify-center gap-1 text-xs text-emerald-400 font-medium">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  Current
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
                   {/* Section 1: Core Identity */}
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-white">Core Identity</h3>
@@ -977,19 +1012,27 @@ export default function CharacterDetail() {
                               </div>
                             )}
                           </div>
-                          <div className="px-2.5 py-2 flex items-center justify-between gap-2">
-                            <span className="text-xs text-gray-400 truncate">{SLOT_LABELS[slot]}</span>
-                            <button
-                              onClick={() => {
-                                setEvolveSlot(slot);
-                                setEvolveView('pick');
-                                setEvolveError('');
-                                setEvolveSuccess('');
-                              }}
-                              className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors whitespace-nowrap flex-shrink-0"
-                            >
-                              Replace
-                            </button>
+                          <div className="px-2.5 py-2 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-gray-400 truncate">{SLOT_LABELS[slot]}</span>
+                              <button
+                                onClick={() => {
+                                  setEvolveSlot(slot);
+                                  setEvolveView('pick');
+                                  setEvolveError('');
+                                  setEvolveSuccess('');
+                                }}
+                                className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors whitespace-nowrap flex-shrink-0"
+                              >
+                                Replace
+                              </button>
+                            </div>
+                            {character?.identity_health?.slots?.[slot]?.stale && (
+                              <span className="flex items-center gap-1 text-xs text-amber-400">
+                                <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                                Refresh recommended
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
@@ -1130,6 +1173,15 @@ export default function CharacterDetail() {
                                   <span className="text-xs text-gray-400 truncate">{bslot.label}</span>
                                   {slotStatusNode(bslot.status)}
                                 </div>
+                                {character?.identity_health?.slots?.[bslot.key]?.stale && (
+                                  <div className="flex items-start gap-1.5">
+                                    <AlertTriangle className="w-3 h-3 text-amber-400 flex-shrink-0 mt-0.5" />
+                                    <div>
+                                      <p className="text-xs text-amber-400 font-medium leading-tight">Refresh recommended</p>
+                                      <p className="text-xs text-gray-500 leading-tight">Character canon changed after this reference was created.</p>
+                                    </div>
+                                  </div>
+                                )}
                                 <div className="flex gap-1.5 flex-wrap">
                                   {/* Choose from Library — always available */}
                                   <button
