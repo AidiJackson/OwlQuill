@@ -25,6 +25,7 @@ from app.schemas.style_shop import (
     StylePresetRead,
 )
 from app.services.body_canon import sync_tattoo_style_elements_to_body_canon
+from app.services.pack_version import increment_pack_version
 from app.services.style_elements import (
     MAX_REMOVABLE_ACTIVE,
     count_active_removable,
@@ -150,6 +151,7 @@ def apply_style_element(
 
     # ── Identity spec patch for permanent hair ─────────────────────────
 
+    _spec_patched = False
     if preset.attachment_mode == AttachmentModeEnum.PERMANENT and preset.shop_type == ShopTypeEnum.BARBER:
         if preset.spec_patch_json:
             try:
@@ -157,6 +159,7 @@ def apply_style_element(
                 updated_spec = patch_identity_spec_with_hair(character, spec_patch)
                 if updated_spec:
                     character.identity_spec_json = updated_spec
+                    _spec_patched = True
                     logger.info(
                         "style_shop hair_spec_patched character_id=%s preset=%s",
                         character_id, preset.slug,
@@ -180,6 +183,16 @@ def apply_style_element(
                 "style_shop tattoo_body_canon_sync_failed character_id=%s preset=%s error=%r",
                 character_id, preset.slug, str(exc),
             )
+
+    # ── Pack version increment ──────────────────────────────────────────
+    # Increment once per canonical mutation so stale health checks work.
+    # Priority order: spec patch > tattoo (body_canon) > other permanent elements.
+    if _spec_patched:
+        increment_pack_version(character, reason="identity_spec_mutation")
+    elif preset.shop_type == ShopTypeEnum.TATTOO:
+        increment_pack_version(character, reason="body_canon_mutation")
+    elif preset.attachment_mode == AttachmentModeEnum.PERMANENT:
+        increment_pack_version(character, reason="permanent_style_element")
 
     db.commit()
 

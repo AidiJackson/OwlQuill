@@ -64,6 +64,7 @@ class Character(CharacterBase):
     owner_username: Optional[str] = None
     visual_locked: bool = False
     identity_anchor_json: Optional[str] = None
+    identity_health: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
 

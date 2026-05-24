@@ -33,6 +33,7 @@ from app.models.user import User
 from app.services.body_canon import build_body_canon_lock_string, load_markings
 from app.services.identity_evolution import write_pack_stages
 from app.services.image_provider import get_provider_for_option
+from app.services.pack_version import get_pack_version
 
 logger = logging.getLogger(__name__)
 
@@ -296,8 +297,15 @@ def _do_generate_body_slot(
     db.add(ci)
     db.flush()
 
-    # Update identity_anchor_json body_slots
-    _save_body_slot(character, slot, {"url": image_url, "status": "generated", "prompt": prompt})
+    # Update identity_anchor_json body_slots — stamp current pack_version so
+    # health checks can detect when this image predates a later mutation.
+    _slot_pack_version = get_pack_version(character)
+    _save_body_slot(character, slot, {
+        "url": image_url,
+        "status": "generated",
+        "prompt": prompt,
+        "pack_version": _slot_pack_version,
+    })
     db.commit()
 
     logger.info(
@@ -395,7 +403,12 @@ def use_existing_body_slot(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Image not found or does not belong to this character.",
         )
-    _save_body_slot(char, slot, {"url": image.file_path, "status": "locked", "prompt": None})
+    _save_body_slot(char, slot, {
+        "url": image.file_path,
+        "status": "locked",
+        "prompt": None,
+        "pack_version": get_pack_version(char),
+    })
     write_pack_stages(char)
     db.commit()
     logger.info(
@@ -498,7 +511,12 @@ async def admin_canon_import(
         CharacterImage.kind == kind,
     ).update({"status": ImageStatusEnum.ARCHIVED})
 
-    meta: dict = {"source": "admin_canon_import", "admin_email": current_user.email}
+    _import_pack_version = get_pack_version(char)
+    meta: dict = {
+        "source": "admin_canon_import",
+        "admin_email": current_user.email,
+        "pack_version": _import_pack_version,
+    }
     if source_note:
         meta["source_note"] = source_note
 
@@ -520,6 +538,7 @@ async def admin_canon_import(
         "status": "locked",
         "prompt": None,
         "source": "admin_canon_import",
+        "pack_version": _import_pack_version,
     })
     stages = write_pack_stages(char)
     db.commit()

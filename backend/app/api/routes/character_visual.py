@@ -1356,8 +1356,18 @@ def accept_identity_pack(
     _preserved_body_slots = _existing_anchor_data.get("body_slots") or {}
     _preserved_pack_stages = _existing_anchor_data.get("pack_stages") or {}
 
+    # Preserve the current pack_version so body slot staleness is not lost on accept.
+    # For new characters with no prior mutations this is 1.
+    _current_pack_version = int(_existing_anchor_data.get("pack_version") or 1)
+
+    # Stamp each anchor entry with the version at accept time so future
+    # increments can detect when they become stale.
+    for _ak, _av in anchors_dict.items():
+        _av["pack_version"] = _current_pack_version
+
     _new_anchor: dict = {
         "version": 1,
+        "pack_version": _current_pack_version,
         "locked_at": datetime.now(timezone.utc).isoformat(),
         "style": _style,
         "identity_prompt_hash": _prompt_hash,

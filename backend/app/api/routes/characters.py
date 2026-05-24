@@ -20,6 +20,7 @@ from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
 from app.models.user_image import UserImage
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult
+from app.services.pack_version import compute_identity_health
 
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
 _AVATAR_SIZE = (512, 512)
@@ -222,6 +223,7 @@ def get_character(
             detail="Character not found"
         )
     character.owner_username = character.owner.username if character.owner else None
+    character.identity_health = compute_identity_health(character)
     return character
 
 

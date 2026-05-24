@@ -133,6 +133,27 @@ def build_arm_side_binding_str(markings: list[BodyMarking], visible_regions: set
     return "ARM BINDING: " + ". ".join(parts)
 
 
+def build_short_arm_side_str(markings: list[BodyMarking], visible_regions: set) -> str:
+    """Build a compact arm side note for visible markings (simplified mode).
+
+    Format: "Right arm: {style}. Left arm: {style}."
+    Right arm listed before left to match canonical anchor ordering.
+    """
+    right_parts: list[str] = []
+    left_parts: list[str] = []
+    for m in markings:
+        side = get_arm_side(m.placement)
+        short_style = m.style.split(",")[0].strip()
+        if side == "right" and "right_arm" in visible_regions:
+            right_parts.append(f"Right arm: {short_style}")
+        elif side == "left" and "left_arm" in visible_regions:
+            left_parts.append(f"Left arm: {short_style}")
+    parts = right_parts + left_parts
+    if not parts:
+        return ""
+    return ". ".join(parts)
+
+
 def build_sleeve_enforcement_str(markings: list[BodyMarking], visible_regions: set) -> str:
     """Build hard identity text for full-sleeve tattoos on exposed arms.
 

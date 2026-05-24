@@ -135,11 +135,13 @@ def compile_identity_prompt(
     Hard cap: 800 characters. Trimming works backwards from section 6,
     preserving identity anchor and outfit.
     """
-    sections: list[str] = []
+    # Named sections: list[tuple[name, content]] — name is used by _trim_to_cap
+    # to remove lower-priority sections without index coupling.
+    sections: list[tuple[str, str]] = []
 
     # 1. Style token
     style_token = _STYLE_TOKENS.get(spec.style, _STYLE_TOKENS["realistic"])
-    sections.append(style_token)
+    sections.append(("style", style_token))
 
     # 2. Identity consistency anchor — canonical singular appearance lock
     # B34: conditionally extend with hair texture/length locks to prevent drift
@@ -154,7 +156,7 @@ def compile_identity_prompt(
         _hl = spec.identity.hair_length.lower()
         if any(kw in _hl for kw in _LONG_HAIR_KEYWORDS):
             _anchor += f" Hair length is {_hl} — do not shorten."
-    sections.append(_anchor)
+    sections.append(("anchor", _anchor))
 
     # 3. Identity anchor: gender + style + age band + identity core
     gender_noun = _GENDER_NOUN.get(spec.gender, spec.gender)
@@ -223,21 +225,21 @@ def compile_identity_prompt(
     if spec.facial_hair_type and spec.facial_hair_type != "none":
         identity_parts.append(spec.facial_hair_type.replace('_', ' '))
 
-    sections.append(", ".join(identity_parts))
+    sections.append(("identity", ", ".join(identity_parts)))
 
     # 3b. Species descriptor (only injected for non-human species)
     species_desc = _species_prompt(spec)
     if species_desc:
-        sections.append(species_desc)
+        sections.append(("species", species_desc))
 
     # 4. Neutral studio outfit (fixed; wardrobe field is accepted but ignored)
-    sections.append(NEUTRAL_STUDIO_OUTFIT)
-    sections.append("Keep this exact outfit unchanged across all 4 shots.")
+    sections.append(("outfit", NEUTRAL_STUDIO_OUTFIT))
+    sections.append(("outfit_lock", "Keep this exact outfit unchanged across all 4 shots."))
 
     # 5. Role shot requirement
     shot_desc = ROLE_SHOT_DESCRIPTION.get(role, "")
     if shot_desc:
-        sections.append(shot_desc)
+        sections.append(("shot", shot_desc))
 
     # 6. Body morphology (B16 / B34) + legacy build + marks/accessories
     build_parts: list[str] = []
@@ -267,16 +269,16 @@ def compile_identity_prompt(
     if spec.marks_accessories and spec.marks_accessories.items:
         build_parts.extend(spec.marks_accessories.items)
     if build_parts:
-        sections.append(", ".join(build_parts))
+        sections.append(("build", ", ".join(build_parts)))
 
     # 7. Vibe traits + lighting (extra_notes)
     if spec.extra_notes:
-        sections.append(spec.extra_notes)
+        sections.append(("extra_notes", spec.extra_notes))
 
     # Assemble with safety prefix
-    prompt = f"{_SAFETY_PREFIX}, " + ", ".join(sections)
+    prompt = f"{_SAFETY_PREFIX}, " + ", ".join(v for _, v in sections)
 
-    # Hard cap at 800 — trim from the end (sections 6, 5 first)
+    # Hard cap at 800 — trim by section name, never by index
     if len(prompt) > _PROMPT_CAP:
         prompt = _trim_to_cap(prompt, sections, failsafe)
 
@@ -284,28 +286,28 @@ def compile_identity_prompt(
 
 
 
+# Sections removed first when over cap, in this order (lowest priority first).
+# "build" (morphology), "species", "identity", "anchor", "outfit", "style" are never removed.
+_TRIM_ORDER = ("extra_notes", "outfit_lock", "shot")
+
+
 def _trim_to_cap(
     prompt: str,
-    sections: list[str],
+    sections: list[tuple[str, str]],
     failsafe: bool,
 ) -> str:
-    """Trim prompt to _PROMPT_CAP, removing lower-priority sections first.
+    """Trim prompt to _PROMPT_CAP by removing sections in _TRIM_ORDER.
 
-    Priority (highest first): style, identity anchor, outfit, shot, build, extra_notes
-    Removes from the back (extra_notes first, then build) to stay under cap.
-    Outfit (neutral studio) is never removed.
+    Trimming is name-based — immune to index shifts caused by conditional sections
+    (species, build, shot).  Protected sections (identity, species, build, outfit)
+    are never removed regardless of prompt length.  Last resort: hard truncate.
     """
-    # Rebuild without extra_notes
-    trimmed_sections = sections[:-1] if len(sections) > 6 else sections
-    prompt = f"{_SAFETY_PREFIX}, " + ", ".join(trimmed_sections)
-
-    if len(prompt) > _PROMPT_CAP:
-        # Drop build/marks section (index 6, after shot_desc at index 5)
-        if len(trimmed_sections) > 6:
-            trimmed_sections = trimmed_sections[:6] + trimmed_sections[7:]
-            prompt = f"{_SAFETY_PREFIX}, " + ", ".join(trimmed_sections)
-
-    # Last resort: hard truncate (but wardrobe is in sections 0-2, safe)
+    working = list(sections)
+    for name in _TRIM_ORDER:
+        working = [(n, v) for n, v in working if n != name]
+        prompt = f"{_SAFETY_PREFIX}, " + ", ".join(v for _, v in working)
+        if len(prompt) <= _PROMPT_CAP:
+            return prompt
     return prompt[:_PROMPT_CAP]
 
 

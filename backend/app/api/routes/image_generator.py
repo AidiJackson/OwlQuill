@@ -47,6 +47,7 @@ from app.services.body_canon import (
     load_markings,
     build_body_canon_lock_string,
     build_arm_side_binding_str,
+    build_short_arm_side_str,
     is_sleeve_marking,
     get_arm_side,
     build_sleeve_enforcement_str,
@@ -396,6 +397,25 @@ _MAX_PROVIDER_REFS = 6  # hard cap on total reference images sent to provider
 # enforcement together exceeded that budget, silently dropping tattoo signal.
 _STRICT_IDENTITY_PROMPT_MAX_CHARS = 2000
 
+# Simplified body canon instruction used when tattoos/body are visible.
+# Replaces the long per-marking token string; body_front carries the visual truth.
+_SIMPLIFIED_BODY_CANON_TEXT = (
+    "Permanent body markings must match the locked body reference image. "
+    "Tattoos appear only on exposed skin, never on clothing."
+)
+
+# Canonical body reference instruction — used when body_front is locked and tattoos are visible.
+# body_front is the single source of truth; no per-arm essays needed.
+_CANONICAL_BODY_REF_TEXT = (
+    "Match the locked body reference image exactly. "
+    "Preserve body shape, tattoo placement, sleeve coverage, hairstyle, and identity. "
+    "Tattoos are skin markings only, never printed on clothing."
+)
+
+# Ref types allowed when canonical body-front mode is active.
+# All other refs (tattoo_layout, body_anchor:*, torso, duplicate front) are stripped.
+_CANONICAL_BODY_REF_ALLOWED = frozenset({"body_identity:body_front", "front", "three_quarter"})
+
 # ── Body canon visibility detection ──────────────────────────────────
 # Signals that EXPLICITLY expose bare arms/skin — tattoo anchors only sent when these match.
 # A hidden tattoo is correct; a forced costume change is not.
@@ -553,6 +573,7 @@ def _build_strict_identity_prompt(
     character_id: int | None = None,
     arm_visibility_mode: str = "none",
     provider_name: str = "",
+    tattoo_simplified: bool = False,
 ) -> str:
     """Build a scene-first strict-identity prompt.
 
@@ -593,28 +614,32 @@ def _build_strict_identity_prompt(
 
     # 5. Body canon: markings where skin is naturally exposed.
     if body_canon_str:
-        # Core skin-surface rule: tattoos are on skin, never printed on fabric.
-        _skin_rule = (
-            "Tattoos are permanent ink on exposed skin only — "
-            "never printed on clothing or fabric"
-        )
-        # Arm-mode qualifier: partial exposure only shows forearm.
-        _arm_note = {
-            "partial": (
-                "only forearm and exposed upper arm are visible — "
-                "hide any portion beneath the shirt sleeve"
-            ),
-            "full": "render complete sleeve on bare skin",
-        }.get(arm_visibility_mode, "render only where skin is naturally exposed")
-        # OpenAI extra: reinforce shirt-print prohibition.
-        _provider_note = (
-            "; do not render tattoo as a printed pattern on the shirt"
-            if provider_name == "openai" else ""
-        )
-        section_body_canon = (
-            body_canon_str.rstrip(". ")
-            + f". {_skin_rule}; {_arm_note}{_provider_note}."
-        )
+        if tattoo_simplified:
+            # Simplified mode: body_canon_str is already the complete instruction.
+            # No extra skin-rule/arm-note/provider-note additions — body_front carries
+            # the visual truth; extra text adds noise rather than signal.
+            section_body_canon = body_canon_str.rstrip(". ")
+        else:
+            # Original mode: append skin rule, arm-mode qualifier, provider note.
+            _skin_rule = (
+                "Tattoos are permanent ink on exposed skin only — "
+                "never printed on clothing or fabric"
+            )
+            _arm_note = {
+                "partial": (
+                    "only forearm and exposed upper arm are visible — "
+                    "hide any portion beneath the shirt sleeve"
+                ),
+                "full": "render complete sleeve on bare skin",
+            }.get(arm_visibility_mode, "render only where skin is naturally exposed")
+            _provider_note = (
+                "; do not render tattoo as a printed pattern on the shirt"
+                if provider_name == "openai" else ""
+            )
+            section_body_canon = (
+                body_canon_str.rstrip(". ")
+                + f". {_skin_rule}; {_arm_note}{_provider_note}."
+            )
     else:
         section_body_canon = ""
 
@@ -989,18 +1014,12 @@ def generate_image(
                     character_id, _acc_id, _fit_status,
                 )
 
-        # ── Body canon anchor injection ───────────────────────────────
-        # For each body marking with a locked anchor image, check if the
-        # prompt implies that body area is visible. If so, append the anchor
-        # as a reference image. Priority: identity anchors → body anchors → text.
+        # ── Body canon ─────────────────────────────────────────────────
         _bc_visible_regions = _detect_visible_body_regions(provider_prompt.lower())
         _bc_anchors_used: list[str] = []
         _bc_anchors_missing: list[str] = []
 
         # Lazy sync: backfill body_canon_json from active tattoo style elements.
-        # Mirrors the same pattern used by GET /body-markings to ensure generation
-        # sees up-to-date markings even if the user never visited the body-markings
-        # page after their tattoos were applied (pre-migration or first-time setup).
         _bc_sync = sync_tattoo_style_elements_to_body_canon(character, db)
         if _bc_sync["created"] > 0 or _bc_sync["updated"] > 0:
             db.commit()
@@ -1008,13 +1027,21 @@ def generate_image(
 
         _bc_markings = load_markings(character)
 
-        # Visibility discipline: tattoo anchors and text tokens only when skin is explicitly bare.
-        # A hidden tattoo is correct; never force a costume change to expose markings.
         _tattoo_visibility_requested = bool(_bc_visible_regions)
         _clothing_detected = any(sig in provider_prompt.lower() for sig in _CLOTHING_COVER_SIGNALS)
 
-        # Build body canon text only for markings whose skin area is naturally visible.
-        # Face/neck/hand markings are always included; arm/torso only when explicitly bare.
+        # Peek at body slot status before text building — needed to choose canonical vs simplified.
+        _bi_slots = _load_body_slots(character)
+        _bf_entry_pre = _bi_slots.get("body_front") or {}
+        _body_front_available = (
+            _bf_entry_pre.get("status") == "locked"
+            and bool(_bf_entry_pre.get("url"))
+            and provider_supports_multi
+        )
+        # Canonical mode: body_front locked + tattoos visible → one ref, minimal text.
+        _body_front_canonical = _tattoo_visibility_requested and _body_front_available
+
+        # Filter markings to those whose skin area is naturally visible.
         _bc_text_markings = [
             m for m in _bc_markings
             if m.placement in _ALWAYS_VISIBLE_PLACEMENTS
@@ -1023,45 +1050,36 @@ def generate_image(
                 for region, placements in _BODY_REGION_PLACEMENTS.items()
             )
         ]
-        _body_canon_str = build_body_canon_lock_string(_bc_text_markings)
 
-        if _bc_visible_regions:
-            for _bm in _bc_markings:
-                _bm_placement = _bm.placement
-                # Determine which region this marking belongs to
-                _bm_region = next(
-                    (r for r, placements in _BODY_REGION_PLACEMENTS.items() if _bm_placement in placements),
-                    None,
-                )
-                if _bm_region not in _bc_visible_regions:
-                    continue
-                if _bm.anchor_status == "locked" and _bm.anchor_image_url:
-                    if provider_supports_multi:
-                        try:
-                            _bm_bytes = load_image_bytes(_bm.anchor_image_url)
-                            anchor_images = list(anchor_images) + [_bm_bytes]
-                            # Semantic label (e.g. "body_anchor:right_arm") so
-                            # _reorder_anchor_refs can sort by arm side consistently.
-                            anchor_types = list(anchor_types) + [f"body_anchor:{_bm_region}"]
-                            _bc_anchors_used.append(f"{_bm_region}:{_bm.id}({_bm_placement})")
-                        except Exception as _bm_exc:
-                            logger.warning(
-                                "BODY-CANON anchor_load_failed character_id=%s marking_id=%s error=%r",
-                                character_id, _bm.id, str(_bm_exc),
-                            )
-                            _bc_anchors_missing.append(f"{_bm.id}({_bm_placement}):load_err")
-                    else:
-                        _bc_anchors_missing.append(f"{_bm.id}({_bm_placement}):no_multi_image")
-                elif _bm_region in _bc_visible_regions:
-                    _bc_anchors_missing.append(f"{_bm.id}({_bm_placement}):status={_bm.anchor_status}")
+        # Body canon text:
+        #   canonical mode  → single short instruction; body_front is the visual truth
+        #   simplified mode → short instruction + compact arm side note (body_front absent)
+        #   no tattoo visible → full per-marking token list
+        if _body_front_canonical:
+            _body_canon_str = _CANONICAL_BODY_REF_TEXT
+        elif _tattoo_visibility_requested and _bc_text_markings:
+            _short_sides = build_short_arm_side_str(_bc_text_markings, _bc_visible_regions)
+            _body_canon_str = _SIMPLIFIED_BODY_CANON_TEXT
+            if _short_sides:
+                _body_canon_str += " " + _short_sides + "."
+        else:
+            _body_canon_str = build_body_canon_lock_string(_bc_text_markings)
+
+        # Body canon anchor refs: suppressed in simplified mode.
+        # body_front provides coherent face/body/tattoo context in one image;
+        # fragmented per-arm close-ups alongside it cause provider averaging/conflict.
+        # (Per-arm anchors remain available in non-tattoo-visible paths.)
 
         logger.info(
             "BODY-CANON character_id=%s markings_count=%d "
-            "visible_regions=%s anchors_used=%s anchors_missing=%s "
+            "visible_regions=%s canonical_mode=%s simplified_mode=%s "
+            "anchors_used=%s anchors_missing=%s "
             "text_token_len=%d provider_ref_count=%d",
             character_id,
             len(_bc_markings),
             sorted(_bc_visible_regions),
+            _body_front_canonical,
+            _tattoo_visibility_requested,
             _bc_anchors_used,
             _bc_anchors_missing,
             len(_body_canon_str),
@@ -1069,48 +1087,73 @@ def generate_image(
         )
 
         # ── Body identity anchor injection ────────────────────────────
-        # Load tattoo_layout (design map) and body_front (full-body context) when relevant.
-        # tattoo_layout: only for full arm exposure (sleeveless/shirtless) — skipped for
-        # partial (t-shirt) to avoid the full design map encouraging shirt-printing.
-        _bi_slots = _load_body_slots(character)
+        # Canonical mode (body_front locked + tattoos visible):
+        #   Load body_front only. After reorder, strip to [body_front, front, three_quarter].
+        # Simplified fallback (tattoos visible, body_front missing):
+        #   Load tattoo_layout as fallback.
+        # Non-tattoo-visible: body_front only when body is visible in scene.
+        # _bi_slots already loaded above (body canon text section).
         _body_visible = any(sig in provider_prompt.lower() for sig in _BODY_VISIBLE_SIGNALS)
         _markings_visible = _tattoo_visibility_requested
         _bi_refs_used: list[str] = []
         _tattoo_layout_used = False
+        _bf_loaded = False
         if provider_supports_multi:
+            _bf_entry = _bi_slots.get("body_front") or {}
             _tl_entry = _bi_slots.get("tattoo_layout") or {}
-            # Only send tattoo_layout when arms are fully bare — for partial coverage
-            # (t-shirt) the abstract design map can cause the model to render full
-            # shoulder-to-wrist sleeves through shirt fabric.
-            if _arm_visibility_mode == "full" and _tl_entry.get("status") == "locked" and _tl_entry.get("url"):
-                try:
-                    _tl_bytes = load_image_bytes(_tl_entry["url"])
-                    # tattoo_layout supplements body anchors — do NOT remove them.
-                    # Individual body_anchor:* refs are contextual per-arm photos;
-                    # tattoo_layout is an abstract design map. Both carry distinct signal.
-                    anchor_images = list(anchor_images) + [_tl_bytes]
-                    anchor_types = list(anchor_types) + ["body_identity:tattoo_layout"]
-                    _tattoo_layout_used = True
-                    _bi_refs_used.append("tattoo_layout")
-                except Exception as _tl_exc:
-                    logger.warning(
-                        "BODY-IDENTITY tattoo_layout_load_failed character_id=%s error=%r",
-                        character_id, str(_tl_exc),
-                    )
 
-            if _body_visible:
-                _bf_entry = _bi_slots.get("body_front") or {}
+            if _tattoo_visibility_requested:
+                # Tattoo visible — try body_front first.
                 if _bf_entry.get("status") == "locked" and _bf_entry.get("url"):
                     try:
                         _bf_bytes = load_image_bytes(_bf_entry["url"])
                         anchor_images = list(anchor_images) + [_bf_bytes]
                         anchor_types = list(anchor_types) + ["body_identity:body_front"]
                         _bi_refs_used.append("body_front")
+                        _bf_loaded = True
                     except Exception as _bf_exc:
                         logger.warning(
                             "BODY-IDENTITY body_front_load_failed character_id=%s error=%r",
                             character_id, str(_bf_exc),
                         )
+                # Fallback: tattoo_layout only when body_front is unavailable.
+                if not _bf_loaded and _tl_entry.get("status") == "locked" and _tl_entry.get("url"):
+                    try:
+                        _tl_bytes = load_image_bytes(_tl_entry["url"])
+                        anchor_images = list(anchor_images) + [_tl_bytes]
+                        anchor_types = list(anchor_types) + ["body_identity:tattoo_layout"]
+                        _tattoo_layout_used = True
+                        _bi_refs_used.append("tattoo_layout")
+                    except Exception as _tl_exc:
+                        logger.warning(
+                            "BODY-IDENTITY tattoo_layout_load_failed character_id=%s error=%r",
+                            character_id, str(_tl_exc),
+                        )
+            elif _body_visible:
+                # Non-tattoo-visible but body showing — load body_front for context.
+                if _bf_entry.get("status") == "locked" and _bf_entry.get("url"):
+                    try:
+                        _bf_bytes = load_image_bytes(_bf_entry["url"])
+                        anchor_images = list(anchor_images) + [_bf_bytes]
+                        anchor_types = list(anchor_types) + ["body_identity:body_front"]
+                        _bi_refs_used.append("body_front")
+                        _bf_loaded = True
+                    except Exception as _bf_exc:
+                        logger.warning(
+                            "BODY-IDENTITY body_front_load_failed character_id=%s error=%r",
+                            character_id, str(_bf_exc),
+                        )
+
+        # Simplified tattoo mode: drop torso refs — low-signal noise alongside body_front.
+        if _tattoo_visibility_requested and anchor_images:
+            _filtered_pairs = [
+                (img, t) for img, t in zip(anchor_images, anchor_types) if t != "torso"
+            ]
+            if _filtered_pairs:
+                anchor_images, anchor_types = zip(*_filtered_pairs)
+                anchor_images, anchor_types = list(anchor_images), list(anchor_types)
+            else:
+                anchor_images, anchor_types = [], []
 
         # Reorder anchor refs.  When tattoos are visible (tattoo_primary=True) the
         # body-canon reference becomes the dominant grounding signal — tattoo_layout /
@@ -1122,6 +1165,20 @@ def generate_image(
             anchor_images, anchor_types,
             tattoo_primary=_tattoo_primary,
         )
+
+        # Canonical body-front mode: enforce strict ref whitelist.
+        # body_front is the single visual truth — drop everything except body_front,
+        # front, and three_quarter. This prevents provider averaging across too many refs.
+        if _body_front_canonical and anchor_images:
+            _canonical_pairs = [
+                (img, t) for img, t in zip(anchor_images, anchor_types)
+                if t in _CANONICAL_BODY_REF_ALLOWED
+            ]
+            if _canonical_pairs:
+                anchor_images, anchor_types = zip(*_canonical_pairs)
+                anchor_images, anchor_types = list(anchor_images), list(anchor_types)
+            else:
+                anchor_images, anchor_types = [], []
 
         # Apply provider ref cap — lowest-priority refs (tattoo_layout) are cut first.
         if len(anchor_images) > _MAX_PROVIDER_REFS:
@@ -1163,8 +1220,6 @@ def generate_image(
         )
 
         # ── Sleeve enforcement ────────────────────────────────────────────
-        # Full-arm sleeve tattoos are hard anatomical identity when the arm is
-        # visible. Build firm per-arm sentences; warn when layout anchor is absent.
         _sleeve_left_required = False
         _sleeve_right_required = False
         _sleeve_missing_refs: list[str] = []
@@ -1182,22 +1237,21 @@ def generate_image(
                 if _bm.anchor_status != "locked":
                     _sleeve_missing_refs.append(f"right_sleeve_anchor:status={_bm.anchor_status}({_bm.id})")
 
-        _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _bc_visible_regions)
+        if _body_front_canonical:
+            # Canonical mode: body_front is the sole visual truth.
+            # No text essays needed — the ref image carries left/right placement.
+            _sleeve_enforcement_str = ""
+            _arm_side_binding_str = ""
+        elif _tattoo_visibility_requested:
+            # Simplified fallback (body_front absent): drop long sleeve essay + mirror guard.
+            # Short compact side note in body_canon_str is sufficient.
+            _sleeve_enforcement_str = ""
+            _arm_side_binding_str = build_short_arm_side_str(_bc_markings, _bc_visible_regions)
+        else:
+            _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _bc_visible_regions)
+            _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _bc_visible_regions)
 
-        # Arm side binding: explicit LEFT/RIGHT exclusivity block to prevent arm swap.
-        _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _bc_visible_regions)
-
-        # Mirror guard: when tattoo_layout is used, prepend anti-swap directive.
-        # The abstract design map shows both tattoo designs — reinforce that they
-        # are not interchangeable between arms.
-        if _tattoo_layout_used and _tattoo_visibility_requested:
-            _mirror_guard = "Mirror errors are incorrect. Do not swap left and right arm tattoos."
-            _sleeve_enforcement_str = (
-                _mirror_guard + ". " + _sleeve_enforcement_str
-                if _sleeve_enforcement_str else _mirror_guard
-            )
-
-        if (_sleeve_left_required or _sleeve_right_required) and not _tattoo_layout_used:
+        if (_sleeve_left_required or _sleeve_right_required) and not _tattoo_layout_used and not _tattoo_visibility_requested:
             _tl_status = (_bi_slots.get("tattoo_layout") or {}).get("status", "missing")
             if _tl_status != "locked":
                 _sleeve_missing_refs.append(f"tattoo_layout:status={_tl_status}")
@@ -1359,6 +1413,7 @@ def generate_image(
             character_id=character_id,
             arm_visibility_mode=_arm_visibility_mode,
             provider_name=resolved_provider_name,
+            tattoo_simplified=_tattoo_visibility_requested,
         )
 
         # DIAG: full identity payload snapshot — what is actually sent to the provider
@@ -1495,6 +1550,7 @@ def generate_image(
                 character_id=character_id,
                 arm_visibility_mode=_arm_visibility_mode,
                 provider_name=resolved_provider_name,
+                tattoo_simplified=_tattoo_visibility_requested,
             )
 
             if provider_supports_multi and anchor_images:
@@ -1641,6 +1697,7 @@ def generate_image(
             character_id=character_id,
             arm_visibility_mode=_arm_visibility_mode,
             provider_name=resolved_provider_name,
+            tattoo_simplified=_tattoo_visibility_requested,
         )
         cover_retry_png: bytes | None = None
         if provider_supports_multi and anchor_images:

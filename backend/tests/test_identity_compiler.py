@@ -1027,3 +1027,123 @@ class TestB34StatureFidelity:
         spec = _make_morphology_spec(body_height="short", body_build="slim")
         prompt = compile_identity_prompt(spec, "anchor_full_body")
         assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"
+
+
+# ── Trim compiler hardening: named-section trimming invariants ────────
+#
+# These tests exercise the _trim_to_cap path by constructing specs whose
+# assembled prompt exceeds 800 chars, then asserting that protected sections
+# survive (build/morphology, species) and only low-priority sections are
+# removed (extra_notes, outfit_lock, shot).
+#
+# The over-cap load is achieved with a long extra_notes + many marks items.
+# A long marks list alone pushes total > 800; coupling with extra_notes
+# guarantees even harder trim pressure.
+
+def _make_overcap_human_spec(*, body_build="athletic", extra_notes: str = "") -> CharacterIdentitySpec:
+    """Human spec whose assembled prompt exceeds 800 chars due to many marks items."""
+    spec = CharacterIdentitySpec(
+        style="realistic",
+        gender="female",
+        age_band="26-35",
+        identity=IdentityCore(
+            hair_color="auburn",
+            hair_length="long",
+            eye_color="green",
+            skin_tone="fair",
+        ),
+        marks_accessories=IdentityMarksAccessories(
+            items=["ornate full-sleeve tattoo with intricate floral pattern"] * 15,
+        ),
+        extra_notes=extra_notes,
+    )
+    spec.body_build = body_build
+    return spec
+
+
+def _make_overcap_species_spec(species: str, *, body_build="muscular") -> CharacterIdentitySpec:
+    """Non-human spec whose assembled prompt exceeds 800 chars."""
+    spec = CharacterIdentitySpec(
+        style="realistic",
+        gender="male",
+        age_band="26-35",
+        species=species,
+        species_tells=["glowing amber eyes", "elongated canines", "subtle fur texture"],
+        identity=IdentityCore(
+            hair_color="dark brown",
+            hair_length="short",
+            eye_color="amber",
+            skin_tone="medium",
+        ),
+        marks_accessories=IdentityMarksAccessories(
+            items=["ritual scar on left cheek", "pack sigil tattoo on forearm"] * 8,
+        ),
+        extra_notes="moonlit warrior energy, primal intensity",
+    )
+    spec.body_build = body_build
+    return spec
+
+
+class TestTrimCompilerHardening:
+    """Named-section trim invariants: protected sections survive cap trimming."""
+
+    def test_build_survives_trim_without_extra_notes(self):
+        """Build/morphology must survive when extra_notes is absent and prompt is over cap."""
+        spec = _make_overcap_human_spec(body_build="muscular", extra_notes="")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert len(prompt) <= 800
+        assert "muscular build" in prompt.lower(), (
+            f"Build trimmed when extra_notes absent — should never be removed. Prompt: {prompt!r}"
+        )
+
+    def test_build_survives_trim_with_extra_notes(self):
+        """Build/morphology must survive even when extra_notes was present and removed."""
+        spec = _make_overcap_human_spec(
+            body_build="athletic",
+            extra_notes="warm dramatic cinematic lighting, moody atmospheric depth",
+        )
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert len(prompt) <= 800
+        assert "athletic build" in prompt.lower(), (
+            f"Build trimmed after extra_notes removal — should be protected. Prompt: {prompt!r}"
+        )
+
+    def test_non_human_species_survives_trim(self):
+        """Species section must not be dropped due to index shift when prompt is over cap."""
+        spec = _make_overcap_species_spec("vampire")
+        prompt = compile_identity_prompt(spec, "anchor_front")
+        assert len(prompt) <= 800
+        assert "vampire" in prompt.lower(), (
+            f"Species 'vampire' trimmed from over-cap prompt — must be protected. Prompt: {prompt!r}"
+        )
+
+    def test_werewolf_and_morphology_both_survive_trim(self):
+        """Both species identity and build must survive together under trim pressure."""
+        spec = _make_overcap_species_spec("werewolf", body_build="muscular")
+        prompt = compile_identity_prompt(spec, "anchor_full_body")
+        assert len(prompt) <= 800
+        assert "werewolf" in prompt.lower(), (
+            f"Species 'werewolf' lost under trim: {prompt!r}"
+        )
+        assert "muscular build" in prompt.lower(), (
+            f"Morphology 'muscular' lost under trim: {prompt!r}"
+        )
+
+    def test_over_cap_trims_optional_sections_first(self):
+        """extra_notes must be removed before any protected section when over cap."""
+        notes = "warm golden hour atmospheric lighting with cinematic depth"
+        spec = _make_overcap_human_spec(body_build="slim", extra_notes=notes)
+        prompt_with_notes = compile_identity_prompt(spec, "anchor_front")
+        # extra_notes must be gone; identity core must survive
+        assert len(prompt_with_notes) <= 800
+        assert notes not in prompt_with_notes, "extra_notes should have been removed first"
+        assert "auburn" in prompt_with_notes.lower(), "Identity hair color must not be removed"
+        assert "slim build" in prompt_with_notes.lower(), "Build must survive after extra_notes removal"
+
+    def test_deterministic_ordering_independent_of_missing_sections(self):
+        """Prompts must be identical on repeated calls regardless of which optional sections exist."""
+        spec_a = _make_overcap_human_spec(body_build="stocky", extra_notes="")
+        spec_b = _make_overcap_human_spec(body_build="stocky", extra_notes="")
+        prompt_a = compile_identity_prompt(spec_a, "anchor_front")
+        prompt_b = compile_identity_prompt(spec_b, "anchor_front")
+        assert prompt_a == prompt_b, "Same spec must always produce identical trimmed prompt"
