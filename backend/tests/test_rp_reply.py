@@ -2047,3 +2047,116 @@ class TestEndpointTask5Fields:
             "godmod_detected should be True when generate_rp_reply reports a hard violation"
         )
         assert data["godmod_severity"] == "hard"
+
+
+# ── perspective enforcement tests ─────────────────────────────────────────────
+
+class TestPerspectiveEnforcement:
+    """Tests for third-person perspective instruction strength and first-person
+    narration detection (detect_first_person_narration)."""
+
+    def test_third_person_prompt_includes_explicit_prohibition(self):
+        """build_rp_prompt_layers with third_person_limited must include an explicit
+        prohibition on first-person pronouns in narrative prose."""
+        from app.services.storylab_generator import build_rp_prompt_layers
+        layers = build_rp_prompt_layers(
+            partner_reply=_LENNOX_REPLY,
+            response_length="match",
+            style_match="soft",
+            perspective="third_person_limited",
+            formatting="plain",
+        )
+        style = layers["style"]
+        assert 'Do NOT use' in style, "style layer must prohibit first-person pronouns"
+        assert 'first-person' in style.lower() or '"I"' in style, (
+            "style layer must reference first-person pronouns explicitly"
+        )
+        assert 'quoted dialogue' in style.lower(), (
+            "style layer must state that first-person is allowed only inside quoted dialogue"
+        )
+
+    def test_first_person_prompt_unchanged(self):
+        """build_rp_prompt_layers with first_person must NOT include the third-person
+        prohibition — the instruction only applies to third_person_limited."""
+        from app.services.storylab_generator import build_rp_prompt_layers
+        layers = build_rp_prompt_layers(
+            partner_reply=_LENNOX_REPLY,
+            response_length="match",
+            style_match="soft",
+            perspective="first_person",
+            formatting="plain",
+        )
+        style = layers["style"]
+        assert 'first person' in style.lower()
+        assert 'Do NOT use' not in style
+
+    def test_detect_first_person_narration_flags_bare_i(self):
+        """Bare 'I' in narration prose must be flagged as a violation."""
+        from app.services.storylab_generator import detect_first_person_narration
+        result = detect_first_person_narration("I walked toward her across the room.")
+        assert result["has_violation"] is True
+        assert result["excerpt"] != ""
+
+    def test_detect_first_person_narration_flags_me(self):
+        """'me' in narration prose must be flagged as a violation."""
+        from app.services.storylab_generator import detect_first_person_narration
+        result = detect_first_person_narration("She looked at me with no expression at all.")
+        assert result["has_violation"] is True
+
+    def test_detect_first_person_narration_flags_my(self):
+        """'my' in narration prose must be flagged as a violation."""
+        from app.services.storylab_generator import detect_first_person_narration
+        result = detect_first_person_narration("My hands wouldn't stop shaking.")
+        assert result["has_violation"] is True
+
+    def test_detect_first_person_narration_flags_myself(self):
+        """'myself' in narration prose must be flagged as a violation."""
+        from app.services.storylab_generator import detect_first_person_narration
+        result = detect_first_person_narration("I caught myself before I could say anything.")
+        assert result["has_violation"] is True
+
+    def test_detect_first_person_narration_ignores_quoted_dialogue(self):
+        """"I" inside quoted dialogue must NOT trigger a violation."""
+        from app.services.storylab_generator import detect_first_person_narration
+        result = detect_first_person_narration(
+            '"I want you to look at me," Leonardo said, turning from the window.'
+        )
+        assert result["has_violation"] is False, (
+            "first-person pronouns inside quoted dialogue must be exempt"
+        )
+
+    def test_detect_first_person_narration_ignores_mixed_clean(self):
+        """Third-person narration with first-person only inside dialogue is clean."""
+        from app.services.storylab_generator import detect_first_person_narration
+        text = (
+            'He crossed the room without speaking. '
+            '"I didn\'t mean it like that," he said finally. '
+            'She watched him, waiting.'
+        )
+        result = detect_first_person_narration(text)
+        assert result["has_violation"] is False
+
+    def test_detect_first_person_narration_clean_third_person(self):
+        """Pure third-person prose with no first-person pronouns must not fire."""
+        from app.services.storylab_generator import detect_first_person_narration
+        result = detect_first_person_narration(
+            "He turned away from the window. Something tightened behind his sternum. "
+            "She hadn't moved. The room felt smaller than it had been a moment ago."
+        )
+        assert result["has_violation"] is False
+
+    def test_perspective_threads_through_prompt_layers(self):
+        """build_rp_reply_prompt must preserve perspective='third_person_limited'
+        in the style layer it returns — no layer should silently override it."""
+        from app.services.storylab_generator import build_rp_prompt_layers
+        layers = build_rp_prompt_layers(
+            partner_reply=_LENNOX_REPLY,
+            response_length="short",
+            style_match="off",
+            perspective="third_person_limited",
+            formatting="plain",
+            character_name="Rowan",
+        )
+        style = layers["style"]
+        assert "third person limited" in style.lower()
+        assert '"Rowan"' in style

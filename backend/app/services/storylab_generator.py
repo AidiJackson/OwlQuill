@@ -3230,8 +3230,34 @@ def _rp_perspective_instruction(perspective: str, character_name: str) -> str:
     name_note = f' ("{character_name}")' if character_name else ""
     return (
         f"Perspective: third person limited{name_note}. "
-        "Stay tightly inside your character's viewpoint — their observations, sensations, and thoughts only."
+        "Stay tightly inside your character's viewpoint — their observations, sensations, and thoughts only. "
+        'Do NOT use "I", "me", "my", or "myself" in narrative prose. '
+        "First-person pronouns may only appear inside quoted dialogue."
     )
+
+
+# ── first-person narration detector ───────────────────────────────────────────
+
+_QUOTED_SPAN_RE = re.compile(r'"[^"]*"')
+_FIRST_PERSON_NARRATION_RE = re.compile(r'\b(I|me|my|myself)\b', re.IGNORECASE)
+
+
+def detect_first_person_narration(text: str) -> dict:
+    """Return {"has_violation": bool, "excerpt": str}.
+
+    Strips all double-quoted spans (dialogue) from *text*, then checks the
+    remaining narration prose for first-person pronouns (I / me / my / myself).
+    Quoted dialogue is explicitly allowed — '"I want you to look at me," Leonardo said'
+    will not trigger a violation.
+    """
+    stripped = _QUOTED_SPAN_RE.sub("", text)
+    m = _FIRST_PERSON_NARRATION_RE.search(stripped)
+    if not m:
+        return {"has_violation": False, "excerpt": ""}
+    start = max(0, m.start() - 30)
+    end = min(len(stripped), m.end() + 30)
+    excerpt = stripped[start:end].strip()
+    return {"has_violation": True, "excerpt": excerpt}
 
 
 # ── formatting instruction ─────────────────────────────────────────────────────
@@ -4045,6 +4071,51 @@ def generate_rp_reply(
                             pov_warnings.append(
                                 f"POV warning: wrong-POV detected but retry failed. "
                                 f"({pov_result['reason']})"
+                            )
+
+                # ── perspective (first-person narration) retry ────────────────
+                # Only fires when no other retry was already triggered (one retry max).
+                # Quoted dialogue is exempt — only bare narration prose is checked.
+                if not retry_triggered and perspective == RPReplyPerspective.third_person_limited:
+                    _fp = detect_first_person_narration(reply)
+                    if _fp["has_violation"]:
+                        retry_triggered = True
+                        char_label = character_name or "the selected character"
+                        perspective_correction = (
+                            "CRITICAL CORRECTION — READ FIRST:\n"
+                            'Your previous output used first-person narration ("I", "me", "my") '
+                            "outside of quoted dialogue. This violates the third-person limited perspective.\n"
+                            f"Rewrite the reply as {char_label} using ONLY third-person narration. "
+                            '"I" / "me" / "my" / "myself" may appear ONLY inside quoted speech.\n'
+                            'Every narrative sentence must use "he", "she", "they", or the character\'s name.'
+                        )
+                        logger.info(
+                            "[SL-DIAG] perspective_retry triggered | excerpt=%r | model=%s",
+                            _fp["excerpt"], model_slug,
+                        )
+                        try:
+                            retry_reply, retry_ms, _ = _call_openrouter_rp_reply(
+                                partner_reply=partner_reply,
+                                response_length=response_length,
+                                style_match=style_match,
+                                perspective=perspective,
+                                formatting=formatting,
+                                intensity=intensity,
+                                model_slug=model_slug,
+                                instructions=instructions,
+                                character_context=character_context,
+                                canon_summary=canon_summary,
+                                character_name=character_name,
+                                heat_level=heat_level,
+                                style_archetype=style_archetype,
+                                pov_correction=perspective_correction,
+                            )
+                            generation_time_ms += retry_ms
+                            reply = retry_reply
+                        except Exception as retry_exc:  # noqa: BLE001
+                            logger.warning(
+                                "[SL-DIAG] perspective_retry failed: %s — using original reply",
+                                retry_exc,
                             )
 
                 # ── Godmod output gate ────────────────────────────────────────
