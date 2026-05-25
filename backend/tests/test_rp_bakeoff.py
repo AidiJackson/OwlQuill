@@ -136,22 +136,36 @@ def test_evaluate_format_score_mismatched_bars():
 
 def test_anti_godmod_warns_on_partner_reactions():
     from app.services.storylab_generator import _check_rp_reply_output
+    from app.services.godmod_validator import detect_godmod_violations
     godmodded = (
         "He moved toward her. She gasped. She flinched and stepped back from him. "
         "She trembled. He watched her reaction carefully."
     )
+    # Task #6: _check_rp_reply_output no longer emits physical-reaction warnings —
+    # that check was removed because detect_godmod_violations handles it with retry support.
     warnings = _check_rp_reply_output(godmodded)
-    assert any("physical reaction" in w.lower() or "partner" in w.lower() for w in warnings)
+    assert not any("physical reaction" in w.lower() or "partner" in w.lower() for w in warnings)
+    # detect_godmod_violations must still catch involuntary physical reactions as a hard violation.
+    result = detect_godmod_violations(godmodded, selected_pronouns=["he", "him"])
+    assert result["has_violation"] is True
+    assert result["severity"] == "hard"
 
 
 def test_anti_godmod_warns_on_consent_resolution():
     from app.services.storylab_generator import _check_rp_reply_output
+    from app.services.godmod_validator import detect_godmod_violations
     consent_text = (
         "He reached for her and she let him. She allowed him to take her hand. "
         "She permitted him to step closer. She accepted his presence in the room."
     )
+    # Task #6: _check_rp_reply_output no longer emits consent/agency warnings —
+    # that check was removed because detect_godmod_violations handles it with retry support.
     warnings = _check_rp_reply_output(consent_text)
-    assert any("consent" in w.lower() or "agency" in w.lower() for w in warnings)
+    assert not any("consent" in w.lower() or "agency" in w.lower() for w in warnings)
+    # detect_godmod_violations must still catch consent/agency resolution as a hard violation.
+    result = detect_godmod_violations(consent_text, selected_pronouns=["he", "him"])
+    assert result["has_violation"] is True
+    assert result["severity"] == "hard"
 
 
 def test_anti_godmod_no_warnings_for_clean_reply():
