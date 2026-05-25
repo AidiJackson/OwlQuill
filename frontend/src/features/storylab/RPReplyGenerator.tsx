@@ -44,12 +44,14 @@ const IS_INTERNAL =
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
+  theme: 'diamond' | 'obsidian';
   preselectedCharacterId?: number | null;
   preselectedStoryId?: string | null;
 }
 
-export default function RPReplyGenerator({ preselectedCharacterId, preselectedStoryId }: Props) {
+export default function RPReplyGenerator({ theme, preselectedCharacterId, preselectedStoryId }: Props) {
   const [partnerReply, setPartnerReply] = useState('');
+  const [partnerReplyOpen, setPartnerReplyOpen] = useState(false);
   const [instructions, setInstructions] = useState('');
   const [characterId, setCharacterId] = useState<number | null>(preselectedCharacterId ?? null);
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -104,6 +106,60 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
 
   // Derive internal heat_level from user-facing content level
   const heatLevel: RPReplyHeatLevel = contentLevel === 'explicit' ? 'inferno' : contentLevel === 'mature' ? 'flame' : 'embers';
+
+  // ── Theme tokens ────────────────────────────────────────────────────────────
+  const isDiamond = theme === 'diamond';
+
+  const labelCls = isDiamond ? 'text-gray-700' : 'text-gray-300';
+  const subLabelCls = isDiamond ? 'text-gray-400' : 'text-gray-600';
+
+  const inputCls = isDiamond
+    ? 'w-full bg-white border border-gray-200 rounded-2xl px-4 py-3.5 text-sm text-gray-900 placeholder-gray-400 resize-y focus:outline-none focus:border-emerald-400 transition leading-relaxed'
+    : 'w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3.5 text-sm text-gray-100 placeholder-gray-700 resize-y focus:outline-none focus:border-gray-600 transition leading-relaxed';
+
+  const selectCls = isDiamond
+    ? 'w-full bg-white border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-emerald-400 transition'
+    : 'w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3 text-sm text-gray-100 focus:outline-none focus:border-gray-600 transition';
+
+  const advancedPanelCls = isDiamond ? 'border-gray-200' : 'border-gray-800/50';
+  const advancedBtnCls = isDiamond
+    ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-100/50'
+    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-900/30';
+  const advancedInnerBorderCls = isDiamond ? 'border-gray-200/70' : 'border-gray-800/40';
+  const advancedLabelCls = isDiamond
+    ? 'text-xs font-medium text-gray-400 uppercase tracking-wide'
+    : 'text-xs font-medium text-gray-500 uppercase tracking-wide';
+
+  function smallBtnCls(active: boolean, accent: 'emerald' | 'orange' = 'emerald') {
+    if (active) {
+      if (isDiamond) {
+        return accent === 'emerald'
+          ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
+          : 'border-orange-400/60 bg-orange-50/50 text-orange-700';
+      }
+      return accent === 'emerald'
+        ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
+        : 'border-orange-600/60 bg-orange-950/30 text-orange-200';
+    }
+    return isDiamond
+      ? 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
+      : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300';
+  }
+
+  const outputTextareaCls = isDiamond
+    ? 'w-full bg-white border border-gray-300 rounded-2xl px-4 py-4 text-sm text-gray-900 resize-y focus:outline-none focus:border-gray-400 transition leading-relaxed'
+    : 'w-full bg-gray-900/70 border border-gray-700 rounded-2xl px-4 py-4 text-sm text-gray-100 resize-y focus:outline-none focus:border-gray-500 transition leading-relaxed';
+
+  const partnerFilled = partnerReply.trim().length > 0;
+  const partnerHeaderCls = isDiamond
+    ? 'w-full flex items-center justify-between px-4 py-3 text-sm rounded-2xl border transition group'
+    : 'w-full flex items-center justify-between px-4 py-3 text-sm rounded-2xl border transition group';
+  const partnerHeaderIdleCls = isDiamond
+    ? 'border-gray-200 bg-white hover:border-gray-300'
+    : 'border-gray-800 bg-gray-900/40 hover:border-gray-700';
+  const partnerHeaderOpenCls = isDiamond
+    ? 'border-emerald-300 bg-emerald-50/30 rounded-b-none'
+    : 'border-gray-700 bg-gray-900/60 rounded-b-none';
 
   async function handleGenerate() {
     if (!partnerReply.trim()) return;
@@ -221,30 +277,55 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
   return (
     <div className="max-w-2xl w-full mx-auto px-4 py-10 space-y-7">
 
-      {/* Partner Reply */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-300">
-          Partner's reply
-        </label>
-        <textarea
-          value={partnerReply}
-          onChange={(e) => setPartnerReply(e.target.value)}
-          placeholder="Paste your writing partner's reply here…"
-          rows={9}
-          className="w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3.5 text-sm text-gray-100 placeholder-gray-700 resize-y focus:outline-none focus:border-gray-600 transition leading-relaxed"
-        />
+      {/* Partner Reply — collapsible */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setPartnerReplyOpen(v => !v)}
+          className={`${partnerHeaderCls} ${partnerReplyOpen ? partnerHeaderOpenCls : partnerHeaderIdleCls}`}
+        >
+          <div className="flex items-center gap-2">
+            <span className={`font-medium ${labelCls}`}>Partner's reply</span>
+            {partnerFilled && !partnerReplyOpen && (
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${isDiamond ? 'bg-emerald-100 text-emerald-600' : 'bg-emerald-900/40 text-emerald-400'}`}>
+                draft added
+              </span>
+            )}
+          </div>
+          <svg
+            className={`w-4 h-4 transition-transform duration-200 ${partnerReplyOpen ? 'rotate-180' : ''} ${isDiamond ? 'text-gray-400' : 'text-gray-600'}`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {partnerReplyOpen && (
+          <div className={`border border-t-0 rounded-2xl rounded-t-none px-4 pt-3 pb-4 ${isDiamond ? 'border-emerald-300 bg-emerald-50/20' : 'border-gray-700 bg-gray-900/40'}`}>
+            <textarea
+              value={partnerReply}
+              onChange={(e) => setPartnerReply(e.target.value)}
+              placeholder="Paste your writing partner's reply here…"
+              rows={9}
+              className={inputCls}
+            />
+          </div>
+        )}
       </div>
 
       {/* Character selector */}
       {characters.length > 0 && (
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-300">
-            Your character <span className="text-gray-600 font-normal">(optional)</span>
+          <label className={`block text-sm font-medium ${labelCls}`}>
+            Your character <span className={`font-normal ${subLabelCls}`}>(optional)</span>
           </label>
           <select
             value={characterId ?? ''}
             onChange={(e) => setCharacterId(e.target.value ? Number(e.target.value) : null)}
-            className="w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3 text-sm text-gray-100 focus:outline-none focus:border-gray-600 transition"
+            className={selectCls}
           >
             <option value="">No character selected</option>
             {characters.map((c) => (
@@ -256,32 +337,28 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
 
       {/* Instructions */}
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-300">
-          Your guidance <span className="text-gray-600 font-normal">(optional)</span>
+        <label className={`block text-sm font-medium ${labelCls}`}>
+          Your guidance <span className={`font-normal ${subLabelCls}`}>(optional)</span>
         </label>
         <textarea
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
           placeholder="e.g. He doesn't kiss her yet. Restrained, deliberate. Do not control her reactions."
           rows={3}
-          className="w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3.5 text-sm text-gray-100 placeholder-gray-700 resize-y focus:outline-none focus:border-gray-600 transition leading-relaxed"
+          className={inputCls}
         />
       </div>
 
       {/* Content level */}
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-300">Content level</label>
+        <label className={`block text-sm font-medium ${labelCls}`}>Content level</label>
         <div className="flex gap-2">
           {CONTENT_LEVEL_OPTIONS.map(({ val, label }) => (
             <button
               key={val}
               type="button"
               onClick={() => setContentLevel(val)}
-              className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition ${
-                contentLevel === val
-                  ? 'border-orange-600/60 bg-orange-950/30 text-orange-200'
-                  : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
-              }`}
+              className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition ${smallBtnCls(contentLevel === val, 'orange')}`}
             >
               {label}
             </button>
@@ -295,34 +372,30 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
       </div>
 
       {/* Advanced options — collapsed by default */}
-      <div className="border border-gray-800/50 rounded-2xl overflow-hidden">
+      <div className={`border ${advancedPanelCls} rounded-2xl overflow-hidden`}>
         <button
           type="button"
           onClick={() => setShowAdvanced(v => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-500 hover:text-gray-300 hover:bg-gray-900/30 transition"
+          className={`w-full flex items-center justify-between px-4 py-3 text-sm transition ${advancedBtnCls}`}
         >
           <span className="font-medium">Advanced options</span>
-          <span className="text-gray-700 select-none">{showAdvanced ? '▲' : '▼'}</span>
+          <span className={`select-none ${isDiamond ? 'text-gray-400' : 'text-gray-700'}`}>{showAdvanced ? '▲' : '▼'}</span>
         </button>
 
         {showAdvanced && (
-          <div className="px-4 pb-5 pt-1 space-y-5 border-t border-gray-800/40">
+          <div className={`px-4 pb-5 pt-1 space-y-5 border-t ${advancedInnerBorderCls}`}>
 
             {/* Length + Style Match */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Length</label>
+                <label className={advancedLabelCls}>Length</label>
                 <div className="flex flex-col gap-1.5">
                   {(['short', 'match', 'long', 'novella'] as RPReplyResponseLength[]).map((val) => (
                     <button
                       key={val}
                       type="button"
                       onClick={() => setResponseLength(val)}
-                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${
-                        responseLength === val
-                          ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
-                          : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
-                      }`}
+                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${smallBtnCls(responseLength === val)}`}
                     >
                       {val.charAt(0).toUpperCase() + val.slice(1)}
                     </button>
@@ -331,18 +404,14 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Style match</label>
+                <label className={advancedLabelCls}>Style match</label>
                 <div className="flex flex-col gap-1.5">
                   {(['off', 'soft', 'strong'] as RPReplyStyleMatch[]).map((val) => (
                     <button
                       key={val}
                       type="button"
                       onClick={() => setStyleMatch(val)}
-                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${
-                        styleMatch === val
-                          ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
-                          : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
-                      }`}
+                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${smallBtnCls(styleMatch === val)}`}
                     >
                       {val.charAt(0).toUpperCase() + val.slice(1)}
                     </button>
@@ -354,7 +423,7 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
             {/* Perspective + Formatting */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Perspective</label>
+                <label className={advancedLabelCls}>Perspective</label>
                 <div className="flex flex-col gap-1.5">
                   {([
                     { val: 'first_person' as RPReplyPerspective, label: '1st Person' },
@@ -364,11 +433,7 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
                       key={val}
                       type="button"
                       onClick={() => setPerspective(val)}
-                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${
-                        perspective === val
-                          ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
-                          : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
-                      }`}
+                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${smallBtnCls(perspective === val)}`}
                     >
                       {label}
                     </button>
@@ -377,7 +442,7 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Formatting</label>
+                <label className={advancedLabelCls}>Formatting</label>
                 <div className="flex flex-col gap-1.5">
                   {([
                     { val: 'plain' as RPReplyFormatting, label: 'Plain prose' },
@@ -387,11 +452,7 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
                       key={val}
                       type="button"
                       onClick={() => setFormatting(val)}
-                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${
-                        formatting === val
-                          ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
-                          : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
-                      }`}
+                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${smallBtnCls(formatting === val)}`}
                     >
                       {label}
                     </button>
@@ -446,7 +507,11 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
         type="button"
         onClick={handleGenerate}
         disabled={loading || !partnerReply.trim()}
-        className="w-full py-3.5 rounded-2xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-semibold text-sm tracking-wide transition-colors"
+        className={`w-full py-3.5 rounded-2xl font-semibold text-sm tracking-wide transition-colors ${
+          isDiamond
+            ? 'bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-200 disabled:text-gray-400 text-white'
+            : 'bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-600 text-white'
+        }`}
       >
         {loading ? 'Generating…' : 'Generate Reply'}
       </button>
@@ -493,7 +558,7 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
       {reply && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-gray-300">
+            <label className={`text-sm font-medium ${labelCls}`}>
               Generated reply
             </label>
             <div className="flex items-center gap-2">
@@ -509,7 +574,7 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
               <button
                 type="button"
                 onClick={handleCopy}
-                className="text-xs text-gray-500 hover:text-gray-300 transition px-2.5 py-1.5 rounded-lg border border-gray-800 hover:border-gray-600"
+                className={`text-xs transition px-2.5 py-1.5 rounded-lg border ${isDiamond ? 'text-gray-500 hover:text-gray-700 border-gray-200 hover:border-gray-300' : 'text-gray-500 hover:text-gray-300 border-gray-800 hover:border-gray-600'}`}
               >
                 {copied ? 'Copied' : 'Copy'}
               </button>
@@ -520,7 +585,7 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             rows={12}
-            className="w-full bg-gray-900/70 border border-gray-700 rounded-2xl px-4 py-4 text-sm text-gray-100 resize-y focus:outline-none focus:border-gray-500 transition leading-relaxed"
+            className={outputTextareaCls}
           />
 
           {/* Internal diagnostics */}

@@ -7,27 +7,56 @@ import { apiClient } from '@/lib/apiClient';
 import type { StoryRecord } from '@/lib/types';
 import { isUuidLike, deriveReadableTitle } from '@/lib/storyTitleUtils';
 
+export type Theme = 'diamond' | 'obsidian';
 type Mode = null | 'collaborate' | 'rp_reply';
 
 const RECENT_STORIES_LIMIT = 5;
+const THEME_KEY = 'ficshon_storylab_theme';
 
 function storyLabel(s: StoryRecord): string {
   if (s.title && !isUuidLike(s.title)) return s.title;
   return deriveReadableTitle(s.premise);
 }
 
+function ChevronDown({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={`w-4 h-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
 export default function StoryLab() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-
   const [stories, setStories] = useState<StoryRecord[]>([]);
   const [loadingStories, setLoadingStories] = useState(true);
+  const [storiesOpen, setStoriesOpen] = useState(true);
+
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      const stored = localStorage.getItem(THEME_KEY);
+      return stored === 'obsidian' ? 'obsidian' : 'diamond';
+    } catch {
+      return 'diamond';
+    }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* ignore */ }
+  }, [theme]);
 
   useEffect(() => {
     apiClient.listStories()
-      .then((s) => setStories(s))
-      .catch(() => { /* non-fatal — no stories visible but app still works */ })
+      .then(setStories)
+      .catch(() => {})
       .finally(() => setLoadingStories(false));
   }, []);
 
@@ -37,30 +66,113 @@ export default function StoryLab() {
   }
 
   const recentStories = stories.slice(0, RECENT_STORIES_LIMIT);
-  const hasMoreStories = stories.length > RECENT_STORIES_LIMIT;
+  const isDiamond = theme === 'diamond';
+
+  // ── theme-derived class tokens ─────────────────────────────────────────────
+  const page = isDiamond
+    ? 'min-h-screen bg-gradient-to-b from-stone-50 via-white to-stone-50 text-gray-900 flex flex-col'
+    : 'min-h-screen bg-gray-950 text-gray-100 flex flex-col';
+
+  const heading = isDiamond ? 'text-gray-900' : 'text-gray-100';
+  const sub = isDiamond ? 'text-gray-500' : 'text-gray-500';
+
+  const modeCardBase = isDiamond
+    ? 'group text-left p-5 rounded-2xl border bg-white shadow-sm transition-all'
+    : 'group text-left p-5 rounded-2xl border transition-all';
+
+  const modeCardIdle = isDiamond
+    ? 'border-gray-200 hover:border-emerald-300 hover:shadow-md hover:bg-emerald-50/30'
+    : 'border-gray-800 bg-gray-900/40 hover:border-gray-700 hover:bg-gray-900/70';
+
+  const modeCardNewStory = isDiamond
+    ? 'border-emerald-200 bg-emerald-50/50 hover:border-emerald-400 hover:bg-emerald-50 shadow-sm'
+    : 'border-emerald-800/40 bg-emerald-950/20 hover:border-emerald-700/60 hover:bg-emerald-950/40';
+
+  function modeCardActive(accent: 'emerald' | 'violet') {
+    if (isDiamond) {
+      return accent === 'emerald'
+        ? 'border-emerald-400 bg-emerald-50 shadow-md ring-1 ring-emerald-200'
+        : 'border-violet-400 bg-violet-50 shadow-md ring-1 ring-violet-200';
+    }
+    return accent === 'emerald'
+      ? 'border-emerald-500/60 bg-emerald-900/25 ring-1 ring-emerald-800/30'
+      : 'border-violet-500/60 bg-violet-900/20 ring-1 ring-violet-800/30';
+  }
+
+  const modeTitle = isDiamond ? 'text-gray-900' : 'text-gray-100';
+  const modeSub = isDiamond ? 'text-gray-500' : 'text-gray-500';
+  const modeActiveBadgeEmerald = isDiamond ? 'text-emerald-600' : 'text-emerald-400';
+  const modeActiveBadgeViolet = isDiamond ? 'text-violet-600' : 'text-violet-400';
+
+  const sectionHdr = isDiamond ? 'text-gray-500' : 'text-gray-600';
+  const sectionChevron = isDiamond ? 'text-gray-400' : 'text-gray-600';
+
+  const storyCardCls = isDiamond
+    ? 'group w-full text-left flex items-center gap-4 px-4 py-4 rounded-2xl border border-gray-200 bg-white shadow-sm hover:border-emerald-300 hover:shadow-md transition'
+    : 'group w-full text-left flex items-center gap-4 px-4 py-4 rounded-2xl border border-gray-800/50 bg-gray-900/30 hover:border-gray-700/60 hover:bg-gray-900/60 transition';
+
+  const storyTitle = isDiamond
+    ? 'text-sm font-medium text-gray-800 truncate group-hover:text-gray-900 transition leading-snug'
+    : 'text-sm font-medium text-gray-200 truncate group-hover:text-white transition leading-snug';
+
+  const storyGenre = isDiamond ? 'text-xs text-gray-400 mt-0.5 capitalize' : 'text-xs text-gray-600 mt-0.5 capitalize';
+  const storyArrow = isDiamond ? 'text-gray-400 group-hover:text-emerald-500 transition' : 'text-gray-700 group-hover:text-gray-400 transition';
+
+  const divider = isDiamond ? 'border-gray-200' : 'border-gray-800/60';
+  const skeletonBg = isDiamond ? 'bg-gray-200/60' : 'bg-gray-800/60';
+  const skeletonCard = isDiamond ? 'border border-gray-200 bg-gray-100/50' : 'border border-gray-800/60 bg-gray-900/20';
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+    <div className={page}>
 
-      {/* Header + mode selector (always visible) */}
+      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="max-w-2xl w-full mx-auto px-4 pt-10 pb-6 md:pt-12 md:pb-10">
-        <div className="mb-8">
-          <h1 className="text-3xl font-semibold tracking-tight text-gray-100">StoryLab</h1>
-          <p className="mt-2 text-gray-500 text-sm">
-            Your narrative workspace.
-          </p>
+
+        {/* Title row + theme toggle */}
+        <div className="flex items-start justify-between gap-4 mb-8">
+          <div>
+            <h1 className={`text-3xl font-semibold tracking-tight ${heading}`}>StoryLab</h1>
+            <p className={`mt-1.5 text-sm ${sub}`}>Your narrative workspace.</p>
+          </div>
+
+          {/* Diamond / Obsidian toggle */}
+          <div className={`flex items-center gap-0.5 rounded-xl border p-0.5 mt-1 shrink-0 ${isDiamond ? 'border-gray-200 bg-gray-100' : 'border-gray-800 bg-gray-900'}`}>
+            <button
+              type="button"
+              onClick={() => setTheme('diamond')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                isDiamond
+                  ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200'
+                  : 'text-gray-600 hover:text-gray-400'
+              }`}
+            >
+              Diamond
+            </button>
+            <button
+              type="button"
+              onClick={() => setTheme('obsidian')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                !isDiamond
+                  ? 'bg-gray-800 text-gray-100 shadow-sm ring-1 ring-gray-700'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Obsidian
+            </button>
+          </div>
         </div>
 
-        {/* Mode selector — 2×2 grid */}
-        <div className="grid grid-cols-2 gap-3">
-          {/* Create a Story */}
+        {/* ── Mode selector 2×2 ─────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 gap-3 mb-10">
+
+          {/* New Story */}
           <button
             type="button"
             onClick={() => setShowCreateModal(true)}
-            className="group text-left p-5 rounded-2xl border border-emerald-800/40 bg-emerald-950/20 hover:border-emerald-700/60 hover:bg-emerald-950/40 transition-all"
+            className={`${modeCardBase} ${modeCardNewStory}`}
           >
-            <p className="font-semibold text-gray-100 text-sm mb-1">New Story</p>
-            <p className="text-xs text-gray-500 leading-relaxed hidden sm:block">
+            <p className={`font-semibold text-sm mb-1 ${modeTitle}`}>New Story</p>
+            <p className={`text-xs leading-relaxed hidden sm:block ${modeSub}`}>
               Name it, set the world, add characters.
             </p>
           </button>
@@ -69,124 +181,124 @@ export default function StoryLab() {
           <button
             type="button"
             onClick={() => navigate('/workspace')}
-            className="group text-left p-5 rounded-2xl border border-gray-800 bg-gray-900/40 hover:border-gray-700 hover:bg-gray-900/70 transition-all"
+            className={`${modeCardBase} ${modeCardIdle}`}
           >
-            <p className="font-semibold text-gray-100 text-sm mb-1">Solo Write</p>
-            <p className="text-xs text-gray-500 leading-relaxed hidden sm:block">
+            <p className={`font-semibold text-sm mb-1 ${modeTitle}`}>Solo Write</p>
+            <p className={`text-xs leading-relaxed hidden sm:block ${modeSub}`}>
               Full editor, no AI in the loop.
             </p>
           </button>
 
-          {/* Collaborate with AI */}
+          {/* Collaborate */}
           <button
             type="button"
             onClick={() => setMode(mode === 'collaborate' ? null : 'collaborate')}
-            className={`group text-left p-5 rounded-2xl border transition-all ${
-              mode === 'collaborate'
-                ? 'border-emerald-500/60 bg-emerald-900/25 ring-1 ring-emerald-800/30'
-                : 'border-gray-800 bg-gray-900/40 hover:border-gray-700 hover:bg-gray-900/70'
-            }`}
+            className={`${modeCardBase} ${mode === 'collaborate' ? modeCardActive('emerald') : modeCardIdle}`}
           >
-            <p className="font-semibold text-gray-100 text-sm mb-1">
+            <p className={`font-semibold text-sm mb-1 ${modeTitle}`}>
               Collaborate
-              {mode === 'collaborate' && <span className="ml-2 text-[10px] text-emerald-400 font-normal">active</span>}
+              {mode === 'collaborate' && (
+                <span className={`ml-2 text-[10px] font-normal ${modeActiveBadgeEmerald}`}>active</span>
+              )}
             </p>
-            <p className="text-xs text-gray-500 leading-relaxed hidden sm:block">
+            <p className={`text-xs leading-relaxed hidden sm:block ${modeSub}`}>
               AI-guided continuations with pacing controls.
             </p>
           </button>
 
-          {/* Roleplay Reply */}
+          {/* RP Reply */}
           <button
             type="button"
             onClick={() => setMode(mode === 'rp_reply' ? null : 'rp_reply')}
-            className={`group text-left p-5 rounded-2xl border transition-all ${
-              mode === 'rp_reply'
-                ? 'border-violet-500/60 bg-violet-900/20 ring-1 ring-violet-800/30'
-                : 'border-gray-800 bg-gray-900/40 hover:border-gray-700 hover:bg-gray-900/70'
-            }`}
+            className={`${modeCardBase} ${mode === 'rp_reply' ? modeCardActive('violet') : modeCardIdle}`}
           >
-            <p className="font-semibold text-gray-100 text-sm mb-1">
+            <p className={`font-semibold text-sm mb-1 ${modeTitle}`}>
               RP Reply
-              {mode === 'rp_reply' && <span className="ml-2 text-[10px] text-violet-400 font-normal">active</span>}
+              {mode === 'rp_reply' && (
+                <span className={`ml-2 text-[10px] font-normal ${modeActiveBadgeViolet}`}>active</span>
+              )}
             </p>
-            <p className="text-xs text-gray-500 leading-relaxed hidden sm:block">
+            <p className={`text-xs leading-relaxed hidden sm:block ${modeSub}`}>
               Generate your character's reply to a partner.
             </p>
           </button>
         </div>
 
-        {/* ── Recent Stories ─────────────────────────────────────────────── */}
-
-        {/* Loading skeleton */}
+        {/* ── Continue Writing (collapsible) ───────────────────────────── */}
         {loadingStories && (
-          <div className="mt-10">
-            <div className="h-2 w-20 bg-gray-800/60 rounded-full animate-pulse mb-4" />
+          <div>
+            <div className={`h-2 w-24 ${skeletonBg} rounded-full animate-pulse mb-4`} />
             <div className="space-y-2">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="h-14 rounded-2xl border border-gray-800/60 bg-gray-900/20 animate-pulse" />
+                <div key={i} className={`h-14 rounded-2xl ${skeletonCard} animate-pulse`} />
               ))}
             </div>
           </div>
         )}
 
-        {/* Story list — max 5 recent, with "View all" overflow */}
         {!loadingStories && stories.length > 0 && (
-          <div className="mt-10">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[11px] font-medium text-gray-600 uppercase tracking-widest">
-                Continue Writing
-              </h2>
-              {hasMoreStories && (
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="text-xs text-gray-600 hover:text-emerald-400 transition-colors"
-                  title="All stories shown in StoryLab sessions"
-                >
-                  {stories.length} stories total
-                </button>
-              )}
-            </div>
-            <div className="space-y-2">
-              {recentStories.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => navigate(`/storylab/${s.id}`)}
-                  className="group w-full text-left flex items-center gap-4 px-4 py-4 rounded-2xl border border-gray-800/50 bg-gray-900/30 hover:border-gray-700/60 hover:bg-gray-900/60 transition"
-                >
-                  <div
-                    className="w-9 h-9 rounded-xl shrink-0"
-                    style={{ backgroundColor: s.cover_color }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-200 truncate group-hover:text-white transition leading-snug">
-                      {storyLabel(s)}
-                    </p>
-                    {s.genre && (
-                      <p className="text-xs text-gray-600 mt-0.5 capitalize">{s.genre}</p>
-                    )}
-                  </div>
-                  <span className="text-gray-700 group-hover:text-gray-400 transition shrink-0 select-none text-lg leading-none">›</span>
-                </button>
-              ))}
-            </div>
+          <div>
+            {/* Section header */}
+            <button
+              type="button"
+              onClick={() => setStoriesOpen(v => !v)}
+              className="w-full flex items-center justify-between gap-2 mb-3 group"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`text-[11px] font-semibold uppercase tracking-widest ${sectionHdr}`}>
+                  Continue Writing
+                </span>
+                <span className={`text-[11px] ${sectionHdr} opacity-60`}>
+                  {stories.length} {stories.length === 1 ? 'story' : 'stories'}
+                </span>
+              </div>
+              <span className={sectionChevron}>
+                <ChevronDown open={storiesOpen} />
+              </span>
+            </button>
+
+            {storiesOpen && (
+              <div className="space-y-2">
+                {recentStories.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => navigate(`/storylab/${s.id}`)}
+                    className={storyCardCls}
+                  >
+                    <div
+                      className="w-9 h-9 rounded-xl shrink-0 ring-1 ring-black/5"
+                      style={{ backgroundColor: s.cover_color }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className={storyTitle}>{storyLabel(s)}</p>
+                      {s.genre && <p className={storyGenre}>{s.genre}</p>}
+                    </div>
+                    <span className={`${storyArrow} shrink-0 select-none text-lg leading-none`}>›</span>
+                  </button>
+                ))}
+                {stories.length > RECENT_STORIES_LIMIT && (
+                  <p className={`text-center text-xs pt-1 ${sectionHdr} opacity-60`}>
+                    Showing {RECENT_STORIES_LIMIT} of {stories.length} stories
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Collaborate engine — full-width below selector */}
+      {/* ── Collaborate engine ────────────────────────────────────────── */}
       {mode === 'collaborate' && (
-        <div className="flex-1 flex flex-col border-t border-gray-800/60 min-h-0">
+        <div className={`flex-1 flex flex-col border-t ${divider} min-h-0`}>
           <StoryLabEngine />
         </div>
       )}
 
-      {/* RP Reply Generator — full-width below selector */}
+      {/* ── RP Reply Generator ────────────────────────────────────────── */}
       {mode === 'rp_reply' && (
-        <div className="border-t border-gray-800/60">
-          <RPReplyGenerator />
+        <div className={`border-t ${divider}`}>
+          <RPReplyGenerator theme={theme} />
         </div>
       )}
 
