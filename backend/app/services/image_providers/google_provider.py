@@ -16,7 +16,8 @@ from app.services.image_providers.base import ImageProviderBase
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT_S = 60
+def _timeout() -> int:
+    return settings.GOOGLE_IMAGE_TIMEOUT_S
 
 
 class GoogleImageProvider(ImageProviderBase):
@@ -66,8 +67,9 @@ class GoogleImageProvider(ImageProviderBase):
             method="POST",
         )
 
+        _t = _timeout()
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+            with urllib.request.urlopen(req, timeout=_t) as resp:
                 body = json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             # Do not log the key or prompt
@@ -76,6 +78,10 @@ class GoogleImageProvider(ImageProviderBase):
                 f"Google Gemini image generation failed (HTTP {exc.code})"
             ) from exc
         except (urllib.error.URLError, TimeoutError) as exc:
+            logger.warning(
+                "google_gemini_timeout provider=google timeout_seconds=%s error=%r",
+                _t, exc,
+            )
             raise RuntimeError(f"Google Gemini request failed: {exc}") from exc
 
         # Detect Google content refusal before parsing image parts.
@@ -152,8 +158,9 @@ class GoogleImageProvider(ImageProviderBase):
             method="POST",
         )
 
+        _t = _timeout()
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+            with urllib.request.urlopen(req, timeout=_t) as resp:
                 body = json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             logger.warning("google_gemini_multi_anchor_api_error status=%s", exc.code)
@@ -161,6 +168,10 @@ class GoogleImageProvider(ImageProviderBase):
                 f"Google Gemini multi-anchor generation failed (HTTP {exc.code})"
             ) from exc
         except (urllib.error.URLError, TimeoutError) as exc:
+            logger.warning(
+                "google_gemini_timeout provider=google timeout_seconds=%s error=%r",
+                _t, exc,
+            )
             raise RuntimeError(f"Google Gemini multi-anchor request failed: {exc}") from exc
 
         _cands = body.get("candidates", [])
@@ -241,8 +252,9 @@ class GoogleImageProvider(ImageProviderBase):
             method="POST",
         )
 
+        _t = _timeout()
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+            with urllib.request.urlopen(req, timeout=_t) as resp:
                 body = json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             logger.warning("google_gemini_grounded_api_error status=%s", exc.code)
@@ -250,6 +262,10 @@ class GoogleImageProvider(ImageProviderBase):
                 f"Google Gemini grounded generation failed (HTTP {exc.code})"
             ) from exc
         except (urllib.error.URLError, TimeoutError) as exc:
+            logger.warning(
+                "google_gemini_timeout provider=google timeout_seconds=%s error=%r",
+                _t, exc,
+            )
             raise RuntimeError(f"Google Gemini grounded request failed: {exc}") from exc
 
         # Detect Google content refusal before parsing image parts.

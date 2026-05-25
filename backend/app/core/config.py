@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     # Google AI image provider (optional — for identity pack A/B testing)
     GOOGLE_AI_API_KEY: Optional[str] = None
     GOOGLE_IMAGE_MODEL: str = "imagen-3.0-generate-001"
+    GOOGLE_IMAGE_TIMEOUT_S: int = 180
     # If set, identity pack generation uses this provider instead of IMAGE_PROVIDER.
     # Valid values: "openai" | "google" | "openrouter" | "" (empty = inherit IMAGE_PROVIDER)
     # When set, it overrides both IDENTITY_SEED_PROVIDER and IDENTITY_ANGLES_PROVIDER.
