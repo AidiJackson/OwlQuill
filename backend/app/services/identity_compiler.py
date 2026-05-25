@@ -4,8 +4,10 @@ Compiles a CharacterIdentitySpec into a deterministic image prompt with
 strict ordering that ensures identity features are never dropped or reordered.
 
 Public API:
-- ``compile_identity_prompt(spec, role)``  → full generation prompt (≤ 800 chars)
-- ``compile_identity_lock_string(spec)``   → short stable identity lock line
+- ``compile_identity_prompt(spec, role, *, markings=None)``
+      → full generation prompt (≤ 1500 chars)
+- ``compile_identity_lock_string(spec)``
+      → short stable identity lock line
 """
 
 import hashlib
@@ -13,6 +15,11 @@ import logging
 from typing import Optional
 
 from app.schemas.character_visual import CharacterIdentitySpec
+from app.services.body_canon import (
+    build_body_canon_lock_string,
+    build_arm_side_binding_str,
+    build_sleeve_enforcement_str,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +27,21 @@ logger = logging.getLogger(__name__)
 
 _SAFETY_PREFIX = "adult, fully clothed, non-explicit, fashion portrait, tasteful"
 
-_PROMPT_CAP = 800
+# Raised from 800 to accommodate body_canon markings sections (BODY MARKINGS +
+# ARM BINDING + SLEEVE IDENTITY) which are protected from trimming.
+_PROMPT_CAP = 1500
+
+# ── Per-role visible body regions ─────────────────────────────────────
+# Drives which arm-side-binding and sleeve-enforcement blocks are injected.
+# anchor_front is a passport headshot — no arms in frame, so binding is moot.
+# anchor_three_quarter turns the subject ~45° — one arm (right) is typically visible.
+# anchor_torso and anchor_full_body show both arms.
+_ROLE_VISIBLE_REGIONS: dict[str, frozenset] = {
+    "anchor_front":         frozenset(),
+    "anchor_three_quarter": frozenset({"right_arm"}),
+    "anchor_torso":         frozenset({"right_arm", "left_arm"}),
+    "anchor_full_body":     frozenset({"right_arm", "left_arm"}),
+}
 
 # Neutral studio outfit enforced for ALL identity pack generation.
 # Keeps the focus on facial/physical identity; outfits come after identity lock.
@@ -119,6 +140,7 @@ def compile_identity_prompt(
     role: str,
     *,
     char_traits: Optional[list[str]] = None,
+    markings: Optional[list] = None,
     failsafe: bool = False,
 ) -> str:
     """Compile a structured identity spec into an image generation prompt.
@@ -130,10 +152,18 @@ def compile_identity_prompt(
       4. Neutral studio outfit (fixed — wardrobe field is ignored)
       5. Role shot requirement
       6. Build + marks/accessories
+      6.5. Body canon markings (BODY MARKINGS / ARM BINDING / SLEEVE IDENTITY)
+           — injected per role using _ROLE_VISIBLE_REGIONS; protected from trimming
       7. Vibe traits (extra_notes) + lighting
 
-    Hard cap: 800 characters. Trimming works backwards from section 6,
-    preserving identity anchor and outfit.
+    Hard cap: 1500 characters. Sections 6.5 (body markings) and earlier are
+    protected. Trimming removes extra_notes → outfit_lock → shot in that order.
+    Last resort: hard truncate (logged as warning).
+
+    Args:
+        markings: Pre-loaded list of BodyMarking objects from body_canon_json.
+                  Pass the output of body_canon.load_markings(character) here.
+                  None or empty list → no body-canon sections injected.
     """
     # Named sections: list[tuple[name, content]] — name is used by _trim_to_cap
     # to remove lower-priority sections without index coupling.
@@ -270,6 +300,23 @@ def compile_identity_prompt(
         build_parts.extend(spec.marks_accessories.items)
     if build_parts:
         sections.append(("build", ", ".join(build_parts)))
+
+    # 6.5. Body canon markings — tattoos/scars/piercings stored in body_canon_json.
+    # BODY MARKINGS is always injected when markings exist (gives model full context).
+    # ARM BINDING and SLEEVE IDENTITY are gated by per-role visible regions so the
+    # model only receives side-enforcement when the relevant arm is actually in frame.
+    # These sections are NOT in _TRIM_ORDER — they are protected from cap trimming.
+    if markings:
+        _visible = _ROLE_VISIBLE_REGIONS.get(role, frozenset())
+        _bc_lock = build_body_canon_lock_string(markings)
+        if _bc_lock:
+            sections.append(("body_markings", _bc_lock))
+        _bc_arm = build_arm_side_binding_str(markings, _visible)
+        if _bc_arm:
+            sections.append(("arm_binding", _bc_arm))
+        _bc_sleeve = build_sleeve_enforcement_str(markings, _visible)
+        if _bc_sleeve:
+            sections.append(("sleeve_enforcement", _bc_sleeve))
 
     # 7. Vibe traits + lighting (extra_notes)
     if spec.extra_notes:

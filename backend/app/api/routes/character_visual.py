@@ -43,6 +43,7 @@ from app.services.identity_compiler import (
     identity_prompt_hash,
     _SAFETY_PREFIX,
 )
+from app.services.body_canon import load_markings
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.image_provider import (
     get_identity_provider_by_name,
@@ -92,6 +93,7 @@ def _build_identity_prompt(
     role: str,
     *,
     char_traits: "list[str] | None" = None,
+    markings: "list | None" = None,
     failsafe: bool = False,
 ) -> str:
     """Build a full identity prompt for any pack role via the single shared compiler.
@@ -100,8 +102,18 @@ def _build_identity_prompt(
     so gender/style/age_band + NEUTRAL_STUDIO_OUTFIT are always present and
     wardrobe fields are never read.  Appends SINGLE_FRAME_ENFORCEMENT and
     _PG13_SAFETY_SUFFIX after the compiled base.
+
+    Args:
+        markings: Pre-loaded BodyMarking list from body_canon.load_markings().
+                  Injected as BODY MARKINGS / ARM BINDING / SLEEVE IDENTITY
+                  sections per role via _ROLE_VISIBLE_REGIONS.
     """
-    base = compile_identity_prompt(spec, role, char_traits=char_traits, failsafe=failsafe)
+    base = compile_identity_prompt(
+        spec, role,
+        char_traits=char_traits,
+        markings=markings,
+        failsafe=failsafe,
+    )
     return f"{base}. {SINGLE_FRAME_ENFORCEMENT}. {_PG13_SAFETY_SUFFIX}"
 
 
@@ -557,6 +569,10 @@ def generate_identity_pack(
     """
     character = _get_owned_character(character_id, current_user, db)
 
+    # Load body_canon markings once here so every identity prompt call in this
+    # route can inject them without repeated DB/JSON deserialisation.
+    _body_markings = load_markings(character)
+
     if character.visual_locked:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -698,13 +714,16 @@ def generate_identity_pack(
             # angle prompts include gender/style/age_band + NEUTRAL_STUDIO_OUTFIT.
             _angle_previews = {
                 "three_quarter": _build_identity_prompt(
-                    identity_spec, "anchor_three_quarter", char_traits=char_traits,
+                    identity_spec, "anchor_three_quarter",
+                    char_traits=char_traits, markings=_body_markings,
                 ),
                 "torso": _build_identity_prompt(
-                    identity_spec, "anchor_torso", char_traits=char_traits,
+                    identity_spec, "anchor_torso",
+                    char_traits=char_traits, markings=_body_markings,
                 ),
                 "full_body": _build_identity_prompt(
-                    identity_spec, "anchor_full_body", char_traits=char_traits,
+                    identity_spec, "anchor_full_body",
+                    char_traits=char_traits, markings=_body_markings,
                 ),
             }
         else:
@@ -773,6 +792,7 @@ def generate_identity_pack(
                 base = compile_identity_prompt(
                     identity_spec, role,
                     char_traits=char_traits,
+                    markings=_body_markings,
                     failsafe=failsafe,
                 )
             else:
@@ -963,7 +983,10 @@ def generate_identity_pack(
                 # For legacy: short pose-only edit prompt grounded from seed image.
                 if use_structured_spec and identity_spec is not None:
                     edit_prompt = _build_identity_prompt(
-                        identity_spec, role, char_traits=char_traits, failsafe=False,
+                        identity_spec, role,
+                        char_traits=char_traits,
+                        markings=_body_markings,
+                        failsafe=False,
                     )
                 else:
                     edit_prompt = (
