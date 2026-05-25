@@ -1753,6 +1753,33 @@ class TestGenerateRPReplyGodmodGate:
 
         assert mock_client.post.call_count == 1
 
+    def test_partner_name_flows_to_godmod_detection(self, monkeypatch):
+        """partner_character_name must reach detect_godmod_violations inside generate_rp_reply.
+
+        A reply containing '[partner_name] said ...' is a name-anchored hard violation.
+        If the name is silently dropped before detection, this test catches it.
+        """
+        from unittest.mock import patch
+        import app.services.storylab_generator as gen
+
+        monkeypatch.setattr(gen.settings, "STORYLAB_PROVIDER", "openrouter")
+        monkeypatch.setattr(gen.settings, "OPENROUTER_API_KEY", "test-key")
+        monkeypatch.setattr(gen, "_minimum_words", lambda _l: 0)
+
+        godmod_reply = '"You can\'t do this," Lennox said.'
+        mock_client = self._make_mock_client([godmod_reply, godmod_reply])
+        with patch.object(gen.httpx, "Client", return_value=mock_client):
+            _r, _m, _t, _w, _tok, godmod_meta = gen.generate_rp_reply(
+                partner_reply="Lennox turned from the window.",
+                partner_character_name="Lennox",
+            )
+
+        assert godmod_meta["detected"] is True, (
+            "partner_character_name='Lennox' not reaching detect_godmod_violations: "
+            "name-anchored speech verb ('Lennox said') must produce a hard violation"
+        )
+        assert godmod_meta["severity"] == "hard"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # detect_partner_silence_severe — surface not covered elsewhere in this file
@@ -1956,3 +1983,52 @@ class TestEndpointTask5Fields:
         data = resp.json()
         assert "reply" in data
         assert "godmod_detected" in data
+
+    def test_partner_name_triggers_hard_godmod_at_endpoint(self, monkeypatch, client: TestClient):
+        """partner_character_name must flow from the endpoint all the way to godmod detection.
+
+        Patches generate_rp_reply at the route-module boundary so we can assert:
+        1. The name is actually forwarded in the call kwargs.
+        2. When the service reports a hard violation, godmod_detected=True and
+           godmod_severity='hard' appear in the HTTP response.
+        """
+        from unittest.mock import patch
+        import app.api.routes.storylab as route_module
+
+        captured: dict = {}
+
+        def _mock_generate(*args, **kwargs):
+            captured["partner_character_name"] = kwargs.get("partner_character_name")
+            fake_reply = '"You can\'t do this," Lennox said.'
+            fake_meta = {
+                "detected": True,
+                "severity": "hard",
+                "warnings": ["Lennox attributed speech (name + speech verb)"],
+            }
+            return (fake_reply, "stub", 0, [], 0, fake_meta)
+
+        token = get_auth_token(client)
+        with patch.object(route_module, "generate_rp_reply", side_effect=_mock_generate):
+            resp = client.post(
+                "/storylab/rp-reply/generate",
+                headers=auth_headers(token),
+                json={
+                    "partner_reply": "Lennox turned from the window.",
+                    "partner_character_name": "Lennox",
+                    "response_length": "short",
+                    "style_match": "off",
+                    "perspective": "third_person_limited",
+                    "formatting": "plain",
+                    "intensity": "standard",
+                },
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert captured.get("partner_character_name") == "Lennox", (
+            "partner_character_name not forwarded to generate_rp_reply by the endpoint"
+        )
+        data = resp.json()
+        assert data["godmod_detected"] is True, (
+            "godmod_detected should be True when generate_rp_reply reports a hard violation"
+        )
+        assert data["godmod_severity"] == "hard"
