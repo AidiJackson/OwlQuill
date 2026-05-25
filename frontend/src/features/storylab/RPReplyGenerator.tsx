@@ -94,6 +94,7 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [benchmarkCopied, setBenchmarkCopied] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     apiClient.getCharacters()
@@ -218,51 +219,32 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
   }
 
   return (
-    <div className="max-w-3xl w-full mx-auto px-4 py-8 space-y-6">
-
-      {/* Helper text */}
-      <p className="text-sm text-gray-400 leading-relaxed">
-        Ficshon will write only your character's response and leave the other writer space to reply.
-      </p>
+    <div className="max-w-2xl w-full mx-auto px-4 py-10 space-y-7">
 
       {/* Partner Reply */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-          Partner's Reply
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-300">
+          Partner's reply
         </label>
         <textarea
           value={partnerReply}
           onChange={(e) => setPartnerReply(e.target.value)}
-          placeholder="Paste your partner's roleplay reply here..."
-          rows={8}
-          className="w-full bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-600 resize-y focus:outline-none focus:border-gray-600 transition leading-relaxed"
+          placeholder="Paste your writing partner's reply here…"
+          rows={9}
+          className="w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3.5 text-sm text-gray-100 placeholder-gray-700 resize-y focus:outline-none focus:border-gray-600 transition leading-relaxed"
         />
       </div>
 
-      {/* Instructions */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-          Your Instructions <span className="text-gray-700 font-normal normal-case">(optional)</span>
-        </label>
-        <textarea
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          placeholder="e.g. Leo responds with restrained intensity. He does not kiss her yet. He admits the line is already gone. Do not control Lennox."
-          rows={3}
-          className="w-full bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-600 resize-y focus:outline-none focus:border-gray-600 transition leading-relaxed"
-        />
-      </div>
-
-      {/* Character Selector */}
+      {/* Character selector */}
       {characters.length > 0 && (
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-            Your Character <span className="text-gray-700 font-normal normal-case">(optional)</span>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-300">
+            Your character <span className="text-gray-600 font-normal">(optional)</span>
           </label>
           <select
             value={characterId ?? ''}
             onChange={(e) => setCharacterId(e.target.value ? Number(e.target.value) : null)}
-            className="w-full bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-100 focus:outline-none focus:border-gray-600 transition"
+            className="w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3 text-sm text-gray-100 focus:outline-none focus:border-gray-600 transition"
           >
             <option value="">No character selected</option>
             {characters.map((c) => (
@@ -272,215 +254,235 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
         </div>
       )}
 
-      {/* Content level selector */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Content Level</label>
-        <div className="grid grid-cols-3 gap-2">
-          {CONTENT_LEVEL_OPTIONS.map(({ val, label, desc }) => (
+      {/* Instructions */}
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-300">
+          Your guidance <span className="text-gray-600 font-normal">(optional)</span>
+        </label>
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          placeholder="e.g. He doesn't kiss her yet. Restrained, deliberate. Do not control her reactions."
+          rows={3}
+          className="w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3.5 text-sm text-gray-100 placeholder-gray-700 resize-y focus:outline-none focus:border-gray-600 transition leading-relaxed"
+        />
+      </div>
+
+      {/* Content level */}
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-300">Content level</label>
+        <div className="flex gap-2">
+          {CONTENT_LEVEL_OPTIONS.map(({ val, label }) => (
             <button
               key={val}
               type="button"
               onClick={() => setContentLevel(val)}
-              className={`text-left px-3 py-2.5 rounded-xl border transition ${
+              className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition ${
                 contentLevel === val
                   ? 'border-orange-600/60 bg-orange-950/30 text-orange-200'
-                  : 'border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-300'
+                  : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
               }`}
             >
-              <span className="block text-sm font-medium">{label}</span>
-              <span className="block text-[10px] text-gray-600 leading-tight mt-0.5">{desc}</span>
+              {label}
             </button>
           ))}
         </div>
+        {contentLevel === 'explicit' && (
+          <p className="text-xs text-orange-700/70 leading-relaxed">
+            Explicit prose is permitted. Partner agency and collaboration space are still enforced.
+          </p>
+        )}
       </div>
 
-      {/* Options grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {/* Advanced options — collapsed by default */}
+      <div className="border border-gray-800/50 rounded-2xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-500 hover:text-gray-300 hover:bg-gray-900/30 transition"
+        >
+          <span className="font-medium">Advanced options</span>
+          <span className="text-gray-700 select-none">{showAdvanced ? '▲' : '▼'}</span>
+        </button>
 
-        {/* Response Length */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Length</label>
-          <div className="flex flex-col gap-1">
-            {(['short', 'match', 'long', 'novella'] as RPReplyResponseLength[]).map((val) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => setResponseLength(val)}
-                className={`text-left text-sm px-3 py-1.5 rounded-lg border transition ${
-                  responseLength === val
-                    ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
-                    : 'border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-300'
-                }`}
-              >
-                {val.charAt(0).toUpperCase() + val.slice(1)}
-              </button>
-            ))}
+        {showAdvanced && (
+          <div className="px-4 pb-5 pt-1 space-y-5 border-t border-gray-800/40">
+
+            {/* Length + Style Match */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Length</label>
+                <div className="flex flex-col gap-1.5">
+                  {(['short', 'match', 'long', 'novella'] as RPReplyResponseLength[]).map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setResponseLength(val)}
+                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${
+                        responseLength === val
+                          ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
+                          : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
+                      }`}
+                    >
+                      {val.charAt(0).toUpperCase() + val.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Style match</label>
+                <div className="flex flex-col gap-1.5">
+                  {(['off', 'soft', 'strong'] as RPReplyStyleMatch[]).map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setStyleMatch(val)}
+                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${
+                        styleMatch === val
+                          ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
+                          : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
+                      }`}
+                    >
+                      {val.charAt(0).toUpperCase() + val.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Perspective + Formatting */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Perspective</label>
+                <div className="flex flex-col gap-1.5">
+                  {([
+                    { val: 'first_person' as RPReplyPerspective, label: '1st Person' },
+                    { val: 'third_person_limited' as RPReplyPerspective, label: '3rd Limited' },
+                  ]).map(({ val, label }) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setPerspective(val)}
+                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${
+                        perspective === val
+                          ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
+                          : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Formatting</label>
+                <div className="flex flex-col gap-1.5">
+                  {([
+                    { val: 'plain' as RPReplyFormatting, label: 'Plain prose' },
+                    { val: 'roleplay_bars' as RPReplyFormatting, label: '||RP Bars||' },
+                  ]).map(({ val, label }) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setFormatting(val)}
+                      className={`text-left text-sm px-3 py-2 rounded-lg border transition ${
+                        formatting === val
+                          ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
+                          : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Internal bake-off — gated, inside advanced */}
+            {IS_INTERNAL && (
+              <div className="border border-violet-900/30 bg-violet-950/10 rounded-xl p-4 space-y-3">
+                <span className="text-[10px] font-semibold text-violet-500/80 uppercase tracking-widest">
+                  Internal — Bake-off
+                </span>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Model profile</label>
+                  <select
+                    value={modelProfile}
+                    onChange={(e) => setModelProfile(e.target.value)}
+                    className="w-full bg-gray-900/60 border border-violet-800/40 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-600/60 transition"
+                  >
+                    {RP_MODEL_OPTIONS.map((opt) => (
+                      <option key={opt.profile} value={opt.profile}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Story style</label>
+                  <select
+                    value={styleArchetype}
+                    onChange={(e) => setStyleArchetype(e.target.value as RPStyleArchetype)}
+                    className="w-full bg-gray-900/60 border border-violet-800/40 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-600/60 transition"
+                  >
+                    {ARCHETYPE_OPTIONS.map((opt) => (
+                      <option key={opt.val} value={opt.val}>{opt.label}</option>
+                    ))}
+                  </select>
+                  {styleArchetype && (
+                    <p className="text-[10px] text-violet-400/60">
+                      {ARCHETYPE_OPTIONS.find(o => o.val === styleArchetype)?.desc}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-
-        {/* Style Match */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Style Match</label>
-          <div className="flex flex-col gap-1">
-            {(['off', 'soft', 'strong'] as RPReplyStyleMatch[]).map((val) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => setStyleMatch(val)}
-                className={`text-left text-sm px-3 py-1.5 rounded-lg border transition ${
-                  styleMatch === val
-                    ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
-                    : 'border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-300'
-                }`}
-              >
-                {val.charAt(0).toUpperCase() + val.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Perspective */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Perspective</label>
-          <div className="flex flex-col gap-1">
-            {([
-              { val: 'first_person', label: '1st Person' },
-              { val: 'third_person_limited', label: '3rd Limited' },
-            ] as { val: RPReplyPerspective; label: string }[]).map(({ val, label }) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => setPerspective(val)}
-                className={`text-left text-sm px-3 py-1.5 rounded-lg border transition ${
-                  perspective === val
-                    ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
-                    : 'border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-300'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Formatting */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Formatting</label>
-          <div className="flex flex-col gap-1">
-            {([
-              { val: 'plain', label: 'Plain' },
-              { val: 'roleplay_bars', label: '||RP Bars||' },
-            ] as { val: RPReplyFormatting; label: string }[]).map(({ val, label }) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => setFormatting(val)}
-                className={`text-left text-sm px-3 py-1.5 rounded-lg border transition ${
-                  formatting === val
-                    ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
-                    : 'border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-300'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
+        )}
       </div>
 
-      {/* Explicit content notice */}
-      {contentLevel === 'explicit' && (
-        <p className="text-xs text-orange-700/80 bg-orange-950/20 border border-orange-900/30 rounded-lg px-3 py-2">
-          Explicit allows direct erotic prose. The scene must continue — partner agency and collaboration space are still required.
-        </p>
-      )}
-
-      {/* Internal: Model selector — only shown in dev / VITE_INTERNAL_TESTING=true */}
-      {IS_INTERNAL && (
-        <div className="space-y-1.5 border border-violet-900/30 bg-violet-950/10 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-[10px] font-semibold text-violet-500/80 uppercase tracking-widest">
-              Internal — Bake-off
-            </span>
-          </div>
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-            Model Profile
-          </label>
-          <select
-            value={modelProfile}
-            onChange={(e) => setModelProfile(e.target.value)}
-            className="w-full bg-gray-900/60 border border-violet-800/40 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-600/60 transition"
-          >
-            {RP_MODEL_OPTIONS.map((opt) => (
-              <option key={opt.profile} value={opt.profile}>{opt.label}</option>
-            ))}
-          </select>
-
-          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mt-3 block">
-            Story Style
-          </label>
-          <select
-            value={styleArchetype}
-            onChange={(e) => setStyleArchetype(e.target.value as RPStyleArchetype)}
-            className="w-full bg-gray-900/60 border border-violet-800/40 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-600/60 transition"
-          >
-            {ARCHETYPE_OPTIONS.map((opt) => (
-              <option key={opt.val} value={opt.val}>{opt.label}</option>
-            ))}
-          </select>
-          {styleArchetype && (
-            <p className="text-[10px] text-violet-400/60 mt-1">
-              {ARCHETYPE_OPTIONS.find(o => o.val === styleArchetype)?.desc}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Generate button */}
+      {/* Generate button — primary action */}
       <button
         type="button"
         onClick={handleGenerate}
         disabled={loading || !partnerReply.trim()}
-        className="w-full py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-medium text-sm transition"
+        className="w-full py-3.5 rounded-2xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-semibold text-sm tracking-wide transition-colors"
       >
         {loading ? 'Generating…' : 'Generate Reply'}
       </button>
 
       {/* Error */}
       {error && (
-        <p className="text-sm text-red-400 bg-red-950/20 border border-red-900/30 rounded-lg px-3 py-2">
+        <p className="text-sm text-red-400 bg-red-950/20 border border-red-900/30 rounded-xl px-4 py-3">
           {error}
         </p>
       )}
 
-      {/* Warnings */}
+      {/* User-facing warnings */}
       {warnings.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {warnings.map((w, i) => (
-            <p key={i} className="text-xs text-amber-500/80 bg-amber-950/10 border border-amber-900/20 rounded-lg px-3 py-2">
+            <p key={i} className="text-xs text-amber-500/80 bg-amber-950/10 border border-amber-900/20 rounded-xl px-4 py-2.5">
               {w}
             </p>
           ))}
         </div>
       )}
 
-      {/* Pacing warnings */}
       {pacingWarnings.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {pacingWarnings.map((w, i) => (
-            <p key={i} className="text-xs text-orange-500/70 bg-orange-950/10 border border-orange-900/20 rounded-lg px-3 py-2">
+            <p key={i} className="text-xs text-orange-500/70 bg-orange-950/10 border border-orange-900/20 rounded-xl px-4 py-2.5">
               {w}
             </p>
           ))}
         </div>
       )}
 
-      {/* Style / prose quality warnings (internal only) */}
       {IS_INTERNAL && styleWarnings.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {styleWarnings.map((w, i) => (
-            <p key={i} className="text-xs text-violet-400/70 bg-violet-950/10 border border-violet-900/20 rounded-lg px-3 py-2">
+            <p key={i} className="text-xs text-violet-400/70 bg-violet-950/10 border border-violet-900/20 rounded-xl px-4 py-2.5">
               {w}
             </p>
           ))}
@@ -489,25 +491,25 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
 
       {/* Output */}
       {reply && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-              Generated Reply
+            <label className="text-sm font-medium text-gray-300">
+              Generated reply
             </label>
             <div className="flex items-center gap-2">
-              {IS_INTERNAL && reply && (
+              {IS_INTERNAL && (
                 <button
                   type="button"
                   onClick={handleBenchmarkCopy}
                   className="text-xs text-violet-500/70 hover:text-violet-400 transition px-2 py-1 rounded border border-violet-900/30 hover:border-violet-700/40"
                 >
-                  {benchmarkCopied ? 'Bundle copied' : 'Copy benchmark bundle'}
+                  {benchmarkCopied ? 'Bundle copied' : 'Copy bundle'}
                 </button>
               )}
               <button
                 type="button"
                 onClick={handleCopy}
-                className="text-xs text-gray-500 hover:text-gray-300 transition px-2 py-1 rounded border border-gray-800 hover:border-gray-600"
+                className="text-xs text-gray-500 hover:text-gray-300 transition px-2.5 py-1.5 rounded-lg border border-gray-800 hover:border-gray-600"
               >
                 {copied ? 'Copied' : 'Copy'}
               </button>
@@ -518,185 +520,102 @@ export default function RPReplyGenerator({ preselectedCharacterId, preselectedSt
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             rows={12}
-            className="w-full bg-gray-900/60 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-100 resize-y focus:outline-none focus:border-gray-500 transition leading-relaxed font-mono"
+            className="w-full bg-gray-900/70 border border-gray-700 rounded-2xl px-4 py-4 text-sm text-gray-100 resize-y focus:outline-none focus:border-gray-500 transition leading-relaxed"
           />
 
-          {/* Generation metadata */}
+          {/* Internal diagnostics */}
           {IS_INTERNAL && (modelUsed || generationTimeMs > 0 || detectedStage || continuationScore !== null) && (
             <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-600 px-1">
-              {modelUsed && (
-                <span>
-                  <span className="text-gray-700">model</span>{' '}
-                  <span className="text-gray-500 font-mono">{modelUsed}</span>
-                </span>
-              )}
-              {generationTimeMs > 0 && (
-                <span>
-                  <span className="text-gray-700">time</span>{' '}
-                  <span className="text-gray-500">{generationTimeMs.toLocaleString()}ms</span>
-                </span>
-              )}
-              {detectedStage && (
-                <span>
-                  <span className="text-gray-700">stage</span>{' '}
-                  <span className="text-gray-500">{detectedStage}</span>
-                </span>
-              )}
+              {modelUsed && <span><span className="text-gray-700">model</span> <span className="text-gray-500 font-mono">{modelUsed}</span></span>}
+              {generationTimeMs > 0 && <span><span className="text-gray-700">time</span> <span className="text-gray-500">{generationTimeMs.toLocaleString()}ms</span></span>}
+              {detectedStage && <span><span className="text-gray-700">stage</span> <span className="text-gray-500">{detectedStage}</span></span>}
               {continuationScore !== null && (
                 <span>
                   <span className="text-gray-700">cont.</span>{' '}
-                  <span className={
-                    continuationScore >= 0.65 ? 'text-emerald-600/80' :
-                    continuationScore >= 0.40 ? 'text-gray-500' : 'text-amber-600/80'
-                  }>
+                  <span className={continuationScore >= 0.65 ? 'text-emerald-600/80' : continuationScore >= 0.40 ? 'text-gray-500' : 'text-amber-600/80'}>
                     {continuationScore.toFixed(2)}
                   </span>
                 </span>
               )}
               <span>
                 <span className="text-gray-700">warns</span>{' '}
-                <span className={warnings.length > 0 || pacingWarnings.length > 0 || styleWarnings.length > 0 ? 'text-amber-600/80' : 'text-gray-500'}>
+                <span className={warnings.length + pacingWarnings.length + styleWarnings.length > 0 ? 'text-amber-600/80' : 'text-gray-500'}>
                   {warnings.length + pacingWarnings.length + styleWarnings.length}
                 </span>
               </span>
             </div>
           )}
 
-          {/* Godmod output gate panel — internal dev mode only */}
+          {/* Godmod gate — internal only */}
           {IS_INTERNAL && godmodDetected !== null && (
-            <div className={`border rounded-xl p-3 space-y-2 ${
-              godmodDetected
-                ? 'border-red-800/50 bg-red-950/20'
-                : 'border-gray-800/40 bg-gray-900/20'
-            }`}>
+            <div className={`border rounded-xl p-3 space-y-2 ${godmodDetected ? 'border-red-800/50 bg-red-950/20' : 'border-gray-800/40 bg-gray-900/20'}`}>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-semibold text-red-500/80 uppercase tracking-widest">
-                  Godmod Gate
-                </span>
+                <span className="text-[10px] font-semibold text-red-500/80 uppercase tracking-widest">Godmod Gate</span>
                 <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
-                  godmodDetected
-                    ? 'bg-red-900/40 text-red-400 border-red-700/50'
-                    : godmodSeverity === 'soft'
-                    ? 'bg-amber-900/30 text-amber-400/80 border-amber-800/30'
-                    : 'bg-emerald-900/30 text-emerald-400/80 border-emerald-800/30'
+                  godmodDetected ? 'bg-red-900/40 text-red-400 border-red-700/50'
+                  : godmodSeverity === 'soft' ? 'bg-amber-900/30 text-amber-400/80 border-amber-800/30'
+                  : 'bg-emerald-900/30 text-emerald-400/80 border-emerald-800/30'
                 }`}>
                   {godmodDetected ? 'violation in output' : godmodSeverity === 'soft' ? 'soft (advisory)' : 'clean'}
                 </span>
-                {godmodSeverity && (
-                  <span className="text-[10px] text-gray-600 font-mono">{godmodSeverity}</span>
-                )}
+                {godmodSeverity && <span className="text-[10px] text-gray-600 font-mono">{godmodSeverity}</span>}
               </div>
               {godmodWarnings.length > 0 && (
                 <div className="space-y-1">
                   {godmodWarnings.map((w, i) => (
-                    <p key={i} className="text-[11px] text-red-400/70 font-mono bg-red-950/30 rounded px-2 py-1 leading-relaxed">
-                      {w}
-                    </p>
+                    <p key={i} className="text-[11px] text-red-400/70 font-mono bg-red-950/30 rounded px-2 py-1 leading-relaxed">{w}</p>
                   ))}
                 </div>
               )}
             </div>
           )}
 
-          {/* Scene Beat Engine panel — internal dev mode only */}
+          {/* Scene beat engine — internal only */}
           {IS_INTERNAL && (nextSceneGoal || repetitionScore !== null || progressionSuccess !== null || aiCadenceRisk !== null || spatialPosition || resolvedHeat || multiBeatDetected !== null || resolvedLengthProfile || maxTokensUsed !== null) && (
             <div className="border border-violet-900/30 bg-violet-950/10 rounded-xl p-3 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-semibold text-violet-500/80 uppercase tracking-widest">
-                  Scene Beat Engine
-                </span>
+                <span className="text-[10px] font-semibold text-violet-500/80 uppercase tracking-widest">Scene Beat Engine</span>
                 {progressionSuccess !== null && (
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                    progressionSuccess
-                      ? 'bg-emerald-900/40 text-emerald-400/80 border border-emerald-800/40'
-                      : 'bg-amber-900/30 text-amber-500/70 border border-amber-800/30'
-                  }`}>
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${progressionSuccess ? 'bg-emerald-900/40 text-emerald-400/80 border border-emerald-800/40' : 'bg-amber-900/30 text-amber-500/70 border border-amber-800/30'}`}>
                     {progressionSuccess ? 'progressed' : 'stalled'}
                   </span>
                 )}
                 {aiCadenceRisk && (
-                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-900/30 text-red-400/70 border border-red-800/30">
-                    ai cadence
-                  </span>
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-900/30 text-red-400/70 border border-red-800/30">ai cadence</span>
                 )}
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-                {nextSceneGoal && (
-                  <span>
-                    <span className="text-violet-700/80">next goal</span>{' '}
-                    <span className="text-violet-400/70">{nextSceneGoal}</span>
-                  </span>
-                )}
+                {nextSceneGoal && <span><span className="text-violet-700/80">next goal</span> <span className="text-violet-400/70">{nextSceneGoal}</span></span>}
                 {repetitionScore !== null && (
                   <span>
                     <span className="text-violet-700/80">rep.</span>{' '}
-                    <span className={
-                      repetitionScore < 0.2 ? 'text-emerald-600/70' :
-                      repetitionScore < 0.5 ? 'text-amber-600/70' : 'text-red-500/70'
-                    }>
+                    <span className={repetitionScore < 0.2 ? 'text-emerald-600/70' : repetitionScore < 0.5 ? 'text-amber-600/70' : 'text-red-500/70'}>
                       {repetitionScore.toFixed(2)}
                     </span>
                   </span>
                 )}
-                {detectedStage && (
-                  <span>
-                    <span className="text-violet-700/80">input stage</span>{' '}
-                    <span className="text-violet-400/70">{detectedStage}</span>
-                  </span>
-                )}
-                {resolvedHeat && resolvedHeat !== heatLevel && (
-                  <span>
-                    <span className="text-violet-700/80">resolved heat</span>{' '}
-                    <span className="text-orange-400/70">{resolvedHeat}</span>
-                  </span>
-                )}
+                {detectedStage && <span><span className="text-violet-700/80">input stage</span> <span className="text-violet-400/70">{detectedStage}</span></span>}
+                {resolvedHeat && resolvedHeat !== heatLevel && <span><span className="text-violet-700/80">resolved heat</span> <span className="text-orange-400/70">{resolvedHeat}</span></span>}
               </div>
               {(spatialPosition || spatialDominance) && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] border-t border-violet-900/20 pt-2 mt-1">
                   <span className="text-[10px] text-violet-600/60 uppercase tracking-widest w-full">Spatial</span>
-                  {spatialPosition && (
-                    <span>
-                      <span className="text-violet-700/80">position</span>{' '}
-                      <span className="text-violet-400/70">{spatialPosition}</span>
-                    </span>
-                  )}
-                  {spatialDominance && spatialDominance !== 'neutral' && (
-                    <span>
-                      <span className="text-violet-700/80">dynamic</span>{' '}
-                      <span className="text-violet-400/70">{spatialDominance}</span>
-                    </span>
-                  )}
+                  {spatialPosition && <span><span className="text-violet-700/80">position</span> <span className="text-violet-400/70">{spatialPosition}</span></span>}
+                  {spatialDominance && spatialDominance !== 'neutral' && <span><span className="text-violet-700/80">dynamic</span> <span className="text-violet-400/70">{spatialDominance}</span></span>}
                 </div>
               )}
               {(multiBeatDetected !== null || resolvedLengthProfile || maxTokensUsed !== null) && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] border-t border-violet-900/20 pt-2 mt-1">
                   <span className="text-[10px] text-violet-600/60 uppercase tracking-widest w-full">Beat Planner / Length</span>
-                  {resolvedLengthProfile && (
-                    <span>
-                      <span className="text-violet-700/80">length</span>{' '}
-                      <span className="text-violet-400/70">{resolvedLengthProfile}</span>
-                    </span>
-                  )}
-                  {maxTokensUsed !== null && maxTokensUsed > 0 && (
-                    <span>
-                      <span className="text-violet-700/80">max_tok</span>{' '}
-                      <span className="text-violet-400/70">{maxTokensUsed.toLocaleString()}</span>
-                    </span>
-                  )}
+                  {resolvedLengthProfile && <span><span className="text-violet-700/80">length</span> <span className="text-violet-400/70">{resolvedLengthProfile}</span></span>}
+                  {maxTokensUsed !== null && maxTokensUsed > 0 && <span><span className="text-violet-700/80">max_tok</span> <span className="text-violet-400/70">{maxTokensUsed.toLocaleString()}</span></span>}
                   {multiBeatDetected !== null && (
                     <span>
                       <span className="text-violet-700/80">multi-beat</span>{' '}
-                      <span className={multiBeatDetected ? 'text-emerald-400/80' : 'text-gray-600'}>
-                        {multiBeatDetected ? 'detected' : 'no'}
-                      </span>
+                      <span className={multiBeatDetected ? 'text-emerald-400/80' : 'text-gray-600'}>{multiBeatDetected ? 'detected' : 'no'}</span>
                     </span>
                   )}
-                  {beatCompletionMode && beatCompletionMode !== 'single' && (
-                    <span>
-                      <span className="text-violet-700/80">mode</span>{' '}
-                      <span className="text-emerald-400/70">{beatCompletionMode}</span>
-                    </span>
-                  )}
+                  {beatCompletionMode && beatCompletionMode !== 'single' && <span><span className="text-violet-700/80">mode</span> <span className="text-emerald-400/70">{beatCompletionMode}</span></span>}
                   {requestedBeats.length > 0 && (
                     <span className="w-full">
                       <span className="text-violet-700/80">beats</span>{' '}
