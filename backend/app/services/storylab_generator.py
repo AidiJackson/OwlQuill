@@ -4065,17 +4065,18 @@ def generate_rp_reply(
                             )
 
                 # ── Godmod output gate ────────────────────────────────────────
-                # Run after all other retries. If the final reply has a hard
-                # godmod violation AND no retry was triggered yet, fire one
-                # correction retry. Then validate again and report in metadata.
+                # Run after all other retries. Godmod gate has its own boolean
+                # so it fires even when a prior retry (partner_silence,
+                # waiting_loop, POV) already set retry_triggered = True.
                 godmod_meta: dict = {"detected": False, "severity": "none", "warnings": []}
+                godmod_retry_triggered = False
                 _godmod = detect_godmod_violations(
                     reply,
                     selected_character_name=character_name or None,
                     partner_character_name=partner_character_name or None,
                 )
-                if _godmod["severity"] == "hard" and not retry_triggered:
-                    retry_triggered = True
+                if _godmod["severity"] == "hard" and not godmod_retry_triggered:
+                    godmod_retry_triggered = True
                     char_label = character_name or "the selected character"
                     godmod_correction = (
                         "CRITICAL CORRECTION — READ FIRST — OVERRIDES ALL OTHER INSTRUCTIONS:\n"

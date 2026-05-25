@@ -18,5 +18,5 @@ _SPEECH_VERBS: str = (
 # Inner emotional / cognitive state verbs used in inner-state detectors.
 _INNER_STATE_VERBS: str = (
     r"thought|knew|realized|wondered|decided|chose|understood|believed|"
-    r"hoped|feared|expected|wanted|needed|mused|reflected|considered"
+    r"hoped|feared|expected|wanted|needed|mused|reflected|considered|felt"
 )

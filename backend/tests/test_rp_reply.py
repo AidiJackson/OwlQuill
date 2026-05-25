@@ -1409,6 +1409,7 @@ class TestGodmodReturnShape:
             "partner_decision_count",
             "partner_inner_state_count",
             "partner_major_action_count",
+            "partner_physical_reaction_count",
         }
 
     def test_clean_text_returns_none_severity(self):

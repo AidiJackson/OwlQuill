@@ -76,6 +76,31 @@ _INNER_STATE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Involuntary physical reaction verbs authored for the partner
+_PHYSICAL_REACTION_VERBS: str = (
+    r"shuddered|trembled|flinched|gasped|stiffened|recoiled|tensed|froze|"
+    r"staggered|whimpered|sobbed|shivered|quivered|convulsed|jerked"
+)
+_PHYSICAL_REACTION_RE = re.compile(
+    r'\b(she|he|they)\s+(?:' + _PHYSICAL_REACTION_VERBS + r')\b',
+    re.IGNORECASE,
+)
+
+# Infinitive forms of physical reaction verbs (used in "making her [verb]" causal arm)
+_PHYSICAL_REACTION_VERBS_INF: str = (
+    r"shudder|tremble|flinch|gasp|stiffen|recoil|tense|freeze|"
+    r"stagger|whimper|sob|shiver|quiver|convulse|jerk"
+)
+
+# Causal constructions that author the partner's reaction through SC action
+_CAUSAL_REACTION_RE = re.compile(
+    r'\b(?:eliciting|drawing|forcing|provoking|wrenching|coaxing|wringing|pulling)\s+'
+    r'\w+(?:\s+\w+){0,4}\s+from\s+(?:her|him|them)\b'
+    r'|\bcausing\s+(?:her|him|them)\s+to\s+\w+\b'
+    r'|\bmaking\s+(?:her|him|them)\s+(?:' + _PHYSICAL_REACTION_VERBS_INF + r')\b',
+    re.IGNORECASE,
+)
+
 # Climax / orgasm — pronoun-based
 # Careful to avoid false matches: "she came from across the room" should NOT fire.
 _CLIMAX_RE = re.compile(
@@ -164,6 +189,7 @@ def detect_godmod_violations(
     partner_decision_count = 0
     partner_inner_state_count = 0
     partner_major_action_count = 0
+    partner_physical_reaction_count = 0
 
     selected_name_lower = selected_character_name.strip().lower() if selected_character_name else ""
     partner_name_lower = partner_character_name.strip().lower() if partner_character_name else ""
@@ -273,6 +299,16 @@ def detect_godmod_violations(
                 "type": "partner_major_action",
                 "excerpt": _excerpt(text, m),
                 "reason": f"{_name} makes major scene-moving action",
+            })
+            partner_major_action_count += 1
+
+        # h. Partner name + involuntary physical reaction
+        _named_physical_re = _name_pattern(_name, r'\s+(?:' + _PHYSICAL_REACTION_VERBS + r')\b')
+        for m in _named_physical_re.finditer(text):
+            violations.append({
+                "type": "partner_physical_reaction",
+                "excerpt": _excerpt(text, m),
+                "reason": f"{_name} physical reaction authored (name-anchored)",
             })
             partner_major_action_count += 1
 
@@ -398,29 +434,52 @@ def detect_godmod_violations(
             })
             partner_decision_count += 1
 
-    # e. Partner inner state (pronoun-based) — requires 3+ matches for hard
+    # e. Partner inner state (pronoun-based) — requires 2+ matches for hard
     inner_matches = [
         m for m in _INNER_STATE_RE.finditer(text)
         if not _near_selected_name(m.start(), m.end())
         and not _is_minimal_reaction(text[max(0, m.start() - 30):m.end() + 30])
     ]
     partner_inner_state_count = len(inner_matches)
-    if partner_inner_state_count >= 3:
+    if partner_inner_state_count >= 2:
         violations.append({
             "type": "partner_inner_state",
             "excerpt": _excerpt(text, inner_matches[0]),
             "reason": f"Dense partner inner-state narration ({partner_inner_state_count} instances)",
         })
     elif partner_inner_state_count >= 1 and not partner_name_lower:
-        # Soft: single/double inner state without name anchor — could be SC
+        # Soft: single inner state without name anchor — could be SC
         pass
+
+    # f. Partner involuntary physical reactions (pronoun-based) — 1+ match = hard
+    physical_matches = [
+        m for m in _PHYSICAL_REACTION_RE.finditer(text)
+        if not _near_selected_name(m.start(), m.end())
+    ]
+    partner_physical_reaction_count = len(physical_matches)
+    if partner_physical_reaction_count >= 1:
+        violations.append({
+            "type": "partner_physical_reaction",
+            "excerpt": _excerpt(text, physical_matches[0]),
+            "reason": f"Partner involuntary physical reaction authored ({partner_physical_reaction_count} instance(s))",
+        })
+
+    # g. Causal constructions that author the partner's reaction through SC action
+    for m in _CAUSAL_REACTION_RE.finditer(text):
+        if not _near_selected_name(m.start(), m.end()):
+            violations.append({
+                "type": "partner_physical_reaction",
+                "excerpt": _excerpt(text, m),
+                "reason": "Causal construction authors partner reaction",
+            })
+            partner_physical_reaction_count += 1
 
     # ── 3. Determine severity ──────────────────────────────────────────────────
 
     # Hard violation types — any of these → severity = "hard"
     HARD_TYPES = {"partner_dialogue", "partner_consent", "partner_climax",
                   "partner_inner_state", "partner_attributed_speech",
-                  "partner_major_action"}
+                  "partner_major_action", "partner_physical_reaction"}
 
     hard_violations = [v for v in violations if v["type"] in HARD_TYPES]
     soft_violations = [v for v in violations if v["type"] not in HARD_TYPES]
@@ -459,4 +518,5 @@ def detect_godmod_violations(
         "partner_decision_count": partner_decision_count,
         "partner_inner_state_count": partner_inner_state_count,
         "partner_major_action_count": partner_major_action_count,
+        "partner_physical_reaction_count": partner_physical_reaction_count,
     }

@@ -99,13 +99,14 @@ Do NOT write the partner character's spoken dialogue — not even implied quotes
 Do NOT write the partner character's internal thoughts, emotions, or mental state.
 Do NOT write the partner character's consent decisions or agency resolutions.
 Do NOT write emotional monologues, conclusions, or narrative closure for the partner.
+Do NOT write the partner character's physical reactions — no shuddering, trembling, flinching, gasping, stiffening, or any involuntary bodily response.
+Do NOT author partner reactions through causal framing — no "eliciting a shudder from her", "causing her to gasp", "making him tremble", "drawing a whimper from them".
 
-ALLOWED minimal implied physical reactions (brief and physical only):
-  "she shuddered" / "her breath caught" / "her nails dug into him" / "he stilled"
-
-NOT ALLOWED authored partner reactions:
+FORBIDDEN examples (partner's experience authored):
+  "she shuddered" / "he trembled" / "her breath caught" / "he stilled" / "she gasped"
+  "eliciting a moan from her" / "causing her to shiver" / "making him flinch"
   "I choose you" / "Don't stop" / "I've never been more sure" / "I want this"
-  Any dialogue, thought, or decision that resolves the partner's inner state.
+  Any reaction, thought, decision, or physical response that resolves the partner's experience.
 """.strip()
 
 
