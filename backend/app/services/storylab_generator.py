@@ -3604,14 +3604,21 @@ def _parse_rp_reply_output(raw: str) -> str:
 # ── anti-godmodding output guard ───────────────────────────────────────────────
 
 def _check_rp_reply_output(reply: str) -> list[str]:
-    """Return warning strings for anti-godmodding and quality issues. Non-blocking in V1.
+    """Return warning strings for quality issues NOT already covered by the godmod validator.
 
-    Checks (in order):
-      1. Empty / too short
-      2. Direct partner dialogue  — multiple attributed quote blocks
-      3. Partner internal state   — dense pronoun + interior-verb combos
-      4. Forced physical reactions — partner's body described reacting
-      5. Consent / agency resolution — partner's choice resolved by the writer
+    The godmod validator (detect_godmod_violations) handles physical reactions,
+    consent/agency, climax, and attributed dialogue with retry support. This
+    function covers the remaining cases the godmod validator does not:
+
+      1. Empty / too short  — always returned early, no other checks run
+      2. Multiple dialogue attribution (≥3 blocks) — broad structural signal;
+         godmod validator catches ≥2 attributed lines but this check fires on a
+         higher count to catch prose with very dense multi-character dialogue
+         that may pass the godmod retry at lower counts
+      3. Dense interior-state narration (≥4 instances) — godmod validator uses
+         a different inner-state verb set and fires at ≥2; this check uses a
+         broader verb list and fires only at ≥4 to avoid false positives, giving
+         a user-facing nudge when the validator's threshold wasn't crossed
     """
     warnings: list[str] = []
     words = reply.split()
@@ -3641,30 +3648,6 @@ def _check_rp_reply_output(reply: str) -> list[str]:
         warnings.append(
             "Reply may be narrating another character's internal state — "
             "ensure you are only writing your own character."
-        )
-
-    # 3. Forced physical reactions — partner's body described reacting
-    reactions = re.findall(
-        r'\b(?:she|he|they)\s+(?:gasped|flinched|trembled|shuddered|stiffened|'
-        r'recoiled|tensed|froze|staggered|startled|whimpered|shrank|winced|'
-        r'stepped back|pulled away|leaned away|drew back)\b',
-        reply, re.IGNORECASE,
-    )
-    if len(reactions) >= 2:
-        warnings.append(
-            "Reply appears to describe the partner character's physical reactions — "
-            "avoid writing their body's responses."
-        )
-
-    # 4. Consent / agency resolution — partner's choice resolved by the writer
-    consent = re.findall(
-        r'\b(?:let|allowed|permitted|accepted|welcomed|gave)\s+(?:him|her|them|it)\b',
-        reply, re.IGNORECASE,
-    )
-    if len(consent) >= 2:
-        warnings.append(
-            "Reply may be resolving the partner character's consent or agency — "
-            "leave their choices to the other writer."
         )
 
     return warnings
