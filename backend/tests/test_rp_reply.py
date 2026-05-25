@@ -1490,6 +1490,21 @@ class TestPartnerAttributedSpeech:
         )
         assert result["severity"] != "hard"
 
+    def test_single_partner_pronoun_line_is_hard_when_pronouns_known(self):
+        """Single attributed line using the partner's pronoun is a hard violation when
+        partner_character_name + partner_pronouns are both supplied and the pronoun
+        differs from the selected character's pronoun — the validator can rule out
+        ambiguity and flags immediately (godmod_validator.py lines 374-384)."""
+        result = _dgv(
+            '"You should leave," she said.',
+            selected_character_name="Marco",
+            selected_pronouns=["he", "him"],
+            partner_character_name="Elly",
+            partner_pronouns=["she", "her"],
+        )
+        assert result["severity"] == "hard"
+        assert _vtype(result, "partner_dialogue")
+
 
 # ── Partner consent — hard ────────────────────────────────────────────────────
 
