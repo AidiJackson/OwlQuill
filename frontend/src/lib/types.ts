@@ -499,3 +499,93 @@ export interface RPModelOption {
   profile: string;
   label: string;
 }
+
+// ── RP Story Threads ──────────────────────────────────────────────────────────
+
+export type RPPartnerPOV = 'first' | 'third' | 'unknown';
+export type RPThreadStatus = 'active' | 'archived';
+export type RPAuthorType = 'partner' | 'selected_character';
+
+export interface RPStoryTurn {
+  id: number;
+  thread_id: number;
+  turn_index: number;
+  author_type: RPAuthorType;
+  content: string;
+  generated: boolean;
+  godmod_detected?: boolean | null;
+  godmod_severity?: string | null;
+  metadata_json?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface RPStoryThread {
+  id: number;
+  user_id: number;
+  selected_character_id?: number | null;
+  title: string;
+  partner_label?: string | null;
+  partner_pov: string;
+  status: RPThreadStatus;
+  summary_memory?: string | null;
+  created_at: string;
+  updated_at: string;
+  turn_count: number;
+}
+
+export interface RPStoryThreadDetail extends RPStoryThread {
+  turns: RPStoryTurn[];
+}
+
+export interface CreateRPStoryRequest {
+  partner_starter: string;
+  selected_character_id?: number | null;
+  title?: string | null;
+  partner_label?: string | null;
+  partner_pov?: RPPartnerPOV;
+  response_length?: string;
+  style_match?: string;
+  perspective?: string;
+  formatting?: string;
+  intensity?: string;
+  heat_level?: string;
+  instructions?: string | null;
+}
+
+export interface AddPartnerTurnRequest {
+  content: string;
+}
+
+export interface GenerateThreadReplyRequest {
+  instructions?: string | null;
+  response_length?: string;
+  style_match?: string;
+  perspective?: string;
+  formatting?: string;
+  intensity?: string;
+  heat_level?: string;
+  style_archetype?: string | null;
+  model_profile?: string | null;
+}
+
+export interface GenerateThreadReplyResponse {
+  reply: string;
+  model_used: string;
+  generation_time_ms: number;
+  godmod_detected: boolean;
+  godmod_severity: string;
+  godmod_warnings: string[];
+  warnings: string[];
+  continuation_score: number;
+  pacing_warnings: string[];
+  style_warnings: string[];
+}
+
+export interface SaveGeneratedTurnRequest {
+  content: string;
+  godmod_detected?: boolean | null;
+  godmod_severity?: string | null;
+  godmod_warnings?: string[] | null;
+  model_used?: string | null;
+  generation_time_ms?: number | null;
+}

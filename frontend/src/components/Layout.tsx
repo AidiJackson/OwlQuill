@@ -51,6 +51,7 @@ export default function Layout() {
   const isChars         = p.startsWith('/characters');
   const isWorkspace     = p.startsWith('/workspace');
   const isStoryLab      = p.startsWith('/storylab');
+  const isRPStories     = p.startsWith('/rp-stories');
   const isImages        = p.startsWith('/images');
   const isMessages      = p.startsWith('/messages');
   const isNotifications = p.startsWith('/notifications');
@@ -107,6 +108,13 @@ export default function Layout() {
           onClick={closeSidebar}
         >
           StoryLab
+        </Link>
+        <Link
+          to="/rp-stories"
+          className={navCls(isRPStories)}
+          onClick={closeSidebar}
+        >
+          RP Stories
         </Link>
         <Link
           to="/images"

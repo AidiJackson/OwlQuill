@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -652,6 +652,36 @@ class ApiClient {
       throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
     }
     return resp.json();
+  }
+
+  // ── RP Story Threads ──────────────────────────────────────────────────────
+
+  async createRPStory(data: CreateRPStoryRequest): Promise<RPStoryThreadDetail> {
+    return this.request('/rp-stories', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async listRPStories(): Promise<RPStoryThread[]> {
+    return this.request('/rp-stories');
+  }
+
+  async getRPStory(threadId: number): Promise<RPStoryThreadDetail> {
+    return this.request(`/rp-stories/${threadId}`);
+  }
+
+  async addPartnerTurn(threadId: number, data: AddPartnerTurnRequest): Promise<RPStoryTurn> {
+    return this.request(`/rp-stories/${threadId}/partner-turn`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async generateThreadReply(threadId: number, data: GenerateThreadReplyRequest): Promise<GenerateThreadReplyResponse> {
+    return this.request(`/rp-stories/${threadId}/generate-reply`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async saveGeneratedTurn(threadId: number, data: SaveGeneratedTurnRequest): Promise<RPStoryTurn> {
+    return this.request(`/rp-stories/${threadId}/save-generated-turn`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async archiveRPStory(threadId: number): Promise<RPStoryThread> {
+    return this.request(`/rp-stories/${threadId}/archive`, { method: 'PATCH' });
   }
 }
 

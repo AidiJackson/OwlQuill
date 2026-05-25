@@ -24,6 +24,8 @@ import ImageNew from '@/pages/ImageNew';
 import Workspace from '@/pages/Workspace';
 import StoryLab from '@/pages/StoryLab';
 import StoryLabSession from '@/pages/StoryLabSession';
+import RPStories from '@/pages/RPStories';
+import RPStoryPage from '@/pages/RPStoryPage';
 import StorySpaces from '@/pages/StorySpaces';
 import StorySpaceDetail from '@/pages/StorySpaceDetail';
 import StorySpacePublish from '@/pages/StorySpacePublish';
@@ -89,6 +91,8 @@ function App() {
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/storylab" element={<StoryLab />} />
           <Route path="/storylab/:storyId" element={<StoryLabSession />} />
+          <Route path="/rp-stories" element={<RPStories />} />
+          <Route path="/rp-stories/:threadId" element={<RPStoryPage />} />
           <Route path="/scenes/:sceneId" element={<SceneDetail />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
