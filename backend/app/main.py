@@ -16,6 +16,7 @@ from app.core.invite_seed import seed_invite_codes
 from app.core.style_shop_seed import seed_style_presets
 from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory, identity_evolution, candidate_slot, notifications, style_shops, body_canon, body_identity
 from app.api.routes.story_spaces import published_router
+from app.api.routes import rp_stories
 
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,7 @@ app.include_router(notifications.router, prefix="/notifications", tags=["notific
 app.include_router(style_shops.router, tags=["style-shops"])
 app.include_router(body_canon.router, prefix="/characters", tags=["body-canon"])
 app.include_router(body_identity.router, prefix="/characters", tags=["body-identity"])
+app.include_router(rp_stories.router, prefix="/rp-stories", tags=["rp-stories"])
 
 # Mirror all routes under /api/* prefix
 api_router = APIRouter(prefix="/api")
@@ -150,6 +152,7 @@ api_router.include_router(notifications.router, prefix="/notifications", tags=["
 api_router.include_router(style_shops.router, tags=["style-shops"])
 api_router.include_router(body_canon.router, prefix="/characters", tags=["body-canon"])
 api_router.include_router(body_identity.router, prefix="/characters", tags=["body-identity"])
+api_router.include_router(rp_stories.router, prefix="/rp-stories", tags=["rp-stories"])
 app.include_router(api_router)
 
 
