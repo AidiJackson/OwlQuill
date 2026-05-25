@@ -637,8 +637,10 @@ def generate_identity_pack(
         identity_spec.style = "realistic"
 
     if use_structured_spec:
-        # identity_spec_json and identity_spec_version are written only at accept time
-        # (bound to the accepted pack, not the most-recently-generated pack).
+        # Write identity_spec_json at generate time so sketch and debug-trace can
+        # use it before the pack is accepted. identity_spec_version is incremented
+        # only at accept time (bound to the locked spec, not every preview run).
+        character.identity_spec_json = _json.dumps(identity_spec.model_dump())
         spec_meta = {"did_rewrite": False, "reasons": [], "original_len": 0, "final_len": 0}
     else:
         identity_spec = None
@@ -1815,8 +1817,8 @@ def generate_identity_sketch(
         )
         if settings.is_dev_mode():
             detail = (
-                f"Sketch generation unavailable: provider={provider_name}, "
-                f"exc={exc_type}, reason={exc_msg}"
+                f"Sketch generation is temporarily unavailable: "
+                f"provider={provider_name}, exc={exc_type}, reason={exc_msg}"
             )
         else:
             detail = "Sketch generation is temporarily unavailable."
