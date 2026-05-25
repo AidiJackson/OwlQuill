@@ -1752,3 +1752,207 @@ class TestGenerateRPReplyGodmodGate:
             )
 
         assert mock_client.post.call_count == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# detect_partner_silence_severe — surface not covered elsewhere in this file
+# (test_rp_partner_silence.py tests the prompt-builder layer; these tests cover
+#  the detector function itself, per task spec requirements)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from app.services.rp_behavior_engine import detect_partner_silence_severe as _dpss
+
+
+class TestDetectPartnerSilenceSevere:
+    def test_returns_expected_keys(self):
+        result = _dpss("He moved toward her.")
+        assert set(result.keys()) == {
+            "severe", "cross_gender_godmod", "dialogue_count",
+            "speech_verb_count", "decision_count", "flags",
+        }
+
+    def test_clean_text_not_severe(self):
+        result = _dpss("He turned to the window. The rain was relentless.")
+        assert result["severe"] is False
+        assert result["cross_gender_godmod"] is False
+        assert result["dialogue_count"] == 0
+        assert result["decision_count"] == 0
+
+    def test_cross_gender_flag_both_he_and_she(self):
+        text = '"I need answers," he said.\n"Then ask them," she replied.'
+        result = _dpss(text)
+        assert result["cross_gender_godmod"] is True
+        assert result["severe"] is True
+        assert any("cross-gender" in f.lower() for f in result["flags"])
+
+    def test_two_attributed_lines_is_severe(self):
+        text = '"This ends now," she said.\n"Does it?" she replied.'
+        result = _dpss(text)
+        assert result["dialogue_count"] >= 2
+        assert result["severe"] is True
+
+    def test_single_attributed_line_not_severe(self):
+        result = _dpss('"You should leave," she said.')
+        assert result["severe"] is False
+        assert result["dialogue_count"] == 1
+
+    def test_partner_decision_is_severe(self):
+        result = _dpss("She decided to trust him.")
+        assert result["decision_count"] >= 1
+        assert result["severe"] is True
+        assert any("decision" in f.lower() or "consent" in f.lower() for f in result["flags"])
+
+    def test_partner_consented_is_severe(self):
+        result = _dpss("She consented at last.")
+        assert result["severe"] is True
+        assert result["decision_count"] >= 1
+
+    def test_two_bare_speech_verbs_is_severe(self):
+        result = _dpss("She murmured. She whispered again.")
+        assert result["speech_verb_count"] >= 2
+        assert result["severe"] is True
+
+    def test_single_bare_speech_verb_not_severe(self):
+        result = _dpss("She murmured something under her breath.")
+        assert result["severe"] is False
+
+    def test_flags_list_populated_on_violation(self):
+        text = '"Stop," she said.\n"Please," she begged.'
+        result = _dpss(text)
+        assert len(result["flags"]) > 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# resolve_rp_model — profile resolution and fallback
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from app.services.rp_models import resolve_rp_model, resolve_inferno_model
+
+
+class TestResolveRPModel:
+    def test_none_profile_falls_back_to_default(self):
+        profile, slug = resolve_rp_model(None, "meta-llama/llama-3.1-70b-instruct")
+        assert profile == "default"
+        assert slug == "meta-llama/llama-3.1-70b-instruct"
+
+    def test_unknown_profile_falls_back_to_default(self):
+        profile, slug = resolve_rp_model("nonexistent_model_xyz", "meta-llama/llama-3.1-70b-instruct")
+        assert profile == "default"
+        assert slug == "meta-llama/llama-3.1-70b-instruct"
+
+    def test_known_profile_returns_correct_slug(self):
+        profile, slug = resolve_rp_model("mixtral_8x22b", "some-default-model")
+        assert profile == "mixtral_8x22b"
+        assert slug == "mistralai/mixtral-8x22b-instruct"
+
+    def test_default_profile_uses_provided_default_model(self):
+        profile, slug = resolve_rp_model("default", "custom/model-slug")
+        assert profile == "default"
+        assert slug == "custom/model-slug"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# resolve_inferno_model — override priority
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestResolveInfernoModelOverride:
+    def test_inferno_override_config_used_when_base_is_restrictive(self):
+        profile, slug, was_overridden = resolve_inferno_model(
+            profile="default",
+            default_model="openai/gpt-4o",
+            inferno_override="qwen/qwen-2.5-72b-instruct",
+        )
+        assert slug == "qwen/qwen-2.5-72b-instruct"
+        assert was_overridden is True
+
+    def test_permissive_user_profile_honoured_over_override(self):
+        profile, slug, was_overridden = resolve_inferno_model(
+            profile="mixtral_8x22b",
+            default_model="some-default",
+            inferno_override="qwen/qwen-2.5-72b-instruct",
+        )
+        assert "mixtral" in slug
+        assert was_overridden is False
+
+    def test_fallback_to_inferno_allowed_models_when_no_override(self):
+        from app.services.rp_models import INFERNO_ALLOWED_MODELS
+        _profile, slug, _was_overridden = resolve_inferno_model(
+            profile="default",
+            default_model="anthropic/claude-3-haiku",
+            inferno_override="",
+        )
+        assert slug in INFERNO_ALLOWED_MODELS
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Endpoint — Task #5 response fields
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestEndpointTask5Fields:
+    def test_task5_fields_present_in_response(self, client: TestClient):
+        """ai_cadence_risk, spatial_position, spatial_dominance, resolved_heat must all be
+        present in the response schema (added in Task #5)."""
+        token = get_auth_token(client)
+        resp = client.post(
+            "/storylab/rp-reply/generate",
+            headers=auth_headers(token),
+            json={
+                "partner_reply": "She stood in the doorway, watching him.",
+                "response_length": "short",
+                "style_match": "off",
+                "perspective": "third_person_limited",
+                "formatting": "plain",
+                "intensity": "standard",
+                "heat_level": "embers",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "ai_cadence_risk" in data, "ai_cadence_risk missing from response"
+        assert "spatial_position" in data, "spatial_position missing from response"
+        assert "spatial_dominance" in data, "spatial_dominance missing from response"
+        assert "resolved_heat" in data, "resolved_heat missing from response"
+        assert isinstance(data["ai_cadence_risk"], bool)
+        assert isinstance(data["spatial_position"], str)
+        assert isinstance(data["spatial_dominance"], str)
+        assert isinstance(data["resolved_heat"], str)
+
+    def test_resolved_heat_reflects_intensity_floor(self, client: TestClient):
+        """When intensity=explicit and heat_level=embers, resolved_heat must be 'inferno'."""
+        token = get_auth_token(client)
+        resp = client.post(
+            "/storylab/rp-reply/generate",
+            headers=auth_headers(token),
+            json={
+                "partner_reply": "She moved toward him.",
+                "response_length": "short",
+                "style_match": "off",
+                "perspective": "third_person_limited",
+                "formatting": "plain",
+                "intensity": "explicit",
+                "heat_level": "embers",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["resolved_heat"] == "inferno"
+
+    def test_partner_character_name_accepted_in_request(self, client: TestClient):
+        """partner_character_name field (added in Task #5) must be accepted without error."""
+        token = get_auth_token(client)
+        resp = client.post(
+            "/storylab/rp-reply/generate",
+            headers=auth_headers(token),
+            json={
+                "partner_reply": "Lennox turned from the window.",
+                "partner_character_name": "Lennox",
+                "response_length": "short",
+                "style_match": "off",
+                "perspective": "third_person_limited",
+                "formatting": "plain",
+                "intensity": "standard",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "reply" in data
+        assert "godmod_detected" in data
