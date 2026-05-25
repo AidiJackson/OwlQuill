@@ -224,6 +224,12 @@ class RPReplyGenerateRequest(BaseModel):
             return "flame"
         return v
 
+    partner_character_name: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Name of the partner character. When provided, enables name-anchored godmod detection.",
+    )
+
     @field_validator("style_archetype")
     @classmethod
     def validate_style_archetype(cls, v: Optional[str]) -> Optional[str]:
@@ -272,3 +278,8 @@ class RPReplyGenerateResponse(BaseModel):
     godmod_detected: bool = Field(False, description="True if a hard godmod violation was detected in the final output")
     godmod_severity: str = Field("none", description="Godmod severity: none | soft | hard")
     godmod_warnings: list[str] = Field(default_factory=list, description="Excerpts / reasons for any godmod violations found")
+    # Orchestration diagnostics (internal dev mode)
+    ai_cadence_risk: bool = Field(False, description="True if the reply shows AI prose-cadence patterns")
+    spatial_position: str = Field("", description="Detected spatial position of the characters in the scene")
+    spatial_dominance: str = Field("neutral", description="Detected dominance dynamic: neutral | dominant | submissive")
+    resolved_heat: str = Field("", description="Effective heat level after intensity-floor enforcement")

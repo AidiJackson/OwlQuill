@@ -2020,6 +2020,7 @@ def generate_rp_reply_endpoint(
         model_profile=req.model_profile or "default",
         heat_level=resolved_heat,
         style_archetype=effective_archetype,
+        partner_character_name=req.partner_character_name or "",
     )
 
     warnings = _check_rp_reply_output(reply)
@@ -2138,4 +2139,8 @@ def generate_rp_reply_endpoint(
         godmod_detected=godmod_meta["detected"],
         godmod_severity=godmod_meta["severity"],
         godmod_warnings=godmod_meta["warnings"],
+        ai_cadence_risk=bool(cadence_result["ai_cadence_risk"]),
+        spatial_position=str(spatial_state["current_position"]),
+        spatial_dominance=str(spatial_state["dominance_state"]),
+        resolved_heat=resolved_heat,
     )
