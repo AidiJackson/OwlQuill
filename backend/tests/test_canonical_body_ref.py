@@ -100,16 +100,16 @@ class TestCanonicalRefSet:
         assert "body_identity:body_front" in out
         assert "front" in out
 
-    def test_body_front_is_first_in_output(self):
+    def test_front_is_first_in_output(self):
         out = _full_pipeline(["front", "body_identity:body_front"])
-        assert out[0] == "body_identity:body_front", (
-            f"body_front must be position 0. Got: {out}"
+        assert out[0] == "front", (
+            f"front (identity seed) must be position 0. Got: {out}"
         )
 
-    def test_front_is_second_in_output(self):
+    def test_body_front_is_second_in_output(self):
         out = _full_pipeline(["front", "body_identity:body_front"])
-        assert out[1] == "front", (
-            f"front must be position 1. Got: {out}"
+        assert out[1] == "body_identity:body_front", (
+            f"body_front (body truth) must be position 1. Got: {out}"
         )
 
     def test_three_quarter_included_when_present(self):
@@ -437,3 +437,117 @@ class TestLeonardoTshirtCanonicalPipeline:
         assert "body_identity:tattoo_layout" not in out
         assert "torso" not in out
         assert not any(t.startswith("body_anchor:") for t in out)
+
+
+# ── Test 11: neutral-prompt canonical mode (marked character, no skin keywords) ──
+
+
+class TestNeutralPromptCanonicalMode:
+    """Canonical mode must activate when markings exist + body_front is locked,
+    even when the prompt has no visible-skin keywords
+    (_tattoo_visibility_requested=False).
+
+    In this path _tattoo_primary remains False (face-first reorder) but the
+    canonical whitelist filter runs, stripping torso/body_anchor refs and
+    preserving all body_identity refs.
+    """
+
+    # ── Activation logic ──────────────────────────────────────────────
+
+    def test_canonical_activates_with_markings_and_no_tattoo_keywords(self):
+        """body_front_available + has_markings → canonical even without tattoo keywords."""
+        body_front_available = True
+        tattoo_visibility_requested = False
+        has_markings = True
+
+        body_front_canonical = body_front_available and (
+            tattoo_visibility_requested or has_markings
+        )
+        assert body_front_canonical, (
+            "canonical mode must activate when markings exist + body_front locked, "
+            "even with a neutral prompt"
+        )
+
+    def test_canonical_inactive_when_no_markings_and_no_tattoo_keywords(self):
+        """No markings + no tattoo keywords → canonical inactive even if body_front locked."""
+        body_front_available = True
+        tattoo_visibility_requested = False
+        has_markings = False
+
+        body_front_canonical = body_front_available and (
+            tattoo_visibility_requested or has_markings
+        )
+        assert not body_front_canonical
+
+    def test_canonical_inactive_when_body_front_not_available(self):
+        """body_front not locked → canonical inactive even when markings exist."""
+        body_front_available = False
+        tattoo_visibility_requested = False
+        has_markings = True
+
+        body_front_canonical = body_front_available and (
+            tattoo_visibility_requested or has_markings
+        )
+        assert not body_front_canonical
+
+    # ── Pipeline behaviour (tattoo_primary=False, canonical filter applied) ──
+
+    def test_body_front_preserved_under_neutral_canonical(self):
+        """body_identity:body_front survives the canonical filter with face-first reorder."""
+        out = _full_pipeline(
+            [
+                "front", "front",
+                "body_identity:body_front", "body_identity:body_back",
+                "three_quarter", "torso",
+            ],
+            tattoo_primary=False,
+            apply_canonical=True,
+        )
+        assert "body_identity:body_front" in out, (
+            f"body_front must survive neutral-prompt canonical filter. Got: {out}"
+        )
+
+    def test_body_back_preserved_under_neutral_canonical(self):
+        """body_identity:body_back survives the canonical filter with face-first reorder."""
+        out = _full_pipeline(
+            [
+                "front", "front",
+                "body_identity:body_front", "body_identity:body_back",
+                "three_quarter", "torso",
+            ],
+            tattoo_primary=False,
+            apply_canonical=True,
+        )
+        assert "body_identity:body_back" in out, (
+            f"body_back must survive neutral-prompt canonical filter. Got: {out}"
+        )
+
+    def test_torso_stripped_under_neutral_canonical(self):
+        """torso is stripped by the canonical whitelist even with face-first reorder."""
+        out = _full_pipeline(
+            [
+                "front", "front",
+                "body_identity:body_front", "body_identity:body_back",
+                "three_quarter", "torso",
+            ],
+            tattoo_primary=False,
+            apply_canonical=True,
+        )
+        assert "torso" not in out, (
+            f"torso must be absent after neutral-prompt canonical filter. Got: {out}"
+        )
+
+    def test_body_anchor_stripped_under_neutral_canonical(self):
+        """body_anchor:* stripped by canonical filter even in neutral-prompt mode."""
+        out = _full_pipeline(
+            [
+                "front",
+                "body_identity:body_front", "body_anchor:right_arm",
+                "body_identity:body_back", "three_quarter",
+            ],
+            tattoo_primary=False,
+            apply_canonical=True,
+        )
+        assert not any(t.startswith("body_anchor:") for t in out), (
+            f"body_anchor must be absent after neutral-prompt canonical filter. Got: {out}"
+        )

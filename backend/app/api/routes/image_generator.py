@@ -1084,8 +1084,12 @@ def generate_image(
             and bool(_bf_entry_pre.get("url"))
             and provider_supports_multi
         )
-        # Canonical mode: body_front locked + tattoos visible → one ref, minimal text.
-        _body_front_canonical = _tattoo_visibility_requested and _body_front_available
+        # Canonical mode: body_front locked + (tattoos explicitly visible OR markings exist).
+        # Markings on a character should always be governed by the locked body_front ref —
+        # prompt keywords are an unreliable gate when the character has permanent markings.
+        _body_front_canonical = _body_front_available and (
+            _tattoo_visibility_requested or bool(_bc_markings)
+        )
 
         # Filter markings to those whose skin area is naturally visible.
         _bc_text_markings = [
