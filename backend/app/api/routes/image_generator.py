@@ -1267,7 +1267,7 @@ def generate_image(
         logger.warning(
             "BODY_REF_USED character_id=%s final_anchor_types=%s "
             "canonical_mode=%s total_refs=%d "
-            "body_front_present=%s detail_refs_present=%s",
+            "body_front_present=%s left_right_detail_present=%s support_body_refs_present=%s",
             character_id,
             anchor_types,
             _body_front_canonical,
@@ -1277,6 +1277,11 @@ def generate_image(
                 t in (
                     "body_identity:body_left_detail",
                     "body_identity:body_right_detail",
+                )
+                for t in anchor_types
+            ),
+            any(
+                t in (
                     "body_identity:body_back",
                     "body_identity:body_map",
                 )
