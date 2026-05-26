@@ -1264,7 +1264,7 @@ def generate_image(
 
         # BODY_REF_USED: final anchor_types actually sent to the provider.
         # Logged after canonical filtering AND provider cap — this is ground truth.
-        logger.info(
+        logger.warning(
             "BODY_REF_USED character_id=%s final_anchor_types=%s "
             "canonical_mode=%s total_refs=%d "
             "body_front_present=%s detail_refs_present=%s",
