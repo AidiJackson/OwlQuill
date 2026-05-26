@@ -54,6 +54,7 @@ from app.services.body_canon import (
     sync_tattoo_style_elements_to_body_canon,
 )
 from app.api.routes.body_identity import _load_body_slots
+from app.services.body_identity_refs import get_body_identity_references
 from app.services.identity_evolution import compute_pack_stages
 
 logger = logging.getLogger(__name__)
@@ -287,24 +288,29 @@ def _reorder_anchor_refs(
     *,
     tattoo_primary: bool = False,
 ) -> tuple[list[bytes], list[str]]:
-    """Reorder collected anchor refs to optimise provider grounding.
+    """Reorder collected anchor refs to enforce the generation contract priority order.
+
+    ══════════════════════════════════════════════════════════════════════════
+    GENERATION CONTRACT — when include_character=True, priority is:
+      1. Face identity refs    (face anchor seed — front, three_quarter)
+      2. Body identity refs    (body morphology + marking placement truth)
+      3. Support refs          (accessories, final_character_card)
+      4. Prompt text           (FALLBACK ONLY — not source of truth for markings)
+
+    Visual refs are authoritative. Prompt text for body markings is secondary.
+    ══════════════════════════════════════════════════════════════════════════
 
     Face-first mode (tattoo_primary=False) — normal generation:
-      front → body_anchor:* → body_front → three_quarter → torso → other → tattoo_layout
+      front → body_anchor:* → body_front → body_detail → three_quarter → torso
+        → other → body_map → final_card
 
-      The front duplicate from _prioritise_face_anchors is kept only when no
-      body_anchor:* entries are present (face-boost for face-only scenes).
+    Body-truth mode (tattoo_primary=True) — tattoo/body-visible generation:
+      front (no dup) → body_front → body_detail → body_anchor:* → body_map
+        → final_card → three_quarter → other → torso
 
-    Tattoo-primary mode (tattoo_primary=True) — tattoo/body-visible generation:
-      tattoo_layout → body_front → front (no dup) → three_quarter → body_anchor:* → other → torso
-
-      Body canon is first so the provider establishes WHERE tattoos live before
-      the face anchors condition its general appearance.  Front duplicate is
-      always dropped — the body refs supply the dominant grounding signal.
-
-      Both OpenAI (images.edit treats first image as the edit base) and Google
-      (earlier tokens/images receive higher attention weight) benefit from having
-      the body-canon reference at position 0 in tattoo-visible scenes.
+      Face anchor is position 0 (identity seed).  body_front is position 1
+      (primary body truth).  body_detail refs (left/right/back) immediately follow.
+      final_character_card is SUPPORT ONLY — always last, never overrides body_front.
     """
     has_body_anchors = any(t.startswith("body_anchor:") for t in anchor_types)
 
@@ -313,8 +319,17 @@ def _reorder_anchor_refs(
     torso_bucket: list[tuple[bytes, str]] = []
     body_anchor_bucket: list[tuple[bytes, str]] = []
     body_front_bucket: list[tuple[bytes, str]] = []
-    tattoo_layout_bucket: list[tuple[bytes, str]] = []
+    body_detail_bucket: list[tuple[bytes, str]] = []   # left/right/back detail refs
+    body_map_bucket: list[tuple[bytes, str]] = []       # body_map + legacy tattoo_layout
+    final_card_bucket: list[tuple[bytes, str]] = []
     other_bucket: list[tuple[bytes, str]] = []  # full_body, accessory_fit_anchor, …
+
+    # body_identity: types that go into body_detail_bucket
+    _BODY_DETAIL_TYPES = frozenset({
+        "body_identity:body_left_detail",
+        "body_identity:body_right_detail",
+        "body_identity:body_back",
+    })
 
     front_seen = False
     for img, t in zip(anchor_images, anchor_types):
@@ -330,8 +345,12 @@ def _reorder_anchor_refs(
             body_anchor_bucket.append((img, t))
         elif t == "body_identity:body_front":
             body_front_bucket.append((img, t))
-        elif t == "body_identity:tattoo_layout":
-            tattoo_layout_bucket.append((img, t))
+        elif t in _BODY_DETAIL_TYPES:
+            body_detail_bucket.append((img, t))
+        elif t in ("body_identity:body_map", "body_identity:tattoo_layout"):
+            body_map_bucket.append((img, t))
+        elif t == "final_character_card":
+            final_card_bucket.append((img, t))
         elif t == "three_quarter":
             three_quarter_bucket.append((img, t))
         elif t == "torso":
@@ -352,26 +371,33 @@ def _reorder_anchor_refs(
     body_anchor_bucket.sort(key=_ba_sort)
 
     if tattoo_primary:
-        # Body canon first — establish tattoo location before face conditioning.
+        # Body-truth mode: face anchor first (identity seed), body_front second (primary body truth).
+        # body_detail (left/right/back) immediately follows for high-fidelity marking refs.
+        # final_character_card is support only — always after face and body identity refs.
         ordered = (
-            tattoo_layout_bucket   # 1. abstract design map (primary canon)
-            + body_front_bucket    # 2. full-body anatomical context with tattoos
-            + front_bucket         # 3. face anchor (single, no duplicate)
-            + three_quarter_bucket # 4. face angle support
-            + body_anchor_bucket   # 5. per-arm close-up photos
-            + other_bucket         # 6. accessories etc.
-            + torso_bucket         # 7. lowest priority in tattoo mode
+            front_bucket           # 1. face anchor (single, no duplicate — identity seed)
+            + body_front_bucket    # 2. body truth (body proportions + tattoo placement)
+            + body_detail_bucket   # 3. detail crops (left/right side, back — marking fidelity)
+            + body_anchor_bucket   # 4. per-arm close-up photos
+            + body_map_bucket      # 5. abstract placement map (body_map / legacy tattoo_layout)
+            + final_card_bucket    # 6. support only — must not override face or body identity
+            + three_quarter_bucket # 7. face angle support
+            + other_bucket         # 8. accessories etc.
+            + torso_bucket         # 9. lowest priority in tattoo mode
         )
     else:
         # Face-first — normal character generation.
+        # final_character_card is support only, always last.
         ordered = (
             front_bucket           # 1. face anchor (with possible boost dup)
             + body_anchor_bucket   # 2. per-arm tattoo close-ups
             + body_front_bucket    # 3. anatomical context
-            + three_quarter_bucket # 4. face angle support
-            + torso_bucket         # 5. body context
-            + other_bucket         # 6. accessories etc.
-            + tattoo_layout_bucket # 7. abstract design map (lowest priority)
+            + body_detail_bucket   # 4. detail crops
+            + three_quarter_bucket # 5. face angle support
+            + torso_bucket         # 6. body context
+            + other_bucket         # 7. accessories etc.
+            + body_map_bucket      # 8. abstract design map (lowest priority)
+            + final_card_bucket    # 9. support only — always last
         )
     return [p[0] for p in ordered], [p[1] for p in ordered]
 
@@ -413,8 +439,28 @@ _CANONICAL_BODY_REF_TEXT = (
 )
 
 # Ref types allowed when canonical body-front mode is active.
-# All other refs (tattoo_layout, body_anchor:*, torso, duplicate front) are stripped.
-_CANONICAL_BODY_REF_ALLOWED = frozenset({"body_identity:body_front", "front", "three_quarter"})
+# body_anchor:*, torso, and duplicate front are stripped.
+# v2 body detail refs (left/right/back/map) are explicitly included — they are
+# high-signal marking-fidelity refs that must survive the canonical filter.
+_CANONICAL_BODY_REF_ALLOWED = frozenset({
+    "front",
+    "three_quarter",
+    "body_identity:body_front",
+    "body_identity:body_left_detail",
+    "body_identity:body_right_detail",
+    "body_identity:body_back",
+    "body_identity:body_map",
+})
+
+# Hard anatomical invariant injected when any body markings exist.
+# Prevents providers from migrating permanent markings onto clothing or swapping limbs.
+# Injected as a suffix on the body canon text block — do not move or merge with prompt sections.
+_CLOTHING_SAFETY_INVARIANT = (
+    "Tattoos, scars, and permanent body markings are on exposed skin only. "
+    "Never print tattoos on shirts, jackets, fabric, armour, gloves, sleeves, or accessories. "
+    "Never move tattoos between limbs. "
+    "Never merge left and right arm tattoos."
+)
 
 # ── Body canon visibility detection ──────────────────────────────────
 # Signals that EXPLICITLY expose bare arms/skin — tattoo anchors only sent when these match.
@@ -1065,6 +1111,16 @@ def generate_image(
         else:
             _body_canon_str = build_body_canon_lock_string(_bc_text_markings)
 
+        # Clothing safety invariant: injected when any body markings exist.
+        # Hard rule preventing providers from migrating permanent markings to fabric or
+        # swapping tattoos between limbs. Applied regardless of visibility mode.
+        if _bc_markings:
+            _body_canon_str = (
+                _body_canon_str + ". " + _CLOTHING_SAFETY_INVARIANT
+                if _body_canon_str
+                else _CLOTHING_SAFETY_INVARIANT
+            )
+
         # Body canon anchor refs: suppressed in simplified mode.
         # body_front provides coherent face/body/tattoo context in one image;
         # fragmented per-arm close-ups alongside it cause provider averaging/conflict.
@@ -1087,62 +1143,82 @@ def generate_image(
         )
 
         # ── Body identity anchor injection ────────────────────────────
-        # Canonical mode (body_front locked + tattoos visible):
-        #   Load body_front only. After reorder, strip to [body_front, front, three_quarter].
-        # Simplified fallback (tattoos visible, body_front missing):
-        #   Load tattoo_layout as fallback.
-        # Non-tattoo-visible: body_front only when body is visible in scene.
-        # _bi_slots already loaded above (body canon text section).
+        # GENERATION CONTRACT (visual refs are authoritative — prompt text is fallback):
+        #   1. Face identity refs   loaded above by _prioritise_face_anchors
+        #   2. Body identity refs   loaded here via get_body_identity_references
+        #   3. Support refs         (accessories, final_character_card — always last)
+        #   4. Prompt text          fallback description for body markings only
+        #
+        # Body identity refs are loaded from identity_anchor_json["body_slots"] in
+        # priority order: body_front → body_left_detail → body_right_detail →
+        # body_back → body_map (→ legacy tattoo_layout) → final_character_card.
+        #
+        # body_front is required when markings exist; its absence triggers
+        # BODY_IDENTITY_MISSING — text-only placement will drift.
         _body_visible = any(sig in provider_prompt.lower() for sig in _BODY_VISIBLE_SIGNALS)
         _markings_visible = _tattoo_visibility_requested
         _bi_refs_used: list[str] = []
         _tattoo_layout_used = False
         _bf_loaded = False
-        if provider_supports_multi:
-            _bf_entry = _bi_slots.get("body_front") or {}
-            _tl_entry = _bi_slots.get("tattoo_layout") or {}
+        _body_front_source = "n/a"
 
-            if _tattoo_visibility_requested:
-                # Tattoo visible — try body_front first.
-                if _bf_entry.get("status") == "locked" and _bf_entry.get("url"):
+        if provider_supports_multi:
+            if _tattoo_visibility_requested or _body_visible:
+                # Resolve all available body identity refs in canonical priority order.
+                _body_id_result = get_body_identity_references(character)
+
+                # BODY_IDENTITY_MISSING: markings exist but body_front is absent.
+                if _body_id_result.missing_required and _tattoo_visibility_requested:
+                    logger.warning(
+                        "BODY_IDENTITY_MISSING character_id=%s marking_count=%d "
+                        "body_front_slot_status=%s — visual body truth unavailable, "
+                        "text-only tattoo placement may drift",
+                        character_id,
+                        len(_bc_markings),
+                        _body_id_result.body_front_slot_status,
+                    )
+
+                # Load each ref in priority order (body_front first, final_card last).
+                for _bref in _body_id_result.refs:
                     try:
-                        _bf_bytes = load_image_bytes(_bf_entry["url"])
-                        anchor_images = list(anchor_images) + [_bf_bytes]
-                        anchor_types = list(anchor_types) + ["body_identity:body_front"]
-                        _bi_refs_used.append("body_front")
-                        _bf_loaded = True
-                    except Exception as _bf_exc:
+                        _bref_bytes = load_image_bytes(_bref.url)
+                        anchor_images = list(anchor_images) + [_bref_bytes]
+                        anchor_types = list(anchor_types) + [_bref.ref_type]
+                        _bi_refs_used.append(_bref.slot)
+                        if _bref.slot == "body_front":
+                            _bf_loaded = True
+                            _body_front_source = _bref.source
+                        if _bref.slot in ("tattoo_layout", "body_map"):
+                            _tattoo_layout_used = True
+                    except Exception as _bref_exc:
                         logger.warning(
-                            "BODY-IDENTITY body_front_load_failed character_id=%s error=%r",
-                            character_id, str(_bf_exc),
+                            "BODY-IDENTITY ref_load_failed character_id=%s "
+                            "slot=%s error=%r",
+                            character_id, _bref.slot, str(_bref_exc),
                         )
-                # Fallback: tattoo_layout only when body_front is unavailable.
-                if not _bf_loaded and _tl_entry.get("status") == "locked" and _tl_entry.get("url"):
-                    try:
-                        _tl_bytes = load_image_bytes(_tl_entry["url"])
-                        anchor_images = list(anchor_images) + [_tl_bytes]
-                        anchor_types = list(anchor_types) + ["body_identity:tattoo_layout"]
-                        _tattoo_layout_used = True
-                        _bi_refs_used.append("tattoo_layout")
-                    except Exception as _tl_exc:
-                        logger.warning(
-                            "BODY-IDENTITY tattoo_layout_load_failed character_id=%s error=%r",
-                            character_id, str(_tl_exc),
-                        )
-            elif _body_visible:
-                # Non-tattoo-visible but body showing — load body_front for context.
-                if _bf_entry.get("status") == "locked" and _bf_entry.get("url"):
-                    try:
-                        _bf_bytes = load_image_bytes(_bf_entry["url"])
-                        anchor_images = list(anchor_images) + [_bf_bytes]
-                        anchor_types = list(anchor_types) + ["body_identity:body_front"]
-                        _bi_refs_used.append("body_front")
-                        _bf_loaded = True
-                    except Exception as _bf_exc:
-                        logger.warning(
-                            "BODY-IDENTITY body_front_load_failed character_id=%s error=%r",
-                            character_id, str(_bf_exc),
-                        )
+
+            else:
+                # Body not visible in scene — still load final_character_card if present
+                # (support-only ref, low signal cost, does not affect body truth).
+                _body_id_result = get_body_identity_references(character)
+                for _bref in _body_id_result.refs:
+                    if _bref.slot == "final_character_card":
+                        try:
+                            _bref_bytes = load_image_bytes(_bref.url)
+                            anchor_images = list(anchor_images) + [_bref_bytes]
+                            anchor_types = list(anchor_types) + [_bref.ref_type]
+                            _bi_refs_used.append(_bref.slot)
+                            logger.info(
+                                "BODY-IDENTITY final_card_loaded character_id=%s",
+                                character_id,
+                            )
+                        except Exception as _fc_exc:
+                            logger.warning(
+                                "BODY-IDENTITY final_card_load_failed "
+                                "character_id=%s error=%r",
+                                character_id, str(_fc_exc),
+                            )
+                        break
 
         # Simplified tattoo mode: drop torso refs — low-signal noise alongside body_front.
         if _tattoo_visibility_requested and anchor_images:
@@ -1180,10 +1256,33 @@ def generate_image(
             else:
                 anchor_images, anchor_types = [], []
 
-        # Apply provider ref cap — lowest-priority refs (tattoo_layout) are cut first.
+        # Apply provider ref cap — lowest-priority refs are cut first because
+        # _reorder_anchor_refs already placed them at the tail.
         if len(anchor_images) > _MAX_PROVIDER_REFS:
             anchor_images = anchor_images[:_MAX_PROVIDER_REFS]
             anchor_types = anchor_types[:_MAX_PROVIDER_REFS]
+
+        # BODY_REF_USED: final anchor_types actually sent to the provider.
+        # Logged after canonical filtering AND provider cap — this is ground truth.
+        logger.info(
+            "BODY_REF_USED character_id=%s final_anchor_types=%s "
+            "canonical_mode=%s total_refs=%d "
+            "body_front_present=%s detail_refs_present=%s",
+            character_id,
+            anchor_types,
+            _body_front_canonical,
+            len(anchor_images),
+            any(t == "body_identity:body_front" for t in anchor_types),
+            any(
+                t in (
+                    "body_identity:body_left_detail",
+                    "body_identity:body_right_detail",
+                    "body_identity:body_back",
+                    "body_identity:body_map",
+                )
+                for t in anchor_types
+            ),
+        )
 
         logger.info(
             "BODY-IDENTITY-REFS character_id=%s body_visible=%s markings_visible=%s "
@@ -1195,6 +1294,17 @@ def generate_image(
             _tattoo_layout_used,
             _bc_anchors_used,
             len(anchor_images),
+        )
+
+        # ── BODY-TRUTH-STATE structured diagnostic ────────────────────────
+        logger.info(
+            "BODY-TRUTH-STATE character_id=%s body_truth_mode=%s "
+            "body_front_loaded=%s body_markings_present=%s body_front_source=%s",
+            character_id,
+            bool(_bc_markings),
+            _bf_loaded,
+            bool(_bc_markings),
+            _body_front_source,
         )
 
         # ── BODY-CANON-VISIBILITY diagnostic ─────────────────────────────
@@ -1243,10 +1353,11 @@ def generate_image(
             _sleeve_enforcement_str = ""
             _arm_side_binding_str = ""
         elif _tattoo_visibility_requested:
-            # Simplified fallback (body_front absent): drop long sleeve essay + mirror guard.
-            # Short compact side note in body_canon_str is sufficient.
-            _sleeve_enforcement_str = ""
-            _arm_side_binding_str = build_short_arm_side_str(_bc_markings, _bc_visible_regions)
+            # Simplified fallback (body_front absent): restore full binding text.
+            # Short note alone is insufficient — providers need explicit L/R exclusivity
+            # rules to prevent merging distinct tattoos onto one arm.
+            _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _bc_visible_regions)
+            _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _bc_visible_regions)
         else:
             _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _bc_visible_regions)
             _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _bc_visible_regions)
@@ -1752,6 +1863,11 @@ def generate_image(
         metadata["face_anchor_boosted"] = _face_anchor_boosted  # B21
         metadata["cover_retry_attempted"] = cover_retry_attempted
         metadata["cover_retry_succeeded"] = cover_retry_succeeded
+        # Body Truth System diagnostics — used during torture testing
+        metadata["body_truth_mode"] = bool(_bc_markings)
+        metadata["body_front_loaded"] = _bf_loaded
+        metadata["body_markings_present"] = bool(_bc_markings)
+        metadata["body_front_source"] = _body_front_source
 
     img = CharacterImage(
         character_id=character_id,
