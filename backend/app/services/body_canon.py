@@ -194,6 +194,63 @@ def load_markings(character: CharacterModel) -> list[BodyMarking]:
         return []
 
 
+def get_canonical_body_front(
+    character: CharacterModel,
+) -> "tuple[str | None, str]":
+    """Return (url, source) for the best available canonical body front reference.
+
+    Deterministic priority order:
+      1. identity_anchor_json["body_slots"]["body_front"] with status "locked"
+      2. identity_anchor_json["anchors"]["full_body"]
+      3. identity_anchor_json["anchors"]["torso"]
+      4. (None, "missing")
+
+    Always logs BODY_FRONT_FOUND or BODY_FRONT_MISSING with source.
+    """
+    char_id = getattr(character, "id", "?")
+
+    if character.identity_anchor_json:
+        try:
+            data = json.loads(character.identity_anchor_json)
+        except (ValueError, TypeError):
+            data = {}
+
+        # Priority 1: locked body_front slot
+        body_slots = data.get("body_slots") or {}
+        bf = body_slots.get("body_front") or {}
+        if bf.get("status") == "locked" and bf.get("url"):
+            logger.info(
+                "BODY_FRONT_FOUND character_id=%s source=body_slots_locked url=%s",
+                char_id, bf["url"],
+            )
+            return bf["url"], "body_slots_locked"
+
+        # Priority 2: full_body identity anchor
+        anchors = data.get("anchors") or {}
+        full_body = anchors.get("full_body") or {}
+        if full_body.get("url"):
+            logger.info(
+                "BODY_FRONT_FOUND character_id=%s source=anchor_full_body url=%s",
+                char_id, full_body["url"],
+            )
+            return full_body["url"], "anchor_full_body"
+
+        # Priority 3: torso identity anchor
+        torso = anchors.get("torso") or {}
+        if torso.get("url"):
+            logger.info(
+                "BODY_FRONT_FOUND character_id=%s source=anchor_torso url=%s",
+                char_id, torso["url"],
+            )
+            return torso["url"], "anchor_torso"
+
+    logger.info(
+        "BODY_FRONT_MISSING character_id=%s reason=no_locked_slot_or_anchor",
+        char_id,
+    )
+    return None, "missing"
+
+
 def _save_markings(character: CharacterModel, markings: list[BodyMarking]) -> None:
     character.body_canon_json = json.dumps(
         {"markings": [m.model_dump() for m in markings]}

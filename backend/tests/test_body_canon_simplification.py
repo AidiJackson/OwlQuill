@@ -20,6 +20,8 @@ from app.api.routes.image_generator import (
     _SIMPLIFIED_BODY_CANON_TEXT,
 )
 from app.services.body_canon import (
+    build_arm_side_binding_str,
+    build_sleeve_enforcement_str,
     build_short_arm_side_str,
     BodyMarking,
 )
@@ -93,26 +95,28 @@ def _build(
 
 
 class TestSimplifiedRefStrategyWithBodyFront:
-    """When tattoo visible and body_front locked: refs are [body_front, front, ...]."""
+    """Body-truth mode ordering: face anchor first (identity seed), body_front second (body truth)."""
 
-    def test_body_front_is_first_in_tattoo_primary_mode(self):
+    def test_face_anchor_is_first_in_body_truth_mode(self):
+        """Face anchor must be at position 0 — it is the identity seed."""
         _, out_types = _reorder_anchor_refs(
             *_mk(["front", "body_identity:body_front"]),
             tattoo_primary=True,
         )
-        assert out_types[0] == "body_identity:body_front", (
-            f"body_front must be first ref in tattoo-primary mode. Got: {out_types}"
+        assert out_types[0] == "front", (
+            f"face anchor (front) must be first ref in body-truth mode. Got: {out_types}"
         )
 
-    def test_front_follows_body_front(self):
+    def test_body_front_follows_face_anchor(self):
+        """body_front must immediately follow the face anchor."""
         _, out_types = _reorder_anchor_refs(
             *_mk(["front", "body_identity:body_front"]),
             tattoo_primary=True,
         )
-        bf_idx = out_types.index("body_identity:body_front")
         front_idx = out_types.index("front")
-        assert bf_idx < front_idx, (
-            f"body_front({bf_idx}) must precede front({front_idx}). Order: {out_types}"
+        bf_idx = out_types.index("body_identity:body_front")
+        assert front_idx < bf_idx, (
+            f"front({front_idx}) must precede body_front({bf_idx}). Order: {out_types}"
         )
 
     def test_three_quarter_follows_front(self):
@@ -131,15 +135,26 @@ class TestSimplifiedRefStrategyWithBodyFront:
 
 
 class TestSimplifiedRefStrategyFallback:
-    """When body_front missing: tattoo_layout is accepted as fallback."""
+    """When body_front missing: tattoo_layout is accepted as fallback after face anchor."""
 
-    def test_tattoo_layout_first_when_no_body_front(self):
+    def test_face_anchor_first_even_when_no_body_front(self):
+        """Face anchor is always first regardless of body_front presence."""
         _, out_types = _reorder_anchor_refs(
             *_mk(["front", "body_identity:tattoo_layout"]),
             tattoo_primary=True,
         )
-        assert out_types[0] == "body_identity:tattoo_layout", (
-            f"tattoo_layout must be first when body_front absent. Got: {out_types}"
+        assert out_types[0] == "front", (
+            f"face anchor (front) must be first even when body_front absent. Got: {out_types}"
+        )
+
+    def test_tattoo_layout_present_when_no_body_front(self):
+        """tattoo_layout is still loaded as fallback when body_front is absent."""
+        _, out_types = _reorder_anchor_refs(
+            *_mk(["front", "body_identity:tattoo_layout"]),
+            tattoo_primary=True,
+        )
+        assert "body_identity:tattoo_layout" in out_types, (
+            f"tattoo_layout must be present as fallback when body_front absent. Got: {out_types}"
         )
 
     def test_tattoo_layout_is_mutually_exclusive_with_body_front(self):
@@ -179,8 +194,9 @@ class TestNoBodyAnchorRefsInSimplifiedMode:
         )
         # _reorder_anchor_refs does not strip body_anchor — this test verifies
         # the simplified pipeline doesn't add them (tested at caller level).
-        # Here we verify the ordering still has body_front first if they sneak in.
-        assert out_types[0] == "body_identity:body_front"
+        # Here we verify the ordering: face first (identity seed), body_front second.
+        assert out_types[0] == "front"
+        assert out_types[1] == "body_identity:body_front"
 
 
 # ── Test 4: no front duplicate in simplified mode ─────────────────────
@@ -205,22 +221,24 @@ class TestNoFrontDuplicateInSimplifiedMode:
             tattoo_primary=True,
         )
         # _reorder_anchor_refs doesn't strip torso — the caller does in simplified mode.
-        # This verifies ordering is still coherent even when torso snuck in.
-        assert out_types[0] == "body_identity:body_front"
+        # Body-truth ordering: face anchor first (identity seed), body_front second.
+        assert out_types[0] == "front"
+        assert "body_identity:body_front" in out_types
 
 
 # ── Test 5: t-shirt prompt uses simplified refs ───────────────────────
 
 
 class TestTshirtUsesSimplifiedRefs:
-    """T-shirt (partial) mode: body_front first, no tattoo_layout, no body_anchor."""
+    """T-shirt (partial) mode: face first, body_front second, no tattoo_layout, no body_anchor."""
 
-    def test_body_front_first_in_partial_mode(self):
+    def test_face_anchor_first_in_partial_mode(self):
         _, out_types = _reorder_anchor_refs(
             *_mk(["front", "body_identity:body_front"]),
             tattoo_primary=True,
         )
-        assert out_types[0] == "body_identity:body_front"
+        assert out_types[0] == "front"
+        assert out_types[1] == "body_identity:body_front"
 
     def test_no_tattoo_layout_in_partial_mode(self):
         """tattoo_layout excluded for t-shirt; only body_front used."""
@@ -235,23 +253,25 @@ class TestTshirtUsesSimplifiedRefs:
 
 
 class TestSleevelessUsesSimplifiedRefs:
-    """Sleeveless (full) mode: body_front (or tattoo_layout if absent) is first."""
+    """Sleeveless (full) mode: face first, body_front second (or tattoo_layout if absent)."""
 
-    def test_body_front_first_for_sleeveless(self):
-        """When only body_front is loaded (tattoo_layout excluded as fallback not needed),
-        body_front is position 0."""
+    def test_face_anchor_first_for_sleeveless(self):
+        """Face anchor is always position 0 (identity seed); body_front is position 1."""
         _, out_types = _reorder_anchor_refs(
             *_mk(["front", "body_identity:body_front"]),
             tattoo_primary=True,
         )
-        assert out_types[0] == "body_identity:body_front"
+        assert out_types[0] == "front"
+        assert out_types[1] == "body_identity:body_front"
 
-    def test_tattoo_layout_as_fallback_for_sleeveless(self):
+    def test_face_anchor_first_tattoo_layout_as_fallback_for_sleeveless(self):
+        """When body_front absent, face anchor is still first; tattoo_layout follows."""
         _, out_types = _reorder_anchor_refs(
             *_mk(["front", "body_identity:tattoo_layout"]),
             tattoo_primary=True,
         )
-        assert out_types[0] == "body_identity:tattoo_layout"
+        assert out_types[0] == "front"
+        assert "body_identity:tattoo_layout" in out_types
 
 
 # ── Test 7: jacket prompt — tattoo refs suppressed ────────────────────
@@ -444,3 +464,104 @@ class TestSimplifiedPromptBudget:
             f"Simplified prompt ({len(simplified)}) must be shorter than original ({len(original)})"
         )
         assert len(simplified) <= _STRICT_IDENTITY_PROMPT_MAX_CHARS
+
+
+# ── Test 12: Sprint B — restored full binding in simplified mode ───────
+
+
+class TestRestoredBindingInSimplifiedMode:
+    """Sprint B: simplified mode (body_front absent) must now include full
+    ARM BINDING and SLEEVE IDENTITY blocks — not suppress them."""
+
+    _FULL_VISIBLE = {"right_arm", "left_arm"}
+
+    def test_arm_binding_present_when_tattoos_visible_no_body_front(self):
+        """Simplified mode with arm markings must produce ARM BINDING block."""
+        binding = build_arm_side_binding_str(
+            [_RIGHT_MARKING, _LEFT_MARKING], self._FULL_VISIBLE
+        )
+        assert binding, "build_arm_side_binding_str must return non-empty for arm markings"
+        prompt = _build(arm_side_binding_str=binding, sleeve_enforcement_str="")
+        assert "ARM BINDING:" in prompt, (
+            f"ARM BINDING block must appear in simplified prompt. Got snippet: {prompt[:500]}"
+        )
+
+    def test_arm_binding_contains_right_exclusivity(self):
+        """ARM BINDING must state right arm exclusivity."""
+        binding = build_arm_side_binding_str([_RIGHT_MARKING], {"right_arm"})
+        prompt = _build(arm_side_binding_str=binding, sleeve_enforcement_str="")
+        assert "RIGHT ARM ONLY" in prompt, (
+            "Right arm exclusivity directive must appear in binding block"
+        )
+        assert "never on left arm" in prompt.lower()
+
+    def test_arm_binding_contains_left_exclusivity(self):
+        """ARM BINDING must state left arm exclusivity."""
+        binding = build_arm_side_binding_str([_LEFT_MARKING], {"left_arm"})
+        prompt = _build(arm_side_binding_str=binding, sleeve_enforcement_str="")
+        assert "LEFT ARM ONLY" in prompt, (
+            "Left arm exclusivity directive must appear in binding block"
+        )
+        assert "never on right arm" in prompt.lower()
+
+    def test_sleeve_identity_present_when_sleeve_marking_visible(self):
+        """Simplified mode with a sleeve marking must produce SLEEVE IDENTITY block."""
+        sleeve = build_sleeve_enforcement_str([_LEFT_MARKING], {"left_arm"})
+        assert sleeve, "build_sleeve_enforcement_str must return non-empty for sleeve marking"
+        prompt = _build(sleeve_enforcement_str=sleeve, arm_side_binding_str="")
+        assert "SLEEVE IDENTITY" in prompt, (
+            "SLEEVE IDENTITY block must appear for sleeve marking in simplified mode"
+        )
+
+    def test_sleeve_identity_contains_shoulder_to_wrist(self):
+        """SLEEVE IDENTITY must include shoulder-to-wrist coverage directive."""
+        sleeve = build_sleeve_enforcement_str([_LEFT_MARKING], {"left_arm"})
+        prompt = _build(sleeve_enforcement_str=sleeve)
+        assert "shoulder to wrist" in prompt.lower()
+
+    def test_canonical_mode_has_no_arm_binding(self):
+        """Canonical mode (body_front locked) must NOT include ARM BINDING block."""
+        # In canonical mode the endpoint sets both to "" — simulate that here.
+        prompt = _build(arm_side_binding_str="", sleeve_enforcement_str="")
+        assert "ARM BINDING:" not in prompt, (
+            "Canonical mode must not inject ARM BINDING (ref image carries placement)"
+        )
+
+    def test_canonical_mode_has_no_sleeve_identity(self):
+        """Canonical mode must NOT include SLEEVE IDENTITY block."""
+        prompt = _build(arm_side_binding_str="", sleeve_enforcement_str="")
+        assert "SLEEVE IDENTITY" not in prompt, (
+            "Canonical mode must not inject SLEEVE IDENTITY"
+        )
+
+    def test_no_markings_no_arm_binding_block(self):
+        """Empty marking list must produce empty binding and no ARM BINDING block."""
+        binding = build_arm_side_binding_str([], self._FULL_VISIBLE)
+        assert binding == "", "Empty marking list must return empty binding string"
+        prompt = _build(arm_side_binding_str=binding)
+        assert "ARM BINDING:" not in prompt
+
+    def test_no_markings_no_sleeve_identity_block(self):
+        """Empty marking list must produce empty sleeve string and no SLEEVE IDENTITY."""
+        sleeve = build_sleeve_enforcement_str([], self._FULL_VISIBLE)
+        assert sleeve == "", "Empty marking list must return empty sleeve string"
+        prompt = _build(sleeve_enforcement_str=sleeve)
+        assert "SLEEVE IDENTITY" not in prompt
+
+    def test_non_sleeve_marking_no_sleeve_identity(self):
+        """A non-sleeve arm marking must not generate SLEEVE IDENTITY."""
+        sleeve = build_sleeve_enforcement_str([_RIGHT_MARKING], {"right_arm"})
+        # _RIGHT_MARKING has size="large", not sleeve — should return ""
+        assert sleeve == "", (
+            f"Non-sleeve marking must not produce SLEEVE IDENTITY string. Got: {sleeve!r}"
+        )
+
+    def test_both_blocks_present_together(self):
+        """When both arm markings and sleeve exist, both blocks appear in the prompt."""
+        binding = build_arm_side_binding_str(
+            [_RIGHT_MARKING, _LEFT_MARKING], self._FULL_VISIBLE
+        )
+        sleeve = build_sleeve_enforcement_str([_LEFT_MARKING], {"left_arm"})
+        prompt = _build(arm_side_binding_str=binding, sleeve_enforcement_str=sleeve)
+        assert "ARM BINDING:" in prompt
+        assert "SLEEVE IDENTITY" in prompt

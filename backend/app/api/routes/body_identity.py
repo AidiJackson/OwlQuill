@@ -40,21 +40,138 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ── Slot configuration ────────────────────────────────────────────────
+#
+# BODY IDENTITY PACK v2 — canonical slot roles:
+#
+#   body_front            PRIMARY truth reference — neutral front pose, arms out,
+#                         all markings exposed. Required when markings exist.
+#   body_left_detail      High-fidelity crop of left side / left arm markings.
+#   body_right_detail     High-fidelity crop of right side / right arm markings.
+#   body_back             Back view — back tattoos, shoulder, lower-back markings.
+#   body_map              Canonical placement sheet — both arms extended, reference-card
+#                         style.  Replaces legacy tattoo_layout.
+#   final_character_card  Cinematic full-character image. SUPPORT ONLY — never primary
+#                         truth.  Must always be last in generation ref ordering.
+#
+# Legacy slots (kept for backward compatibility — existing characters may have them):
+#   body_three_quarter    3/4 angle full-body view.
+#   tattoo_layout         Abstract marking layout (precursor to body_map).
+#
+# All slots persist in identity_anchor_json["body_slots"][<key>]:
+#   {"url": "...", "status": "locked"|"generated"|"missing", "prompt": "..."}
 
-BODY_SLOT_KEYS = ("body_front", "body_three_quarter", "body_back", "tattoo_layout")
+BODY_SLOT_KEYS = (
+    # v2 canonical roles
+    "body_front",
+    "body_left_detail",
+    "body_right_detail",
+    "body_back",
+    "body_map",
+    "final_character_card",
+    # legacy roles — kept for backward compat, not surfaced in wizard
+    "body_three_quarter",
+    "tattoo_layout",
+)
+
+# Slots shown to users in the wizard UI (v2 canonical only).
+BODY_SLOT_KEYS_V2 = (
+    "body_front",
+    "body_left_detail",
+    "body_right_detail",
+    "body_back",
+    "body_map",
+    "final_character_card",
+)
 
 BODY_SLOT_LABELS: dict[str, str] = {
     "body_front": "Body Front Reference",
-    "body_three_quarter": "Body 3/4 Reference",
+    "body_left_detail": "Left Detail Reference",
+    "body_right_detail": "Right Detail Reference",
     "body_back": "Body Back Reference",
+    "body_map": "Body Map / Marking Layout",
+    "final_character_card": "Final Character Card",
+    # legacy
+    "body_three_quarter": "Body 3/4 Reference",
     "tattoo_layout": "Tattoo / Marking Layout",
 }
 
 _SLOT_IMAGE_KIND: dict[str, ImageKindEnum] = {
     "body_front": ImageKindEnum.IDENTITY_BODY_FRONT,
-    "body_three_quarter": ImageKindEnum.IDENTITY_BODY_THREE_QUARTER,
+    "body_left_detail": ImageKindEnum.IDENTITY_BODY_LEFT_DETAIL,
+    "body_right_detail": ImageKindEnum.IDENTITY_BODY_RIGHT_DETAIL,
     "body_back": ImageKindEnum.IDENTITY_BODY_BACK,
+    "body_map": ImageKindEnum.IDENTITY_BODY_MAP,
+    "final_character_card": ImageKindEnum.IDENTITY_FINAL_CHARACTER_CARD,
+    # legacy
+    "body_three_quarter": ImageKindEnum.IDENTITY_BODY_THREE_QUARTER,
     "tattoo_layout": ImageKindEnum.IDENTITY_TATTOO_LAYOUT,
+}
+
+# ── Body map generation spec (Part 4 contract) ────────────────────────
+#
+# Generation requirements per slot — consumed by the wizard UI and prompt
+# builders.  These are the hard constraints each image MUST satisfy to be
+# accepted as a canonical identity reference.
+#
+# NOT to be changed lightly: these constraints are what allow the system
+# to treat the image as visual truth rather than semantic suggestion.
+
+BODY_SLOT_GENERATION_SPEC: dict[str, dict] = {
+    "body_front": {
+        "pose": "neutral standing, arms relaxed at sides, facing forward",
+        "clothing": "sleeveless or shirtless — no long sleeves, no jacket",
+        "framing": "full body — head to feet",
+        "lighting": "neutral, flat, no dramatic shadows",
+        "background": "plain neutral — no clutter, no props",
+        "purpose": "PRIMARY body truth — body proportions and all marking placement",
+        "required_when_markings": True,
+    },
+    "body_left_detail": {
+        "pose": "left side toward camera, arm slightly extended or relaxed",
+        "clothing": "sleeveless — left arm and torso left side fully exposed",
+        "framing": "torso + left arm crop — shoulder to hip",
+        "lighting": "neutral, even",
+        "background": "plain neutral",
+        "purpose": "high-fidelity left-side marking reproduction",
+        "required_when_markings": False,
+    },
+    "body_right_detail": {
+        "pose": "right side toward camera, arm slightly extended or relaxed",
+        "clothing": "sleeveless — right arm and torso right side fully exposed",
+        "framing": "torso + right arm crop — shoulder to hip",
+        "lighting": "neutral, even",
+        "background": "plain neutral",
+        "purpose": "high-fidelity right-side marking reproduction",
+        "required_when_markings": False,
+    },
+    "body_back": {
+        "pose": "neutral standing, back to camera, arms relaxed",
+        "clothing": "sleeveless or shirtless — back fully exposed",
+        "framing": "full back — head to feet",
+        "lighting": "neutral, even",
+        "background": "plain neutral",
+        "purpose": "back tattoos, shoulder blades, lower-back markings",
+        "required_when_markings": False,
+    },
+    "body_map": {
+        "pose": "neutral stance, both arms extended slightly from sides (T-pose adjacent)",
+        "clothing": "no jacket, no long sleeves — all markings exposed",
+        "framing": "full body, all limbs visible",
+        "lighting": "flat reference lighting",
+        "background": "plain neutral — reference card style",
+        "purpose": "canonical placement map — spatial relationships between markings",
+        "required_when_markings": False,
+    },
+    "final_character_card": {
+        "pose": "cinematic — any aesthetically appropriate pose",
+        "clothing": "final costume / canonical outfit",
+        "framing": "full character — cinematic framing",
+        "lighting": "cinematic",
+        "background": "contextual or atmospheric",
+        "purpose": "SUPPORT ONLY — presentation reference, never anatomical truth",
+        "required_when_markings": False,
+        "support_only": True,
+    },
 }
 
 
@@ -114,6 +231,48 @@ def build_body_slot_prompt(
             "Correct anatomical side for each marking — right tattoo on right arm only, "
             "left tattoo on left arm only. "
             "Reference sheet style, clean neutral background."
+        )[:800]
+
+    # ── v2 canonical slots ─────────────────────────────────────────────
+
+    if slot == "body_left_detail":
+        return (
+            f"Left-side detail reference of {name_part}{lock_part}{markings_part}"
+            "Left side of body toward camera. Left arm slightly extended, relaxed. "
+            "Sleeveless — left arm and left torso fully exposed, no clothing blocking. "
+            "Torso and left arm crop, shoulder to hip. "
+            "Neutral even lighting. Plain background. "
+            "High-fidelity marking detail — exact tattoo placement and design on left side."
+        )[:800]
+
+    if slot == "body_right_detail":
+        return (
+            f"Right-side detail reference of {name_part}{lock_part}{markings_part}"
+            "Right side of body toward camera. Right arm slightly extended, relaxed. "
+            "Sleeveless — right arm and right torso fully exposed, no clothing blocking. "
+            "Torso and right arm crop, shoulder to hip. "
+            "Neutral even lighting. Plain background. "
+            "High-fidelity marking detail — exact tattoo placement and design on right side."
+        )[:800]
+
+    if slot == "body_map":
+        return (
+            f"Canonical body marking placement map for {name_part}{lock_part}{markings_part}"
+            "Full-body reference card. Both arms extended slightly from sides. "
+            "No jacket, no long sleeves — all tattoos and markings fully exposed. "
+            "No crossed arms. No props. Flat reference-card lighting. Plain neutral background. "
+            "Every marking precisely placed on correct anatomical side. "
+            "Right markings on right side only. Left markings on left side only. "
+            "Placement sheet style — used as spatial truth for generation."
+        )[:800]
+
+    if slot == "final_character_card":
+        return (
+            f"Final character card — cinematic full-character reference for {name_part}"
+            f"{lock_part}{markings_part}"
+            "Full character visible. Canonical costume and appearance. "
+            "Cinematic lighting and composition. "
+            "Support reference only — NOT used for anatomical truth or marking placement."
         )[:800]
 
     return f"Body reference image of {name_part}Neutral pose, full body visible."[:800]
