@@ -118,30 +118,32 @@ _SLOT_IMAGE_KIND: dict[str, ImageKindEnum] = {
 
 BODY_SLOT_GENERATION_SPEC: dict[str, dict] = {
     "body_front": {
-        "pose": "neutral standing, arms relaxed at sides, facing forward",
-        "clothing": "sleeveless or shirtless — no long sleeves, no jacket",
-        "framing": "full body — head to feet",
+        "pose": "neutral standing, both arms visible and relaxed at sides, facing forward",
+        "clothing": "sleeveless or minimal clothing — no long sleeves, no jacket; no tattoos printed on clothing",
+        "framing": "full body — head to feet or knees-up; both arms in frame",
         "lighting": "neutral, flat, no dramatic shadows",
         "background": "plain neutral — no clutter, no props",
-        "purpose": "PRIMARY body truth — body proportions and all marking placement",
+        "purpose": "PRIMARY body truth — body proportions and all marking placement; all permanent markings visible where possible",
         "required_when_markings": True,
     },
     "body_left_detail": {
-        "pose": "left side toward camera, arm slightly extended or relaxed",
-        "clothing": "sleeveless — left arm and torso left side fully exposed",
-        "framing": "torso + left arm crop — shoulder to hip",
+        "pose": "left side toward camera, left arm slightly extended — no cinematic pose",
+        "clothing": "sleeveless — left arm and torso fully exposed; no clothing covering marks; no tattoos printed on clothing",
+        "framing": "left arm shoulder to wrist fully in frame; left torso visible",
         "lighting": "neutral, even",
         "background": "plain neutral",
         "purpose": "high-fidelity left-side marking reproduction",
+        "constraints": "LEFT ARM AND LEFT SIDE ONLY — no right arm substitution; no mirror; no design reinterpretation",
         "required_when_markings": False,
     },
     "body_right_detail": {
-        "pose": "right side toward camera, arm slightly extended or relaxed",
-        "clothing": "sleeveless — right arm and torso right side fully exposed",
-        "framing": "torso + right arm crop — shoulder to hip",
+        "pose": "right side toward camera, right arm slightly extended — no cinematic pose",
+        "clothing": "sleeveless — right arm and torso fully exposed; no clothing covering marks; no tattoos printed on clothing",
+        "framing": "right arm shoulder to wrist fully in frame; right torso visible",
         "lighting": "neutral, even",
         "background": "plain neutral",
         "purpose": "high-fidelity right-side marking reproduction",
+        "constraints": "RIGHT ARM AND RIGHT SIDE ONLY — no left arm substitution; no mirror; no design reinterpretation",
         "required_when_markings": False,
     },
     "body_back": {
@@ -155,11 +157,12 @@ BODY_SLOT_GENERATION_SPEC: dict[str, dict] = {
     },
     "body_map": {
         "pose": "neutral stance, both arms extended slightly from sides (T-pose adjacent)",
-        "clothing": "no jacket, no long sleeves — all markings exposed",
-        "framing": "full body, all limbs visible",
+        "clothing": "no jacket, no long sleeves — all markings exposed; no tattoos on clothing",
+        "framing": "full body, all limbs visible — front body placement primary; back/side only if markings require",
         "lighting": "flat reference lighting",
         "background": "plain neutral — reference card style",
-        "purpose": "canonical placement map — spatial relationships between markings",
+        "labels": "clear left/right side labels required — left markings on left only, right markings on right only",
+        "purpose": "canonical placement map — NOT cinematic art, NOT outfit/fashion image; no extra designs",
         "required_when_markings": False,
     },
     "final_character_card": {
@@ -168,9 +171,12 @@ BODY_SLOT_GENERATION_SPEC: dict[str, dict] = {
         "framing": "full character — cinematic framing",
         "lighting": "cinematic",
         "background": "contextual or atmospheric",
-        "purpose": "SUPPORT ONLY — presentation reference, never anatomical truth",
+        "purpose": "CINEMATIC PRESENTATION ONLY — NOT primary anatomical truth; SUPPORT reference only — never used for marking placement or body morphology decisions",
         "required_when_markings": False,
         "support_only": True,
+        "cinematic_only": True,
+        "not_anatomical_truth": True,
+        "preserve_locked_refs": True,
     },
 }
 
@@ -195,11 +201,12 @@ def build_body_slot_prompt(
     if slot == "body_front":
         return (
             f"Full-body front reference of {name_part}{lock_part}{markings_part}"
-            "Neutral standing pose, arms relaxed at sides, facing forward. "
-            "Full torso and arms visible. Fitted plain clothing or underlayer. "
+            "Full body head-to-feet or knees-up. Both arms visible, relaxed at sides. Facing forward. "
+            "Sleeveless or minimal clothing — no long sleeves, no jacket. "
+            "All permanent markings visible where possible. No tattoos printed on clothing. "
             "No dramatic pose, no props, no background clutter. "
             "Clean neutral lighting. Preserve exact body type and proportions. "
-            "Anatomical reference card."
+            "Anatomical reference card — not a scene, not a fashion image."
         )[:800]
 
     if slot == "body_three_quarter":
@@ -238,41 +245,50 @@ def build_body_slot_prompt(
     if slot == "body_left_detail":
         return (
             f"Left-side detail reference of {name_part}{lock_part}{markings_part}"
-            "Left side of body toward camera. Left arm slightly extended, relaxed. "
-            "Sleeveless — left arm and left torso fully exposed, no clothing blocking. "
-            "Torso and left arm crop, shoulder to hip. "
-            "Neutral even lighting. Plain background. "
-            "High-fidelity marking detail — exact tattoo placement and design on left side."
+            "LEFT ARM AND LEFT SIDE ONLY — do not substitute or mirror right arm. "
+            "Left side of body toward camera. Left arm slightly extended, shoulder to wrist fully in frame. "
+            "Sleeveless — left arm and left torso fully exposed. No clothing covering marks. "
+            "No tattoos or designs printed on clothing. "
+            "All tattoos and markings on left side fully visible, no obstruction. "
+            "Neutral even lighting. Plain neutral background. No cinematic pose. "
+            "Exact marking placement and design — no reinterpretation, no alternate design. "
+            "High-fidelity anatomical marking reference."
         )[:800]
 
     if slot == "body_right_detail":
         return (
             f"Right-side detail reference of {name_part}{lock_part}{markings_part}"
-            "Right side of body toward camera. Right arm slightly extended, relaxed. "
-            "Sleeveless — right arm and right torso fully exposed, no clothing blocking. "
-            "Torso and right arm crop, shoulder to hip. "
-            "Neutral even lighting. Plain background. "
-            "High-fidelity marking detail — exact tattoo placement and design on right side."
+            "RIGHT ARM AND RIGHT SIDE ONLY — do not substitute or mirror left arm. "
+            "Right side of body toward camera. Right arm slightly extended, shoulder to wrist fully in frame. "
+            "Sleeveless — right arm and right torso fully exposed. No clothing covering marks. "
+            "No tattoos or designs printed on clothing. "
+            "All tattoos and markings on right side fully visible, no obstruction. "
+            "Neutral even lighting. Plain neutral background. No cinematic pose. "
+            "Exact marking placement and design — no reinterpretation, no alternate design. "
+            "High-fidelity anatomical marking reference."
         )[:800]
 
     if slot == "body_map":
         return (
-            f"Canonical body marking placement map for {name_part}{lock_part}{markings_part}"
-            "Full-body reference card. Both arms extended slightly from sides. "
-            "No jacket, no long sleeves — all tattoos and markings fully exposed. "
-            "No crossed arms. No props. Flat reference-card lighting. Plain neutral background. "
-            "Every marking precisely placed on correct anatomical side. "
-            "Right markings on right side only. Left markings on left side only. "
-            "Placement sheet style — used as spatial truth for generation."
+            f"Canonical body marking placement map — reference sheet for {name_part}{lock_part}{markings_part}"
+            "NOT cinematic art. NOT outfit or fashion image. "
+            "Full-body reference card — front body placement shown. Both arms extended slightly from sides. "
+            "Clear left/right side labels: left markings on left side only, right markings on right side only. "
+            "No jacket, no long sleeves — all markings fully exposed. "
+            "No crossed arms. No props. No extra designs beyond the character's own markings. "
+            "Back/side sections only if markings require it. "
+            "Flat reference-card lighting. Plain neutral background. "
+            "Spatial placement truth — used as canonical generation reference."
         )[:800]
 
     if slot == "final_character_card":
         return (
-            f"Final character card — cinematic full-character reference for {name_part}"
-            f"{lock_part}{markings_part}"
-            "Full character visible. Canonical costume and appearance. "
-            "Cinematic lighting and composition. "
-            "Support reference only — NOT used for anatomical truth or marking placement."
+            f"Final character card for {name_part}{lock_part}{markings_part}"
+            "CINEMATIC PRESENTATION ONLY — NOT primary anatomical truth or marking reference. "
+            "Preserve locked face and body identity references exactly. "
+            "Full character in canonical costume and appearance. "
+            "Cinematic lighting and composition — aesthetically appropriate pose. "
+            "SUPPORT reference only — never used for marking placement or body morphology decisions."
         )[:800]
 
     return f"Body reference image of {name_part}Neutral pose, full body visible."[:800]
