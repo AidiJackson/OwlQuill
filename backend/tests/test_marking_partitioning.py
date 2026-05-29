@@ -370,13 +370,25 @@ class TestPhase1WholeArmRule:
         assert visible == []
         assert _placements(hidden) == {"left_forearm"}
 
-    def test_full_sleeve_partial_normalizes_to_covered(self):
-        # The Task #18 sleeve exception is disabled in Phase 1 — a full sleeve
-        # under rolled sleeves is NOT reliably renderable, so it is covered.
+    def test_full_sleeve_visible_via_sleeve_exception(self):
+        # Sleeve exception re-enabled in Phase 1: a full sleeve's forearm portion
+        # IS reliably visible when the forearm is exposed (rolled sleeves).
+        # The per-side detail crop provides a faithful ref; body_front is withheld
+        # only when OTHER hidden markings exist.
         markings = [_mark("left_full_arm", style="gothic script sleeve", size="full_sleeve")]
         visible, hidden = _partition_markings_phase1_safe(markings, _BAR_PROMPT)
+        assert _placements(visible) == {"left_full_arm"}
+        assert hidden == []
+
+    def test_upper_arm_non_sleeve_still_covered_under_rolled(self):
+        # Non-sleeve upper-arm marking is NOT visible under rolled sleeves
+        # (only the forearm is exposed, not the upper arm where the marking sits).
+        markings = [_mark("right_upper_arm", style="wolf", size="medium")]
+        visible, hidden = _partition_markings_phase1_safe(
+            markings, "button shirt with sleeves rolled up"
+        )
         assert visible == []
-        assert _placements(hidden) == {"left_full_arm"}
+        assert _placements(hidden) == {"right_upper_arm"}
 
     def test_all_visible_when_sleeveless(self):
         markings = [
@@ -418,17 +430,23 @@ class TestPhase1ExcludedSlots:
         assert "body_right_detail" in excluded
         assert "body_left_detail" not in excluded
 
-    def test_bar_scene_both_sides_hidden_withholds_everything_but_face(self):
-        # Leonardo bar scene: both markings normalize to covered → no body refs.
+    def test_bar_scene_only_wolf_hidden_withholds_right_and_whole_body(self):
+        # Leonardo bar scene: sleeve exception makes left_full_arm VISIBLE (forearm
+        # exposed); only the wolf (right_upper_arm) is hidden.
+        # → body_right_detail withheld (shows wolf), body_front withheld (shows wolf),
+        #   body_left_detail NOT withheld (sleeve is visible — faithful ref).
         markings = [
             _mark("right_upper_arm", style="grey wolf"),
             _mark("left_full_arm", style="gothic script sleeve", size="full_sleeve"),
         ]
         _, hidden = _partition_markings_phase1_safe(markings, _BAR_PROMPT)
         excluded = _excluded_body_slots_for_hidden(hidden)
-        assert {"body_front", "body_left_detail", "body_right_detail",
-                "body_back", "body_map", "tattoo_layout"} <= excluded
-        # Face anchors are never in the excluded set.
+        # Whole-body + right-side refs excluded (wolf is hidden).
+        assert {"body_front", "body_right_detail", "body_back",
+                "body_map", "tattoo_layout"} <= excluded
+        # Left-side detail crop allowed — left sleeve is visible.
+        assert "body_left_detail" not in excluded
+        # Face anchors always kept.
         assert "front" not in excluded
         assert "three_quarter" not in excluded
 
@@ -479,19 +497,22 @@ class TestPhase1SideLock:
 
 
 class TestPhase1LeonardoBarShirtAcceptance:
-    """Acceptance: no wolf, no mirrored script, no tattoo on fabric;
-    missing tattoos acceptable. Both markings normalize to covered."""
+    """Acceptance: no wolf, no mirrored script, no tattoo on fabric.
+    Sleeve exception: left sleeve forearm IS shown (reliable via detail crop).
+    Wolf (right upper arm) stays hidden under the shirt."""
 
-    def test_bar_scene_normalizes_both_to_covered(self):
+    def test_bar_scene_sleeve_visible_wolf_hidden(self):
+        # Sleeve exception: left_full_arm gothic script sleeve's forearm IS visible
+        # (rolled sleeves expose the forearm). Wolf on right_upper_arm stays hidden.
         markings = [
             _mark("right_upper_arm", style="grey wolf head"),
             _mark("left_full_arm", style="gothic script sleeve", size="full_sleeve"),
         ]
         visible, hidden = _partition_markings_phase1_safe(markings, _BAR_PROMPT)
-        assert visible == []
-        assert _placements(hidden) == {"right_upper_arm", "left_full_arm"}
+        assert _placements(visible) == {"left_full_arm"}
+        assert _placements(hidden) == {"right_upper_arm"}
 
-    def test_bar_scene_hidden_block_carries_relocation_rules(self):
+    def test_bar_scene_blocks_have_visible_and_hidden_sections(self):
         markings = [
             _mark("right_upper_arm", style="grey wolf head"),
             _mark("left_full_arm", style="gothic script sleeve", size="full_sleeve"),
@@ -499,16 +520,34 @@ class TestPhase1LeonardoBarShirtAcceptance:
         visible, hidden = _partition_markings_phase1_safe(markings, _BAR_PROMPT)
         block = _build_partitioned_marking_blocks(visible, hidden)
         lower = block.lower()
+        # Wolf must stay hidden with relocation rules.
         assert "do not render hidden markings" in lower
         assert "do not relocate hidden markings" in lower
         assert "do not print hidden markings" in lower
-        # No VISIBLE section because nothing is reliably visible.
-        assert "VISIBLE BODY MARKINGS" not in block
+        # Sleeve should be in the VISIBLE section.
+        assert "VISIBLE BODY MARKINGS" in block
+        assert "gothic script sleeve" in block
 
-    def test_bar_scene_no_side_lock_when_all_covered(self):
+    def test_bar_scene_side_lock_left_visible_right_bare(self):
+        # Left sleeve visible → side-lock declares right arm bare to prevent mirroring.
         markings = [
             _mark("right_upper_arm", style="grey wolf head"),
             _mark("left_full_arm", style="gothic script sleeve", size="full_sleeve"),
         ]
         visible, hidden = _partition_markings_phase1_safe(markings, _BAR_PROMPT)
-        assert _build_arm_side_lock_str(visible, hidden) == ""
+        lock = _build_arm_side_lock_str(visible, hidden)
+        assert "left arm has visible tattoos" in lock
+        assert "right arm is bare skin" in lock
+        assert "No tattoos, writing, symbols, or marks on the right arm" in lock
+
+    def test_bar_scene_body_left_detail_not_excluded(self):
+        # body_left_detail is NOT excluded — it is the faithful ref for the visible sleeve.
+        markings = [
+            _mark("right_upper_arm", style="grey wolf head"),
+            _mark("left_full_arm", style="gothic script sleeve", size="full_sleeve"),
+        ]
+        _, hidden = _partition_markings_phase1_safe(markings, _BAR_PROMPT)
+        excluded = _excluded_body_slots_for_hidden(hidden)
+        assert "body_left_detail" not in excluded    # sleeve ref allowed
+        assert "body_right_detail" in excluded       # wolf ref withheld
+        assert "body_front" in excluded              # shows wolf → withheld

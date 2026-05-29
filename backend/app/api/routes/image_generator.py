@@ -825,21 +825,36 @@ def _build_partitioned_marking_blocks(
 
 
 def _reliably_visible_phase1(marking, prompt_lower: str) -> bool:
-    """Phase 1 (#23) beta-safe visibility: a marking is reliably visible only
-    when its WHOLE region is exposed, so the existing full-body / full-arm
-    references match the scene exactly.
+    """Phase 1 (#23) beta-safe visibility.
 
-    Partial exposure (rolled / short sleeves showing only the forearm) is NOT
-    reliably supported yet — we have no forearm-only reference — so it is treated
-    as covered. Wrong tattoos are worse than missing tattoos.
+    A marking is reliably visible when:
+    - Its whole arm region is exposed (sleeveless / shirtless) — both the
+      full-body ref and per-side detail crop match the scene faithfully.
+    - It is a full sleeve AND the forearm is exposed (rolled / short sleeves) —
+      the forearm portion of the sleeve IS visible in the scene. The per-side
+      detail crop (body_left_detail / body_right_detail) provides a faithful
+      reference for the sleeve design; body_front is still withheld if any OTHER
+      marking on the opposite arm is hidden.
+
+    Non-sleeve partial exposure (e.g. an upper-arm tattoo when only the forearm
+    is exposed) stays covered — wrong tattoos are worse than missing tattoos.
     """
     if marking.placement in _ALWAYS_VISIBLE_PLACEMENTS:
         return True
     side = get_arm_side(marking.placement)
     if side is not None:
-        # The whole arm must be bare (sleeveless / full arm exposed) for the
-        # body_front / arm-detail references to depict the scene faithfully.
-        return _classify_region_exposure(f"broad_{side}_arm", prompt_lower) == "exposed"
+        # Whole arm bare → all refs are faithful.
+        if _classify_region_exposure(f"broad_{side}_arm", prompt_lower) == "exposed":
+            return True
+        # Sleeve exception: a full-sleeve tattoo spans shoulder to wrist.
+        # Its forearm portion is visible whenever the forearm is exposed.
+        # The per-side detail crop is a faithful ref for this (body_front still
+        # withheld when any other marking on the other arm is hidden).
+        if is_sleeve_marking(marking):
+            forearm_region = f"{side}_forearm"
+            if _classify_region_exposure(forearm_region, prompt_lower) == "exposed":
+                return True
+        return False
     region = _classify_marking_region(marking.placement)
     return _classify_region_exposure(region, prompt_lower) == "exposed"
 
@@ -1747,6 +1762,14 @@ def generate_image(
         if _body_front_canonical:
             # Canonical mode: body_front is the sole visual truth.
             # No text essays needed — the ref image carries left/right placement.
+            _sleeve_enforcement_str = ""
+            _arm_side_binding_str = ""
+        elif _body_front_excluded:
+            # body_front withheld (hidden marking on opposite arm) — the per-side
+            # detail crop is the sole body ref. Suppress sleeve-enforcement text that
+            # says "from shoulder to wrist — must be present if arm is visible",
+            # which would cause the model to unroll the sleeves to show the full
+            # sleeve. The VISIBLE/HIDDEN partition blocks + side-lock are sufficient.
             _sleeve_enforcement_str = ""
             _arm_side_binding_str = ""
         elif _tattoo_visibility_requested:
