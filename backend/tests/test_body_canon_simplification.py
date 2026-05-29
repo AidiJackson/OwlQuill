@@ -310,10 +310,15 @@ class TestSimplifiedPromptHasShortInstruction:
             f"_SIMPLIFIED_BODY_CANON_TEXT must be short. Got {len(_SIMPLIFIED_BODY_CANON_TEXT)} chars"
         )
 
-    def test_simplified_text_references_body_reference(self):
-        assert "body reference" in _SIMPLIFIED_BODY_CANON_TEXT.lower() or \
-               "reference image" in _SIMPLIFIED_BODY_CANON_TEXT.lower(), (
-            "Simplified instruction must mention the body reference image"
+    def test_simplified_text_does_not_claim_reference_image(self):
+        # In simplified mode no body_front reference image is stored, so the
+        # instruction must NOT falsely claim a locked body reference image exists.
+        lower = _SIMPLIFIED_BODY_CANON_TEXT.lower()
+        assert "body reference" not in lower and "reference image" not in lower, (
+            "Simplified instruction must not claim a locked body reference image exists"
+        )
+        assert "body marking" in lower, (
+            "Simplified instruction must describe the character's body markings"
         )
 
     def test_simplified_prompt_contains_short_instruction(self):

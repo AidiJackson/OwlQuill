@@ -77,6 +77,26 @@ def build_body_canon_lock_string(markings: list[BodyMarking]) -> str:
     return "BODY MARKINGS: " + "; ".join(tokens)
 
 
+def build_passive_body_canon_string(markings: list[BodyMarking]) -> str:
+    """Compile markings as passive anatomical context (not a visibility command).
+
+    Used when the scene prompt has no body-exposure keyword: the model must still
+    know the character's permanent markings exist so it does not invent bare,
+    unmarked skin — but framed as background context rather than a forced-visibility
+    instruction. Markings only show where skin is naturally exposed; the clothing
+    safety invariant (appended separately) keeps covered markings hidden.
+
+    Returns empty string when no markings are present.
+    """
+    if not markings:
+        return ""
+    tokens = [build_compact_token(m) for m in markings]
+    return (
+        "Character has these permanent body markings, shown only where skin is "
+        "naturally exposed: " + "; ".join(tokens)
+    )
+
+
 # ── Sleeve semantics ──────────────────────────────────────────────────
 
 def is_sleeve_marking(marking: BodyMarking) -> bool:

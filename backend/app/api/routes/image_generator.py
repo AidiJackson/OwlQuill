@@ -46,6 +46,7 @@ from app.services.style_elements import apply_style_elements_to_image_prompt
 from app.services.body_canon import (
     load_markings,
     build_body_canon_lock_string,
+    build_passive_body_canon_string,
     build_arm_side_binding_str,
     build_short_arm_side_str,
     is_sleeve_marking,
@@ -423,10 +424,11 @@ _MAX_PROVIDER_REFS = 6  # hard cap on total reference images sent to provider
 # enforcement together exceeded that budget, silently dropping tattoo signal.
 _STRICT_IDENTITY_PROMPT_MAX_CHARS = 2000
 
-# Simplified body canon instruction used when tattoos/body are visible.
-# Replaces the long per-marking token string; body_front carries the visual truth.
+# Simplified body canon instruction used when tattoos/body are visible but no
+# body_front reference image is stored. Describes markings from spec text — it must
+# NOT claim a locked body reference image exists, because in this mode there is none.
 _SIMPLIFIED_BODY_CANON_TEXT = (
-    "Permanent body markings must match the locked body reference image. "
+    "Render the character's permanent body markings exactly as described. "
     "Tattoos appear only on exposed skin, never on clothing."
 )
 
@@ -1117,7 +1119,12 @@ def generate_image(
             if _short_sides:
                 _body_canon_str += " " + _short_sides + "."
         else:
-            _body_canon_str = build_body_canon_lock_string(_bc_text_markings)
+            # Passive context: no body-exposure keyword present, so visibility
+            # detection filtered _bc_text_markings to empty. Inject ALL markings
+            # (_bc_markings) as passive "character has these permanent markings"
+            # context so the model never invents bare, unmarked skin. The clothing
+            # safety invariant below keeps covered markings hidden.
+            _body_canon_str = build_passive_body_canon_string(_bc_markings)
 
         # Clothing safety invariant: injected when any body markings exist.
         # Hard rule preventing providers from migrating permanent markings to fabric or
