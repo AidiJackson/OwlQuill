@@ -233,19 +233,21 @@ class TestNoMarkingsNoBlocks:
 
 
 class TestBroadArmSafeFallback:
-    def test_broad_full_arm_hidden_t_shirt(self):
-        # t-shirt exposes forearm only — a whole-arm marking cannot be partially
-        # shown, so the safe fallback keeps it hidden.
-        markings = [_mark("right_full_arm", style="full sleeve serpent")]
+    def test_broad_full_arm_non_sleeve_hidden_t_shirt(self):
+        # Non-sleeve broad-arm marking under a t-shirt: safe fallback keeps it hidden
+        # because we cannot know which sub-region the mark occupies.
+        markings = [_mark("right_full_arm", style="geometric tribal pattern", size="large")]
         visible, hidden = _partition_markings_by_visibility(markings, "wearing a t-shirt")
         assert _placements(visible) == set()
         assert _placements(hidden) == {"right_full_arm"}
 
-    def test_broad_right_full_arm_hidden_rolled(self):
-        markings = [_mark("right_full_arm", style="full sleeve serpent")]
+    def test_broad_full_arm_non_sleeve_hidden_rolled(self):
+        # Non-sleeve broad-arm marking under rolled sleeves: safe fallback → hidden.
+        markings = [_mark("right_full_arm", style="geometric tribal pattern", size="large")]
         visible, hidden = _partition_markings_by_visibility(
             markings, "shirt with rolled sleeves"
         )
+        assert _placements(visible) == set()
         assert _placements(hidden) == {"right_full_arm"}
 
     def test_broad_full_arm_visible_sleeveless(self):
@@ -259,6 +261,47 @@ class TestBroadArmSafeFallback:
 
     def test_broad_right_arm_covered_long_sleeve(self):
         assert _classify_region_exposure("broad_right_arm", "long sleeve shirt") == "covered"
+
+    # ── Sleeve exception ──────────────────────────────────────────────────
+    # A full-sleeve tattoo definitively covers the forearm. Its forearm portion
+    # IS visible when rolled sleeves or a t-shirt expose the forearm.
+
+    def test_sleeve_marking_visible_under_rolled_sleeves(self):
+        # left_full_arm gothic script sleeve — forearm exposed by rolled shirt.
+        markings = [_mark("left_full_arm", style="gothic script sleeve tattoo",
+                          size="full_sleeve")]
+        visible, hidden = _partition_markings_by_visibility(
+            markings, "button-up shirt with sleeves rolled to the forearms"
+        )
+        assert _placements(visible) == {"left_full_arm"}
+        assert _placements(hidden) == set()
+
+    def test_sleeve_marking_visible_under_t_shirt(self):
+        # Full sleeve under a t-shirt: forearm portion is exposed → VISIBLE.
+        markings = [_mark("right_full_arm", style="full sleeve serpent")]
+        visible, hidden = _partition_markings_by_visibility(markings, "wearing a t-shirt")
+        assert _placements(visible) == {"right_full_arm"}
+        assert _placements(hidden) == set()
+
+    def test_sleeve_marking_hidden_under_long_sleeve(self):
+        # Full sleeve under a long-sleeve jacket: entire arm covered → HIDDEN.
+        markings = [_mark("left_full_arm", style="gothic script sleeve tattoo",
+                          size="full_sleeve")]
+        visible, hidden = _partition_markings_by_visibility(
+            markings, "wearing a long sleeve jacket"
+        )
+        assert _placements(visible) == set()
+        assert _placements(hidden) == {"left_full_arm"}
+
+    def test_non_sleeve_broad_arm_still_hidden_under_rolled(self):
+        # Safety: a non-sleeve broad-arm marking (large wolf) stays hidden under
+        # rolled sleeves — only the sleeve exception lifts the safe fallback.
+        markings = [_mark("right_full_arm", style="tribal wolf mark", size="large")]
+        visible, hidden = _partition_markings_by_visibility(
+            markings, "dark button-up shirt with sleeves rolled to the forearms"
+        )
+        assert _placements(visible) == set()
+        assert _placements(hidden) == {"right_full_arm"}
 
 
 # ── Always-visible placements (neck/face/hands) ───────────────────────

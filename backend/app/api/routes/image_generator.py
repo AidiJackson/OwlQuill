@@ -764,6 +764,12 @@ def _partition_markings_by_visibility(
     A marking is VISIBLE only when its region is clearly exposed; covered or
     uncertain regions fall to HIDDEN — the safe fallback that prevents the model
     from relocating a covered marking to nearby exposed skin.
+
+    Sleeve exception: a full-sleeve tattoo on a broad-arm placement (left_full_arm /
+    right_full_arm) definitively covers the forearm as well as the upper arm.  When
+    the corresponding forearm is exposed (rolled sleeves, short sleeve, etc.) the
+    forearm portion of the sleeve IS visible — override the broad-arm safe fallback
+    so the sleeve renders on exposed forearm skin instead of being silently hidden.
     """
     visible: list = []
     hidden: list = []
@@ -772,7 +778,18 @@ def _partition_markings_by_visibility(
             visible.append(m)
             continue
         region = _classify_marking_region(m.placement)
-        if _classify_region_exposure(region, prompt_lower) == "exposed":
+        exposure = _classify_region_exposure(region, prompt_lower)
+        # Sleeve exception: broad-arm safe fallback is too conservative for
+        # full-sleeve tattoos — the forearm portion is always part of the sleeve
+        # and shows whenever the forearm is exposed.
+        if exposure != "exposed" and region in ("broad_left_arm", "broad_right_arm"):
+            if is_sleeve_marking(m):
+                forearm_region = (
+                    "left_forearm" if region == "broad_left_arm" else "right_forearm"
+                )
+                if _classify_region_exposure(forearm_region, prompt_lower) == "exposed":
+                    exposure = "exposed"
+        if exposure == "exposed":
             visible.append(m)
         else:
             hidden.append(m)
