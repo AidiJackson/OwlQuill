@@ -45,6 +45,7 @@ from app.services.character_accessory import build_accessory_prompt_block, get_t
 from app.services.style_elements import apply_style_elements_to_image_prompt
 from app.services.body_canon import (
     load_markings,
+    build_compact_token,
     build_body_canon_lock_string,
     build_passive_body_canon_string,
     build_arm_side_binding_str,
@@ -532,6 +533,27 @@ _ALWAYS_VISIBLE_PLACEMENTS = frozenset({
     "left_hand", "right_hand", "knuckles",
 })
 
+# ── Per-region exposure signals (Task #18) ───────────────────────────
+# Sleeves rolled up: forearm exposed, upper arm covered.
+_ROLLED_SLEEVE_SIGNALS = frozenset({
+    "rolled sleeve", "rolled sleeves", "rolled-up sleeve", "rolled-up sleeves",
+    "rolled up sleeve", "rolled up sleeves", "sleeves rolled", "sleeve rolled",
+    "sleeves rolled up", "sleeves pushed up", "pushed-up sleeves",
+})
+
+# Button / dress / plain shirt: upper arm AND forearm covered unless sleeves rolled.
+_BUTTON_SHIRT_SIGNALS = frozenset({
+    "button shirt", "button-up shirt", "button up shirt", "button-down shirt",
+    "button down shirt", "button-up", "button up", "button-down", "button down",
+    "dress shirt", "plain shirt", "collared shirt", "oxford shirt",
+})
+
+# Bare-torso signals: chest and back skin exposed.
+_SHIRTLESS_SIGNALS = frozenset({
+    "shirtless", "bare-chested", "bare chested", "bare chest", "no shirt",
+    "topless", "bare torso",
+})
+
 # ── Scene complexity detection ────────────────────────────────────────
 # Full-body anchor shows studio composition; gate it out for actioned scenes.
 # These signals imply the character is doing something / somewhere specific.
@@ -610,6 +632,179 @@ def _detect_arm_visibility_mode(prompt_lower: str) -> str:
     if any(sig in prompt_lower for sig in _PARTIAL_ARM_EXPOSURE_SIGNALS):
         return "partial"
     return "none"
+
+
+# ── Visibility-aware marking partitioning (Task #18) ─────────────────
+# Precise anatomical region per marking placement. Broad/legacy whole-arm
+# placements map to a "broad_*_arm" region that triggers the safe fallback
+# (hidden unless the whole arm is clearly exposed) — they span both upper arm
+# and forearm and cannot be partially shown reliably.
+_MARKING_REGION: dict[str, str] = {
+    "right_upper_arm": "right_upper_arm",
+    "left_upper_arm": "left_upper_arm",
+    "right_forearm": "right_forearm",
+    "left_forearm": "left_forearm",
+    "shoulder": "shoulder",
+    "left_shoulder": "shoulder",
+    "right_shoulder": "shoulder",
+    "chest": "chest",
+    "abdomen": "chest",
+    "ribs": "chest",
+    "side": "chest",
+    "upper_back": "back",
+    "lower_back": "back",
+    "full_back": "back",
+    "neck": "neck",
+    "throat": "neck",
+    "right_cheek": "face",
+    "left_cheek": "face",
+    "forehead": "face",
+    "chin": "face",
+    "jaw": "face",
+    "left_hand": "hand",
+    "right_hand": "hand",
+    "knuckles": "hand",
+    "left_thigh": "left_leg",
+    "right_thigh": "right_leg",
+    "left_calf": "left_leg",
+    "right_calf": "right_leg",
+}
+
+_BROAD_ARM_REGION: dict[str, str] = {
+    "right_arm": "broad_right_arm",
+    "right_full_arm": "broad_right_arm",
+    "left_arm": "broad_left_arm",
+    "left_full_arm": "broad_left_arm",
+}
+
+
+def _classify_marking_region(placement: str) -> str:
+    """Map a marking placement to a precise anatomical region.
+
+    Broad/legacy whole-arm placements map to 'broad_right_arm' / 'broad_left_arm'
+    which trigger the safe fallback during exposure classification.
+    """
+    if placement in _BROAD_ARM_REGION:
+        return _BROAD_ARM_REGION[placement]
+    return _MARKING_REGION.get(placement, "other")
+
+
+def _classify_region_exposure(region: str, prompt_lower: str) -> str:
+    """Classify a body region as 'exposed', 'covered', or 'unknown' for this scene.
+
+    Garment rules:
+      sleeveless / tank / shirtless  → full arm exposed
+      t-shirt / short sleeve         → forearm exposed, upper arm covered
+      rolled sleeves                 → forearm exposed, upper arm covered
+      button / dress / plain shirt   → upper arm + forearm covered (unless rolled)
+      long sleeves / jacket / etc.   → all arm skin covered
+      no garment signal              → unknown (treated as hidden by the caller)
+    """
+    full_arm = any(s in prompt_lower for s in _FULL_ARM_EXPOSURE_SIGNALS)
+    short_sleeve = any(s in prompt_lower for s in _PARTIAL_ARM_EXPOSURE_SIGNALS)
+    rolled = any(s in prompt_lower for s in _ROLLED_SLEEVE_SIGNALS)
+    button_shirt = any(s in prompt_lower for s in _BUTTON_SHIRT_SIGNALS)
+    covering = any(s in prompt_lower for s in _CLOTHING_COVER_SIGNALS)
+    shirtless = any(s in prompt_lower for s in _SHIRTLESS_SIGNALS)
+    covered_garment = button_shirt or covering
+
+    # Always-visible regions.
+    if region in ("face", "hand", "neck"):
+        return "exposed"
+
+    # Upper arm / shoulder: exposed only when the full arm is bare.
+    if region in ("right_upper_arm", "left_upper_arm", "shoulder"):
+        if full_arm:
+            return "exposed"
+        if short_sleeve or rolled or covered_garment:
+            return "covered"
+        return "unknown"
+
+    # Forearm: exposed with full arm exposure, short sleeve, or rolled sleeves.
+    if region in ("right_forearm", "left_forearm"):
+        if full_arm or short_sleeve or rolled:
+            return "exposed"
+        if covered_garment:
+            return "covered"
+        return "unknown"
+
+    # Broad arm: only fully exposed when the whole arm is bare (safe fallback).
+    if region in ("broad_right_arm", "broad_left_arm"):
+        if full_arm:
+            return "exposed"
+        if short_sleeve or rolled or covered_garment:
+            return "covered"
+        return "unknown"
+
+    # Chest / abdomen: exposed only when the torso is bare.
+    if region == "chest":
+        if shirtless:
+            return "exposed"
+        if full_arm or short_sleeve or rolled or covered_garment:
+            return "covered"
+        return "unknown"
+
+    # Back: exposed when bare-backed.
+    if region == "back":
+        if shirtless or "backless" in prompt_lower or "bare back" in prompt_lower:
+            return "exposed"
+        if full_arm or short_sleeve or rolled or covered_garment:
+            return "covered"
+        return "unknown"
+
+    # Legs / other regions: no reliable garment signal here → unknown.
+    return "unknown"
+
+
+def _partition_markings_by_visibility(
+    markings: list, prompt_lower: str
+) -> tuple[list, list]:
+    """Split markings into (visible, hidden) for the current scene.
+
+    A marking is VISIBLE only when its region is clearly exposed; covered or
+    uncertain regions fall to HIDDEN — the safe fallback that prevents the model
+    from relocating a covered marking to nearby exposed skin.
+    """
+    visible: list = []
+    hidden: list = []
+    for m in markings:
+        if m.placement in _ALWAYS_VISIBLE_PLACEMENTS:
+            visible.append(m)
+            continue
+        region = _classify_marking_region(m.placement)
+        if _classify_region_exposure(region, prompt_lower) == "exposed":
+            visible.append(m)
+        else:
+            hidden.append(m)
+    return visible, hidden
+
+
+def _build_partitioned_marking_blocks(
+    visible_markings: list, hidden_markings: list
+) -> str:
+    """Build explicit VISIBLE / HIDDEN marking blocks for the prompt.
+
+    Returns '' when there are no markings at all so unmarked characters emit no
+    block. The HIDDEN block carries the hard relocation rules.
+    """
+    if not visible_markings and not hidden_markings:
+        return ""
+    parts: list[str] = []
+    if visible_markings:
+        v = "; ".join(build_compact_token(m) for m in visible_markings)
+        parts.append(
+            "VISIBLE BODY MARKINGS — render only these on exposed skin, in their "
+            f"exact anatomical location: {v}"
+        )
+    if hidden_markings:
+        h = "; ".join(build_compact_token(m) for m in hidden_markings)
+        parts.append(
+            "HIDDEN BODY MARKINGS — canonical but not visible in this scene because "
+            f"clothing covers them: {h}. Do not render hidden markings. Do not "
+            "relocate hidden markings to visible skin. Do not print hidden markings "
+            "on clothing or fabric."
+        )
+    return ". ".join(parts)
 
 
 def _build_strict_identity_prompt(
@@ -1107,12 +1302,24 @@ def generate_image(
             )
         ]
 
+        # Visibility-aware marking partitioning (Task #18): classify each marking's
+        # region exposure for THIS scene so covered markings are explicitly marked
+        # HIDDEN instead of being relocated by the model to nearby exposed skin.
+        _bc_visible_markings, _bc_hidden_markings = _partition_markings_by_visibility(
+            _bc_markings, provider_prompt.lower()
+        )
+        _bc_partition_blocks = _build_partitioned_marking_blocks(
+            _bc_visible_markings, _bc_hidden_markings
+        )
+
         # Body canon text:
-        #   canonical mode  → single short instruction; body_front is the visual truth
+        #   canonical mode  → short ref instruction + explicit VISIBLE/HIDDEN blocks
         #   simplified mode → short instruction + compact arm side note (body_front absent)
         #   no tattoo visible → full per-marking token list
         if _body_front_canonical:
             _body_canon_str = _CANONICAL_BODY_REF_TEXT
+            if _bc_partition_blocks:
+                _body_canon_str = _body_canon_str + ". " + _bc_partition_blocks
         elif _tattoo_visibility_requested and _bc_text_markings:
             _short_sides = build_short_arm_side_str(_bc_text_markings, _bc_visible_regions)
             _body_canon_str = _SIMPLIFIED_BODY_CANON_TEXT
@@ -1144,6 +1351,7 @@ def generate_image(
         logger.info(
             "BODY-CANON character_id=%s markings_count=%d "
             "visible_regions=%s canonical_mode=%s simplified_mode=%s "
+            "visible_markings=%d hidden_markings=%d "
             "anchors_used=%s anchors_missing=%s "
             "text_token_len=%d provider_ref_count=%d",
             character_id,
@@ -1151,6 +1359,8 @@ def generate_image(
             sorted(_bc_visible_regions),
             _body_front_canonical,
             _tattoo_visibility_requested,
+            len(_bc_visible_markings),
+            len(_bc_hidden_markings),
             _bc_anchors_used,
             _bc_anchors_missing,
             len(_body_canon_str),
