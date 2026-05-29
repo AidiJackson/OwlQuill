@@ -824,6 +824,92 @@ def _build_partitioned_marking_blocks(
     return ". ".join(parts)
 
 
+def _reliably_visible_phase1(marking, prompt_lower: str) -> bool:
+    """Phase 1 (#23) beta-safe visibility: a marking is reliably visible only
+    when its WHOLE region is exposed, so the existing full-body / full-arm
+    references match the scene exactly.
+
+    Partial exposure (rolled / short sleeves showing only the forearm) is NOT
+    reliably supported yet — we have no forearm-only reference — so it is treated
+    as covered. Wrong tattoos are worse than missing tattoos.
+    """
+    if marking.placement in _ALWAYS_VISIBLE_PLACEMENTS:
+        return True
+    side = get_arm_side(marking.placement)
+    if side is not None:
+        # The whole arm must be bare (sleeveless / full arm exposed) for the
+        # body_front / arm-detail references to depict the scene faithfully.
+        return _classify_region_exposure(f"broad_{side}_arm", prompt_lower) == "exposed"
+    region = _classify_marking_region(marking.placement)
+    return _classify_region_exposure(region, prompt_lower) == "exposed"
+
+
+def _partition_markings_phase1_safe(
+    markings: list, prompt_lower: str
+) -> tuple[list, list]:
+    """Phase 1 partition: split markings into (visible, hidden) using the strict
+    whole-region rule. Per arm side this is all-or-nothing, so a side is never
+    simultaneously visible and hidden — which keeps reference selection safe.
+    """
+    visible: list = []
+    hidden: list = []
+    for m in markings:
+        if _reliably_visible_phase1(m, prompt_lower):
+            visible.append(m)
+        else:
+            hidden.append(m)
+    return visible, hidden
+
+
+def _excluded_body_slots_for_hidden(hidden_markings: list) -> set[str]:
+    """Reference image slots to withhold because they depict a HIDDEN marking.
+
+    - A per-side detail crop (body_left_detail / body_right_detail) is withheld
+      when that side carries a hidden marking.
+    - The whole-body refs (body_front / body_back / body_map / legacy
+      tattoo_layout) depict every marking at once, so any hidden marking
+      withholds all of them.
+    - final_character_card is a rendered portrait that also depicts markings, so
+      it is withheld whenever anything is hidden (it would re-introduce the
+      hidden marking and risk relocation/mirroring).
+    Face anchors (front / three_quarter) are never withheld here.
+    """
+    hidden_sides = {
+        s for m in hidden_markings if (s := get_arm_side(m.placement)) is not None
+    }
+    excluded = {f"body_{side}_detail" for side in hidden_sides}
+    if hidden_markings:
+        excluded.update({
+            "body_front", "body_back", "body_map", "tattoo_layout",
+            "final_character_card",
+        })
+    return excluded
+
+
+def _build_arm_side_lock_str(visible_markings: list, hidden_markings: list) -> str:
+    """Phase 1 side-lock + negative-side text.
+
+    Emitted only when at least one arm carries a visible marking AND the opposite
+    arm has no visible marking — declares the marked arm and explicitly states the
+    other arm is bare so the model does not mirror a tattoo onto bare skin.
+    """
+    visible_sides = {
+        s for m in visible_markings if (s := get_arm_side(m.placement)) is not None
+    }
+    if not visible_sides:
+        return ""
+    bare_sides = {"left", "right"} - visible_sides
+    if not bare_sides:
+        return ""
+    vis_txt = " and ".join(sorted(visible_sides))
+    bare_txt = " and ".join(sorted(bare_sides))
+    return (
+        f"ARM SIDE LOCK: Only the {vis_txt} arm has visible tattoos. "
+        f"The {bare_txt} arm is bare skin. "
+        f"No tattoos, writing, symbols, or marks on the {bare_txt} arm."
+    )
+
+
 def _build_strict_identity_prompt(
     *,
     base_prompt: str,
@@ -1322,19 +1408,55 @@ def generate_image(
         # Visibility-aware marking partitioning (Task #18): classify each marking's
         # region exposure for THIS scene so covered markings are explicitly marked
         # HIDDEN instead of being relocated by the model to nearby exposed skin.
-        _bc_visible_markings, _bc_hidden_markings = _partition_markings_by_visibility(
+        # Phase 1 (#23) beta-safe partition: a marking is reliably visible only
+        # when its whole region is exposed so the existing references match the
+        # scene. Partial exposure normalizes to covered — wrong tattoos are worse
+        # than missing tattoos.
+        _bc_visible_markings, _bc_hidden_markings = _partition_markings_phase1_safe(
             _bc_markings, provider_prompt.lower()
         )
         _bc_partition_blocks = _build_partitioned_marking_blocks(
             _bc_visible_markings, _bc_hidden_markings
         )
 
+        # Reference IMAGES are visibility-partitioned too: withhold any ref whose
+        # content depicts a HIDDEN marking (face anchors are always retained).
+        _excluded_body_slots = _excluded_body_slots_for_hidden(_bc_hidden_markings)
+        _body_front_excluded = "body_front" in _excluded_body_slots
+
+        # Arm sides carrying a reliably-visible marking (drives sleeve/binding text).
+        _p1_visible_regions = {
+            f"{_s}_arm" for _m in _bc_visible_markings
+            if (_s := get_arm_side(_m.placement)) is not None
+        }
+
+        # Side-lock + negative-side text — stops mirroring onto a bare arm.
+        _arm_side_lock_str = _build_arm_side_lock_str(
+            _bc_visible_markings, _bc_hidden_markings
+        )
+
+        logger.info(
+            "BODY-REF-VISIBILITY character_id=%s phase1=beta_safe "
+            "visible_markings=%d hidden_markings=%d "
+            "excluded_body_slots=%s body_front_excluded=%s side_lock=%s",
+            character_id, len(_bc_visible_markings), len(_bc_hidden_markings),
+            sorted(_excluded_body_slots), _body_front_excluded,
+            bool(_arm_side_lock_str),
+        )
+
         # Body canon text:
         #   canonical mode  → short ref instruction + explicit VISIBLE/HIDDEN blocks
         #   simplified mode → short instruction + compact arm side note (body_front absent)
         #   no tattoo visible → full per-marking token list
-        if _body_front_canonical:
+        if _body_front_canonical and not _body_front_excluded:
             _body_canon_str = _CANONICAL_BODY_REF_TEXT
+            if _bc_partition_blocks:
+                _body_canon_str = _body_canon_str + ". " + _bc_partition_blocks
+        elif _body_front_excluded:
+            # body_front withheld (it depicts a hidden marking) — do not claim a
+            # locked body reference exists. Use the VISIBLE/HIDDEN partition blocks
+            # only; covered markings stay covered (Phase 1 beta-safe).
+            _body_canon_str = _SIMPLIFIED_BODY_CANON_TEXT
             if _bc_partition_blocks:
                 _body_canon_str = _body_canon_str + ". " + _bc_partition_blocks
         elif _tattoo_visibility_requested and _bc_text_markings:
@@ -1358,6 +1480,14 @@ def generate_image(
                 _body_canon_str + ". " + _CLOTHING_SAFETY_INVARIANT
                 if _body_canon_str
                 else _CLOTHING_SAFETY_INVARIANT
+            )
+
+        # Phase 1 side-lock: explicitly declare the bare arm so a visible tattoo
+        # is never mirrored onto the opposite (bare) arm.
+        if _arm_side_lock_str:
+            _body_canon_str = (
+                _body_canon_str + ". " + _arm_side_lock_str
+                if _body_canon_str else _arm_side_lock_str
             )
 
         # Body canon anchor refs: suppressed in simplified mode.
@@ -1400,6 +1530,7 @@ def generate_image(
         _body_visible = any(sig in provider_prompt.lower() for sig in _BODY_VISIBLE_SIGNALS)
         _markings_visible = _tattoo_visibility_requested
         _bi_refs_used: list[str] = []
+        _bi_refs_excluded: list[str] = []
         _tattoo_layout_used = False
         _bf_loaded = False
         _body_front_source = "n/a"
@@ -1421,7 +1552,16 @@ def generate_image(
                     )
 
                 # Load each ref in priority order (body_front first, final_card last).
+                # Phase 1 (#23): skip any ref slot that depicts a HIDDEN marking.
                 for _bref in _body_id_result.refs:
+                    if _bref.slot in _excluded_body_slots:
+                        _bi_refs_excluded.append(_bref.slot)
+                        logger.info(
+                            "BODY-REF-WITHHELD character_id=%s slot=%s "
+                            "reason=depicts_hidden_marking",
+                            character_id, _bref.slot,
+                        )
+                        continue
                     try:
                         _bref_bytes = load_image_bytes(_bref.url)
                         anchor_images = list(anchor_images) + [_bref_bytes]
@@ -1442,9 +1582,19 @@ def generate_image(
             else:
                 # Body not visible in scene — still load final_character_card if present
                 # (support-only ref, low signal cost, does not affect body truth).
+                # Phase 1 (#23): withhold it when any marking is hidden — the card
+                # depicts markings and would re-introduce a hidden one.
                 _body_id_result = get_body_identity_references(character)
                 for _bref in _body_id_result.refs:
                     if _bref.slot == "final_character_card":
+                        if _bref.slot in _excluded_body_slots:
+                            _bi_refs_excluded.append(_bref.slot)
+                            logger.info(
+                                "BODY-REF-WITHHELD character_id=%s slot=%s "
+                                "reason=depicts_hidden_marking",
+                                character_id, _bref.slot,
+                            )
+                            break
                         try:
                             _bref_bytes = load_image_bytes(_bref.url)
                             anchor_images = list(anchor_images) + [_bref_bytes]
@@ -1585,11 +1735,11 @@ def generate_image(
             if not is_sleeve_marking(_bm):
                 continue
             _bm_side = get_arm_side(_bm.placement)
-            if _bm_side == "left" and "left_arm" in _bc_visible_regions:
+            if _bm_side == "left" and "left_arm" in _p1_visible_regions:
                 _sleeve_left_required = True
                 if _bm.anchor_status != "locked":
                     _sleeve_missing_refs.append(f"left_sleeve_anchor:status={_bm.anchor_status}({_bm.id})")
-            elif _bm_side == "right" and "right_arm" in _bc_visible_regions:
+            elif _bm_side == "right" and "right_arm" in _p1_visible_regions:
                 _sleeve_right_required = True
                 if _bm.anchor_status != "locked":
                     _sleeve_missing_refs.append(f"right_sleeve_anchor:status={_bm.anchor_status}({_bm.id})")
@@ -1603,11 +1753,13 @@ def generate_image(
             # Simplified fallback (body_front absent): restore full binding text.
             # Short note alone is insufficient — providers need explicit L/R exclusivity
             # rules to prevent merging distinct tattoos onto one arm.
-            _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _bc_visible_regions)
-            _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _bc_visible_regions)
+            # Phase 1 (#23): drive off the beta-safe visible regions so covered arms
+            # never get a "sleeve must be present" instruction.
+            _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _p1_visible_regions)
+            _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _p1_visible_regions)
         else:
-            _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _bc_visible_regions)
-            _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _bc_visible_regions)
+            _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _p1_visible_regions)
+            _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _p1_visible_regions)
 
         if (_sleeve_left_required or _sleeve_right_required) and not _tattoo_layout_used and not _tattoo_visibility_requested:
             _tl_status = (_bi_slots.get("tattoo_layout") or {}).get("status", "missing")
