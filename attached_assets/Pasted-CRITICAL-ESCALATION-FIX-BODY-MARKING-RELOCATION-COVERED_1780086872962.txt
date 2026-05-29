@@ -1,0 +1,173 @@
+CRITICAL ESCALATION — FIX BODY MARKING RELOCATION / COVERED-REGION LOGIC
+
+Context:
+This is the current Ficshon blocker.
+
+We are still failing after:
+- body v2 slots generated and locked
+- BODY_REF_USED shows canonical_mode=True
+- body_front_present=True
+- left_right_detail_present=True
+- skin-only invariant added
+- no-clothing-graphics invariant added
+- v2 slot prompt hardening completed
+
+Evidence:
+Leonardo (character_id=41) in a dark/navy button shirt at a bar:
+- left script tattoo on exposed forearm = acceptable
+- right wolf tattoo belongs on right upper arm/shoulder
+- sleeve covers upper arm
+- model relocates wolf tattoo to exposed forearm
+
+This is unacceptable.
+
+Correct invariant:
+A marking has a FIXED anatomical location.
+If covered by clothing, it is hidden.
+It must NEVER:
+- relocate to nearby visible skin
+- print onto clothing
+- move to preserve visibility
+
+DO NOT do another generic prompt hardening pass.
+
+STRICT RULES:
+- rollback checkpoint/tag first
+- backend only
+- no RP files
+- no StoryLab files
+- no provider rewrite
+- no migrations
+- no .replit changes
+- do not regenerate Leonardo
+- do not alter locked identity refs
+- tests required
+- one step at a time
+
+STEP 1 — INVESTIGATION (before coding)
+
+Inspect and report:
+
+1. Current Leonardo body canon marking data
+   Confirm anatomical regions currently stored:
+   - wolf → expected right upper arm / shoulder
+   - script → expected left forearm/arm
+
+2. Current scene exposure detection
+   Audit handling of:
+   - long sleeves
+   - rolled sleeves
+   - short sleeves
+   - t-shirt
+   - blazer/jacket
+   - sleeveless/tank top
+   - shirtless
+
+3. Current prompt assembly
+   Determine:
+   - are markings listed globally?
+   - are hidden markings implicitly treated as visible?
+   - are we instructing the model in a way that encourages relocation?
+
+STEP 2 — IMPLEMENT STRUCTURAL FIX
+
+Implement visibility-aware marking partitioning BEFORE prompt assembly.
+
+For every marking:
+
+A) classify anatomical region:
+Examples:
+- right_upper_arm
+- right_forearm
+- left_upper_arm
+- left_forearm
+- chest
+- neck
+- back
+- shoulder
+
+B) classify exposure in scene:
+- exposed
+- covered
+- unknown
+
+Then partition into:
+
+VISIBLE_MARKINGS
+- only markings whose anatomical region is exposed
+- only these may be rendered
+
+HIDDEN_MARKINGS
+- canonical but covered or uncertain
+- must NOT render
+- must NOT relocate
+- must NOT appear on clothing
+
+Prompt structure requirement:
+
+VISIBLE BODY MARKINGS — render only these on exposed skin:
+...
+
+HIDDEN BODY MARKINGS — canonical but not visible in this scene:
+...
+Do NOT render hidden markings.
+Do NOT relocate hidden markings to visible skin.
+Do NOT print hidden markings on clothing.
+
+SAFE FALLBACK:
+If body canon precision is weak or broad:
+Example:
+"right arm"
+
+Treat as hidden unless:
+- shirtless
+- sleeveless
+- full arm clearly exposed
+
+Upper-arm marking:
+- hidden under t-shirt
+- hidden under blazer
+- hidden under button shirt
+- visible only sleeveless/shirtless/full exposed arm
+
+Forearm marking:
+- visible only if forearm exposed or rolled sleeves
+
+REQUIRED TESTS
+
+1. right_upper_arm + rolled sleeves/button shirt → hidden
+2. right_upper_arm + sleeveless/tank top → visible
+3. left_forearm + rolled sleeve → visible
+4. shoulder marking + t-shirt sleeve → hidden
+5. shirtless → all arm markings visible
+6. long sleeves → all arm markings hidden
+7. hidden markings excluded from visible block
+8. prompt contains:
+   "do not relocate hidden markings"
+9. no markings → no visible/hidden blocks
+10. broad region fallback:
+    "right arm" hidden unless sleeveless/shirtless/full arm exposed
+
+REQUIRED STRICT REPORT
+
+Return:
+1. rollback tag created
+2. root cause
+3. files changed
+4. region classification rules
+5. exposure classification rules
+6. exact prompt before/after
+7. tests added
+8. validation result
+9. expected Leonardo bar-shirt behavior
+
+Expected Leonardo outcome:
+Prompt should show:
+VISIBLE:
+- left forearm script
+
+HIDDEN:
+- right upper-arm wolf
+
+Explicit rule:
+Do not relocate hidden markings.
