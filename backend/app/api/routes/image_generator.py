@@ -1171,7 +1171,7 @@ def generate_image(
         _body_front_source = "n/a"
 
         if provider_supports_multi:
-            if _tattoo_visibility_requested or _body_visible:
+            if _tattoo_visibility_requested or _body_visible or _body_front_canonical:
                 # Resolve all available body identity refs in canonical priority order.
                 _body_id_result = get_body_identity_references(character)
 
