@@ -43,11 +43,12 @@ from app.services.identity_compiler import (
     identity_prompt_hash,
     _SAFETY_PREFIX,
 )
-from app.services.body_canon import load_markings
+from app.services.body_canon import load_markings, build_body_canon_lock_string
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.image_provider import (
     get_identity_provider_by_name,
     get_fallback_provider,
+    get_provider_for_option,
     ImageProvider,
     _OpenAIImageProvider,
 )
@@ -345,6 +346,52 @@ def _build_pack_prompt(
     prompt = ", ".join(parts)
     # Hard-cap at 250 chars (provider validates this)
     return prompt[:250]
+
+
+def generate_body_front(character: CharacterModel) -> bytes:
+    """Generate a body_front reference image for a freshly locked character.
+
+    Builds a sleeveless, front-facing full-body reference prompt from the
+    character's identity lock string and body_canon markings, grounded on the
+    locked front / three-quarter anchors so face, build, and proportions match.
+
+    Returns the generated PNG bytes. Raises on any provider/transport error —
+    callers MUST wrap this so a failure never blocks the identity lock.
+    """
+    from app.api.routes.body_identity import build_body_slot_prompt
+
+    try:
+        anchor_data = (
+            _json.loads(character.identity_anchor_json)
+            if character.identity_anchor_json else {}
+        )
+    except (ValueError, TypeError):
+        anchor_data = {}
+
+    identity_lock_string = anchor_data.get("identity_lock_string") or ""
+    body_canon_str = build_body_canon_lock_string(load_markings(character))
+    prompt = build_body_slot_prompt(
+        "body_front",
+        character_name=character.name or "",
+        identity_lock_string=identity_lock_string,
+        body_canon_str=body_canon_str,
+    )
+
+    provider = get_provider_for_option("option1")
+
+    anchors = anchor_data.get("anchors") or {}
+    ref_images: list[bytes] = []
+    for key in ("front", "three_quarter"):
+        entry = anchors.get(key)
+        if entry and entry.get("url"):
+            try:
+                ref_images.append(load_image_bytes(entry["url"]))
+            except Exception:
+                pass
+
+    if ref_images and getattr(provider, "supports_multi_image_input", False):
+        return provider.generate_with_anchors(prompt=prompt, anchor_images=ref_images)
+    return provider.generate_image(prompt=prompt)
 
 
 def _get_owned_character(
@@ -1484,6 +1531,71 @@ def accept_identity_pack(
         db.refresh(img)
     if dna:
         db.refresh(dna)
+
+    # ── Auto-generate body_front reference (Task #17) ──────────────────
+    # Canonical scene-generation mode (the strongest tattoo/anatomy enforcement)
+    # only activates when a locked body_front image exists. Generate one
+    # automatically at lock time for characters that have body markings so their
+    # tattoos are governed by a real visual reference on every future scene.
+    # The lock is already committed above — this block must NEVER block it, so any
+    # failure is caught, logged as a warning, and the character proceeds without
+    # a body_front (falling back to simplified/passive enforcement).
+    _autogen_markings = load_markings(character)
+    _existing_bf = _preserved_body_slots.get("body_front") or {}
+    if _autogen_markings and not _existing_bf.get("url"):
+        _bf_success = False
+        _bf_bytes_stored = 0
+        try:
+            from app.api.routes.body_identity import _save_body_slot
+            from app.services.pack_version import get_pack_version
+
+            _bf_png = generate_body_front(character)
+            _bf_bytes_stored = len(_bf_png)
+            _bf_url = save_image(_bf_png)
+
+            # Archive any prior body_front CharacterImage rows.
+            db.query(CharacterImage).filter(
+                CharacterImage.character_id == character_id,
+                CharacterImage.kind == ImageKindEnum.IDENTITY_BODY_FRONT,
+            ).update({"status": ImageStatusEnum.ARCHIVED})
+
+            db.add(CharacterImage(
+                character_id=character_id,
+                kind=ImageKindEnum.IDENTITY_BODY_FRONT,
+                status=ImageStatusEnum.ACTIVE,
+                visibility=ImageVisibilityEnum.PRIVATE,
+                provider="auto_generated",
+                prompt_summary="auto body_front reference",
+                metadata_json={"source": "auto_generated", "pack_id": body.pack_id},
+                file_path=_bf_url,
+            ))
+
+            _save_body_slot(character, "body_front", {
+                "url": _bf_url,
+                "status": "locked",
+                "prompt": "auto body_front reference",
+                "source": "auto_generated",
+                "pack_version": get_pack_version(character),
+            })
+            db.commit()
+            _bf_success = True
+        except Exception as _bf_exc:
+            db.rollback()
+            logger.warning(
+                "BODY_FRONT_AUTOGEN_FAILED character_id=%s error=%s",
+                character_id, type(_bf_exc).__name__,
+            )
+        logger.info(
+            "BODY_FRONT_AUTOGEN character_id=%s success=%s source=auto_generated "
+            "bytes_stored=%d",
+            character_id, _bf_success, _bf_bytes_stored,
+        )
+    else:
+        _skip_reason = "existing_body_front" if _existing_bf.get("url") else "no_markings"
+        logger.info(
+            "BODY_FRONT_AUTOGEN character_id=%s success=skipped reason=%s",
+            character_id, _skip_reason,
+        )
 
     return IdentityPackAcceptResponse(
         anchors=[CharacterImageRead.model_validate(img) for img in matching],
