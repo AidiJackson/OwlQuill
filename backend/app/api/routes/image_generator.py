@@ -456,8 +456,12 @@ _CANONICAL_BODY_REF_ALLOWED = frozenset({
 # Prevents providers from migrating permanent markings onto clothing or swapping limbs.
 # Injected as a suffix on the body canon text block — do not move or merge with prompt sections.
 _CLOTHING_SAFETY_INVARIANT = (
-    "Tattoos, scars, and permanent body markings are on exposed skin only. "
-    "Never print tattoos on shirts, jackets, fabric, armour, gloves, sleeves, or accessories. "
+    "Permanent body markings are skin-only. "
+    "If clothing covers the marked skin, the marking is hidden — never show through fabric. "
+    "Never print, draw, transfer, or duplicate tattoos/markings onto shirts, sleeves, jackets, "
+    "fabric, armour, gloves, or accessories. "
+    "No clothing graphics, logos, typography, biker slogans, printed wolf graphics, "
+    "tribal prints, or decorative text unless the user explicitly asks for them. "
     "Never move tattoos between limbs. "
     "Never merge left and right arm tattoos."
 )

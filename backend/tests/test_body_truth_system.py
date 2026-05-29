@@ -233,24 +233,28 @@ class TestClothingSafetyInvariant:
         )
 
     def test_clothing_invariant_present_when_markings_exist(self):
-        """All three key phrases of the clothing invariant appear when markings exist."""
+        """All key phrases of the clothing invariant appear when markings exist."""
         prompt = self._prompt_with_markings(has_markings=True)
-        assert "exposed skin only" in prompt, "clothing invariant must contain 'exposed skin only'"
-        assert "Never print tattoos" in prompt, "clothing invariant must contain 'Never print tattoos'"
+        assert "skin-only" in prompt, "clothing invariant must contain 'skin-only'"
+        assert "If clothing covers" in prompt, "clothing invariant must contain 'If clothing covers'"
+        assert "hidden" in prompt, "clothing invariant must contain 'hidden'"
         assert "Never merge" in prompt, "clothing invariant must contain 'Never merge'"
 
     def test_clothing_invariant_absent_when_no_markings(self):
         """Clothing invariant must NOT appear when character has no body markings."""
         prompt = self._prompt_with_markings(has_markings=False)
-        assert "Never print tattoos" not in prompt, (
+        assert "If clothing covers" not in prompt, (
             "Clothing invariant must not be injected when no markings exist"
         )
         assert "Never merge" not in prompt
 
     def test_invariant_constant_has_required_phrases(self):
         """_CLOTHING_SAFETY_INVARIANT contains all required hard rules."""
-        assert "exposed skin only" in _CLOTHING_SAFETY_INVARIANT
-        assert "Never print tattoos" in _CLOTHING_SAFETY_INVARIANT
+        assert "skin-only" in _CLOTHING_SAFETY_INVARIANT
+        assert "If clothing covers" in _CLOTHING_SAFETY_INVARIANT
+        assert "hidden" in _CLOTHING_SAFETY_INVARIANT
+        assert "Never print, draw, transfer" in _CLOTHING_SAFETY_INVARIANT
+        assert "No clothing graphics" in _CLOTHING_SAFETY_INVARIANT
         assert "Never move tattoos between limbs" in _CLOTHING_SAFETY_INVARIANT
         assert "Never merge left and right arm tattoos" in _CLOTHING_SAFETY_INVARIANT
 
