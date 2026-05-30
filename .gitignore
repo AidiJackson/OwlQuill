@@ -227,3 +227,5 @@ yarn.lock
 
 # Generated stub images (runtime artifacts)
 backend/static/generated/
+
+.claude/

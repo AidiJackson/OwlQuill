@@ -1,1 +1,0 @@
-- [Identity canon is single source](identity-canon-single-source.md) — generation must read CharacterIdentityCanon only; no legacy identity sources; migrate tests not skip
