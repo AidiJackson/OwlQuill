@@ -252,8 +252,7 @@ class TestAntiMirroringBarScene:
     @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
     def test_arm_side_lock_declares_left_tattooed(self, prompt):
         exposed = [m for m in _MARKINGS if _classify_marking_coverage(m, prompt) == "exposed"]
-        covered = [m for m in _MARKINGS if _classify_marking_coverage(m, prompt) == "covered"]
-        lock = _build_arm_side_lock_str(exposed, covered)
+        lock = _build_arm_side_lock_str(exposed)
         assert "left" in lock.lower(), (
             f"Side lock must declare left arm as tattooed.\n"
             f"Prompt: {prompt!r}\nLock: {lock!r}"
@@ -262,8 +261,7 @@ class TestAntiMirroringBarScene:
     @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
     def test_arm_side_lock_declares_right_bare(self, prompt):
         exposed = [m for m in _MARKINGS if _classify_marking_coverage(m, prompt) == "exposed"]
-        covered = [m for m in _MARKINGS if _classify_marking_coverage(m, prompt) == "covered"]
-        lock = _build_arm_side_lock_str(exposed, covered)
+        lock = _build_arm_side_lock_str(exposed)
         assert "right" in lock.lower(), (
             f"Side lock must declare right arm as bare skin.\n"
             f"Prompt: {prompt!r}\nLock: {lock!r}"
@@ -272,8 +270,7 @@ class TestAntiMirroringBarScene:
     @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
     def test_arm_side_lock_no_tattoos_on_right(self, prompt):
         exposed = [m for m in _MARKINGS if _classify_marking_coverage(m, prompt) == "exposed"]
-        covered = [m for m in _MARKINGS if _classify_marking_coverage(m, prompt) == "covered"]
-        lock = _build_arm_side_lock_str(exposed, covered)
+        lock = _build_arm_side_lock_str(exposed)
         assert "no tattoos" in lock.lower() or "bare skin" in lock.lower(), (
             f"Side lock must explicitly forbid tattoos on the bare arm.\n"
             f"Prompt: {prompt!r}\nLock: {lock!r}"

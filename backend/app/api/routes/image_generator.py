@@ -824,84 +824,7 @@ def _build_partitioned_marking_blocks(
     return ". ".join(parts)
 
 
-def _reliably_visible_phase1(marking, prompt_lower: str) -> bool:
-    """Phase 1 (#23) beta-safe visibility.
-
-    A marking is reliably visible when:
-    - Its whole arm region is exposed (sleeveless / shirtless) — both the
-      full-body ref and per-side detail crop match the scene faithfully.
-    - It is a full sleeve AND the forearm is exposed (rolled / short sleeves) —
-      the forearm portion of the sleeve IS visible in the scene. The per-side
-      detail crop (body_left_detail / body_right_detail) provides a faithful
-      reference for the sleeve design; body_front is still withheld if any OTHER
-      marking on the opposite arm is hidden.
-
-    Non-sleeve partial exposure (e.g. an upper-arm tattoo when only the forearm
-    is exposed) stays covered — wrong tattoos are worse than missing tattoos.
-    """
-    if marking.placement in _ALWAYS_VISIBLE_PLACEMENTS:
-        return True
-    side = get_arm_side(marking.placement)
-    if side is not None:
-        # Whole arm bare → all refs are faithful.
-        if _classify_region_exposure(f"broad_{side}_arm", prompt_lower) == "exposed":
-            return True
-        # Sleeve exception: a full-sleeve tattoo spans shoulder to wrist.
-        # Its forearm portion is visible whenever the forearm is exposed.
-        # The per-side detail crop is a faithful ref for this (body_front still
-        # withheld when any other marking on the other arm is hidden).
-        if is_sleeve_marking(marking):
-            forearm_region = f"{side}_forearm"
-            if _classify_region_exposure(forearm_region, prompt_lower) == "exposed":
-                return True
-        return False
-    region = _classify_marking_region(marking.placement)
-    return _classify_region_exposure(region, prompt_lower) == "exposed"
-
-
-def _partition_markings_phase1_safe(
-    markings: list, prompt_lower: str
-) -> tuple[list, list]:
-    """Phase 1 partition: split markings into (visible, hidden) using the strict
-    whole-region rule. Per arm side this is all-or-nothing, so a side is never
-    simultaneously visible and hidden — which keeps reference selection safe.
-    """
-    visible: list = []
-    hidden: list = []
-    for m in markings:
-        if _reliably_visible_phase1(m, prompt_lower):
-            visible.append(m)
-        else:
-            hidden.append(m)
-    return visible, hidden
-
-
-def _excluded_body_slots_for_hidden(hidden_markings: list) -> set[str]:
-    """Reference image slots to withhold because they depict a HIDDEN marking.
-
-    - A per-side detail crop (body_left_detail / body_right_detail) is withheld
-      when that side carries a hidden marking.
-    - The whole-body refs (body_front / body_back / body_map / legacy
-      tattoo_layout) depict every marking at once, so any hidden marking
-      withholds all of them.
-    - final_character_card is a rendered portrait that also depicts markings, so
-      it is withheld whenever anything is hidden (it would re-introduce the
-      hidden marking and risk relocation/mirroring).
-    Face anchors (front / three_quarter) are never withheld here.
-    """
-    hidden_sides = {
-        s for m in hidden_markings if (s := get_arm_side(m.placement)) is not None
-    }
-    excluded = {f"body_{side}_detail" for side in hidden_sides}
-    if hidden_markings:
-        excluded.update({
-            "body_front", "body_back", "body_map", "tattoo_layout",
-            "final_character_card",
-        })
-    return excluded
-
-
-def _build_arm_side_lock_str(exposed_markings: list, covered_markings: list) -> str:
+def _build_arm_side_lock_str(exposed_markings: list) -> str:
     """Side-lock + negative-side text to prevent mirroring.
 
     Emitted only when at least one arm carries an exposed marking AND the opposite
@@ -1518,9 +1441,7 @@ def generate_image(
 
         # Side-lock text — declares which arm is tattooed and which is bare skin
         # so the model does not mirror a visible marking onto the opposite arm.
-        _arm_side_lock_str = _build_arm_side_lock_str(
-            _exposed_markings, _covered_markings
-        )
+        _arm_side_lock_str = _build_arm_side_lock_str(_exposed_markings)
 
         logger.info(
             "BODY-REF-VISIBILITY character_id=%s approach=always_on_refs "

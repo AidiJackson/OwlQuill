@@ -479,30 +479,30 @@ class TestPermanentMarkingBlock:
 
 
 class TestSideLock:
-    """_build_arm_side_lock_str with exposed/covered markings."""
+    """_build_arm_side_lock_str — takes only exposed_markings."""
 
     def test_no_side_lock_when_nothing_exposed(self):
-        assert _build_arm_side_lock_str([], [_mark("left_forearm", style="script")]) == ""
+        assert _build_arm_side_lock_str([]) == ""
 
     def test_no_side_lock_when_both_arms_exposed(self):
         exposed = [_mark("left_upper_arm", style="rose"), _mark("right_upper_arm", style="wolf")]
-        assert _build_arm_side_lock_str(exposed, []) == ""
+        assert _build_arm_side_lock_str(exposed) == ""
 
     def test_side_lock_left_exposed_right_bare(self):
         exposed = [_mark("left_upper_arm", style="script")]
-        out = _build_arm_side_lock_str(exposed, [])
+        out = _build_arm_side_lock_str(exposed)
         assert "left arm has visible tattoos" in out
         assert "right arm is bare skin" in out
         assert "No tattoos, writing, symbols, or marks on the right arm" in out
 
     def test_side_lock_right_exposed_left_bare(self):
         exposed = [_mark("right_full_arm", style="serpent", size="full_sleeve")]
-        out = _build_arm_side_lock_str(exposed, [])
+        out = _build_arm_side_lock_str(exposed)
         assert "right arm has visible tattoos" in out
         assert "left arm is bare skin" in out
 
     def test_side_lock_ignores_non_arm_markings(self):
-        assert _build_arm_side_lock_str([_mark("neck", style="vine")], []) == ""
+        assert _build_arm_side_lock_str([_mark("neck", style="vine")]) == ""
 
 
 class TestBarSceneAcceptance:
@@ -540,8 +540,7 @@ class TestBarSceneAcceptance:
     def test_side_lock_left_visible_right_bare(self):
         markings = self._markings()
         exposed = [m for m in markings if _classify_marking_coverage(m, _BAR_PROMPT) == "exposed"]
-        covered = [m for m in markings if _classify_marking_coverage(m, _BAR_PROMPT) == "covered"]
-        lock = _build_arm_side_lock_str(exposed, covered)
+        lock = _build_arm_side_lock_str(exposed)
         assert "left arm has visible tattoos" in lock
         assert "right arm is bare skin" in lock
         assert "No tattoos, writing, symbols, or marks on the right arm" in lock
