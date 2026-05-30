@@ -62,44 +62,53 @@ def _make_full_canon():
 class TestSpecRouting:
     """The five canonical routing examples from the P10 spec."""
 
-    def test_face_on_sleeveless_routes_front_only(self):
-        """'face on sleeveless shirt' → front refs only, sleeveless exposure."""
+    def test_face_on_sleeveless_routes_front_weighted(self):
+        """'face on sleeveless shirt' → front weighting (body truth first)."""
         urls, meta = route_canon_refs("face on sleeveless shirt", _make_full_canon())
 
         assert meta.routed is True
         assert meta.camera == "front"
+        # P11: body truth dominates, exact face reinforced, card early.
         assert urls == [
-            FACE_FRONT, FACE_LEFT_3Q, FACE_RIGHT_3Q,
-            BODY_FRONT, BODY_MAP, FINAL_CARD,
+            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            BODY_MAP, FACE_LEFT_3Q, FACE_RIGHT_3Q,
         ]
-        # No back/side/expression refs leak into a front scene.
+        # No back/side refs leak into a front scene; face_expression capped out.
         assert BODY_BACK not in urls
         assert BODY_LEFT not in urls
         assert BODY_RIGHT not in urls
         assert FACE_EXPRESSION not in urls
         assert "sleeveless" in meta.exposure
 
-    def test_back_to_camera_shirtless_routes_back_only(self):
-        """'back to camera shirtless' → back refs only, shirtless exposure."""
+    def test_back_to_camera_shirtless_routes_back_weighted(self):
+        """'back to camera shirtless' → back anatomy first, face as anchor."""
         urls, meta = route_canon_refs("back to camera shirtless", _make_full_canon())
 
         assert meta.routed is True
         assert meta.camera == "back"
-        assert urls == [BODY_BACK, BODY_MAP, FINAL_CARD]
-        # Front face refs must not appear in a back scene.
-        assert FACE_FRONT not in urls
+        # P11: back anatomy dominates; tattoo/body truth preserved; face anchor.
+        assert urls == [
+            BODY_BACK, FINAL_CARD, BODY_MAP,
+            FACE_FRONT, FACE_LEFT_3Q, FACE_RIGHT_3Q,
+        ]
+        assert urls[0] == BODY_BACK
+        # Front body morphology is not a back-scene reference.
         assert BODY_FRONT not in urls
+        assert BODY_LEFT not in urls
         assert "shirtless" in meta.exposure
 
-    def test_side_profile_left_routes_left(self):
-        """'side profile left' → left refs."""
+    def test_side_profile_left_routes_left_weighted(self):
+        """'side profile left' → left anatomy + matching 3q face dominate."""
         urls, meta = route_canon_refs("side profile left", _make_full_canon())
 
         assert meta.routed is True
         assert meta.camera == "left_profile"
-        assert urls == [FACE_LEFT_3Q, BODY_LEFT, BODY_MAP, FINAL_CARD]
+        assert urls == [
+            BODY_LEFT, FACE_LEFT_3Q, FINAL_CARD,
+            BODY_MAP, FACE_FRONT, FACE_RIGHT_3Q,
+        ]
+        assert urls[:2] == [BODY_LEFT, FACE_LEFT_3Q]
         assert BODY_RIGHT not in urls
-        assert FACE_RIGHT_3Q not in urls
 
     def test_closeup_portrait_routes_portrait(self):
         """'close-up portrait smiling' → portrait refs (face_front, expression, card)."""
@@ -131,24 +140,35 @@ class TestOrientationDetection:
     def test_right_profile_routes_right(self):
         urls, meta = route_canon_refs("right profile shot", _make_full_canon())
         assert meta.camera == "right_profile"
-        assert urls == [FACE_RIGHT_3Q, BODY_RIGHT, BODY_MAP, FINAL_CARD]
+        assert urls == [
+            BODY_RIGHT, FACE_RIGHT_3Q, FINAL_CARD,
+            BODY_MAP, FACE_FRONT, FACE_LEFT_3Q,
+        ]
+        assert urls[:2] == [BODY_RIGHT, FACE_RIGHT_3Q]
 
     def test_left_3q_routes_left(self):
         urls, meta = route_canon_refs("three-quarter left view", _make_full_canon())
         assert meta.camera == "left_3q"
-        assert urls == [FACE_LEFT_3Q, BODY_LEFT, BODY_MAP, FINAL_CARD]
+        assert urls == [
+            BODY_LEFT, FACE_LEFT_3Q, FINAL_CARD,
+            BODY_MAP, FACE_FRONT, FACE_RIGHT_3Q,
+        ]
 
     def test_right_3q_routes_right(self):
         urls, meta = route_canon_refs("3/4 right angle", _make_full_canon())
         assert meta.camera == "right_3q"
-        assert urls == [FACE_RIGHT_3Q, BODY_RIGHT, BODY_MAP, FINAL_CARD]
+        assert urls == [
+            BODY_RIGHT, FACE_RIGHT_3Q, FINAL_CARD,
+            BODY_MAP, FACE_FRONT, FACE_LEFT_3Q,
+        ]
 
-    def test_full_body_routes_front_set(self):
+    def test_full_body_routes_front_weighted(self):
         urls, meta = route_canon_refs("full body shot in the rain", _make_full_canon())
         assert meta.camera == "full_body"
+        # full_body shares the front weighting profile.
         assert urls == [
-            FACE_FRONT, FACE_LEFT_3Q, FACE_RIGHT_3Q,
-            BODY_FRONT, BODY_MAP, FINAL_CARD,
+            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            BODY_MAP, FACE_LEFT_3Q, FACE_RIGHT_3Q,
         ]
 
     def test_priority_closeup_beats_front(self):
@@ -232,3 +252,92 @@ class TestInvariants:
     def test_returns_scene_meta_type(self):
         _, meta = route_canon_refs("front view", _make_full_canon())
         assert isinstance(meta, SceneMeta)
+
+
+# ── P11 orientation-aware weighting acceptance ────────────────────────
+
+class TestP11WeightingAcceptance:
+    """Exact slot ordering required by the P11 spec (A–F)."""
+
+    def test_A_front_sleeveless_exact_order(self):
+        """A. front sleeveless → body truth first, face reinforced, card early."""
+        urls, meta = route_canon_refs(
+            "Leonardo standing face on wearing a fitted sleeveless shirt, "
+            "serious expression.",
+            _make_full_canon(),
+        )
+        assert meta.camera == "front"
+        assert urls == [
+            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            BODY_MAP, FACE_LEFT_3Q, FACE_RIGHT_3Q,
+        ]
+
+    def test_B_back_first_slot_is_body_back(self):
+        """B. back to camera shirtless → first slot body_back."""
+        urls, meta = route_canon_refs("back to camera shirtless", _make_full_canon())
+        assert meta.camera == "back"
+        assert urls[0] == BODY_BACK
+
+    def test_C_left_profile_first_slots(self):
+        """C. left profile → first slots body_left, face_left_3q."""
+        urls, meta = route_canon_refs("left profile", _make_full_canon())
+        assert meta.camera == "left_profile"
+        assert urls[:2] == [BODY_LEFT, FACE_LEFT_3Q]
+
+    def test_D_right_profile_first_slots(self):
+        """D. right profile → first slots body_right, face_right_3q."""
+        urls, meta = route_canon_refs("right profile", _make_full_canon())
+        assert meta.camera == "right_profile"
+        assert urls[:2] == [BODY_RIGHT, FACE_RIGHT_3Q]
+
+    def test_E_portrait_closeup_exact_order(self):
+        """E. portrait smiling close-up → facial identity stack only."""
+        urls, meta = route_canon_refs("portrait smiling close-up", _make_full_canon())
+        assert meta.camera == "portrait_closeup"
+        assert urls == [FACE_FRONT, FACE_EXPRESSION, FINAL_CARD]
+
+    def test_F_ambiguous_fallback_unchanged(self):
+        """F. ambiguous prompt → existing static fallback ordering, untouched."""
+        from app.services.canon_compiler import collect_canon_reference_urls
+
+        canon = _make_full_canon()
+        urls, meta = route_canon_refs("standing in a sunny field", canon)
+        assert meta.routed is False
+        assert meta.camera == "unknown"
+        assert urls == collect_canon_reference_urls(canon)
+
+    def test_front_face_expression_capped_out_of_full_canon(self):
+        """face_expression is the 'if room' slot — dropped under the 6-cap."""
+        urls, _ = route_canon_refs("front view", _make_full_canon())
+        assert len(urls) == 6
+        assert FACE_EXPRESSION not in urls
+
+    def test_front_face_expression_fills_when_room(self):
+        """Sparse front canon (body_map absent) → face_expression fills the slot."""
+        from app.models.character_identity_canon import CharacterIdentityCanon
+        from app.schemas.canon import FaceCanonData, BodyCanonData
+
+        canon = MagicMock(spec=CharacterIdentityCanon)
+        canon.character_id = 5
+        # Front profile: body_front, face_front, final_card, [body_map missing],
+        # face_left_3q, face_right_3q, face_expression → expression now has room.
+        face = FaceCanonData(
+            face_front_image_url=FACE_FRONT,
+            face_left_3q_image_url=FACE_LEFT_3Q,
+            face_right_3q_image_url=FACE_RIGHT_3Q,
+            face_expression_image_url=FACE_EXPRESSION,
+        )
+        body = BodyCanonData(
+            body_front_image_url=BODY_FRONT,
+            final_character_card_image_url=FINAL_CARD,
+        )
+        canon.face_canon_json = json.dumps(face.model_dump())
+        canon.body_canon_json = json.dumps(body.model_dump())
+        canon.accessories_json = None
+
+        urls, _ = route_canon_refs("front view", canon)
+        assert urls == [
+            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            FACE_LEFT_3Q, FACE_RIGHT_3Q, FACE_EXPRESSION,
+        ]
+        assert len(urls) == 6

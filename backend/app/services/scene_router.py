@@ -102,33 +102,57 @@ _COAT_EXPOSURE = frozenset({
 })
 
 
-# ── Routing rules: camera → ordered slot names ────────────────────────
-# Slots listed in priority order. Missing canon slots are skipped silently.
-# front and full_body use the same set (6 slots = exact provider cap).
+# ── Provider reference cap ────────────────────────────────────────────
+# Maximum references the provider consumes. The routed slot lists below may
+# list one extra "if room" slot (e.g. front's face_expression); anything past
+# this cap is dropped after weighting. Mirrors the [:6] cap at the call sites.
+
+MAX_PROVIDER_REFS = 6
+
+
+# ── P11 orientation-aware weighting: camera → priority-ordered slots ───
+# Slots are listed in descending reference priority for each camera. P10
+# detection chooses the camera; this layer chooses the order in which that
+# camera's slots reach the provider. Missing canon slots are skipped
+# silently; the surviving list is capped at MAX_PROVIDER_REFS.
+#
+# Weighting intent per camera:
+#   front/full_body — body truth first, exact face reinforced, identity
+#                     compression card early, tattoo placement retained,
+#                     support geometry last (face_expression only "if room")
+#   back            — back anatomy dominates; body truth preserved; face
+#                     retained as a lower-priority identity anchor
+#   left/right      — that side's anatomy + matching 3q face dominate
+#   portrait        — facial identity dominates (face-only stack)
 
 _ROUTES: dict[str, list[str]] = {
     "front": [
-        "face_front", "face_left_3q", "face_right_3q",
-        "body_front", "body_map", "final_character_card",
+        "body_front", "face_front", "final_character_card",
+        "body_map", "face_left_3q", "face_right_3q", "face_expression",
     ],
     "full_body": [
-        "face_front", "face_left_3q", "face_right_3q",
-        "body_front", "body_map", "final_character_card",
+        "body_front", "face_front", "final_character_card",
+        "body_map", "face_left_3q", "face_right_3q", "face_expression",
     ],
     "back": [
-        "body_back", "body_map", "final_character_card",
+        "body_back", "final_character_card", "body_map",
+        "face_front", "face_left_3q", "face_right_3q",
     ],
     "left_profile": [
-        "face_left_3q", "body_left", "body_map", "final_character_card",
+        "body_left", "face_left_3q", "final_character_card",
+        "body_map", "face_front", "face_right_3q",
     ],
     "right_profile": [
-        "face_right_3q", "body_right", "body_map", "final_character_card",
+        "body_right", "face_right_3q", "final_character_card",
+        "body_map", "face_front", "face_left_3q",
     ],
     "left_3q": [
-        "face_left_3q", "body_left", "body_map", "final_character_card",
+        "body_left", "face_left_3q", "final_character_card",
+        "body_map", "face_front", "face_right_3q",
     ],
     "right_3q": [
-        "face_right_3q", "body_right", "body_map", "final_character_card",
+        "body_right", "face_right_3q", "final_character_card",
+        "body_map", "face_front", "face_left_3q",
     ],
     "portrait_closeup": [
         "face_front", "face_expression", "final_character_card",
@@ -227,10 +251,14 @@ def _detect_exposure(prompt_lower: str) -> list[str]:
 
 
 def _resolve_route(camera: str, slot_urls: dict[str, str]) -> tuple[list[str], list[str]]:
-    """Resolve a camera route to (urls, slot_names) for available canon slots."""
+    """Resolve a camera route to (urls, slot_names) for available canon slots.
+
+    Slots are taken in the camera's weighted priority order; absent canon
+    slots are skipped, and the surviving list is capped at MAX_PROVIDER_REFS.
+    """
     route_slots = _ROUTES.get(camera, _ROUTES["front"])
-    urls = [slot_urls[s] for s in route_slots if s in slot_urls]
-    slots_hit = [s for s in route_slots if s in slot_urls]
+    slots_hit = [s for s in route_slots if s in slot_urls][:MAX_PROVIDER_REFS]
+    urls = [slot_urls[s] for s in slots_hit]
     return urls, slots_hit
 
 
