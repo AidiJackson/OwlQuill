@@ -44,9 +44,9 @@ from app.services.stub_image_generator import generate_placeholder_png
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.services.canon_compiler import (
     compile_canon_prompt,
-    collect_canon_reference_urls,
     has_any_canon_content,
 )
+from app.services.scene_router import route_canon_refs
 from app.services.character_accessory import build_accessory_prompt_block, get_triggered_accessory
 from app.services.style_elements import apply_style_elements_to_image_prompt
 from app.services.body_canon import (
@@ -1104,9 +1104,11 @@ def generate_image(
         order: face → body → permanent marks → requested accessories → scene →
         locked-canon clause. Removable accessories inject ONLY when their trigger
         keywords appear in the scene prompt.
-      - Reference images are the locked face/body canon slots
-        (collect_canon_reference_urls). No identity_anchor_json, body_identity_json,
-        or CharacterStyleElements are consulted as identity truth.
+      - Reference images are the locked face/body canon slots selected by the
+        scene-aware reference router (route_canon_refs), which deterministically
+        picks scene-relevant slots from the prompt and falls back to the static
+        canonical ordering when the prompt is ambiguous. No identity_anchor_json,
+        body_identity_json, or CharacterStyleElements are consulted as identity truth.
 
     When include_character=False, the user's prompt is used as-is (plain scene, no
     identity conditioning).
@@ -1166,15 +1168,20 @@ def generate_image(
             base_prompt,
             include_accessories=True,
         )
-        reference_urls = collect_canon_reference_urls(canon)
+        # P10: scene-aware reference routing replaces static ordering.
+        # Route on the raw user scene text (not the cover-prefixed prompt).
+        reference_urls, scene_meta = route_canon_refs(body.prompt, canon)
         using_canon = True
     else:
         compiled_prompt = base_prompt
 
     logger.info(
         "IMAGE_GEN_START character_id=%s include_character=%s using_canon=%s "
-        "refs=%d prompt_len=%d prompt_preview=%r",
+        "camera=%s routed=%s exposure=%s refs=%d prompt_len=%d prompt_preview=%r",
         character_id, body.include_character, using_canon,
+        scene_meta.camera if using_canon else "n/a",
+        scene_meta.routed if using_canon else False,
+        scene_meta.exposure if using_canon else [],
         len(reference_urls), len(compiled_prompt), compiled_prompt[:120],
     )
 

@@ -44,7 +44,8 @@ from app.schemas.canon import (
     SLOT_FIELD_MAP,
 )
 from app.schemas.character_image import CharacterImageRead
-from app.services.canon_compiler import compile_canon_prompt, collect_canon_reference_urls, has_any_canon_content
+from app.services.canon_compiler import compile_canon_prompt, has_any_canon_content
+from app.services.scene_router import route_canon_refs
 from app.services.canon_service import (
     add_accessory,
     add_permanent_mark,
@@ -459,18 +460,23 @@ def generate_scene_from_canon(
             req.prompt,
             include_accessories=req.include_accessories,
         )
-        reference_urls = collect_canon_reference_urls(canon)
+        # P10: scene-aware reference routing replaces static ordering.
+        reference_urls, scene_meta = route_canon_refs(req.prompt, canon)
         using_canon = True
     else:
         compiled_prompt = req.prompt
         reference_urls = []
+        scene_meta = None
         using_canon = False
 
     logger.info(
-        "SCENE_GEN_START character_id=%s using_canon=%s refs=%d "
-        "prompt_len=%d prompt_preview=%r",
+        "SCENE_GEN_START character_id=%s using_canon=%s camera=%s routed=%s "
+        "exposure=%s refs=%d prompt_len=%d prompt_preview=%r",
         character_id,
         using_canon,
+        scene_meta.camera if scene_meta else "n/a",
+        scene_meta.routed if scene_meta else False,
+        scene_meta.exposure if scene_meta else [],
         len(reference_urls),
         len(compiled_prompt),
         compiled_prompt[:120],
