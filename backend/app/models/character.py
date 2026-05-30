@@ -55,3 +55,4 @@ class Character(Base):
     dna = relationship("CharacterDNA", back_populates="character", uselist=False, cascade="all, delete-orphan")
     images = relationship("CharacterImage", back_populates="character", cascade="all, delete-orphan")
     style_elements = relationship("CharacterStyleElement", back_populates="character", cascade="all, delete-orphan")
+    identity_canon = relationship("CharacterIdentityCanon", back_populates="character", uselist=False, cascade="all, delete-orphan")

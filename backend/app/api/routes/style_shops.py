@@ -24,7 +24,6 @@ from app.schemas.style_shop import (
     StyleElementsResponse,
     StylePresetRead,
 )
-from app.services.body_canon import sync_tattoo_style_elements_to_body_canon
 from app.services.pack_version import increment_pack_version, mark_slots_stale
 from app.services.style_elements import (
     MAX_REMOVABLE_ACTIVE,
@@ -170,19 +169,9 @@ def apply_style_element(
                     character_id, preset.slug, str(exc),
                 )
 
-    # ── Tattoo → body canon sync ────────────────────────────────────────
-    # After the new element is flushed, run the full sync so all active tattoo
-    # elements (including this one and any pre-existing ones) are mirrored.
-
-    if preset.shop_type == ShopTypeEnum.TATTOO:
-        db.flush()  # make new_element visible to the sync query
-        try:
-            sync_tattoo_style_elements_to_body_canon(character, db)
-        except Exception as exc:
-            logger.warning(
-                "style_shop tattoo_body_canon_sync_failed character_id=%s preset=%s error=%r",
-                character_id, preset.slug, str(exc),
-            )
+    # Style-shop tattoo items no longer auto-promote to body canon.
+    # Body canon is managed exclusively through /identity-canon routes.
+    # Tattoo style elements remain as styling records only.
 
     # ── Pack version increment + slot invalidation ─────────────────────
     # Increment once per canonical mutation, then mark affected slots stale.

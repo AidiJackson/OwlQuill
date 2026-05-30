@@ -30,6 +30,7 @@ from app.models.identity_snapshot import IdentitySnapshot
 from app.models.candidate_slot import CandidateSlot
 from app.models.post_mention import PostMention
 from app.models.style_shop import StylePreset, CharacterStyleElement, ShopTypeEnum, AttachmentModeEnum, PlacementEnum, StyleElementStatusEnum
+from app.models.character_identity_canon import CharacterIdentityCanon
 
 __all__ = [
     "Story",
@@ -71,6 +72,7 @@ __all__ = [
     "AttachmentModeEnum",
     "PlacementEnum",
     "StyleElementStatusEnum",
+    "CharacterIdentityCanon",
     "Block",
     "StorySpace",
     "StorySpaceMember",

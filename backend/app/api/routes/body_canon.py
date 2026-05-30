@@ -18,7 +18,6 @@ from app.services.body_canon import (
     get_marking_by_id,
     load_markings,
     remove_marking,
-    sync_tattoo_style_elements_to_body_canon,
     to_read_list,
     update_marking,
 )
@@ -56,11 +55,8 @@ def list_body_markings(
     db: Session = Depends(get_db),
 ) -> BodyCanonRead:
     character = _get_owned_character(character_id, current_user, db)
-    # Backfill: sync any active tattoo style elements not yet in body_canon_json
-    sync_result = sync_tattoo_style_elements_to_body_canon(character, db)
-    if sync_result["created"] > 0:
-        db.commit()
-        db.refresh(character)
+    # Style-shop tattoo items are NO LONGER auto-synced into body canon here.
+    # Body canon is now managed exclusively through the /identity-canon routes.
     markings = load_markings(character)
     return to_read_list(character_id, markings)
 

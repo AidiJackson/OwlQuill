@@ -3,6 +3,7 @@ import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check, Sparkles, ChevronLeft, ShieldCheck, AlertTriangle, Image as ImageIcon, CheckCircle2, AlertCircle, Loader2, Library } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, User, BodyMarkingRead, MarkingAnchorStatus, BodySlotEntry, BodySlotStatus, PackStages, IdentityHealth } from '@/lib/types';
+import CanonManager from '@/components/CanonManager';
 import { listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 import ImageGrid from '@/features/images/components/ImageGrid';
@@ -946,8 +947,18 @@ export default function CharacterDetail() {
                 </div>
               )}
 
-              {/* ── Slots view ─────────────────────────────────────── */}
-              {evolveView === 'slots' && (
+              {/* ── Canon Manager (clean rebuild) ──────────────────── */}
+              {evolveView === 'slots' && character && (
+                <CanonManager
+                  characterId={character.id}
+                  isOwner={currentUser?.id === character.owner_id}
+                  isAdmin={!!currentUser?.is_admin}
+                  characterName={character.name}
+                />
+              )}
+
+              {/* ── Legacy slots view (kept for backward compat) ─── */}
+              {evolveView === 'slots' && false && (
                 <>
                   <p className="text-xs text-gray-400 leading-relaxed">
                     Manage your character&apos;s locked canon. Face and body identity are separate layers.
@@ -957,7 +968,7 @@ export default function CharacterDetail() {
 
                   {/* Identity health status cards */}
                   {character?.identity_health && (() => {
-                    const h = character.identity_health as IdentityHealth;
+                    const h = (character as NonNullable<typeof character>).identity_health as IdentityHealth;
                     return (
                       <div className="grid grid-cols-3 gap-2">
                         {(['face', 'body', 'tattoos'] as const).map((domain) => {
@@ -1059,11 +1070,11 @@ export default function CharacterDetail() {
                         <h3 className="text-sm font-semibold text-white">Body Canon</h3>
                         {packStages && (
                           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                            packStages.body === 'locked' ? 'bg-emerald-900/40 text-emerald-400' :
-                            packStages.body === 'partial' ? 'bg-amber-900/40 text-amber-400' :
+                            packStages?.body === 'locked' ? 'bg-emerald-900/40 text-emerald-400' :
+                            packStages?.body === 'partial' ? 'bg-amber-900/40 text-amber-400' :
                             'bg-gray-700/60 text-gray-500'
                           }`}>
-                            {packStages.body}
+                            {packStages?.body}
                           </span>
                         )}
                       </div>
@@ -1118,7 +1129,7 @@ export default function CharacterDetail() {
                               <button
                                 key={img.id}
                                 type="button"
-                                onClick={() => handleBodySlotUseExisting(bodySlotLibraryTarget, img)}
+                                onClick={() => handleBodySlotUseExisting(bodySlotLibraryTarget ?? '', img)}
                                 className="rounded-lg overflow-hidden border border-gray-700 hover:border-violet-500 transition-colors"
                               >
                                 <img
@@ -1283,11 +1294,11 @@ export default function CharacterDetail() {
                         <h3 className="text-sm font-semibold text-white">Body Canon</h3>
                         {packStages && (
                           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                            packStages.marks === 'locked' ? 'bg-emerald-900/40 text-emerald-400' :
-                            packStages.marks === 'partial' ? 'bg-amber-900/40 text-amber-400' :
+                            packStages?.marks === 'locked' ? 'bg-emerald-900/40 text-emerald-400' :
+                            packStages?.marks === 'partial' ? 'bg-amber-900/40 text-amber-400' :
                             'bg-gray-700/60 text-gray-500'
                           }`}>
-                            {packStages.marks}
+                            {packStages?.marks}
                           </span>
                         )}
                       </div>

@@ -683,6 +683,81 @@ class ApiClient {
   async archiveRPStory(threadId: number): Promise<RPStoryThread> {
     return this.request(`/rp-stories/${threadId}/archive`, { method: 'PATCH' });
   }
+
+  // ── Identity Canon (clean rebuild) ────────────────────────────────
+
+  async getIdentityCanon(characterId: number): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon`);
+  }
+
+  async patchFaceCanon(characterId: number, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon/face`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async lockFaceCanon(characterId: number): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon/face/lock`, { method: 'POST' });
+  }
+
+  async patchBodyCanon(characterId: number, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon/body`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async lockBodyCanon(characterId: number): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon/body/lock`, { method: 'POST' });
+  }
+
+  async addCanonBodyMark(characterId: number, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon/body/marks`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeCanonBodyMark(characterId: number, markId: string): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon/body/marks/${markId}`, { method: 'DELETE' });
+  }
+
+  async addCanonAccessory(characterId: number, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon/accessories`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeCanonAccessory(characterId: number, accId: string): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon/accessories/${accId}`, { method: 'DELETE' });
+  }
+
+  async uploadCanonSlot(characterId: number, form: FormData): Promise<Record<string, unknown>> {
+    const token = this.getToken();
+    const response = await fetch(`${API_BASE_URL}/characters/${characterId}/identity-canon/upload`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async generateCanonScene(
+    characterId: number,
+    data: { prompt: string; include_accessories?: boolean },
+  ): Promise<Record<string, unknown>> {
+    return this.request(`/characters/${characterId}/identity-canon/scenes/generate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
 }
 
 export const apiClient = new ApiClient();

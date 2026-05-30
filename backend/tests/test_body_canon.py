@@ -766,8 +766,10 @@ def seed_presets_for_sync(db_session):
     seed_style_presets(db_session)
 
 
-def test_get_body_markings_backfills_existing_tattoo_element(client, db_session, seed_presets_for_sync):
-    """GET /body-markings backfills active tattoo style elements into body_canon_json."""
+def test_get_body_markings_does_not_backfill_tattoo_elements(client, db_session, seed_presets_for_sync):
+    """GET /body-markings no longer backfills style shop tattoos into body_canon_json.
+    Auto-sync is disabled. Body canon is managed via /identity-canon routes only.
+    """
     from app.models.character import Character
     from app.services.body_canon import load_markings
 
@@ -775,7 +777,6 @@ def test_get_body_markings_backfills_existing_tattoo_element(client, db_session,
     hdrs = auth_headers(token)
     char_id = _create_character(client, hdrs)
 
-    # Apply tattoo preset directly — this should also trigger sync via apply route
     presets_resp = client.get("/style-shops/presets?shop_type=tattoo")
     assert presets_resp.status_code == 200
     tattoo_presets = presets_resp.json()
@@ -789,16 +790,13 @@ def test_get_body_markings_backfills_existing_tattoo_element(client, db_session,
     )
     assert apply_resp.status_code == 200
 
-    # GET /body-markings should show the synced marking
+    # GET /body-markings must NOT auto-populate from style shop
     resp = client.get(f"/characters/{char_id}/body-markings", headers=hdrs)
     assert resp.status_code == 200
     markings = resp.json()["markings"]
-    assert len(markings) >= 1
-
-    # Verify slug tag in description
-    slug_tag = f"#slug:{preset['slug']}"
-    descriptions = [m["description"] for m in markings]
-    assert any(slug_tag in d for d in descriptions), f"Expected slug tag {slug_tag!r} in {descriptions}"
+    assert len(markings) == 0, (
+        f"GET /body-markings must NOT auto-sync shop tattoos. Got: {[m['description'] for m in markings]}"
+    )
 
 
 def test_get_body_markings_backfill_is_idempotent(client, db_session, seed_presets_for_sync):
@@ -822,8 +820,10 @@ def test_get_body_markings_backfill_is_idempotent(client, db_session, seed_prese
     assert count1 == count2 == count3, f"Idempotent: expected equal counts, got {count1}/{count2}/{count3}"
 
 
-def test_applying_tattoo_preset_immediately_creates_body_canon(client, db_session, seed_presets_for_sync):
-    """POST /style-elements with a tattoo preset immediately syncs to body_canon_json."""
+def test_applying_tattoo_preset_does_not_create_body_canon(client, db_session, seed_presets_for_sync):
+    """POST /style-elements with a tattoo preset does NOT auto-sync to body_canon_json.
+    Body canon is managed exclusively via /identity-canon routes.
+    """
     from app.models.character import Character
     from app.services.body_canon import load_markings
 
@@ -836,17 +836,19 @@ def test_applying_tattoo_preset_immediately_creates_body_canon(client, db_sessio
 
     client.post(f"/characters/{char_id}/style-elements", json={"preset_id": preset["id"]}, headers=hdrs)
 
-    # Check body_canon_json directly in DB
     db_session.expire_all()
     char = db_session.query(Character).filter(Character.id == char_id).first()
     markings = load_markings(char)
-    assert len(markings) >= 1
-    slug_tag = f"#slug:{preset['slug']}"
-    assert any(slug_tag in m.description for m in markings)
+    assert len(markings) == 0, (
+        f"Style shop apply must NOT create body_canon_json entries. Got: {[m.description for m in markings]}"
+    )
 
 
-def test_applying_two_tattoo_presets_creates_two_markings(client, db_session, seed_presets_for_sync):
-    """Applying two different tattoo presets produces two distinct body canon markings."""
+def test_applying_two_tattoo_presets_does_not_auto_sync_to_body_canon(client, db_session, seed_presets_for_sync):
+    """Applying tattoo presets no longer auto-syncs to body_canon_json.
+    Body canon is now managed exclusively through /identity-canon routes.
+    Style shop tattoos remain as styling records only.
+    """
     from app.models.character import Character
     from app.services.body_canon import load_markings
 
@@ -856,7 +858,6 @@ def test_applying_two_tattoo_presets_creates_two_markings(client, db_session, se
 
     presets_resp = client.get("/style-shops/presets?shop_type=tattoo")
     tattoo_presets = presets_resp.json()
-    # Pick two with different placements
     right_presets = [p for p in tattoo_presets if "right" in p["slug"]]
     left_presets = [p for p in tattoo_presets if "left" in p["slug"]]
     if not right_presets or not left_presets:
@@ -869,10 +870,12 @@ def test_applying_two_tattoo_presets_creates_two_markings(client, db_session, se
 
     db_session.expire_all()
     char = db_session.query(Character).filter(Character.id == char_id).first()
+    # Auto-sync is disabled — body_canon_json stays clean
     markings = load_markings(char)
-    assert len(markings) == 2, f"Expected 2 markings, got {len(markings)}: {[m.description for m in markings]}"
-    placements = {m.placement for m in markings}
-    assert len(placements) == 2, "Two different placements"
+    assert len(markings) == 0, (
+        f"Style shop tattoos must NOT auto-sync to body_canon_json. "
+        f"Got {len(markings)} markings: {[m.description for m in markings]}"
+    )
 
 
 def test_anchor_fields_preserved_on_sync_update():
@@ -912,8 +915,10 @@ def test_anchor_fields_preserved_on_sync_update():
     assert "serpent sleeve v2" in m.style
 
 
-def test_sync_unit_via_get_creates_markings(client, db_session, seed_presets_for_sync):
-    """sync_tattoo_style_elements_to_body_canon is exercised via GET and creates markings."""
+def test_get_body_markings_does_not_trigger_shop_sync(client, db_session, seed_presets_for_sync):
+    """GET /body-markings no longer auto-syncs style shop tattoos.
+    Auto-sync is removed: body canon is managed via /identity-canon routes only.
+    """
     from app.models.character import Character
     from app.services.body_canon import load_markings
 
@@ -921,21 +926,23 @@ def test_sync_unit_via_get_creates_markings(client, db_session, seed_presets_for
     hdrs = auth_headers(token)
     char_id = _create_character(client, hdrs)
 
-    # Apply a tattoo preset to create an active style element
+    # Apply a tattoo preset
     presets = client.get("/style-shops/presets?shop_type=tattoo").json()
     assert len(presets) > 0
     preset = presets[0]
     client.post(f"/characters/{char_id}/style-elements",
                 json={"preset_id": preset["id"]}, headers=hdrs)
 
-    # Verify body_canon_json was populated via sync
+    # GET /body-markings should NOT auto-populate from shop
+    resp = client.get(f"/characters/{char_id}/body-markings", headers=hdrs)
+    assert resp.status_code == 200
+
     db_session.expire_all()
     char = db_session.query(Character).filter(Character.id == char_id).first()
     markings = load_markings(char)
-    assert len(markings) >= 1
-    slug_tag = f"#slug:{preset['slug']}"
-    assert any(slug_tag in m.description for m in markings), \
-        f"Slug tag {slug_tag!r} not found in: {[m.description for m in markings]}"
+    assert len(markings) == 0, (
+        f"GET /body-markings must NOT auto-sync shop tattoos. Got: {[m.description for m in markings]}"
+    )
 
 
 # ── Sleeve enforcement ────────────────────────────────────────────────
