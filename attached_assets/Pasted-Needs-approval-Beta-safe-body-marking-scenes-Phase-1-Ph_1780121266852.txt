@@ -1,0 +1,40 @@
+Needs approval
+
+Beta-safe body-marking scenes (Phase 1)
+Phase 1 (#23): Beta-safe body-marking scenes — re-enable sleeve exception
+The initial Phase 1 pass was overly conservative: it disabled the Task #18
+sleeve exception, causing ALL markings to be hidden in rolled-sleeve scenes and
+producing images with no tattoo at all (the original bug was wrong/relocated
+tattoos, so "no tattoo" was considered acceptable — but the user disagrees).
+
+Root cause of the regression: _reliably_visible_phase1 required the WHOLE arm
+to be bare for any arm marking to be visible. A full-sleeve tattoo's forearm
+portion IS reliably visible under rolled sleeves, and the per-side detail crop
+(body_left_detail / body_right_detail) IS a faithful reference for it.
+
+Fix in backend/app/api/routes/image_generator.py:
+- _reliably_visible_phase1: re-enable sleeve exception — a full-sleeve marking
+(is_sleeve_marking) is VISIBLE when its forearm region is exposed, even when
+the whole arm is not bare. Non-sleeve upper-arm markings still require whole
+arm exposed (unchanged safety rule).
+- Suppress _sleeve_enforcement_str / _arm_side_binding_str when body_front is
+excluded: prevents "from shoulder to wrist — must be present if arm visible"
+instruction that would unroll sleeves in the generated image. The VISIBLE/HIDDEN
+partition blocks + side-lock text are sufficient in this path.
+
+Bar scene outcome (Leonardo, dark button-up, sleeves rolled to forearms):
+- left_full_arm gothic script sleeve → VISIBLE (forearm exposed, sleeve exception)
+- right_upper_arm wolf → HIDDEN (whole arm covered by shirt)
+- body_left_detail → ALLOWED (faithful ref for visible sleeve)
+- body_front / body_right_detail → EXCLUDED (shows hidden wolf)
+- Side-lock: "Only the left arm has visible tattoos. Right arm is bare skin."
+- No wolf. No mirroring. No tattoo on fabric. Sleeve forearm shown.
+
+Updated tests in backend/tests/test_marking_partitioning.py:
+- Replaced test_full_sleeve_partial_normalizes_to_covered with
+test_full_sleeve_visible_via_sleeve_exception and
+test_upper_arm_non_sleeve_still_covered_under_rolled.
+- Updated excluded-slots bar-scene test (body_left_detail no longer excluded).
+- Rewrote TestPhase1LeonardoBarShirtAcceptance: 4 focused tests covering
+visible/hidden partition, block content, side-lock, and ref exclusions.
+All 59 partition tests pass; broader tattoo/body regression suite clean.
