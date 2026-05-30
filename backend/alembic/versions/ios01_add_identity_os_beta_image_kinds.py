@@ -18,7 +18,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "ios01_identity_os_beta"
-down_revision: Union[str, tuple] = "ss03_body_canon"
+down_revision: Union[str, tuple] = "bc03_body_identity_v2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
