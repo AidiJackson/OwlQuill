@@ -901,28 +901,103 @@ def _excluded_body_slots_for_hidden(hidden_markings: list) -> set[str]:
     return excluded
 
 
-def _build_arm_side_lock_str(visible_markings: list, hidden_markings: list) -> str:
-    """Phase 1 side-lock + negative-side text.
+def _build_arm_side_lock_str(exposed_markings: list, covered_markings: list) -> str:
+    """Side-lock + negative-side text to prevent mirroring.
 
-    Emitted only when at least one arm carries a visible marking AND the opposite
-    arm has no visible marking — declares the marked arm and explicitly states the
+    Emitted only when at least one arm carries an exposed marking AND the opposite
+    arm has no exposed marking — declares the marked arm and explicitly states the
     other arm is bare so the model does not mirror a tattoo onto bare skin.
     """
-    visible_sides = {
-        s for m in visible_markings if (s := get_arm_side(m.placement)) is not None
+    exposed_sides = {
+        s for m in exposed_markings if (s := get_arm_side(m.placement)) is not None
     }
-    if not visible_sides:
+    if not exposed_sides:
         return ""
-    bare_sides = {"left", "right"} - visible_sides
+    bare_sides = {"left", "right"} - exposed_sides
     if not bare_sides:
         return ""
-    vis_txt = " and ".join(sorted(visible_sides))
+    vis_txt = " and ".join(sorted(exposed_sides))
     bare_txt = " and ".join(sorted(bare_sides))
     return (
         f"ARM SIDE LOCK: Only the {vis_txt} arm has visible tattoos. "
         f"The {bare_txt} arm is bare skin. "
         f"No tattoos, writing, symbols, or marks on the {bare_txt} arm."
     )
+
+
+def _classify_marking_coverage(marking, prompt_lower: str) -> str:
+    """Return 'exposed' or 'covered' for this marking in the current scene.
+
+    Clothing-coverage classifier for Task #26 — replaces Phase 1 "reliably visible".
+    The body identity ref images are ALWAYS loaded regardless of this result; this
+    function only determines the prompt text (permanent feature vs coverage note).
+
+    Rules:
+    - Always-visible placements (neck/face/hands) → exposed.
+    - Full-sleeve markings on a broad-arm placement (left_full_arm / right_full_arm):
+        * Whole arm bare → exposed.
+        * Forearm exposed (rolled sleeves / t-shirt) → exposed (sleeve exception —
+          the forearm portion of a full sleeve is part of the sleeve design).
+        * Otherwise → covered.
+    - Non-sleeve arm markings: use the precise anatomical region exposure so that
+      a forearm marking correctly reports "exposed" when sleeves are rolled, while
+      an upper-arm marking correctly reports "covered".
+    - Unknown/no-signal exposure → covered (conservative; refs still loaded).
+    """
+    if marking.placement in _ALWAYS_VISIBLE_PLACEMENTS:
+        return "exposed"
+    side = get_arm_side(marking.placement)
+    if side is not None:
+        if is_sleeve_marking(marking):
+            # Full-sleeve marking: forearm portion is part of the sleeve design.
+            # Exposed whenever the whole arm is bare OR the forearm is exposed.
+            if _classify_region_exposure(f"broad_{side}_arm", prompt_lower) == "exposed":
+                return "exposed"
+            forearm_region = f"{side}_forearm"
+            if _classify_region_exposure(forearm_region, prompt_lower) == "exposed":
+                return "exposed"
+            return "covered"
+        else:
+            # Non-sleeve: use the precise region so forearm vs upper-arm exposure
+            # is correctly distinguished (e.g. rolled sleeves expose forearm only).
+            region = _classify_marking_region(marking.placement)
+            return "exposed" if _classify_region_exposure(region, prompt_lower) == "exposed" else "covered"
+    region = _classify_marking_region(marking.placement)
+    return "exposed" if _classify_region_exposure(region, prompt_lower) == "exposed" else "covered"
+
+
+def _build_permanent_marking_block(markings: list, prompt_lower: str) -> str:
+    """Build a permanent-features block for the image prompt (Task #26).
+
+    Body identity ref images are always loaded as the visual ground truth.
+    This block tells the model which markings are currently visible (permanent
+    features to reproduce from the refs) and which are covered by clothing.
+
+    Exposed markings: described as permanent features with a ref-match instruction.
+    Covered markings: one-line clothing-coverage note — no 'DO NOT RENDER' language
+    (the refs are still loaded; the coverage note is sufficient for the model).
+    Returns '' when there are no markings.
+    """
+    if not markings:
+        return ""
+    exposed: list = []
+    covered: list = []
+    for m in markings:
+        if _classify_marking_coverage(m, prompt_lower) == "exposed":
+            exposed.append(m)
+        else:
+            covered.append(m)
+    parts: list[str] = []
+    if exposed:
+        v = "; ".join(build_compact_token(m) for m in exposed)
+        parts.append(
+            "PERMANENT BODY MARKINGS — always present on exposed skin, reproduced "
+            f"exactly as shown in the reference images: {v}"
+        )
+    if covered:
+        c = "; ".join(build_compact_token(m) for m in covered)
+        parts.append(f"COVERED BY CLOTHING — not visible in this scene: {c}")
+    return ". ".join(parts)
 
 
 def _build_strict_identity_prompt(
@@ -1420,71 +1495,60 @@ def generate_image(
             )
         ]
 
-        # Visibility-aware marking partitioning (Task #18): classify each marking's
-        # region exposure for THIS scene so covered markings are explicitly marked
-        # HIDDEN instead of being relocated by the model to nearby exposed skin.
-        # Phase 1 (#23) beta-safe partition: a marking is reliably visible only
-        # when its whole region is exposed so the existing references match the
-        # scene. Partial exposure normalizes to covered — wrong tattoos are worse
-        # than missing tattoos.
-        _bc_visible_markings, _bc_hidden_markings = _partition_markings_phase1_safe(
-            _bc_markings, provider_prompt.lower()
-        )
-        _bc_partition_blocks = _build_partitioned_marking_blocks(
-            _bc_visible_markings, _bc_hidden_markings
-        )
+        # Clothing-coverage classification (Task #26): classify each marking as
+        # 'exposed' or 'covered' for THIS scene. Body identity ref images are
+        # ALWAYS loaded regardless — they are the visual ground truth. The prompt
+        # text describes permanent features (exposed) or clothing coverage (covered).
+        _prompt_lower = provider_prompt.lower()
+        _exposed_markings = [
+            m for m in _bc_markings
+            if _classify_marking_coverage(m, _prompt_lower) == "exposed"
+        ]
+        _covered_markings = [
+            m for m in _bc_markings
+            if _classify_marking_coverage(m, _prompt_lower) == "covered"
+        ]
 
-        # Reference IMAGES are visibility-partitioned too: withhold any ref whose
-        # content depicts a HIDDEN marking (face anchors are always retained).
-        _excluded_body_slots = _excluded_body_slots_for_hidden(_bc_hidden_markings)
-        _body_front_excluded = "body_front" in _excluded_body_slots
-
-        # Arm sides carrying a reliably-visible marking (drives sleeve/binding text).
-        _p1_visible_regions = {
-            f"{_s}_arm" for _m in _bc_visible_markings
+        # Arm sides carrying an exposed marking (drives sleeve enforcement and
+        # arm-binding text to prevent mirroring).
+        _exposed_arm_regions = {
+            f"{_s}_arm" for _m in _exposed_markings
             if (_s := get_arm_side(_m.placement)) is not None
         }
 
-        # Side-lock + negative-side text — stops mirroring onto a bare arm.
+        # Side-lock text — declares which arm is tattooed and which is bare skin
+        # so the model does not mirror a visible marking onto the opposite arm.
         _arm_side_lock_str = _build_arm_side_lock_str(
-            _bc_visible_markings, _bc_hidden_markings
+            _exposed_markings, _covered_markings
         )
 
         logger.info(
-            "BODY-REF-VISIBILITY character_id=%s phase1=beta_safe "
-            "visible_markings=%d hidden_markings=%d "
-            "excluded_body_slots=%s body_front_excluded=%s side_lock=%s",
-            character_id, len(_bc_visible_markings), len(_bc_hidden_markings),
-            sorted(_excluded_body_slots), _body_front_excluded,
-            bool(_arm_side_lock_str),
+            "BODY-REF-VISIBILITY character_id=%s approach=always_on_refs "
+            "exposed_markings=%d covered_markings=%d "
+            "exposed_arm_regions=%s side_lock=%s",
+            character_id, len(_exposed_markings), len(_covered_markings),
+            sorted(_exposed_arm_regions), bool(_arm_side_lock_str),
         )
 
-        # Body canon text:
-        #   canonical mode  → short ref instruction + explicit VISIBLE/HIDDEN blocks
-        #   simplified mode → short instruction + compact arm side note (body_front absent)
-        #   no tattoo visible → full per-marking token list
-        if _body_front_canonical and not _body_front_excluded:
+        # Body canon text (Task #26 — permanent-features approach):
+        #   canonical mode (body_front locked) → canonical ref instruction + permanent block
+        #   simplified mode (no body_front)    → simplified instruction + permanent block
+        #   passive context (no exposure signal)→ all markings as passive background context
+        # Body identity ref images are ALWAYS loaded — never withheld.
+        _bc_permanent_block = _build_permanent_marking_block(_bc_markings, _prompt_lower)
+
+        if _body_front_canonical:
             _body_canon_str = _CANONICAL_BODY_REF_TEXT
-            if _bc_partition_blocks:
-                _body_canon_str = _body_canon_str + ". " + _bc_partition_blocks
-        elif _body_front_excluded:
-            # body_front withheld (it depicts a hidden marking) — do not claim a
-            # locked body reference exists. Use the VISIBLE/HIDDEN partition blocks
-            # only; covered markings stay covered (Phase 1 beta-safe).
+            if _bc_permanent_block:
+                _body_canon_str = _body_canon_str + ". " + _bc_permanent_block
+        elif _tattoo_visibility_requested and _bc_markings:
             _body_canon_str = _SIMPLIFIED_BODY_CANON_TEXT
-            if _bc_partition_blocks:
-                _body_canon_str = _body_canon_str + ". " + _bc_partition_blocks
-        elif _tattoo_visibility_requested and _bc_text_markings:
-            _short_sides = build_short_arm_side_str(_bc_text_markings, _bc_visible_regions)
-            _body_canon_str = _SIMPLIFIED_BODY_CANON_TEXT
-            if _short_sides:
-                _body_canon_str += " " + _short_sides + "."
+            if _bc_permanent_block:
+                _body_canon_str = _body_canon_str + ". " + _bc_permanent_block
         else:
-            # Passive context: no body-exposure keyword present, so visibility
-            # detection filtered _bc_text_markings to empty. Inject ALL markings
-            # (_bc_markings) as passive "character has these permanent markings"
-            # context so the model never invents bare, unmarked skin. The clothing
-            # safety invariant below keeps covered markings hidden.
+            # Passive context: no body-exposure keyword present. Inject all markings
+            # as passive "character has these permanent markings" context so the model
+            # never invents bare, unmarked skin.
             _body_canon_str = build_passive_body_canon_string(_bc_markings)
 
         # Clothing safety invariant: injected when any body markings exist.
@@ -1513,7 +1577,7 @@ def generate_image(
         logger.info(
             "BODY-CANON character_id=%s markings_count=%d "
             "visible_regions=%s canonical_mode=%s simplified_mode=%s "
-            "visible_markings=%d hidden_markings=%d "
+            "exposed_markings=%d covered_markings=%d "
             "anchors_used=%s anchors_missing=%s "
             "text_token_len=%d provider_ref_count=%d",
             character_id,
@@ -1521,8 +1585,8 @@ def generate_image(
             sorted(_bc_visible_regions),
             _body_front_canonical,
             _tattoo_visibility_requested,
-            len(_bc_visible_markings),
-            len(_bc_hidden_markings),
+            len(_exposed_markings),
+            len(_covered_markings),
             _bc_anchors_used,
             _bc_anchors_missing,
             len(_body_canon_str),
@@ -1567,16 +1631,9 @@ def generate_image(
                     )
 
                 # Load each ref in priority order (body_front first, final_card last).
-                # Phase 1 (#23): skip any ref slot that depicts a HIDDEN marking.
+                # Task #26: all body identity refs are always loaded — they are the
+                # visual ground truth. No refs are withheld for covered markings.
                 for _bref in _body_id_result.refs:
-                    if _bref.slot in _excluded_body_slots:
-                        _bi_refs_excluded.append(_bref.slot)
-                        logger.info(
-                            "BODY-REF-WITHHELD character_id=%s slot=%s "
-                            "reason=depicts_hidden_marking",
-                            character_id, _bref.slot,
-                        )
-                        continue
                     try:
                         _bref_bytes = load_image_bytes(_bref.url)
                         anchor_images = list(anchor_images) + [_bref_bytes]
@@ -1597,19 +1654,10 @@ def generate_image(
             else:
                 # Body not visible in scene — still load final_character_card if present
                 # (support-only ref, low signal cost, does not affect body truth).
-                # Phase 1 (#23): withhold it when any marking is hidden — the card
-                # depicts markings and would re-introduce a hidden one.
+                # Task #26: always load the card — ref withholding is removed.
                 _body_id_result = get_body_identity_references(character)
                 for _bref in _body_id_result.refs:
                     if _bref.slot == "final_character_card":
-                        if _bref.slot in _excluded_body_slots:
-                            _bi_refs_excluded.append(_bref.slot)
-                            logger.info(
-                                "BODY-REF-WITHHELD character_id=%s slot=%s "
-                                "reason=depicts_hidden_marking",
-                                character_id, _bref.slot,
-                            )
-                            break
                         try:
                             _bref_bytes = load_image_bytes(_bref.url)
                             anchor_images = list(anchor_images) + [_bref_bytes]
@@ -1750,11 +1798,11 @@ def generate_image(
             if not is_sleeve_marking(_bm):
                 continue
             _bm_side = get_arm_side(_bm.placement)
-            if _bm_side == "left" and "left_arm" in _p1_visible_regions:
+            if _bm_side == "left" and "left_arm" in _exposed_arm_regions:
                 _sleeve_left_required = True
                 if _bm.anchor_status != "locked":
                     _sleeve_missing_refs.append(f"left_sleeve_anchor:status={_bm.anchor_status}({_bm.id})")
-            elif _bm_side == "right" and "right_arm" in _p1_visible_regions:
+            elif _bm_side == "right" and "right_arm" in _exposed_arm_regions:
                 _sleeve_right_required = True
                 if _bm.anchor_status != "locked":
                     _sleeve_missing_refs.append(f"right_sleeve_anchor:status={_bm.anchor_status}({_bm.id})")
@@ -1764,25 +1812,12 @@ def generate_image(
             # No text essays needed — the ref image carries left/right placement.
             _sleeve_enforcement_str = ""
             _arm_side_binding_str = ""
-        elif _body_front_excluded:
-            # body_front withheld (hidden marking on opposite arm) — the per-side
-            # detail crop is the sole body ref. Suppress sleeve-enforcement text that
-            # says "from shoulder to wrist — must be present if arm is visible",
-            # which would cause the model to unroll the sleeves to show the full
-            # sleeve. The VISIBLE/HIDDEN partition blocks + side-lock are sufficient.
-            _sleeve_enforcement_str = ""
-            _arm_side_binding_str = ""
-        elif _tattoo_visibility_requested:
-            # Simplified fallback (body_front absent): restore full binding text.
-            # Short note alone is insufficient — providers need explicit L/R exclusivity
-            # rules to prevent merging distinct tattoos onto one arm.
-            # Phase 1 (#23): drive off the beta-safe visible regions so covered arms
-            # never get a "sleeve must be present" instruction.
-            _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _p1_visible_regions)
-            _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _p1_visible_regions)
         else:
-            _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _p1_visible_regions)
-            _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _p1_visible_regions)
+            # Non-canonical: text-based enforcement gated by which arms are exposed.
+            # _exposed_arm_regions ensures covered arms never receive a
+            # "sleeve must be present" instruction.
+            _sleeve_enforcement_str = build_sleeve_enforcement_str(_bc_markings, _exposed_arm_regions)
+            _arm_side_binding_str = build_arm_side_binding_str(_bc_markings, _exposed_arm_regions)
 
         if (_sleeve_left_required or _sleeve_right_required) and not _tattoo_layout_used and not _tattoo_visibility_requested:
             _tl_status = (_bi_slots.get("tattoo_layout") or {}).get("status", "missing")
