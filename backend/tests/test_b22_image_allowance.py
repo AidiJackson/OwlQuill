@@ -19,6 +19,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import get_auth_token, auth_headers
+from tests.canon_test_utils import setup_canon
+
+
+@pytest.fixture(autouse=True)
+def _local_storage(monkeypatch):
+    """Deterministic local disk storage (env may default to R2)."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "USE_OBJECT_STORAGE", False)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -450,25 +458,20 @@ def test_admin_quota_endpoint_shows_unlimited(client: TestClient, monkeypatch):
 # ── 6. No deduction on controlled failure ─────────────────────────────
 
 
-def test_no_deduction_on_controlled_503(client: TestClient, monkeypatch):
-    """Quota is NOT consumed when strict-identity generation fails (503)."""
+def test_no_deduction_on_canon_incomplete_409(client: TestClient, monkeypatch):
+    """Quota is NOT consumed when include_character=True but canon is incomplete (409)."""
     from app.core.config import settings
     monkeypatch.setattr(settings, "IMAGE_WEEKLY_LIMIT", 5)
 
     token = _register_and_login(client, "quota_nodeduce@example.com")
     cid = _create_character(client, token)
-    _lock_character(client, token, cid)
-
-    # Provider always fails — will produce a controlled 503
-    monkeypatch.setattr(
-        "app.api.routes.image_generator.get_provider_for_option",
-        lambda _opt: _mock_provider_fails(),
-    )
+    # No canon set up → include_character=True must fail gracefully with 409.
 
     quota_before = client.get("/images/quota", headers=auth_headers(token)).json()
 
     resp = _generate(client, token, cid, include_character=True)
-    assert resp.status_code == 503
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Character canon incomplete"
 
     quota_after = client.get("/images/quota", headers=auth_headers(token)).json()
     # Quota must be unchanged — no image was saved
@@ -476,45 +479,27 @@ def test_no_deduction_on_controlled_503(client: TestClient, monkeypatch):
     assert quota_after["remaining"] == quota_before["remaining"]
 
 
-# ── 7. Single deduction on success (retry path does not double-charge) ─
+# ── 7. Single deduction on a successful canon generation ──────────────
 
 
-def test_single_deduction_on_success_with_retry(client: TestClient, monkeypatch):
-    """A generation that succeeds on the retry attempt still only deducts once."""
+def test_single_deduction_on_canon_success(client: TestClient, db_session, monkeypatch):
+    """A successful canon-based generation deducts exactly one from the quota."""
     from app.core.config import settings
     monkeypatch.setattr(settings, "IMAGE_WEEKLY_LIMIT", 5)
 
     token = _register_and_login(client, "quota_retry@example.com")
     cid = _create_character(client, token)
-    _lock_character(client, token, cid)
-
-    call_count = {"n": 0}
-
-    def _flaky_provider():
-        mock = MagicMock()
-        mock.supports_multi_image_input = True
-
-        def _anchor(*args, **kwargs):
-            call_count["n"] += 1
-            # Fail on attempt 1, succeed on attempt 2
-            if call_count["n"] == 1:
-                raise RuntimeError("first attempt fails")
-            return _stub_png_bytes()
-
-        mock.generate_with_anchors = MagicMock(side_effect=_anchor)
-        mock.generate_grounded_image = MagicMock(side_effect=RuntimeError("grounded fail"))
-        mock.generate_image = MagicMock(side_effect=RuntimeError("text fail"))
-        return mock
+    setup_canon(db_session, cid)
 
     monkeypatch.setattr(
         "app.api.routes.image_generator.get_provider_for_option",
-        lambda _opt: _flaky_provider(),
+        lambda _opt: _mock_provider_succeeds(),
     )
 
     quota_before = client.get("/images/quota", headers=auth_headers(token)).json()
     resp = _generate(client, token, cid, include_character=True)
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     quota_after = client.get("/images/quota", headers=auth_headers(token)).json()
 
-    # Exactly one image saved, regardless of internal retry
+    # Exactly one image saved.
     assert quota_after["used"] == quota_before["used"] + 1

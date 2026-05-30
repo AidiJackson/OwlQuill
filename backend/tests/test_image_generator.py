@@ -1,16 +1,37 @@
-"""Tests for the B17/B18/B19 simplified image generator endpoint.
+"""Tests for the image generator endpoint under the CharacterIdentityCanon contract.
 
-B17: provider toggle (option1/option2)
-B18: strict identity mode for include_character=True
-B19: anchor-image conditioning — actual identity pack images as provider inputs
+Identity truth for /characters/{id}/image-generator/generate comes ONLY from
+CharacterIdentityCanon, compiled by app.services.canon_compiler. There is no
+legacy identity_anchor_json / body_identity_json / CharacterStyleElements path.
+
+Contract:
+  - include_character=False → plain scene from the user prompt (no identity).
+  - include_character=True  → requires a populated CharacterIdentityCanon.
+        Missing/incomplete canon → 409 "Character canon incomplete".
+        Prompt is sourced from canon_compiler (face → body → permanent marks →
+        requested accessories → scene → locked-canon clause). Removable
+        accessories inject only on explicit trigger-keyword match.
+  - Generated images save as SCENE_ONLY (COVER when is_cover); canon is never
+    mutated by generation.
 """
-import json
 import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+
+from app.core.config import settings
+
+
+# ── Fixtures ──────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _local_storage(monkeypatch):
+    """Force local disk storage so save/load image bytes are deterministic
+    (the test env may otherwise be configured for R2 object storage)."""
+    monkeypatch.setattr(settings, "USE_OBJECT_STORAGE", False)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -28,26 +49,10 @@ def _register_and_login(client: TestClient, email: str = "imggen@example.com") -
 def _create_character(client: TestClient, token: str) -> int:
     resp = client.post(
         "/characters/",
-        json={"name": "Gen Test Char", "species": "human"},
+        json={"name": "Leonardo Baptiste", "species": "human"},
         headers={"Authorization": f"Bearer {token}"},
     )
     return resp.json()["id"]
-
-
-def _lock_character(client: TestClient, token: str, cid: int) -> None:
-    """Generate + accept a pack so the character is locked with identity_anchor_json."""
-    resp = client.post(
-        f"/characters/{cid}/identity-pack/generate",
-        json={},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    pack_id = resp.json()["pack_id"]
-    resp = client.post(
-        f"/characters/{cid}/identity-pack/accept",
-        json={"pack_id": pack_id},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert resp.status_code == 200, resp.text
 
 
 def _stub_png_bytes() -> bytes:
@@ -56,6 +61,62 @@ def _stub_png_bytes() -> bytes:
     fp = generate_placeholder_png(label="test", sublabel="stub")
     abs_path = Path(__file__).resolve().parent.parent / fp
     return abs_path.read_bytes()
+
+
+def _stub_image_url(label: str = "ref") -> str:
+    """Create a real stub PNG on disk and return a loadable /static URL for it."""
+    from app.services.stub_image_generator import generate_placeholder_png
+    fp = generate_placeholder_png(label=label, role="anchor_front")
+    return f"/{fp}"
+
+
+def _setup_canon(
+    db_session,
+    cid: int,
+    *,
+    marks: list[dict] | None = None,
+    accessories: list[dict] | None = None,
+    lock: bool = True,
+    with_images: bool = True,
+):
+    """Build a populated CharacterIdentityCanon for a character via canon_service.
+
+    Identity truth ONLY — no identity_anchor_json / body_identity_json / style
+    elements. Commits so the generation route (separate session) sees it.
+    """
+    from app.services import canon_service as cs
+    from app.schemas.canon import (
+        FaceCanonData, BodyCanonData, AddPermanentMarkRequest, AddAccessoryRequest,
+    )
+
+    canon = cs.get_or_create_canon(cid, db_session)
+    face = cs.load_face_canon(canon) or FaceCanonData()
+    body = cs.load_body_canon(canon) or BodyCanonData()
+
+    face.face_description = "sharp angular jaw, dark brown eyes, olive skin"
+    body.body_description = "athletic build, medium height"
+    body.build = "athletic"
+    if with_images:
+        face.face_front_image_url = _stub_image_url("face_front")
+        body.body_front_image_url = _stub_image_url("body_front")
+    if lock:
+        face.locked = True
+        body.locked = True
+
+    cs._save_face(canon, face)
+    cs._save_body(canon, body)
+
+    for m in (marks or []):
+        cs.add_permanent_mark(canon, AddPermanentMarkRequest(**m))
+    for a in (accessories or []):
+        cs.add_accessory(canon, AddAccessoryRequest(**a))
+
+    if lock and with_images:
+        canon.face_locked = True
+        canon.body_locked = True
+
+    db_session.commit()
+    return canon
 
 
 def _post(client, token, cid, body):
@@ -67,10 +128,7 @@ def _post(client, token, cid, body):
 
 
 def _mock_provider_succeeds() -> MagicMock:
-    """Return a mock provider that succeeds on the first generate_with_anchors call.
-
-    B19: supports_multi_image_input=True so generate_with_anchors is tried first.
-    """
+    """A mock provider that succeeds on generate_with_anchors first (multi-image)."""
     mock = MagicMock()
     mock.supports_multi_image_input = True
     mock.generate_with_anchors = MagicMock(return_value=_stub_png_bytes())
@@ -80,7 +138,7 @@ def _mock_provider_succeeds() -> MagicMock:
 
 
 def _mock_provider_single_image_only() -> MagicMock:
-    """Return a mock provider that does NOT support multi-image input."""
+    """A mock provider that does NOT support multi-image input."""
     mock = MagicMock()
     mock.supports_multi_image_input = False
     mock.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
@@ -88,10 +146,37 @@ def _mock_provider_single_image_only() -> MagicMock:
     return mock
 
 
+def _capture_prompt_provider(captured: dict) -> MagicMock:
+    """Provider that records the compiled prompt on whichever path is used.
+
+    Captures on all three provider methods so the prompt is recorded whether
+    canon reference images load (multi-image / grounded) or not (text-only).
+    """
+    def _with_anchors(*, prompt, anchor_images, size="1024x1024"):
+        captured["prompt"] = prompt
+        captured["anchor_count"] = len(anchor_images)
+        return _stub_png_bytes()
+
+    def _grounded(*, prompt, reference_image_bytes, size="1024x1024"):
+        captured.setdefault("prompt", prompt)
+        return _stub_png_bytes()
+
+    def _text(*, prompt, size="1024x1024", reference_image_url=None):
+        captured.setdefault("prompt", prompt)
+        return _stub_png_bytes()
+
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = _with_anchors
+    mock.generate_grounded_image = _grounded
+    mock.generate_image = _text
+    return mock
+
+
 # ── 1. Plain generation (include_character=False) ─────────────────────
 
-def test_plain_generation_no_lock_required(client: TestClient):
-    """include_character=False works even for an unlocked character."""
+def test_plain_generation_no_canon_required(client: TestClient):
+    """include_character=False works without any canon."""
     token = _register_and_login(client, "imggen_plain@example.com")
     cid = _create_character(client, token)
 
@@ -102,35 +187,45 @@ def test_plain_generation_no_lock_required(client: TestClient):
     })
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["kind"] == "generated"
+    assert data["kind"] == "scene_only"
     assert data["url"].startswith("/static/")
     meta = data["metadata_json"]
     assert meta["include_character"] is False
     assert meta["image_generator"] is True
     assert meta["character_id"] is None
-    assert "provider_option" in meta
+    assert meta["canon_used"] is False
+    assert meta["scene_only"] is True
 
 
-def test_plain_generation_metadata_captures_provider(client: TestClient):
-    """Metadata always records which provider option was requested."""
-    token = _register_and_login(client, "imggen_meta@example.com")
+def test_plain_generation_uses_clean_prompt(client: TestClient):
+    """include_character=False sends only the user prompt — no identity injection."""
+    token = _register_and_login(client, "imggen_clean@example.com")
     cid = _create_character(client, token)
 
-    resp = _post(client, token, cid, {
-        "prompt": "Sunset over the ocean",
-        "include_character": False,
-        "provider_option": "option2",
-    })
+    captured: dict = {}
+
+    def _mock_generate(*, prompt, size="1024x1024", reference_image_url=None):
+        captured["prompt"] = prompt
+        return _stub_png_bytes()
+
+    mock_provider = MagicMock()
+    mock_provider.generate_image = _mock_generate
+    mock_provider.generate_grounded_image = MagicMock(side_effect=NotImplementedError())
+
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+        resp = _post(client, token, cid, {
+            "prompt": "A simple landscape",
+            "include_character": False,
+            "provider_option": "option1",
+        })
+
     assert resp.status_code == 200, resp.text
-    meta = resp.json()["metadata_json"]
-    assert meta["provider_option"] == "option2"
-    assert meta["image_generator"] is True
+    assert captured.get("prompt") == "A simple landscape"
 
 
-# ── 2. Provider option mapping ────────────────────────────────────────
+# ── 2. Provider option mapping (provider resolution, not identity) ────
 
 def test_provider_option1_maps_to_openai(monkeypatch):
-    """option1 resolves to OpenAI provider class."""
     from app.core.config import settings
     from app.services.image_provider import get_provider_for_option
     from app.services.image_provider import _OpenAIImageProvider  # type: ignore[attr-defined]
@@ -141,15 +236,12 @@ def test_provider_option1_maps_to_openai(monkeypatch):
 
 
 def test_provider_option2_maps_to_google(client: TestClient):
-    """option2 resolves to Google provider."""
     from app.services.image_provider import get_provider_for_option
-
     provider = get_provider_for_option("option2")
     assert "google" in type(provider).__name__.lower() or hasattr(provider, "_google")
 
 
 def test_provider_toggle_disabled_forces_option1(monkeypatch):
-    """When IMAGE_GENERATOR_PROVIDER_TOGGLE is False, always returns option1 provider."""
     from app.core.config import settings
     from app.services.image_provider import get_provider_for_option, _OpenAIImageProvider  # type: ignore[attr-defined]
 
@@ -159,27 +251,11 @@ def test_provider_toggle_disabled_forces_option1(monkeypatch):
     assert isinstance(provider, _OpenAIImageProvider)
 
 
-def test_metadata_records_resolved_provider(client: TestClient):
-    """metadata_json.provider reflects which provider was actually used."""
-    token = _register_and_login(client, "imggen_prov@example.com")
-    cid = _create_character(client, token)
+# ── 3. include_character=True requires CharacterIdentityCanon ─────────
 
-    resp = _post(client, token, cid, {
-        "prompt": "A red balloon",
-        "include_character": False,
-        "provider_option": "option1",
-    })
-    assert resp.status_code == 200
-    meta = resp.json()["metadata_json"]
-    assert isinstance(meta.get("provider"), str)
-    assert len(meta["provider"]) > 0
-
-
-# ── 3. include_character=True requires locked character ───────────────
-
-def test_include_character_unlocked_returns_409(client: TestClient):
-    """include_character=True is blocked when the character is not locked."""
-    token = _register_and_login(client, "imggen_unlock@example.com")
+def test_include_character_without_canon_returns_409(client: TestClient):
+    """include_character=True with no canon returns a graceful 409."""
+    token = _register_and_login(client, "imggen_nocanon@example.com")
     cid = _create_character(client, token)
 
     resp = _post(client, token, cid, {
@@ -188,19 +264,34 @@ def test_include_character_unlocked_returns_409(client: TestClient):
         "provider_option": "option1",
     })
     assert resp.status_code == 409
-    detail = resp.json()["detail"].lower()
-    assert "locked" in detail or "lock" in detail
+    assert resp.json()["detail"] == "Character canon incomplete"
 
 
-def test_include_character_locked_succeeds(client: TestClient):
-    """include_character=True works for a locked character when the provider succeeds."""
-    token = _register_and_login(client, "imggen_locked@example.com")
+def test_include_character_empty_canon_returns_409(client: TestClient, db_session):
+    """An empty (draft, no content) canon is still incomplete → 409."""
+    token = _register_and_login(client, "imggen_emptycanon@example.com")
     cid = _create_character(client, token)
-    _lock_character(client, token, cid)
+    # create the row but with no content
+    from app.services import canon_service as cs
+    cs.get_or_create_canon(cid, db_session)
+    db_session.commit()
 
-    mock_provider = _mock_provider_succeeds()
+    resp = _post(client, token, cid, {
+        "prompt": "Portrait in a dark forest",
+        "include_character": True,
+        "provider_option": "option1",
+    })
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Character canon incomplete"
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+
+def test_include_character_with_canon_succeeds(client: TestClient, db_session):
+    """include_character=True succeeds when canon is populated and provider works."""
+    token = _register_and_login(client, "imggen_canon_ok@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid)
+
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_mock_provider_succeeds()):
         resp = _post(client, token, cid, {
             "prompt": "Standing in a library",
             "include_character": True,
@@ -211,338 +302,201 @@ def test_include_character_locked_succeeds(client: TestClient):
     meta = resp.json()["metadata_json"]
     assert meta["include_character"] is True
     assert meta["character_id"] == cid
+    assert meta["canon_used"] is True
 
 
-# ── 4. include_character=True injects identity references ─────────────
+# ── 4. Compiled prompt is sourced from canon_compiler ─────────────────
 
-def test_include_character_injects_identity_into_prompt(client: TestClient):
-    """When include_character=True, the strict identity wrapper and identity lock
-    are prepended to the prompt sent to the provider."""
-    token = _register_and_login(client, "imggen_inject@example.com")
+def test_compiled_prompt_sourced_from_canon(client: TestClient, db_session):
+    """The provider prompt contains canon sections and the scene, and the
+    locked-canon clause — proving canon_compiler produced it."""
+    token = _register_and_login(client, "imggen_compiled@example.com")
     cid = _create_character(client, token)
-    _lock_character(client, token, cid)
+    _setup_canon(db_session, cid)
 
     captured: dict = {}
-
-    def _mock_grounded(*, prompt, reference_image_bytes, size="1024x1024"):
-        captured["prompt"] = prompt
-        return _stub_png_bytes()
-
-    # Use single-image path so we can capture the grounded prompt
-    mock_provider = MagicMock()
-    mock_provider.supports_multi_image_input = False
-    mock_provider.generate_grounded_image = _mock_grounded
-    mock_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
-            "prompt": "At a masquerade ball",
+            "prompt": "Riding a horse at sunset",
             "include_character": True,
             "provider_option": "option1",
         })
 
     assert resp.status_code == 200, resp.text
-    captured_prompt = captured.get("prompt", "")
-    assert "At a masquerade ball" in captured_prompt, (
-        f"Original prompt not found in provider prompt: {captured_prompt!r}"
-    )
-    # B19 tightened identity directive must be present
-    assert "same person" in captured_prompt.lower(), (
-        f"Identity directive missing from provider prompt: {captured_prompt!r}"
-    )
+    prompt = captured.get("prompt", "")
+    assert "FACE CANON" in prompt
+    assert "BODY CANON" in prompt
+    assert "Riding a horse at sunset" in prompt
+    # Locked-canon clause from canon_compiler (face/body locked)
+    assert "locked" in prompt.lower() and "canon" in prompt.lower()
+    # And recorded in metadata
+    meta = resp.json()["metadata_json"]
+    assert meta["compiled_prompt"]
 
 
-def test_include_character_false_skips_identity_injection(client: TestClient):
-    """When include_character=False, the provider receives only the user prompt
-    with no identity wrapper."""
-    token = _register_and_login(client, "imggen_noinject@example.com")
+# ── 5. Removable accessories inject ONLY when requested ───────────────
+
+_CHAIN_ACC = {
+    "label": "Silver Chain",
+    "type": "jewellery",
+    "description": "silver chain necklace, medium-weight links resting on collarbone",
+    "trigger_keywords": ["chain", "necklace", "silver chain"],
+}
+_MASK_ACC = {
+    "label": "Urban Phantom Mask",
+    "type": "mask",
+    "description": "black lower-face mask, eyes visible",
+    "trigger_keywords": ["mask", "masked"],
+}
+
+
+def test_chain_absent_when_not_requested(client: TestClient, db_session):
+    """P3 #1: a plain beach prompt must NOT inject the chain accessory."""
+    token = _register_and_login(client, "imggen_nochain@example.com")
     cid = _create_character(client, token)
-    _lock_character(client, token, cid)
+    _setup_canon(db_session, cid, accessories=[_CHAIN_ACC])
 
     captured: dict = {}
-
-    def _mock_generate(*, prompt, size="1024x1024", reference_image_url=None):
-        captured["prompt"] = prompt
-        return _stub_png_bytes()
-
-    mock_provider = MagicMock()
-    mock_provider.generate_image = _mock_generate
-    mock_provider.generate_grounded_image = MagicMock(
-        side_effect=NotImplementedError("no grounded in test")
-    )
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
-            "prompt": "A simple landscape",
-            "include_character": False,
-            "provider_option": "option1",
-        })
-
-    assert resp.status_code == 200, resp.text
-    assert captured.get("prompt") == "A simple landscape", (
-        f"Expected clean prompt, got: {captured.get('prompt')!r}"
-    )
-
-
-# ── 5. Logging / evaluation metadata completeness ────────────────────
-
-def test_metadata_fields_present_for_plain_generation(client: TestClient):
-    """All required evaluation fields appear in metadata_json for plain generation."""
-    token = _register_and_login(client, "imggen_fields@example.com")
-    cid = _create_character(client, token)
-
-    resp = _post(client, token, cid, {
-        "prompt": "A city at night",
-        "include_character": False,
-        "provider_option": "option1",
-    })
-    assert resp.status_code == 200
-    meta = resp.json()["metadata_json"]
-
-    required = {"image_generator", "provider_option", "provider", "include_character", "prompt"}
-    missing = required - set(meta.keys())
-    assert not missing, f"Missing metadata keys: {missing}"
-
-
-def test_metadata_fields_present_for_character_generation(client: TestClient):
-    """All required evaluation fields appear in metadata_json when include_character=True."""
-    token = _register_and_login(client, "imggen_charfields@example.com")
-    cid = _create_character(client, token)
-    _lock_character(client, token, cid)
-
-    mock_provider = _mock_provider_succeeds()
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
-        resp = _post(client, token, cid, {
-            "prompt": "Walking through rain",
-            "include_character": True,
-            "provider_option": "option1",
-        })
-
-    assert resp.status_code == 200
-    meta = resp.json()["metadata_json"]
-
-    required = {
-        "image_generator", "provider_option", "provider",
-        "include_character", "character_id", "prompt",
-        "used_face_ref", "identity_hash", "strict_identity_mode", "strict_identity_retry",
-        "anchors_attached", "anchor_types", "multi_image_used",
-    }
-    missing = required - set(meta.keys())
-    assert not missing, f"Missing metadata keys: {missing}"
-    assert meta["include_character"] is True
-    assert meta["character_id"] == cid
-    assert meta["strict_identity_mode"] is True
-
-
-# ── 6. B18 strict identity mode ───────────────────────────────────────
-
-def test_strict_identity_mode_enabled_for_include_character(client: TestClient):
-    """include_character=True automatically sets strict_identity_mode=True in metadata."""
-    token = _register_and_login(client, "b18_strict_meta@example.com")
-    cid = _create_character(client, token)
-    _lock_character(client, token, cid)
-
-    mock_provider = _mock_provider_succeeds()
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
-        resp = _post(client, token, cid, {
-            "prompt": "Standing by a fireplace",
+            "prompt": "Leonardo Baptiste standing on a beach in daylight",
             "include_character": True,
             "provider_option": "option1",
         })
 
     assert resp.status_code == 200, resp.text
-    meta = resp.json()["metadata_json"]
-    assert meta["strict_identity_mode"] is True
-    assert meta["strict_identity_retry"] is False
+    prompt = captured.get("prompt", "").lower()
+    assert "chain" not in prompt
+    assert "necklace" not in prompt
 
 
-def test_strict_identity_mode_false_for_plain_generation(client: TestClient):
-    """include_character=False sets strict_identity_mode=False in metadata."""
-    token = _register_and_login(client, "b18_strict_false@example.com")
+def test_chain_present_when_requested(client: TestClient, db_session):
+    """P3 #2: an explicit chain request injects the chain accessory."""
+    token = _register_and_login(client, "imggen_chain@example.com")
     cid = _create_character(client, token)
-
-    resp = _post(client, token, cid, {
-        "prompt": "A forest at dawn",
-        "include_character": False,
-        "provider_option": "option1",
-    })
-    assert resp.status_code == 200, resp.text
-    meta = resp.json()["metadata_json"]
-    assert meta["strict_identity_mode"] is False
-
-
-def test_strict_identity_blocks_generic_fallback(client: TestClient):
-    """When include_character=True and all generation attempts fail, the route
-    returns a controlled failure (503) instead of silently saving a stub image."""
-    token = _register_and_login(client, "b18_block_fallback@example.com")
-    cid = _create_character(client, token)
-    _lock_character(client, token, cid)
-
-    mock_provider = MagicMock()
-    mock_provider.supports_multi_image_input = False  # skip multi-image path
-    mock_provider.generate_grounded_image = MagicMock(
-        side_effect=RuntimeError("provider failure")
-    )
-    mock_provider.generate_image = MagicMock(
-        side_effect=RuntimeError("provider failure")
-    )
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
-        resp = _post(client, token, cid, {
-            "prompt": "In a crowded market",
-            "include_character": True,
-            "provider_option": "option1",
-        })
-
-    assert resp.status_code == 503, resp.text
-    detail = resp.json()["detail"].lower()
-    assert "identity conditioning" in detail or "character image" in detail
-
-
-def test_strict_identity_retry_attempted_on_first_failure(client: TestClient):
-    """When the first attempt fails but the retry succeeds, the response is 200
-    and strict_identity_retry=True is recorded in metadata."""
-    token = _register_and_login(client, "b18_retry@example.com")
-    cid = _create_character(client, token)
-    _lock_character(client, token, cid)
-
-    call_count = {"n": 0}
-
-    def _grounded_side_effect(*, prompt, reference_image_bytes, size="1024x1024"):
-        call_count["n"] += 1
-        if call_count["n"] == 1:
-            raise RuntimeError("transient failure on attempt 1")
-        return _stub_png_bytes()
-
-    # Use single-image path to keep this test focused on the retry mechanism
-    mock_provider = MagicMock()
-    mock_provider.supports_multi_image_input = False
-    mock_provider.generate_grounded_image = MagicMock(side_effect=_grounded_side_effect)
-    mock_provider.generate_image = MagicMock(side_effect=RuntimeError("no text fallback"))
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
-        resp = _post(client, token, cid, {
-            "prompt": "In the snow",
-            "include_character": True,
-            "provider_option": "option1",
-        })
-
-    assert resp.status_code == 200, resp.text
-    meta = resp.json()["metadata_json"]
-    assert meta["strict_identity_mode"] is True
-    assert meta["strict_identity_retry"] is True
-    assert call_count["n"] == 2
-
-
-def test_strict_identity_controlled_failure_returns_clear_message(client: TestClient):
-    """Controlled failure response has a meaningful detail message, not a generic error."""
-    token = _register_and_login(client, "b18_fail_msg@example.com")
-    cid = _create_character(client, token)
-    _lock_character(client, token, cid)
-
-    mock_provider = MagicMock()
-    mock_provider.supports_multi_image_input = False
-    mock_provider.generate_grounded_image = MagicMock(
-        side_effect=RuntimeError("provider down")
-    )
-    mock_provider.generate_image = MagicMock(
-        side_effect=RuntimeError("provider down")
-    )
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
-        resp = _post(client, token, cid, {
-            "prompt": "At a rooftop bar",
-            "include_character": True,
-            "provider_option": "option1",
-        })
-
-    assert resp.status_code == 503
-    detail = resp.json()["detail"]
-    assert len(detail) > 30
-    assert any(
-        phrase in detail.lower()
-        for phrase in ("character", "identity", "conditioning", "try again")
-    )
-
-
-def test_include_character_false_uses_stub_fallback_normally(client: TestClient):
-    """When include_character=False and the provider is unavailable, the route
-    returns 200 with a stub placeholder (normal fallback chain applies)."""
-    token = _register_and_login(client, "b18_stub_ok@example.com")
-    cid = _create_character(client, token)
-
-    resp = _post(client, token, cid, {
-        "prompt": "A simple sunset",
-        "include_character": False,
-        "provider_option": "option1",
-    })
-
-    assert resp.status_code == 200, resp.text
-    meta = resp.json()["metadata_json"]
-    assert meta["include_character"] is False
-    assert meta["strict_identity_mode"] is False
-    assert meta["provider"] in ("stub", "openai", "google", "fal")
-
-
-# ── 7. B19 anchor-image conditioning ─────────────────────────────────
-
-def test_b19_anchor_images_loaded_in_preferred_order():
-    """_load_anchor_images returns anchors in front→three_quarter→torso→full_body order
-    regardless of dict insertion order."""
-    from app.api.routes.image_generator import _load_anchor_images
-    from app.services.stub_image_generator import generate_placeholder_png
-
-    anchor_urls: dict[str, str] = {}
-    for key, label in [
-        ("full_body", "Full"),
-        ("torso", "Torso"),
-        ("front", "Front"),
-        ("three_quarter", "3Q"),
-    ]:
-        fp = generate_placeholder_png(label=label, role="anchor_front")
-        anchor_urls[key] = f"/{fp}"
-
-    anchor_data = {
-        "anchors": {k: {"id": 99, "url": v} for k, v in anchor_urls.items()},
-        "identity_lock_string": "",
-    }
-
-    loaded_bytes, loaded_keys = _load_anchor_images(anchor_data, character_id=0)
-
-    assert loaded_keys == ["front", "three_quarter", "torso", "full_body"], (
-        f"Expected preferred order, got: {loaded_keys}"
-    )
-    assert len(loaded_bytes) == 4
-    assert all(isinstance(b, bytes) and len(b) > 0 for b in loaded_bytes)
-
-
-def test_b19_multi_image_passed_to_provider_when_supported(client: TestClient):
-    """When the provider supports multi-image input, generate_with_anchors is called
-    with the actual anchor images rather than a single face-ref crop."""
-    token = _register_and_login(client, "b19_multi@example.com")
-    cid = _create_character(client, token)
-    _lock_character(client, token, cid)
+    _setup_canon(db_session, cid, accessories=[_CHAIN_ACC])
 
     captured: dict = {}
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+        resp = _post(client, token, cid, {
+            "prompt": "Leonardo Baptiste wearing a silver chain",
+            "include_character": True,
+            "provider_option": "option1",
+        })
 
-    def _mock_with_anchors(*, prompt, anchor_images, size="1024x1024"):
-        captured["prompt"] = prompt
-        captured["anchor_count"] = len(anchor_images)
-        return _stub_png_bytes()
+    assert resp.status_code == 200, resp.text
+    prompt = captured.get("prompt", "").lower()
+    assert "chain" in prompt
 
-    mock_provider = MagicMock()
-    mock_provider.supports_multi_image_input = True
-    mock_provider.generate_with_anchors = _mock_with_anchors
-    mock_provider.generate_grounded_image = MagicMock(
-        side_effect=AssertionError("grounded should not be called when multi-image succeeds")
-    )
-    mock_provider.generate_image = MagicMock(
-        side_effect=AssertionError("text should not be called when multi-image succeeds")
-    )
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+def test_mask_absent_when_not_requested(client: TestClient, db_session):
+    """P3 #3: mask is omitted when not requested."""
+    token = _register_and_login(client, "imggen_nomask@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid, accessories=[_MASK_ACC])
+
+    captured: dict = {}
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+        resp = _post(client, token, cid, {
+            "prompt": "Leonardo Baptiste standing on a beach in daylight",
+            "include_character": True,
+            "provider_option": "option1",
+        })
+
+    assert resp.status_code == 200, resp.text
+    prompt = captured.get("prompt", "").lower()
+    assert "mask" not in prompt
+
+
+def test_mask_present_when_requested(client: TestClient, db_session):
+    """P3 #4: mask appears when explicitly requested."""
+    token = _register_and_login(client, "imggen_mask@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid, accessories=[_MASK_ACC])
+
+    captured: dict = {}
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+        resp = _post(client, token, cid, {
+            "prompt": "Leonardo Baptiste wearing his mask at night",
+            "include_character": True,
+            "provider_option": "option1",
+        })
+
+    assert resp.status_code == 200, resp.text
+    prompt = captured.get("prompt", "").lower()
+    assert "mask" in prompt
+
+
+# ── 6. Permanent body marks (tattoos) are exact and not mirrored ──────
+
+_TATTOO_MARKS = [
+    {
+        "label": "Right Arm Tribal Wolf Mark",
+        "type": "tattoo",
+        "body_region": "right_full_arm",
+        "side": "right",
+        "description": "tribal wolf tattoo sleeve",
+    },
+    {
+        "label": "Left Arm Gothic Script Sleeve",
+        "type": "tattoo",
+        "body_region": "left_full_arm",
+        "side": "left",
+        "description": "gothic script tattoo sleeve",
+    },
+]
+
+
+def test_permanent_marks_exact_in_prompt(client: TestClient, db_session):
+    """P3 #5: tattoo positions remain exact in the compiled prompt."""
+    token = _register_and_login(client, "imggen_marks@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid, marks=_TATTOO_MARKS)
+
+    captured: dict = {}
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+        resp = _post(client, token, cid, {
+            "prompt": "Leonardo Baptiste in a sleeveless shirt",
+            "include_character": True,
+            "provider_option": "option1",
+        })
+
+    assert resp.status_code == 200, resp.text
+    prompt = captured.get("prompt", "")
+    assert "PERMANENT BODY MARKS" in prompt
+    assert "right_full_arm" in prompt and "right side" in prompt
+    assert "left_full_arm" in prompt and "left side" in prompt
+
+
+def test_marks_carry_no_mirror_clause(client: TestClient, db_session):
+    """P3 #6: the locked-canon clause forbids mirroring/relocating marks."""
+    token = _register_and_login(client, "imggen_nomirror@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid, marks=_TATTOO_MARKS)
+
+    captured: dict = {}
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+        resp = _post(client, token, cid, {
+            "prompt": "Leonardo Baptiste in a sleeveless shirt",
+            "include_character": True,
+            "provider_option": "option1",
+        })
+
+    assert resp.status_code == 200, resp.text
+    prompt = captured.get("prompt", "").lower()
+    assert "mirror" in prompt and "relocate" in prompt
+
+
+# ── 7. Reference images: multi-image vs grounded ──────────────────────
+
+def test_multi_image_uses_canon_refs(client: TestClient, db_session):
+    """When the provider supports multi-image, canon reference images are passed."""
+    token = _register_and_login(client, "imggen_multi@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid)  # with_images=True → face_front + body_front refs
+
+    captured: dict = {}
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
             "prompt": "In a cave",
             "include_character": True,
@@ -552,33 +506,30 @@ def test_b19_multi_image_passed_to_provider_when_supported(client: TestClient):
     assert resp.status_code == 200, resp.text
     assert captured.get("anchor_count", 0) >= 1
     meta = resp.json()["metadata_json"]
-    assert meta["anchors_attached"] >= 1
     assert meta["multi_image_used"] is True
-    assert meta["anchor_types"] is not None and len(meta["anchor_types"]) >= 1
+    assert meta["refs_count"] >= 1
 
 
-def test_b19_fallback_to_single_image_when_multi_not_supported(client: TestClient):
-    """When the provider does NOT support multi-image input, generate_with_anchors
-    is not called; instead falls back to generate_grounded_image (single face-ref)."""
-    token = _register_and_login(client, "b19_single@example.com")
+def test_grounded_fallback_when_multi_not_supported(client: TestClient, db_session):
+    """When the provider lacks multi-image, falls back to grounded single-ref."""
+    token = _register_and_login(client, "imggen_grounded@example.com")
     cid = _create_character(client, token)
-    _lock_character(client, token, cid)
+    _setup_canon(db_session, cid)
 
     captured: dict = {}
 
     def _mock_grounded(*, prompt, reference_image_bytes, size="1024x1024"):
         captured["called"] = True
-        captured["prompt"] = prompt
         return _stub_png_bytes()
 
-    mock_provider = MagicMock()
-    mock_provider.supports_multi_image_input = False
-    mock_provider.generate_grounded_image = _mock_grounded
-    mock_provider.generate_image = MagicMock(
+    mock = MagicMock()
+    mock.supports_multi_image_input = False
+    mock.generate_grounded_image = _mock_grounded
+    mock.generate_image = MagicMock(
         side_effect=AssertionError("text should not be called when grounded succeeds")
     )
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
             "prompt": "By a river",
             "include_character": True,
@@ -589,216 +540,124 @@ def test_b19_fallback_to_single_image_when_multi_not_supported(client: TestClien
     assert captured.get("called") is True
     meta = resp.json()["metadata_json"]
     assert meta["multi_image_used"] is False
+    assert meta["used_ref"] is True
 
 
-def test_b19_strict_prompt_contains_required_elements(client: TestClient):
-    """The prompt sent to the provider contains: identity directive, identity lock
-    string, and the user's scene prompt."""
-    token = _register_and_login(client, "b19_prompt@example.com")
+# ── 8. Scene generation is SCENE_ONLY and never mutates canon ─────────
+
+def test_scene_saved_as_scene_only(client: TestClient, db_session):
+    """Character generations save as SCENE_ONLY (not canon, not cover)."""
+    token = _register_and_login(client, "imggen_sceneonly@example.com")
     cid = _create_character(client, token)
-    _lock_character(client, token, cid)
+    _setup_canon(db_session, cid)
 
-    captured: dict = {}
-
-    def _mock_with_anchors(*, prompt, anchor_images, size="1024x1024"):
-        captured["prompt"] = prompt
-        return _stub_png_bytes()
-
-    mock_provider = MagicMock()
-    mock_provider.supports_multi_image_input = True
-    mock_provider.generate_with_anchors = _mock_with_anchors
-    mock_provider.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
-    mock_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_mock_provider_succeeds()):
         resp = _post(client, token, cid, {
-            "prompt": "Riding a horse at sunset",
+            "prompt": "Walking through rain",
             "include_character": True,
             "provider_option": "option1",
         })
 
     assert resp.status_code == 200, resp.text
-    prompt = captured.get("prompt", "")
-    assert "same person" in prompt.lower(), f"Identity directive missing: {prompt!r}"
-    assert "Riding a horse at sunset" in prompt, f"Scene prompt missing: {prompt!r}"
+    data = resp.json()
+    assert data["kind"] == "scene_only"
+    assert data["metadata_json"]["scene_only"] is True
 
 
-def test_b19_include_character_false_path_unchanged(client: TestClient):
-    """When include_character=False, no anchor images are loaded and generate_image
-    is called directly — anchors_attached is not present in metadata."""
-    token = _register_and_login(client, "b19_false_path@example.com")
+def test_scene_generation_does_not_mutate_canon(client: TestClient, db_session):
+    """Generating a scene must not change face/body canon JSON."""
+    from app.models.character_identity_canon import CharacterIdentityCanon
+
+    token = _register_and_login(client, "imggen_nomutate@example.com")
     cid = _create_character(client, token)
+    _setup_canon(db_session, cid, marks=_TATTOO_MARKS, accessories=[_CHAIN_ACC])
 
-    captured: dict = {}
+    before = db_session.query(CharacterIdentityCanon).filter(
+        CharacterIdentityCanon.character_id == cid
+    ).first()
+    face_before, body_before, acc_before = before.face_canon_json, before.body_canon_json, before.accessories_json
 
-    def _mock_generate(*, prompt, size="1024x1024", reference_image_url=None):
-        captured["called"] = True
-        captured["prompt"] = prompt
-        return _stub_png_bytes()
-
-    mock_provider = MagicMock()
-    mock_provider.generate_image = _mock_generate
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_mock_provider_succeeds()):
         resp = _post(client, token, cid, {
-            "prompt": "A quiet library",
-            "include_character": False,
-            "provider_option": "option1",
-        })
-
-    assert resp.status_code == 200, resp.text
-    assert captured.get("called") is True
-    meta = resp.json()["metadata_json"]
-    assert "anchors_attached" not in meta
-    assert meta["strict_identity_mode"] is False
-
-
-def test_b19_metadata_includes_anchor_info(client: TestClient):
-    """When include_character=True, metadata records anchors_attached, anchor_types,
-    and multi_image_used."""
-    token = _register_and_login(client, "b19_meta@example.com")
-    cid = _create_character(client, token)
-    _lock_character(client, token, cid)
-
-    mock_provider = _mock_provider_succeeds()
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
-        resp = _post(client, token, cid, {
-            "prompt": "At a market",
+            "prompt": "Leonardo Baptiste standing on a beach in daylight",
             "include_character": True,
             "provider_option": "option1",
         })
-
     assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    after = db_session.query(CharacterIdentityCanon).filter(
+        CharacterIdentityCanon.character_id == cid
+    ).first()
+    assert after.face_canon_json == face_before
+    assert after.body_canon_json == body_before
+    assert after.accessories_json == acc_before
+
+
+# ── 9. Metadata contract (canon) ──────────────────────────────────────
+
+def test_metadata_fields_plain(client: TestClient):
+    token = _register_and_login(client, "imggen_meta_plain@example.com")
+    cid = _create_character(client, token)
+    resp = _post(client, token, cid, {
+        "prompt": "A city at night",
+        "include_character": False,
+        "provider_option": "option1",
+    })
+    assert resp.status_code == 200
     meta = resp.json()["metadata_json"]
-    assert "anchors_attached" in meta
-    assert "anchor_types" in meta
-    assert "multi_image_used" in meta
-    assert isinstance(meta["anchors_attached"], int)
-    assert isinstance(meta["anchor_types"], list)
+    required = {"image_generator", "provider_option", "provider", "include_character",
+                "prompt", "canon_used", "scene_only"}
+    assert not (required - set(meta.keys()))
 
 
-def test_b19_unsupported_provider_fallback_is_logged(client: TestClient, caplog):
-    """When provider does not support multi-image, the fallback reason is logged."""
-    token = _register_and_login(client, "b19_log@example.com")
+def test_metadata_fields_character(client: TestClient, db_session):
+    token = _register_and_login(client, "imggen_meta_char@example.com")
     cid = _create_character(client, token)
-    _lock_character(client, token, cid)
+    _setup_canon(db_session, cid)
 
-    mock_provider = _mock_provider_single_image_only()
-
-    with caplog.at_level(logging.INFO, logger="app.api.routes.image_generator"):
-        with patch(
-            "app.api.routes.image_generator.get_provider_for_option",
-            return_value=mock_provider,
-        ):
-            resp = _post(client, token, cid, {
-                "prompt": "On a bridge",
-                "include_character": True,
-                "provider_option": "option1",
-            })
-
-    assert resp.status_code == 200, resp.text
-    log_text = " ".join(r.message for r in caplog.records)
-    assert "multi_image_not_supported" in log_text or "anchor_conditioning_fallback" in log_text
-
-
-# ── 8. B21 face anchor prioritisation and generic-face hardening ──────
-
-
-def test_b21_face_anchor_prioritised():
-    """_prioritise_face_anchors duplicates the front anchor at position 0."""
-    from app.api.routes.image_generator import _prioritise_face_anchors
-
-    bytes_front = b"front_bytes"
-    bytes_3q = b"three_quarter_bytes"
-    bytes_torso = b"torso_bytes"
-    loaded_bytes = [bytes_front, bytes_3q, bytes_torso]
-    loaded_keys = ["front", "three_quarter", "torso"]
-
-    result_bytes, result_keys = _prioritise_face_anchors(loaded_bytes, loaded_keys)
-
-    # Front anchor should be at position 0 AND still present in original position
-    assert result_keys[0] == "front", f"First entry should be 'front', got: {result_keys[0]!r}"
-    assert result_keys.count("front") == 2, (
-        f"Front anchor should appear twice after prioritisation, got: {result_keys}"
-    )
-    assert result_bytes[0] == bytes_front, "First bytes entry should be front anchor"
-    # Total length increases by 1
-    assert len(result_bytes) == len(loaded_bytes) + 1
-    assert len(result_keys) == len(loaded_keys) + 1
-
-
-def test_b21_face_anchor_no_front_unchanged():
-    """_prioritise_face_anchors is a no-op when no front anchor is present."""
-    from app.api.routes.image_generator import _prioritise_face_anchors
-
-    bytes_torso = b"torso_bytes"
-    loaded_bytes = [bytes_torso]
-    loaded_keys = ["torso"]
-
-    result_bytes, result_keys = _prioritise_face_anchors(loaded_bytes, loaded_keys)
-
-    assert result_bytes == [bytes_torso]
-    assert result_keys == ["torso"]
-
-
-def test_b21_face_anchor_empty_unchanged():
-    """_prioritise_face_anchors handles empty input gracefully."""
-    from app.api.routes.image_generator import _prioritise_face_anchors
-
-    result_bytes, result_keys = _prioritise_face_anchors([], [])
-    assert result_bytes == []
-    assert result_keys == []
-
-
-def test_b21_face_anchor_boost_recorded_in_metadata(client: TestClient):
-    """When include_character=True and a front anchor exists, face_anchor_boosted=True
-    is recorded in metadata for observability."""
-    token = _register_and_login(client, "b21_boost@example.com")
-    cid = _create_character(client, token)
-    _lock_character(client, token, cid)
-
-    mock_provider = _mock_provider_succeeds()
-
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_mock_provider_succeeds()):
         resp = _post(client, token, cid, {
-            "prompt": "Standing in a garden",
+            "prompt": "Walking through rain",
             "include_character": True,
             "provider_option": "option1",
         })
-
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 200
     meta = resp.json()["metadata_json"]
-    assert "face_anchor_boosted" in meta, "face_anchor_boosted must be recorded in metadata"
-    # Since _lock_character generates a pack with a front anchor, boost should be active
-    assert isinstance(meta["face_anchor_boosted"], bool)
+    required = {"image_generator", "provider_option", "provider", "include_character",
+                "character_id", "prompt", "canon_used", "refs_count",
+                "multi_image_used", "used_ref", "scene_only"}
+    assert not (required - set(meta.keys()))
+    assert meta["canon_used"] is True
+    # No legacy strict-identity keys leak into the new contract.
+    for legacy_key in ("strict_identity_mode", "anchor_types", "anchors_attached", "identity_hash"):
+        assert legacy_key not in meta
 
 
-def test_b21_strict_prefix_mentions_face_structure():
-    """The strict identity prefix explicitly mentions face shape/structure
-    and discourages generic faces, targeting the main drift vector."""
-    from app.api.routes.image_generator import _STRICT_IDENTITY_PREFIX
-
-    prefix_lower = _STRICT_IDENTITY_PREFIX.lower()
-    assert "face shape" in prefix_lower, (
-        f"Prefix should mention 'face shape' for generic-face hardening: {_STRICT_IDENTITY_PREFIX!r}"
-    )
-    assert "generic" in prefix_lower or "average" in prefix_lower, (
-        f"Prefix should discourage generic faces: {_STRICT_IDENTITY_PREFIX!r}"
-    )
-    assert "same person" in prefix_lower, (
-        f"Prefix must retain the identity directive 'same person': {_STRICT_IDENTITY_PREFIX!r}"
-    )
+def test_metadata_records_resolved_provider(client: TestClient):
+    token = _register_and_login(client, "imggen_prov@example.com")
+    cid = _create_character(client, token)
+    resp = _post(client, token, cid, {
+        "prompt": "A red balloon",
+        "include_character": False,
+        "provider_option": "option1",
+    })
+    assert resp.status_code == 200
+    meta = resp.json()["metadata_json"]
+    assert isinstance(meta.get("provider"), str) and meta["provider"]
 
 
-def test_b21_retry_prefix_mentions_face_structure():
-    """The retry prefix also explicitly calls out face shape for the escalated path."""
-    from app.api.routes.image_generator import _STRICT_IDENTITY_RETRY_PREFIX
+# ── 10. Ownership / auth ──────────────────────────────────────────────
 
-    retry_lower = _STRICT_IDENTITY_RETRY_PREFIX.lower()
-    assert "face shape" in retry_lower, (
-        f"Retry prefix should mention 'face shape': {_STRICT_IDENTITY_RETRY_PREFIX!r}"
-    )
-    assert "no generic" in retry_lower or "generic" in retry_lower, (
-        f"Retry prefix should discourage generic faces: {_STRICT_IDENTITY_RETRY_PREFIX!r}"
-    )
+def test_other_user_cannot_generate(client: TestClient, db_session):
+    owner = _register_and_login(client, "imggen_owner@example.com")
+    cid = _create_character(client, owner)
+    _setup_canon(db_session, cid)
+
+    other = _register_and_login(client, "imggen_other@example.com")
+    resp = _post(client, other, cid, {
+        "prompt": "Trespassing",
+        "include_character": True,
+        "provider_option": "option1",
+    })
+    assert resp.status_code == 403

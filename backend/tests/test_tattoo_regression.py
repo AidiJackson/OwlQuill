@@ -89,24 +89,78 @@ def seeded_presets(db_session):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Bug 1 — lazy sync: stale body_canon_json is backfilled at generate time
+# Canon contract — tattoos are CharacterIdentityCanon permanent marks, and
+# CharacterStyleElements are shop data only (never identity truth in generation).
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TestLazyBodyCanonSync:
-    """generate_image must backfill body_canon_json before reading markings."""
+from tests.canon_test_utils import setup_canon  # noqa: E402
 
-    def test_stale_null_body_canon_is_backfilled_during_generation(
+
+def _capture_provider(captured: dict) -> MagicMock:
+    def _with_anchors(*, prompt, anchor_images, size="1024x1024"):
+        captured["prompt"] = prompt
+        return _STUB_PNG
+
+    def _grounded(*, prompt, reference_image_bytes, size="1024x1024"):
+        captured.setdefault("prompt", prompt)
+        return _STUB_PNG
+
+    def _text(*, prompt, size="1024x1024", reference_image_url=None):
+        captured.setdefault("prompt", prompt)
+        return _STUB_PNG
+
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = _with_anchors
+    mock.generate_grounded_image = _grounded
+    mock.generate_image = _text
+    return mock
+
+
+class TestCanonDrivesMarkings:
+    """Generation reads permanent marks from CharacterIdentityCanon only."""
+
+    _WOLF = {
+        "label": "Right Arm Tribal Wolf Mark",
+        "type": "tattoo",
+        "body_region": "right_full_arm",
+        "side": "right",
+        "description": "tribal wolf tattoo sleeve",
+    }
+
+    def test_canon_marks_drive_prompt(self, client: TestClient, db_session):
+        """A canon permanent mark appears in the compiled prompt."""
+        token = _register_and_login(client, "tr_canon1@test.com")
+        cid = _create_character(client, token, "CanonMarkChar")
+        setup_canon(db_session, cid, marks=[self._WOLF], with_images=False)
+
+        captured: dict = {}
+        with patch(
+            "app.api.routes.image_generator.get_provider_for_option",
+            return_value=_capture_provider(captured),
+        ):
+            resp = client.post(
+                f"/characters/{cid}/image-generator/generate",
+                json={
+                    "prompt": "standing in a sleeveless shirt",
+                    "include_character": True,
+                    "provider_option": "option1",
+                },
+                headers=auth_headers(token),
+            )
+        assert resp.status_code == 200, resp.text
+        prompt = captured.get("prompt", "")
+        assert "PERMANENT BODY MARKS" in prompt
+        assert "right_full_arm" in prompt and "right side" in prompt
+
+    def test_style_element_is_not_identity_truth(
         self, client: TestClient, db_session, seeded_presets
     ):
-        """After clearing body_canon_json, a tattoo style element must be
-        re-synced automatically when generate_image runs."""
-        from app.models.character import Character
-        from app.services.body_canon import load_markings
+        """An active tattoo style element (shop data) must NOT leak into the
+        compiled prompt — identity truth comes only from canon marks."""
+        token = _register_and_login(client, "tr_canon2@test.com")
+        cid = _create_character(client, token, "StyleNotTruth")
 
-        token = _register_and_login(client, "tr_lazysync1@test.com")
-        cid = _create_character(client, token, "LazySyncChar1")
-
-        # Apply a tattoo style element (this initially syncs body_canon_json)
         presets = client.get("/style-shops/presets?shop_type=tattoo").json()
         assert presets, "Need at least one tattoo preset"
         client.post(
@@ -114,106 +168,46 @@ class TestLazyBodyCanonSync:
             json={"preset_id": presets[0]["id"]},
             headers=auth_headers(token),
         )
+        token_text = presets[0]["prompt_token"].split(",")[0].strip().lower()
 
-        # Lock the character
-        _lock_character(client, token, cid)
+        # Canon has NO permanent marks — the style element must not appear.
+        setup_canon(db_session, cid, with_images=False)
 
-        # Simulate stale state: wipe body_canon_json
-        char = db_session.query(Character).filter(Character.id == cid).first()
-        char.body_canon_json = None
-        db_session.commit()
-        db_session.expire_all()
-
-        char = db_session.query(Character).filter(Character.id == cid).first()
-        assert char.body_canon_json is None, "Precondition: body_canon_json must be null"
-
-        # Generate an image — the lazy sync inside generate_image should repopulate
+        captured: dict = {}
         with patch(
             "app.api.routes.image_generator.get_provider_for_option",
-            return_value=_mock_provider(),
+            return_value=_capture_provider(captured),
         ):
             resp = client.post(
                 f"/characters/{cid}/image-generator/generate",
                 json={
-                    "prompt": "Leonardo standing in a white sleeveless shirt and jeans",
+                    "prompt": "sleeveless shirt arms visible",
                     "include_character": True,
                     "provider_option": "option1",
                 },
                 headers=auth_headers(token),
             )
         assert resp.status_code == 200, resp.text
+        prompt = captured.get("prompt", "").lower()
+        assert token_text not in prompt
+        assert "PERMANENT BODY MARKS" not in captured.get("prompt", "")
 
-        # body_canon_json must be repopulated after generation
-        db_session.expire_all()
-        char = db_session.query(Character).filter(Character.id == cid).first()
-        markings = load_markings(char)
-        assert len(markings) >= 1, (
-            "body_canon_json must be backfilled from active style elements during generation; "
-            f"got body_canon_json={char.body_canon_json!r}"
-        )
+    def test_generation_requires_canon(self, client: TestClient):
+        """include_character=True without canon returns a graceful 409."""
+        token = _register_and_login(client, "tr_canon3@test.com")
+        cid = _create_character(client, token, "NoCanonChar")
 
-    def test_body_canon_sync_idempotent_during_generation(
-        self, client: TestClient, db_session, seeded_presets
-    ):
-        """Multiple generate calls must not duplicate body_canon_json markings."""
-        from app.models.character import Character
-        from app.services.body_canon import load_markings
-
-        token = _register_and_login(client, "tr_lazysync2@test.com")
-        cid = _create_character(client, token, "LazySyncChar2")
-
-        presets = client.get("/style-shops/presets?shop_type=tattoo").json()
-        client.post(
-            f"/characters/{cid}/style-elements",
-            json={"preset_id": presets[0]["id"]},
+        resp = client.post(
+            f"/characters/{cid}/image-generator/generate",
+            json={
+                "prompt": "sleeveless shirt",
+                "include_character": True,
+                "provider_option": "option1",
+            },
             headers=auth_headers(token),
         )
-        _lock_character(client, token, cid)
-
-        with patch(
-            "app.api.routes.image_generator.get_provider_for_option",
-            return_value=_mock_provider(),
-        ):
-            for _ in range(3):
-                client.post(
-                    f"/characters/{cid}/image-generator/generate",
-                    json={
-                        "prompt": "sleeveless shirt arms visible",
-                        "include_character": True,
-                    },
-                    headers=auth_headers(token),
-                )
-
-        db_session.expire_all()
-        char = db_session.query(Character).filter(Character.id == cid).first()
-        markings = load_markings(char)
-        # Each active style element produces exactly ONE marking (idempotent by slug tag)
-        assert len(markings) == 1, (
-            f"Expected 1 marking after 3 generate calls; got {len(markings)}"
-        )
-
-    def test_no_style_elements_body_canon_stays_empty(
-        self, client: TestClient, db_session, seeded_presets
-    ):
-        """When a character has no active tattoo style elements, body_canon_json
-        stays null/empty and generation still succeeds."""
-        token = _register_and_login(client, "tr_lazysync3@test.com")
-        cid = _create_character(client, token, "LazySyncNoTattoo")
-        _lock_character(client, token, cid)
-
-        with patch(
-            "app.api.routes.image_generator.get_provider_for_option",
-            return_value=_mock_provider(),
-        ):
-            resp = client.post(
-                f"/characters/{cid}/image-generator/generate",
-                json={
-                    "prompt": "sleeveless shirt",
-                    "include_character": True,
-                },
-                headers=auth_headers(token),
-            )
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Character canon incomplete"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

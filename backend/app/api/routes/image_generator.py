@@ -1204,7 +1204,8 @@ def generate_image(
     used_ref = False
 
     # ── Generate: multi-image → grounded → text-only → fal → stub ──
-    if provider is not None and ref_bytes:
+    provider_supports_multi = bool(getattr(provider, "supports_multi_image_input", False))
+    if provider is not None and ref_bytes and provider_supports_multi:
         try:
             png_bytes = provider.generate_with_anchors(
                 prompt=compiled_prompt,
@@ -1270,7 +1271,7 @@ def generate_image(
             include_accessories=True,
         )
         cover_retry_png: bytes | None = None
-        if ref_bytes:
+        if ref_bytes and provider_supports_multi:
             try:
                 cover_retry_png = provider.generate_with_anchors(prompt=retry_prompt, anchor_images=ref_bytes)
             except (ValueError, RuntimeError, NotImplementedError, AttributeError):

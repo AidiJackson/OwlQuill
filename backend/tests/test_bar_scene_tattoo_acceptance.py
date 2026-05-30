@@ -497,8 +497,15 @@ class TestPoolTableFalsePositive:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Suite 8 — Endpoint integration: prompt + ref pipeline through the real route
+# Suite 8 — Endpoint integration through the CharacterIdentityCanon contract
+#
+# Identity truth (face/body/marks/accessories) comes only from canon, compiled by
+# canon_compiler. There is no legacy body_identity anchor_types / clothing-coverage
+# prompt partitioning — permanent marks are listed in one PERMANENT BODY MARKS
+# section and protected by the locked-canon clause.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+from tests.canon_test_utils import setup_canon  # noqa: E402
 
 _STUB_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
@@ -507,21 +514,28 @@ _STUB_PNG = (
     b"\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
 )
 
-_WOLF_CANON = {
+# Canon permanent marks — wolf (right arm) + scripture sleeve (left arm).
+_WOLF_MARK = {
+    "label": "Right Arm Wolf Mark",
     "type": "tattoo",
-    "placement": "right_upper_arm",
-    "style": "grey wolf howling tattoo",
-    "size": "large",
-    "description": "Wolf howling at the moon, grey ink, right upper arm",
+    "body_region": "right_full_arm",
+    "side": "right",
+    "description": "wolf howling at the moon, grey ink",
+}
+_SCRIPTURE_MARK = {
+    "label": "Left Arm Scripture Sleeve",
+    "type": "tattoo",
+    "body_region": "left_full_arm",
+    "side": "left",
+    "description": "scripture sleeve, bible verses and crosses, black ink",
 }
 
-_SCRIPTURE_CANON = {
-    "type": "tattoo",
-    "placement": "left_full_arm",
-    "style": "scripture sleeve black ink lettering tattoo",
-    "size": "full_sleeve",
-    "description": "Bible verses and crosses, black ink, left arm shoulder to wrist",
-}
+
+@pytest.fixture(autouse=True)
+def _local_storage(monkeypatch):
+    """Deterministic local disk storage (env may default to R2)."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "USE_OBJECT_STORAGE", False)
 
 
 def _reg_login(client: TestClient, email: str) -> str:
@@ -545,513 +559,96 @@ def _create_char(client: TestClient, token: str) -> int:
     return resp.json()["id"]
 
 
-def _setup_tattooed_character(client: TestClient, db_session, email: str):
-    """Create a character and directly write a locked identity_anchor_json with
-    wolf + scripture body canon and body_front / body_left_detail slots into the
-    DB — bypassing the identity-pack generate/accept flow to avoid table
-    registration order issues with `character_images`.
-
-    Returns (token, character_id).
-    """
-    from app.models.character import Character
-
+def _setup_canon_char(client: TestClient, db_session, email: str):
+    """Create a character with a populated canon: wolf + scripture permanent marks."""
     token = _reg_login(client, email)
     cid = _create_char(client, token)
-
-    char = db_session.query(Character).filter(Character.id == cid).first()
-    char.visual_locked = True
-    char.body_canon_json = json.dumps({"markings": [_WOLF_CANON, _SCRIPTURE_CANON]})
-    char.identity_anchor_json = json.dumps({
-        "version": 1,
-        "pack_version": 1,
-        "style": "realistic",
-        "identity_lock_string": "IDENTITY: character with wolf and scripture tattoos",
-        "anchors": {
-            "front": {"url": "/static/generated/stub_front.png", "id": 1},
-        },
-        "body_slots": {
-            "body_front": {
-                "url": "/static/generated/stub_body_front.png",
-                "status": "locked",
-            },
-            "body_left_detail": {
-                "url": "/static/generated/stub_body_left_detail.png",
-                "status": "locked",
-            },
-        },
-        "pack_stages": {"face": "locked", "body": "missing", "marks": "missing"},
-    })
-
-    db_session.commit()
-    db_session.expire_all()
-
+    setup_canon(db_session, cid, marks=[_WOLF_MARK, _SCRIPTURE_MARK], with_images=False)
     return token, cid
 
 
-def _generate(client: TestClient, token: str, cid: int, prompt: str) -> dict:
-    """Call the image-generator endpoint and return (response, captured_provider_args)."""
+def _generate(client: TestClient, token: str, cid: int, prompt: str):
+    """Call the image-generator endpoint; capture the compiled provider prompt."""
     captured: dict = {}
 
     def _with_anchors(*, prompt, anchor_images, size="1024x1024"):
         captured["prompt"] = prompt
-        captured["anchor_count"] = len(anchor_images)
+        return _STUB_PNG
+
+    def _grounded(*, prompt, reference_image_bytes, size="1024x1024"):
+        captured.setdefault("prompt", prompt)
+        return _STUB_PNG
+
+    def _text(*, prompt, size="1024x1024", reference_image_url=None):
+        captured.setdefault("prompt", prompt)
         return _STUB_PNG
 
     mock_provider = MagicMock()
     mock_provider.supports_multi_image_input = True
     mock_provider.generate_with_anchors = _with_anchors
-    mock_provider.generate_grounded_image = MagicMock(return_value=_STUB_PNG)
-    mock_provider.generate_image = MagicMock(return_value=_STUB_PNG)
+    mock_provider.generate_grounded_image = _grounded
+    mock_provider.generate_image = _text
 
-    with (
-        patch(
-            "app.api.routes.image_generator.get_provider_for_option",
-            return_value=mock_provider,
-        ),
-        patch(
-            "app.api.routes.image_generator.load_image_bytes",
-            return_value=_STUB_PNG,
-        ),
+    with patch(
+        "app.api.routes.image_generator.get_provider_for_option",
+        return_value=mock_provider,
     ):
         resp = client.post(
             f"/characters/{cid}/image-generator/generate",
             json={"prompt": prompt, "include_character": True, "provider_option": "option1"},
             headers={"Authorization": f"Bearer {token}"},
         )
-
     return resp, captured
 
 
-class TestEndpointIntegration:
-    """Acceptance baseline through the real FastAPI route.
+class TestCanonEndpointIntegration:
+    """End-to-end route behaviour under the canon contract."""
 
-    Each test verifies that the actual provider receives the correct prompt
-    and anchor set for a bar-scene t-shirt generation — proving end-to-end
-    pipeline behaviour, not just helper-level logic.
+    def test_both_marks_in_permanent_section(self, client: TestClient, db_session):
+        token, cid = _setup_canon_char(client, db_session, "ep_canon_marks@bartest.com")
+        resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
+        assert resp.status_code == 200, resp.text
+        prompt = captured.get("prompt", "")
+        assert "PERMANENT BODY MARKS" in prompt
+        assert "right_full_arm" in prompt and "right side" in prompt
+        assert "left_full_arm" in prompt and "left side" in prompt
+        assert "wolf" in prompt.lower() and "scripture" in prompt.lower()
 
-    Setup: character has wolf (right_upper_arm) + scripture sleeve (left_full_arm).
-    Garment: t-shirt / short-sleeve (standard bar-scene choice).
+    def test_locked_canon_clause_forbids_mirroring(self, client: TestClient, db_session):
+        token, cid = _setup_canon_char(client, db_session, "ep_canon_mirror@bartest.com")
+        resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
+        assert resp.status_code == 200, resp.text
+        prompt = captured.get("prompt", "").lower()
+        assert "mirror" in prompt and "relocate" in prompt
 
-    Expected outcome — same as the unit-level suites above, validated here at
-    the route level by inspecting generate_with_anchors call arguments and the
-    response metadata:
-        1. body_identity:body_front in anchor_types
-        2. body_identity:body_left_detail in anchor_types
-        3. Scripture sleeve in PERMANENT BODY MARKINGS (visible) section
-        4. Wolf in COVERED BY CLOTHING (hidden) section
-        5. Wolf text absent from the PERMANENT visible section
-        6. Scripture text absent from the COVERED section
-    """
-
-    def test_body_front_ref_in_anchor_types(self, client: TestClient, db_session):
-        """body_identity:body_front must reach generate_with_anchors for bar scenes."""
-        token, cid = _setup_tattooed_character(
-            client, db_session, "ep_int_bf@bartest.com"
-        )
+    def test_no_legacy_metadata(self, client: TestClient, db_session):
+        token, cid = _setup_canon_char(client, db_session, "ep_canon_meta@bartest.com")
         resp, _ = _generate(client, token, cid, _BAR_PROMPT_1)
         assert resp.status_code == 200, resp.text
-        anchor_types = resp.json()["metadata_json"].get("anchor_types", [])
-        assert "body_identity:body_front" in anchor_types, (
-            f"body_identity:body_front missing from anchor_types: {anchor_types}"
-        )
-
-    def test_body_left_detail_ref_in_anchor_types(self, client: TestClient, db_session):
-        """body_identity:body_left_detail (scripture sleeve ref) must be in anchor_types."""
-        token, cid = _setup_tattooed_character(
-            client, db_session, "ep_int_ld@bartest.com"
-        )
-        resp, _ = _generate(client, token, cid, _BAR_PROMPT_1)
-        assert resp.status_code == 200, resp.text
-        anchor_types = resp.json()["metadata_json"].get("anchor_types", [])
-        assert "body_identity:body_left_detail" in anchor_types, (
-            f"body_identity:body_left_detail missing from anchor_types: {anchor_types}"
-        )
-
-    def test_scripture_sleeve_in_visible_section_of_prompt(
-        self, client: TestClient, db_session
-    ):
-        """Scripture sleeve must appear in the PERMANENT BODY MARKINGS visible section."""
-        token, cid = _setup_tattooed_character(
-            client, db_session, "ep_int_sc@bartest.com"
-        )
-        resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
-        assert resp.status_code == 200, resp.text
-        prompt = captured.get("prompt", "")
-        assert "PERMANENT BODY MARKINGS" in prompt, (
-            f"PERMANENT BODY MARKINGS section missing from provider prompt: {prompt!r}"
-        )
-        perm_end = (
-            prompt.index("COVERED BY CLOTHING")
-            if "COVERED BY CLOTHING" in prompt
-            else len(prompt)
-        )
-        visible_section = prompt[prompt.index("PERMANENT BODY MARKINGS"):perm_end]
-        assert "scripture" in visible_section.lower() or "bible" in visible_section.lower(), (
-            f"Scripture sleeve not in visible section of prompt.\n"
-            f"Visible section: {visible_section!r}\n"
-            f"Full prompt: {prompt!r}"
-        )
-
-    def test_wolf_in_covered_section_of_prompt(self, client: TestClient, db_session):
-        """Wolf tattoo must appear in the COVERED BY CLOTHING section, not the visible section."""
-        token, cid = _setup_tattooed_character(
-            client, db_session, "ep_int_wf@bartest.com"
-        )
-        resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
-        assert resp.status_code == 200, resp.text
-        prompt = captured.get("prompt", "")
-        assert "COVERED BY CLOTHING" in prompt, (
-            f"COVERED BY CLOTHING section missing from provider prompt: {prompt!r}"
-        )
-        covered_section = prompt[prompt.index("COVERED BY CLOTHING"):]
-        assert "wolf" in covered_section.lower(), (
-            f"Wolf tattoo not found in COVERED BY CLOTHING section.\n"
-            f"Covered section: {covered_section!r}\n"
-            f"Full prompt: {prompt!r}"
-        )
-
-    def test_wolf_absent_from_permanent_visible_section(
-        self, client: TestClient, db_session
-    ):
-        """Wolf must NOT appear in the PERMANENT BODY MARKINGS (visible) section — it is
-        covered by the t-shirt and must not be rendered as exposed skin art."""
-        token, cid = _setup_tattooed_character(
-            client, db_session, "ep_int_nowolf@bartest.com"
-        )
-        resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
-        assert resp.status_code == 200, resp.text
-        prompt = captured.get("prompt", "")
-        if "PERMANENT BODY MARKINGS" not in prompt or "COVERED BY CLOTHING" not in prompt:
-            pytest.skip("Prompt does not contain expected section markers — cannot assert placement")
-        visible_section = prompt[
-            prompt.index("PERMANENT BODY MARKINGS"):prompt.index("COVERED BY CLOTHING")
-        ]
-        assert "wolf" not in visible_section.lower(), (
-            f"Wolf should NOT appear in the visible PERMANENT section (it is covered).\n"
-            f"Visible section: {visible_section!r}"
-        )
-
-    def test_scripture_absent_from_covered_section(self, client: TestClient, db_session):
-        """Scripture sleeve must NOT appear in the COVERED section — forearm is exposed
-        through a t-shirt (sleeve exception applies to full-arm markings)."""
-        token, cid = _setup_tattooed_character(
-            client, db_session, "ep_int_nosc@bartest.com"
-        )
-        resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
-        assert resp.status_code == 200, resp.text
-        prompt = captured.get("prompt", "")
-        if "COVERED BY CLOTHING" not in prompt:
-            pytest.skip("No COVERED BY CLOTHING section present — sleeve may be fully exposed")
-        covered_section = prompt[prompt.index("COVERED BY CLOTHING"):]
-        assert "scripture" not in covered_section.lower() and "bible" not in covered_section.lower(), (
-            f"Scripture sleeve must NOT be in COVERED section (sleeve exception).\n"
-            f"Covered section: {covered_section!r}"
-        )
+        meta = resp.json()["metadata_json"]
+        assert meta["canon_used"] is True
+        for legacy_key in ("anchor_types", "strict_identity_mode", "identity_hash"):
+            assert legacy_key not in meta
 
     @pytest.mark.parametrize("bar_prompt", _BAR_PROMPTS)
     def test_endpoint_returns_200_for_all_bar_prompts(
         self, client: TestClient, db_session, bar_prompt: str
     ):
-        """The endpoint must return 200 for every representative bar-scene prompt
-        with a tattooed character — proving no crash in the coverage pipeline."""
         email = "ep_200_" + bar_prompt[:12].replace(" ", "").replace(",", "") + "@bt.com"
-        token, cid = _setup_tattooed_character(client, db_session, email)
-        resp, _ = _generate(client, token, cid, bar_prompt)
+        token, cid = _setup_canon_char(client, db_session, email)
+        resp, captured = _generate(client, token, cid, bar_prompt)
         assert resp.status_code == 200, (
             f"Endpoint returned {resp.status_code} for bar prompt: {bar_prompt!r}\n{resp.text}"
         )
+        assert "PERMANENT BODY MARKS" in captured.get("prompt", "")
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Suite 9 — Real provider acceptance baseline (no get_provider_for_option mock)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-class TestRealProviderAcceptanceBaseline:
-    """Acceptance baseline — real provider selection, only HTTP call is mocked.
-
-    `get_provider_for_option` is NOT mocked.  The real _OpenAIImageProvider
-    instance is selected, giving `supports_multi_image_input=True` from the
-    actual class attribute.  The only things patched are:
-
-      • _OpenAIImageProvider._generate_with_anchors — replaces the live OpenAI
-        HTTPS call with a stub PNG response (avoids API cost / missing key 503)
-      • _OpenAIImageProvider._generate              — same for the single-image path
-      • load_image_bytes                            — returns stub bytes for the
-        test-injected body-slot URLs (not real character images on disk)
-      • save_image                                  — returns a deterministic
-        fake URL so storage infrastructure is bypassed
-
-    Result: the full pipeline runs with the REAL provider object — provider
-    selection, capability flag (`supports_multi_image_input`), ref loading,
-    prompt assembly, anchor ordering, and metadata construction all exercise
-    production code.  This is the maximum achievable automated evidence in a
-    keyless CI environment.
-
-    Pass/fail criteria:
-        ✅  HTTP 200 (no pipeline crash with real provider object)
-        ✅  body_identity:body_front in anchor_types
-        ✅  body_identity:body_left_detail in anchor_types
-        ✅  anchors_attached >= 2
-        ✅  provider name recorded in metadata
-
-    Visual criteria (wolf covered, scripture exposed, no mirroring) are
-    asserted at the prompt-text level in TestEndpointIntegration (Suite 8).
-    """
-
-    _FAKE_URL = "https://r2.example.com/generated/acceptance_baseline_stub.png"
-
-    @contextmanager
-    def _real_provider_ctx(self):
-        """Patch only the key-guard and HTTP layer; provider selection + capability flags are real.
-
-        _OpenAIImageProvider.__init__ raises RuntimeError when OPENAI_API_KEY is absent.
-        Patching __init__ to skip the guard lets get_provider_for_option("option1")
-        return a real _OpenAIImageProvider instance — with supports_multi_image_input=True
-        from its class attribute — without needing a live API key.
-        _generate_with_anchors and _generate are then patched to return stub bytes,
-        replacing only the outbound HTTPS call to OpenAI.
-        """
-        def _noop_init(self_inner):
-            self_inner._client = None  # unused; generate methods are patched below
-
-        with (
-            patch(
-                "app.services.image_provider._OpenAIImageProvider.__init__",
-                _noop_init,
-            ),
-            patch(
-                "app.services.image_provider._OpenAIImageProvider._generate_with_anchors",
-                return_value=_STUB_PNG,
-            ),
-            patch(
-                "app.services.image_provider._OpenAIImageProvider._generate",
-                return_value=_STUB_PNG,
-            ),
-            patch(
-                "app.api.routes.image_generator.load_image_bytes",
-                return_value=_STUB_PNG,
-            ),
-            patch(
-                "app.api.routes.image_generator.save_image",
-                return_value=self._FAKE_URL,
-            ),
-        ):
-            yield
-
-    def _run(self, client: TestClient, db_session, email: str, bar_prompt: str):
-        token, cid = _setup_tattooed_character(client, db_session, email)
-        with self._real_provider_ctx():
-            resp = client.post(
-                f"/characters/{cid}/image-generator/generate",
-                json={
-                    "prompt": bar_prompt,
-                    "include_character": True,
-                    "provider_option": "option1",
-                },
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        return resp, cid
-
-    def test_generation_1_bar_counter_shirt_jeans(
-        self, client: TestClient, db_session
-    ):
-        """Generation 1 of 3: bar counter, fitted black t-shirt, jeans.
-
-        Character: wolf tattoo (right_upper_arm, covered by shirt) +
-                   scripture sleeve (left_full_arm, forearm exposed).
-        Acceptance criteria: HTTP 200, both body-identity refs in anchor_types."""
-        resp, _ = self._run(
-            client, db_session, "baseline_g1@acceptance.com", _BAR_PROMPT_1
+    def test_missing_canon_returns_409(self, client: TestClient):
+        token = _reg_login(client, "ep_canon_missing@bartest.com")
+        cid = _create_char(client, token)
+        resp = client.post(
+            f"/characters/{cid}/image-generator/generate",
+            json={"prompt": _BAR_PROMPT_1, "include_character": True, "provider_option": "option1"},
+            headers={"Authorization": f"Bearer {token}"},
         )
-        assert resp.status_code == 200, (
-            f"BASELINE FAIL generation 1 — {resp.status_code}: {resp.text}"
-        )
-        meta = resp.json()["metadata_json"]
-        anchor_types = meta.get("anchor_types", [])
-        assert "body_identity:body_front" in anchor_types, (
-            f"BASELINE FAIL — body_identity:body_front missing. anchor_types={anchor_types}"
-        )
-        assert "body_identity:body_left_detail" in anchor_types, (
-            f"BASELINE FAIL — body_identity:body_left_detail missing. anchor_types={anchor_types}"
-        )
-        assert meta.get("anchors_attached", 0) >= 2, (
-            f"BASELINE FAIL — anchors_attached too low: {meta.get('anchors_attached')}"
-        )
-
-    def test_generation_2_short_sleeve_arms_crossed(
-        self, client: TestClient, db_session
-    ):
-        """Generation 2 of 3: leaning against wall, short-sleeve shirt, arms crossed.
-
-        Short sleeve → forearm is visible → scripture sleeve forearm must appear exposed.
-        Acceptance criteria: HTTP 200, both body-identity refs in anchor_types."""
-        resp, _ = self._run(
-            client, db_session, "baseline_g2@acceptance.com", _BAR_PROMPT_2
-        )
-        assert resp.status_code == 200, (
-            f"BASELINE FAIL generation 2 — {resp.status_code}: {resp.text}"
-        )
-        meta = resp.json()["metadata_json"]
-        anchor_types = meta.get("anchor_types", [])
-        assert "body_identity:body_front" in anchor_types, (
-            f"BASELINE FAIL — body_identity:body_front missing. anchor_types={anchor_types}"
-        )
-        assert "body_identity:body_left_detail" in anchor_types, (
-            f"BASELINE FAIL — body_identity:body_left_detail missing. anchor_types={anchor_types}"
-        )
-
-    def test_generation_3_high_top_table_whiskey(
-        self, client: TestClient, db_session
-    ):
-        """Generation 3 of 3: high-top table, t-shirt and dark jeans, glass of whiskey.
-
-        Acceptance criteria: HTTP 200, both body-identity refs in anchor_types."""
-        resp, _ = self._run(
-            client, db_session, "baseline_g3@acceptance.com", _BAR_PROMPT_3
-        )
-        assert resp.status_code == 200, (
-            f"BASELINE FAIL generation 3 — {resp.status_code}: {resp.text}"
-        )
-        meta = resp.json()["metadata_json"]
-        anchor_types = meta.get("anchor_types", [])
-        assert "body_identity:body_front" in anchor_types, (
-            f"BASELINE FAIL — body_identity:body_front missing. anchor_types={anchor_types}"
-        )
-        assert "body_identity:body_left_detail" in anchor_types, (
-            f"BASELINE FAIL — body_identity:body_left_detail missing. anchor_types={anchor_types}"
-        )
-
-    def test_provider_name_and_anchor_count_in_metadata(
-        self, client: TestClient, db_session
-    ):
-        """Provider name must be recorded in metadata; anchors_attached must reflect refs sent."""
-        resp, _ = self._run(
-            client, db_session, "baseline_meta@acceptance.com", _BAR_PROMPT_1
-        )
-        assert resp.status_code == 200, resp.text
-        meta = resp.json()["metadata_json"]
-        assert isinstance(meta.get("provider"), str) and len(meta["provider"]) > 0, (
-            f"BASELINE FAIL — provider not recorded in metadata: {meta}"
-        )
-        assert meta.get("anchors_attached", 0) >= 2, (
-            f"BASELINE FAIL — anchors_attached={meta.get('anchors_attached')} (expected ≥2)"
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Suite 10 — Live provider integration (opt-in, skipped without OPENAI_API_KEY)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_HAS_LIVE_KEY = bool(os.environ.get("OPENAI_API_KEY"))
-
-
-@pytest.mark.skipif(
-    not _HAS_LIVE_KEY,
-    reason=(
-        "Live provider integration test — requires OPENAI_API_KEY in environment. "
-        "Set OPENAI_API_KEY to run true end-to-end bar-scene generation with no stubs. "
-        "In CI/CD without a key this class is skipped automatically."
-    ),
-)
-class TestLiveProviderIntegration:
-    """True end-to-end acceptance: real OpenAI API, no generation-method stubs.
-
-    This class is automatically SKIPPED when OPENAI_API_KEY is absent (standard CI).
-    Run it in a live environment:
-        OPENAI_API_KEY=sk-... pytest -k TestLiveProviderIntegration -v -s
-
-    Nothing is mocked except load_image_bytes (body-slot URLs are test-injected
-    placeholder paths). get_provider_for_option, _generate_with_anchors, and
-    _generate all run through production code against the real OpenAI API.
-
-    Visual criteria verified by inspecting the returned image URLs:
-        ✅  Wolf tattoo (right_upper_arm) hidden under shirt
-        ✅  Scripture sleeve forearm visible on left arm
-        ✅  No mirroring (arm-side lock string in prompt)
-        ✅  body_identity:body_front in anchor_types
-        ✅  body_identity:body_left_detail in anchor_types
-        ✅  HTTP 200 — no crash
-
-    Outcome URLs printed to stdout for manual visual review and archiving
-    in the acceptance baseline document.
-    """
-
-    def _live_run(self, client: TestClient, db_session, email: str, bar_prompt: str):
-        """Run one bar-scene generation with NO generation-method stubs."""
-        token, cid = _setup_tattooed_character(client, db_session, email)
-        # Only mock load_image_bytes for the test-injected stub slot paths;
-        # everything else — provider selection, _generate_with_anchors, _generate — is real.
-        with patch("app.api.routes.image_generator.load_image_bytes", return_value=_STUB_PNG):
-            resp = client.post(
-                f"/characters/{cid}/image-generator/generate",
-                json={
-                    "prompt": bar_prompt,
-                    "include_character": True,
-                    "provider_option": "option1",
-                },
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        return resp, cid
-
-    def test_live_generation_1_bar_counter(self, client: TestClient, db_session):
-        """Live generation 1: bar counter, fitted black t-shirt, jeans.
-
-        Visual review: wolf (right upper arm) must be hidden under shirt;
-        scripture sleeve forearm must be visible on left arm.
-        Image URL printed to stdout — archive in baseline doc after review."""
-        resp, cid = self._live_run(
-            client, db_session, "live_g1@example.com", _BAR_PROMPT_1
-        )
-        assert resp.status_code == 200, (
-            f"LIVE FAIL generation 1 — {resp.status_code}: {resp.text}"
-        )
-        body = resp.json()
-        meta = body.get("metadata_json", {})
-        anchor_types = meta.get("anchor_types", [])
-        image_url = body.get("url") or body.get("file_path")
-        print(f"\n[LIVE-G1] image_url={image_url}")
-        print(f"[LIVE-G1] anchor_types={anchor_types}")
-        print(f"[LIVE-G1] anchors_attached={meta.get('anchors_attached')}")
-        assert "body_identity:body_front" in anchor_types
-        assert "body_identity:body_left_detail" in anchor_types
-        assert meta.get("anchors_attached", 0) >= 2
-
-    def test_live_generation_2_short_sleeve(self, client: TestClient, db_session):
-        """Live generation 2: short-sleeve shirt, arms crossed.
-
-        Short sleeve exposes forearm — scripture sleeve forearm must appear.
-        Image URL printed to stdout for manual review."""
-        resp, cid = self._live_run(
-            client, db_session, "live_g2@example.com", _BAR_PROMPT_2
-        )
-        assert resp.status_code == 200, (
-            f"LIVE FAIL generation 2 — {resp.status_code}: {resp.text}"
-        )
-        body = resp.json()
-        meta = body.get("metadata_json", {})
-        anchor_types = meta.get("anchor_types", [])
-        image_url = body.get("url") or body.get("file_path")
-        print(f"\n[LIVE-G2] image_url={image_url}")
-        print(f"[LIVE-G2] anchor_types={anchor_types}")
-        assert "body_identity:body_front" in anchor_types
-        assert "body_identity:body_left_detail" in anchor_types
-
-    def test_live_generation_3_whiskey_table(self, client: TestClient, db_session):
-        """Live generation 3: high-top table, t-shirt, glass of whiskey.
-
-        Image URL printed to stdout for manual review."""
-        resp, cid = self._live_run(
-            client, db_session, "live_g3@example.com", _BAR_PROMPT_3
-        )
-        assert resp.status_code == 200, (
-            f"LIVE FAIL generation 3 — {resp.status_code}: {resp.text}"
-        )
-        body = resp.json()
-        meta = body.get("metadata_json", {})
-        anchor_types = meta.get("anchor_types", [])
-        image_url = body.get("url") or body.get("file_path")
-        print(f"\n[LIVE-G3] image_url={image_url}")
-        print(f"[LIVE-G3] anchor_types={anchor_types}")
-        assert "body_identity:body_front" in anchor_types
-        assert "body_identity:body_left_detail" in anchor_types
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Character canon incomplete"
