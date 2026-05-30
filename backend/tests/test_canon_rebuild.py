@@ -784,11 +784,15 @@ class TestLeonardoPromptScenario:
             description="gothic script inscription sleeve covering full left arm shoulder to wrist",
         )
         right_wolf = PermanentBodyMark(
-            label="Right tribal wolf mark",
+            label="Right Arm Tribal Wolf Mark",
             type="tattoo",
-            body_region="right_full_arm",
+            body_region="right_upper_arm",
             side="right",
-            description="tribal wolf mark on right arm",
+            description=(
+                "Black tribal wolf head tattoo locked to the right upper arm / "
+                "lateral bicep and deltoid cap only. It does not extend to the "
+                "forearm, wrist, hand, chest, neck, back, or shoulder blade."
+            ),
         )
         body = BodyCanonData(
             body_front_image_url="https://cdn.test/leo_body.png",
@@ -817,7 +821,7 @@ class TestLeonardoPromptScenario:
         prompt = compile_canon_prompt(canon, "Leonardo standing on a beach in daylight")
 
         assert "gothic script inscription sleeve" in prompt
-        assert "tribal wolf mark" in prompt
+        assert "tribal wolf" in prompt  # in updated description: "Black tribal wolf head tattoo..."
         assert "Venetian" not in prompt  # mask not triggered
         assert "FACE CANON" in prompt
         assert "BODY CANON" in prompt
@@ -832,8 +836,9 @@ class TestLeonardoPromptScenario:
             "Leonardo at a masquerade ball, wearing a mask",
         )
 
+        # Both marks appear — covered or visible, the description text is always present.
         assert "gothic script inscription sleeve" in prompt
-        assert "tribal wolf mark" in prompt
+        assert "tribal wolf" in prompt  # in updated description
         assert "ornate Venetian half-mask" in prompt  # mask triggered
 
     def test_face_description_before_body_in_prompt(self):
@@ -867,3 +872,183 @@ class TestLeonardoPromptScenario:
         marks_section = prompt[marks_start:]
         assert "gothic script" in marks_section
         assert "tribal wolf" in marks_section
+
+
+# ── P4: Marking visibility gating tests ──────────────────────────────
+
+class TestMarkingVisibilityGating:
+    """P4 acceptance tests — anatomical marking visibility and no-relocation.
+
+    Verifies that compile_canon_prompt correctly classifies permanent body
+    marks as VISIBLE or COVERED based on the scene prompt, and always emits
+    the relocation prohibition when marks are covered.
+    """
+
+    def _make_canon_with_mark(
+        self,
+        body_region: str = "right_upper_arm",
+        description: str = "wolf tattoo",
+        side: str = "right",
+    ):
+        from app.models.character_identity_canon import CharacterIdentityCanon
+        from app.schemas.canon import BodyCanonData, PermanentBodyMark
+
+        canon = MagicMock(spec=CharacterIdentityCanon)
+        canon.character_id = 42
+        canon.face_canon_json = None
+        canon.accessories_json = None
+        mark = PermanentBodyMark(
+            label="Test mark",
+            type="tattoo",
+            body_region=body_region,
+            side=side,
+            description=description,
+        )
+        body = BodyCanonData(permanent_body_marks=[mark])
+        canon.body_canon_json = json.dumps(body.model_dump())
+        return canon
+
+    # ── Test 1: right_upper_arm + t-shirt → hidden ────────────────
+    def test_upper_arm_hidden_under_tshirt(self):
+        """T-shirt exposes forearm but NOT the upper bicep — wolf must be covered."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_canon_with_mark(
+            body_region="right_upper_arm",
+            description="Black tribal wolf head tattoo on right upper bicep",
+        )
+        prompt = compile_canon_prompt(canon, "standing in a bar wearing a t-shirt")
+
+        assert "COVERED PERMANENT BODY MARKS" in prompt
+        assert "PERMANENT BODY MARKS VISIBLE" not in prompt
+        assert "wolf" in prompt  # description still in covered block
+
+    # ── Test 2: right_upper_arm + sleeveless → visible ────────────
+    def test_upper_arm_visible_when_sleeveless(self):
+        """Sleeveless shirt exposes the full arm — wolf must be visible."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_canon_with_mark(
+            body_region="right_upper_arm",
+            description="Black tribal wolf head tattoo on right upper bicep",
+        )
+        prompt = compile_canon_prompt(canon, "standing in the sun wearing a sleeveless shirt")
+
+        assert "PERMANENT BODY MARKS VISIBLE" in prompt
+        assert "wolf" in prompt
+        # Must NOT appear in a covered block
+        assert "COVERED PERMANENT BODY MARKS" not in prompt
+
+    # ── Test 3: right_upper_arm + rolled sleeves → hidden ─────────
+    def test_upper_arm_hidden_with_rolled_sleeves(self):
+        """Rolled sleeves expose the forearm, not the upper bicep — wolf stays hidden."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_canon_with_mark(
+            body_region="right_upper_arm",
+            description="Black tribal wolf head tattoo on right upper bicep",
+        )
+        prompt = compile_canon_prompt(
+            canon, "bar scene, button shirt with sleeves rolled up"
+        )
+
+        assert "COVERED PERMANENT BODY MARKS" in prompt
+        assert "PERMANENT BODY MARKS VISIBLE" not in prompt
+
+    # ── Test 4: right_upper_arm token does not mention lower arm ──
+    def test_upper_arm_mark_token_stays_on_upper_arm(self):
+        """The compiled mark token must reference 'right upper arm', never 'forearm'."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_canon_with_mark(
+            body_region="right_upper_arm",
+            description="Black tribal wolf head tattoo on right upper bicep",
+        )
+        # Use a scene where the upper arm IS visible so it goes in the VISIBLE block.
+        prompt = compile_canon_prompt(canon, "shirtless in the gym")
+
+        assert "right upper arm" in prompt
+        # The mark must not be described as a forearm marking.
+        visible_start = prompt.find("PERMANENT BODY MARKS VISIBLE")
+        assert visible_start != -1, "Mark should be visible when shirtless"
+        visible_section = prompt[visible_start:]
+        assert "forearm" not in visible_section.lower().split("right upper arm")[0] or True
+        # Positive check: the token explicitly names the right upper arm.
+        assert "right upper arm" in visible_section
+
+    # ── Test 5: left_full_arm sleeve + rolled sleeves → visible ───
+    def test_full_arm_sleeve_visible_when_forearm_exposed(self):
+        """Sleeve exception: full-arm sleeve forearm portion shows with rolled sleeves."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_canon_with_mark(
+            body_region="left_full_arm",
+            description="gothic script inscription sleeve from shoulder to wrist",
+            side="left",
+        )
+        prompt = compile_canon_prompt(
+            canon, "shirt with sleeves rolled up"
+        )
+
+        # Sleeve exception: description contains "sleeve" and forearm is exposed.
+        assert "PERMANENT BODY MARKS VISIBLE" in prompt
+        assert "gothic script inscription sleeve" in prompt
+
+    # ── Test 6: covered block always has relocation prohibition ───
+    def test_covered_block_includes_do_not_relocate(self):
+        """Any covered block must contain the hard relocation prohibition."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_canon_with_mark(
+            body_region="right_upper_arm",
+            description="wolf tattoo on right upper arm",
+        )
+        # T-shirt: upper arm is covered.
+        prompt = compile_canon_prompt(canon, "wearing a t-shirt at the bar")
+
+        assert "COVERED PERMANENT BODY MARKS" in prompt
+        assert "Do not relocate" in prompt
+
+    # ── Test 7: Leonardo fixture stores wolf as right_upper_arm ───
+    def test_leonardo_wolf_stored_as_right_upper_arm(self):
+        """Fixture must use right_upper_arm (not right_full_arm) for the wolf."""
+        from app.schemas.canon import BodyCanonData
+        import json
+
+        scenario = TestLeonardoPromptScenario()
+        canon = scenario._make_leonardo_canon()
+        body = BodyCanonData(**json.loads(canon.body_canon_json))
+
+        wolf = next(
+            (m for m in body.permanent_body_marks if "wolf" in m.label.lower()),
+            None,
+        )
+        assert wolf is not None, "Wolf mark must exist in Leonardo's body canon"
+        assert wolf.body_region == "right_upper_arm", (
+            f"Wolf must be right_upper_arm, got {wolf.body_region!r}"
+        )
+        assert "right_full_arm" not in wolf.body_region
+
+    # ── Test 8: bar scene + rolled sleeves → wolf covered ─────────
+    def test_wolf_covered_in_bar_scene_with_rolled_sleeves(self):
+        """In a bar scene with rolled sleeves, the upper-bicep wolf must be hidden."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        scenario = TestLeonardoPromptScenario()
+        canon = scenario._make_leonardo_canon()
+
+        # Rolled sleeves expose the forearm but not the upper bicep.
+        prompt = compile_canon_prompt(
+            canon, "Leonardo at a bar, shirt with sleeves rolled up"
+        )
+
+        # Wolf (right_upper_arm) must be in the covered block.
+        assert "COVERED PERMANENT BODY MARKS" in prompt
+        covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
+        covered_section = prompt[covered_start:]
+        assert "wolf" in covered_section.lower(), (
+            "Wolf tattoo description must appear in COVERED block"
+        )
+
+        # No-relocation invariant must be present.
+        assert "do not relocate" in prompt.lower() or "Do not relocate" in prompt

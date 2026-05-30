@@ -464,8 +464,8 @@ def test_permanent_marks_exact_in_prompt(client: TestClient, db_session):
     assert resp.status_code == 200, resp.text
     prompt = captured.get("prompt", "")
     assert "PERMANENT BODY MARKS" in prompt
-    assert "right_full_arm" in prompt and "right side" in prompt
-    assert "left_full_arm" in prompt and "left side" in prompt
+    assert "right full arm" in prompt and "right side" in prompt
+    assert "left full arm" in prompt and "left side" in prompt
 
 
 def test_marks_carry_no_mirror_clause(client: TestClient, db_session):
