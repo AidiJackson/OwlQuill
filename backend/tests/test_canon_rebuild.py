@@ -132,6 +132,61 @@ class TestSceneGenerationWorks:
         img = db_session.query(CharacterImage).filter(CharacterImage.id == img_id).first()
         assert img.metadata_json.get("scene_only") is True
 
+    def test_scene_image_appears_in_user_character_images(self, client, db_session):
+        """P5: Generated scene images must persist and appear in GET /users/me/character-images.
+
+        The gallery frontend calls this endpoint on mount. If scene_only images are
+        absent from the response the image disappears on page reload.
+        """
+        token = get_auth_token(client, email="crb_persist@test.com", username="crb_persist")
+        hdrs = auth_headers(token)
+        char_id = _create_character(client, hdrs, name="PersistTestChar")
+
+        # Generate a scene image.
+        gen_resp = client.post(
+            f"/characters/{char_id}/identity-canon/scenes/generate",
+            json={"prompt": "standing by a window"},
+            headers=hdrs,
+        )
+        assert gen_resp.status_code == 200, gen_resp.text
+        generated_id = gen_resp.json()["id"]
+        assert gen_resp.json()["kind"] == "scene_only"
+
+        # The gallery endpoint must return this image.
+        gallery_resp = client.get("/users/me/character-images", headers=hdrs)
+        assert gallery_resp.status_code == 200, gallery_resp.text
+        gallery_ids = [img["id"] for img in gallery_resp.json()]
+        assert generated_id in gallery_ids, (
+            f"Generated scene image {generated_id} not found in /users/me/character-images. "
+            f"Gallery returned ids: {gallery_ids}"
+        )
+
+    def test_scene_image_has_active_status_and_no_temp_flag(self, client, db_session):
+        """P5: Generated images must have status=active and no is_temp flag so they persist."""
+        from app.models.character_image import CharacterImage, ImageStatusEnum
+
+        token = get_auth_token(client, email="crb_persist2@test.com", username="crb_persist2")
+        hdrs = auth_headers(token)
+        char_id = _create_character(client, hdrs, name="PersistStatusChar")
+
+        resp = client.post(
+            f"/characters/{char_id}/identity-canon/scenes/generate",
+            json={"prompt": "sitting in a park"},
+            headers=hdrs,
+        )
+        assert resp.status_code == 200
+        img_id = resp.json()["id"]
+
+        db_session.expire_all()
+        img = db_session.query(CharacterImage).filter(CharacterImage.id == img_id).first()
+        assert img is not None
+        assert img.status == ImageStatusEnum.ACTIVE, (
+            f"Expected ACTIVE status, got {img.status}"
+        )
+        assert not (img.metadata_json or {}).get("is_temp", False), (
+            "scene_only images must not have is_temp=True — that flag excludes them from the gallery"
+        )
+
 
 # ── Test 2: Scene images do not mutate canon ─────────────────────────
 

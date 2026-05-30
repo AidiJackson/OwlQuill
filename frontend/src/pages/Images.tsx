@@ -323,9 +323,9 @@ export default function Images() {
       .listMyCharacterImages()
       .then((imgs) => {
         if (mountedRef.current)
-          // Include both generated images and legacy cover images (kind='cover') from before the unified flow.
-          // Exclude internal kinds (anchor, face-ref) which cannot be deleted or shared.
-          setImages((imgs as unknown as LibraryImage[]).filter((img) => img.kind === 'generated' || img.kind === 'cover'));
+          // Include generated images, cover images, and scene_only images (canon Image Generator output).
+          // Exclude internal kinds (anchor, face-ref, identity packs) which cannot be deleted or shared.
+          setImages((imgs as unknown as LibraryImage[]).filter((img) => img.kind === 'generated' || img.kind === 'cover' || img.kind === 'scene_only'));
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false));
