@@ -26,6 +26,11 @@ class ImageKindEnum(str, enum.Enum):
     IDENTITY_BODY_RIGHT_DETAIL = "identity_body_right_detail"    # right-side detail crop
     IDENTITY_BODY_MAP = "identity_body_map"                      # canonical placement-sheet reference
     IDENTITY_FINAL_CHARACTER_CARD = "identity_final_character_card"  # cinematic presentation (support only)
+    # Identity OS Beta — accessory canon refs
+    ACCESSORY_DESIGN = "accessory_design"          # isolated accessory design sheet
+    ACCESSORY_FIT = "accessory_fit"                # accessory on character (fit reference)
+    # Identity OS Beta — scene images are NOT canon unless explicitly promoted
+    SCENE_ONLY = "scene_only"                      # generated scene — not canon, not identity ref
 
 
 class ImageStatusEnum(str, enum.Enum):

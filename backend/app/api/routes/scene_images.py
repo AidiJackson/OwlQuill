@@ -277,9 +277,11 @@ def generate_scene_image(
         provider_name = "stub"
 
     # ── Save CharacterImage ───────────────────────────────────────
+    # Identity OS Beta: scene images are SCENE_ONLY by default.
+    # They do not contaminate canon. Promotion is explicit via promote_to_canon.
     img = CharacterImage(
         character_id=character_id,
-        kind=ImageKindEnum.GENERATED,
+        kind=ImageKindEnum.SCENE_ONLY,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
         provider=provider_name,
@@ -287,6 +289,7 @@ def generate_scene_image(
         metadata_json={
             "library": True,
             "scene": True,
+            "scene_only": True,
             "prompt": body.prompt,
             "style": style,
             "used_anchor": used_anchor,
@@ -300,6 +303,114 @@ def generate_scene_image(
     db.refresh(img)
 
     return CharacterImageRead.model_validate(img)
+
+
+# ── Promote-to-Canon endpoint ────────────────────────────────────────
+
+# Allowed promotion targets — must specify what canon layer is being promoted.
+_VALID_PROMOTION_TARGETS = frozenset({
+    "face_canon",     # promote as face identity reference
+    "body_canon",     # promote as body/anatomy reference
+    "final_card",     # promote as final character card (support only)
+    "accessory_fit",  # promote as accessory fit reference
+})
+
+# Target → new ImageKindEnum value
+_PROMOTION_TARGET_KIND: dict[str, ImageKindEnum] = {
+    "face_canon": ImageKindEnum.ANCHOR_FRONT,
+    "body_canon": ImageKindEnum.IDENTITY_BODY_FRONT,
+    "final_card": ImageKindEnum.IDENTITY_FINAL_CHARACTER_CARD,
+    "accessory_fit": ImageKindEnum.ACCESSORY_FIT,
+}
+
+
+class PromoteToCanonRequest(BaseModel):
+    """Request body for POST /characters/{id}/images/{image_id}/promote-to-canon."""
+    target: str = Field(
+        ...,
+        description=(
+            "What canon layer to promote to: "
+            "face_canon | body_canon | final_card | accessory_fit"
+        ),
+    )
+
+
+class PromoteToCanonResponse(BaseModel):
+    image_id: int
+    previous_kind: str
+    new_kind: str
+    target: str
+
+
+@router.post(
+    "/{character_id}/images/{image_id}/promote-to-canon",
+    response_model=PromoteToCanonResponse,
+    summary="Explicitly promote a scene image to a canon layer",
+)
+def promote_to_canon(
+    character_id: int,
+    image_id: int,
+    body: PromoteToCanonRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PromoteToCanonResponse:
+    """Explicitly promote a scene image to a canon layer.
+
+    Scene images are SCENE_ONLY by default — they do not contaminate canon.
+    Promotion is the ONLY way a generated image becomes part of canon.
+    The caller must choose which canon layer is being promoted.
+    """
+    if body.target not in _VALID_PROMOTION_TARGETS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Invalid target {body.target!r}. "
+                f"Must be one of: {', '.join(sorted(_VALID_PROMOTION_TARGETS))}"
+            ),
+        )
+
+    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
+    if character.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to modify this character.",
+        )
+
+    img = db.query(CharacterImage).filter(
+        CharacterImage.id == image_id,
+        CharacterImage.character_id == character_id,
+    ).first()
+    if not img:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found.")
+
+    previous_kind = img.kind.value if hasattr(img.kind, "value") else str(img.kind)
+    new_kind = _PROMOTION_TARGET_KIND[body.target]
+    img.kind = new_kind
+
+    # Stamp promotion in metadata so audit trail is preserved
+    meta = dict(img.metadata_json or {})
+    meta["promoted_to_canon"] = True
+    meta["promotion_target"] = body.target
+    meta["scene_only"] = False
+    img.metadata_json = meta
+
+    db.commit()
+    db.refresh(img)
+
+    logger.info(
+        "promote_to_canon image_id=%s character_id=%s target=%s "
+        "previous_kind=%s new_kind=%s",
+        image_id, character_id, body.target, previous_kind, new_kind.value,
+    )
+
+    return PromoteToCanonResponse(
+        image_id=image_id,
+        previous_kind=previous_kind,
+        new_kind=new_kind.value,
+        target=body.target,
+    )
 
 
 def _parse_anchor_json(raw: str | None) -> dict | None:

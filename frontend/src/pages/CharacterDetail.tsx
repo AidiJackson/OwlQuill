@@ -74,7 +74,11 @@ export default function CharacterDetail() {
   const [packStages, setPackStages] = useState<PackStages | null>(null);
 
   // Admin canon import state (body_front / tattoo_layout upload)
-  const [adminImportSlot, setAdminImportSlot] = useState<'body_front' | 'tattoo_layout' | null>(null);
+  // Identity OS Beta: extended to all canon import slots
+  type AdminCanonSlot = 'face_front' | 'face_three_quarter_left' | 'face_three_quarter_right'
+    | 'body_front' | 'body_left' | 'body_right' | 'body_back' | 'body_map'
+    | 'final_character_card' | 'accessory_design' | 'accessory_fit' | 'tattoo_layout';
+  const [adminImportSlot, setAdminImportSlot] = useState<AdminCanonSlot | null>(null);
   const [adminImportBusy, setAdminImportBusy] = useState(false);
   const [adminImportError, setAdminImportError] = useState('');
 
@@ -678,7 +682,7 @@ export default function CharacterDetail() {
                 className="text-sm flex items-center gap-2 btn btn-secondary mt-1"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                Evolve Identity
+                Manage Character Canon
               </button>
             )}
             {currentUser && character.owner_id === currentUser.id && (
@@ -886,7 +890,7 @@ export default function CharacterDetail() {
         </div>
       )}
 
-      {/* Evolve Identity modal — slot replacement */}
+      {/* Manage Character Canon modal — slot replacement */}
       {showEvolveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
@@ -910,7 +914,7 @@ export default function CharacterDetail() {
                   <Sparkles className="w-4 h-4 text-emerald-400" />
                 </div>
                 <h2 className="text-sm font-semibold text-white">
-                  {evolveView === 'slots' && 'Evolve Identity'}
+                  {evolveView === 'slots' && 'Manage Character Canon'}
                   {evolveView === 'pick' && `Replace ${SLOT_LABELS[evolveSlot ?? ''] ?? evolveSlot}`}
                   {evolveView === 'confirm' && `Confirm Replacement`}
                 </h2>
@@ -946,8 +950,9 @@ export default function CharacterDetail() {
               {evolveView === 'slots' && (
                 <>
                   <p className="text-xs text-gray-400 leading-relaxed">
-                    Replace a single identity anchor slot with a candidate image from your gallery.
-                    Your current state is snapshotted before any promotion — rollback is always available.
+                    Manage your character&apos;s locked canon. Face and body identity are separate layers.
+                    Permanent tattoos and markings are locked body truth. Scene images do not change
+                    canon unless explicitly promoted.
                   </p>
 
                   {/* Identity health status cards */}
@@ -985,9 +990,9 @@ export default function CharacterDetail() {
                     );
                   })()}
 
-                  {/* Section 1: Core Identity */}
+                  {/* Section 1: Core Face Identity */}
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-white">Core Identity</h3>
+                    <h3 className="text-sm font-semibold text-white">Core Face Identity</h3>
                     <span className="text-xs text-gray-500">Face &amp; portrait anchors</span>
                   </div>
 
@@ -1047,11 +1052,11 @@ export default function CharacterDetail() {
                     </p>
                   </div>
 
-                  {/* ── Section 2: Body Identity slots ──────────────── */}
+                  {/* ── Section 2: Body Canon ──────────────────────── */}
                   <div className="pt-2 border-t border-gray-700/50 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-white">Body Identity</h3>
+                        <h3 className="text-sm font-semibold text-white">Body Canon</h3>
                         {packStages && (
                           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                             packStages.body === 'locked' ? 'bg-emerald-900/40 text-emerald-400' :
@@ -1076,9 +1081,14 @@ export default function CharacterDetail() {
 
                     {/* Helper text */}
                     {!bodySlotLibraryTarget && (
-                      <p className="text-xs text-gray-500 leading-relaxed">
-                        Generation can create a new reference, but choosing a proven image from your library is the most reliable way to lock body canon.
-                      </p>
+                      <div className="space-y-1.5">
+                        <p className="text-xs text-gray-500 leading-relaxed">
+                          Generation can create a new reference, but choosing a proven image from your library is the most reliable way to lock body canon.
+                        </p>
+                        <p className="text-xs text-emerald-600/80 leading-relaxed">
+                          Permanent tattoos and markings are locked body truth. Scene images do not change canon unless explicitly promoted. Accessories only appear when requested.
+                        </p>
+                      </div>
                     )}
 
                     {bodySlotsLoading && (
@@ -1333,7 +1343,7 @@ export default function CharacterDetail() {
 
                     {!bodyCanonLibraryTarget && !bodyMarkingsLoading && !bodyMarkingsError && bodyMarkings.length === 0 && (
                       <p className="text-xs text-gray-500 leading-relaxed">
-                        No body canon yet. Tattoos and scars added from Style Shops will appear here.
+                        No permanent body markings yet. Tattoos and scars added from Style Shops will appear here as locked body truth.
                       </p>
                     )}
 

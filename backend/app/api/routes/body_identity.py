@@ -96,16 +96,32 @@ BODY_SLOT_LABELS: dict[str, str] = {
 }
 
 _SLOT_IMAGE_KIND: dict[str, ImageKindEnum] = {
+    # Face canon
+    "face_front": ImageKindEnum.ANCHOR_FRONT,
+    "face_three_quarter_left": ImageKindEnum.ANCHOR_THREE_QUARTER,
+    "face_three_quarter_right": ImageKindEnum.ANCHOR_THREE_QUARTER,
+    # Body canon
     "body_front": ImageKindEnum.IDENTITY_BODY_FRONT,
-    "body_left_detail": ImageKindEnum.IDENTITY_BODY_LEFT_DETAIL,
-    "body_right_detail": ImageKindEnum.IDENTITY_BODY_RIGHT_DETAIL,
+    "body_left": ImageKindEnum.IDENTITY_BODY_LEFT_DETAIL,
+    "body_right": ImageKindEnum.IDENTITY_BODY_RIGHT_DETAIL,
     "body_back": ImageKindEnum.IDENTITY_BODY_BACK,
     "body_map": ImageKindEnum.IDENTITY_BODY_MAP,
     "final_character_card": ImageKindEnum.IDENTITY_FINAL_CHARACTER_CARD,
-    # legacy
+    # Accessory canon
+    "accessory_design": ImageKindEnum.ACCESSORY_DESIGN,
+    "accessory_fit": ImageKindEnum.ACCESSORY_FIT,
+    # Legacy
+    "body_left_detail": ImageKindEnum.IDENTITY_BODY_LEFT_DETAIL,
+    "body_right_detail": ImageKindEnum.IDENTITY_BODY_RIGHT_DETAIL,
     "body_three_quarter": ImageKindEnum.IDENTITY_BODY_THREE_QUARTER,
     "tattoo_layout": ImageKindEnum.IDENTITY_TATTOO_LAYOUT,
 }
+
+# Face canon slots are stored in identity_anchor_json["anchors"], not body_slots.
+_FACE_CANON_SLOTS = frozenset({"face_front", "face_three_quarter_left", "face_three_quarter_right"})
+
+# Accessory slots stored in identity_anchor_json["accessory_slots"]
+_ACCESSORY_CANON_SLOTS = frozenset({"accessory_design", "accessory_fit"})
 
 # ── Body map generation spec (Part 4 contract) ────────────────────────
 #
@@ -610,7 +626,27 @@ def _full_response(character_id: int, char: CharacterModel) -> BodySlotsResponse
 
 # ── Admin-only canon import ────────────────────────────────────────────
 
-_CANON_IMPORT_SLOTS = ("body_front", "tattoo_layout")
+# Identity OS Beta: extended set of admin-uploadable canon slots.
+# Face canon slots are stored in identity_anchor_json["anchors"].
+# Body/accessory canon slots are stored in identity_anchor_json["body_slots"].
+_CANON_IMPORT_SLOTS = (
+    # Face canon
+    "face_front",
+    "face_three_quarter_left",
+    "face_three_quarter_right",
+    # Body canon
+    "body_front",
+    "body_left",
+    "body_right",
+    "body_back",
+    "body_map",
+    "final_character_card",
+    # Accessory canon
+    "accessory_design",
+    "accessory_fit",
+    # Legacy
+    "tattoo_layout",
+)
 _CANON_IMPORT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
@@ -635,28 +671,38 @@ class CanonImportResponse(BaseModel):
     "/{character_id}/identity/canon-import",
     response_model=CanonImportResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="[Admin only] Upload a canon body reference image for body_front or tattoo_layout",
+    summary="[Admin only] Upload a canon reference image for any canon slot",
 )
 async def admin_canon_import(
     character_id: int,
     file: UploadFile = File(..., description="PNG or JPEG image file"),
-    target_slot: str = Form(..., description="'body_front' or 'tattoo_layout'"),
+    target_slot: str = Form(..., description=(
+        "Canon slot: face_front | face_three_quarter_left | face_three_quarter_right | "
+        "body_front | body_left | body_right | body_back | body_map | "
+        "final_character_card | accessory_design | accessory_fit | tattoo_layout"
+    )),
     source_note: Optional[str] = Form(default=None, description="Optional provenance note"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CanonImportResponse:
-    """Upload a pre-produced canonical reference image as body_front or tattoo_layout.
+    """Upload a pre-produced canonical reference image to any canon slot.
 
-    Admin-only. Not visible to normal users. Designed for character setup by the
-    content team — e.g. importing a high-quality artist-rendered body reference or
-    tattoo layout chart. Does NOT delete or reset any existing body canon markings.
+    Admin-only. Designed for beta tuning by the content team. Supports:
+    - Face canon: face_front, face_three_quarter_left, face_three_quarter_right
+    - Body canon: body_front, body_left, body_right, body_back, body_map,
+                  final_character_card
+    - Accessory canon: accessory_design, accessory_fit
+    - Legacy: tattoo_layout
+
+    Does NOT delete or reset any existing body canon markings.
+    Does NOT affect normal generation or library flows.
     """
     _require_admin(current_user)
 
     if target_slot not in _CANON_IMPORT_SLOTS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"target_slot must be one of {list(_CANON_IMPORT_SLOTS)}.",
+            detail=f"target_slot must be one of: {sorted(_CANON_IMPORT_SLOTS)}",
         )
 
     content_type = file.content_type or ""
@@ -678,9 +724,9 @@ async def admin_canon_import(
         )
 
     image_url = save_image(raw)
+    kind = _SLOT_IMAGE_KIND[target_slot]
 
     # Archive any existing active CharacterImage for this kind
-    kind = _SLOT_IMAGE_KIND[target_slot]
     db.query(CharacterImage).filter(
         CharacterImage.character_id == character_id,
         CharacterImage.kind == kind,
@@ -691,6 +737,7 @@ async def admin_canon_import(
         "source": "admin_canon_import",
         "admin_email": current_user.email,
         "pack_version": _import_pack_version,
+        "canon_slot": target_slot,
     }
     if source_note:
         meta["source_note"] = source_note
@@ -708,13 +755,45 @@ async def admin_canon_import(
     db.add(ci)
     db.flush()
 
-    _save_body_slot(char, target_slot, {
+    # ── Store slot entry in identity_anchor_json ──────────────────
+    slot_entry = {
         "url": image_url,
         "status": "locked",
         "prompt": None,
         "source": "admin_canon_import",
         "pack_version": _import_pack_version,
-    })
+    }
+
+    if target_slot in _FACE_CANON_SLOTS:
+        # Face canon slots → identity_anchor_json["anchors"]
+        _face_anchor_key_map = {
+            "face_front": "front",
+            "face_three_quarter_left": "three_quarter",
+            "face_three_quarter_right": "three_quarter",
+        }
+        anchor_key = _face_anchor_key_map[target_slot]
+        try:
+            anchor_data = _json.loads(char.identity_anchor_json or "{}")
+        except (ValueError, TypeError):
+            anchor_data = {}
+        anchors = anchor_data.get("anchors") or {}
+        anchors[anchor_key] = {"url": image_url, "id": ci.id}
+        anchor_data["anchors"] = anchors
+        char.identity_anchor_json = _json.dumps(anchor_data)
+    elif target_slot in _ACCESSORY_CANON_SLOTS:
+        # Accessory slots → identity_anchor_json["accessory_slots"]
+        try:
+            anchor_data = _json.loads(char.identity_anchor_json or "{}")
+        except (ValueError, TypeError):
+            anchor_data = {}
+        acc_slots = anchor_data.get("accessory_slots") or {}
+        acc_slots[target_slot] = slot_entry
+        anchor_data["accessory_slots"] = acc_slots
+        char.identity_anchor_json = _json.dumps(anchor_data)
+    else:
+        # Body canon slots → body_slots
+        _save_body_slot(char, target_slot, slot_entry)
+
     stages = write_pack_stages(char)
     db.commit()
 

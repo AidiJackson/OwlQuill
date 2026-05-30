@@ -27,6 +27,16 @@ logger = logging.getLogger(__name__)
 
 _SAFETY_PREFIX = "adult, fully clothed, non-explicit, fashion portrait, tasteful"
 
+# ── Identity OS Beta: Hard locked-canon enforcement clause ────────────
+# Injected into ALL identity prompts (anchor and scene generation).
+# This clause is protected from cap-trimming — it is never in _TRIM_ORDER.
+LOCKED_CANON_CLAUSE = (
+    "The character's face, body, proportions, scars, tattoos, birthmarks, "
+    "and permanent body markings are locked canon. "
+    "Do not redesign, relocate, resize, mirror, reinterpret, remove, or replace them. "
+    "Scene, pose, wardrobe, and lighting may change only if they do not conflict with locked canon."
+)
+
 # Raised from 800 to accommodate body_canon markings sections (BODY MARKINGS +
 # ARM BINDING + SLEEVE IDENTITY) which are protected from trimming.
 _PROMPT_CAP = 1500
@@ -317,6 +327,18 @@ def compile_identity_prompt(
         _bc_sleeve = build_sleeve_enforcement_str(markings, _visible)
         if _bc_sleeve:
             sections.append(("sleeve_enforcement", _bc_sleeve))
+
+    # 6.9. Locked-canon enforcement clause — always injected when markings are present.
+    # Also injected when body morphology is set (body_height/body_build) because
+    # that indicates the character has a locked body identity to protect.
+    # Protected from cap-trimming (not in _TRIM_ORDER).
+    _has_body_identity = bool(
+        markings
+        or getattr(spec, "body_height", None)
+        or getattr(spec, "body_build", None)
+    )
+    if _has_body_identity:
+        sections.append(("locked_canon", LOCKED_CANON_CLAUSE))
 
     # 7. Vibe traits + lighting (extra_notes)
     if spec.extra_notes:

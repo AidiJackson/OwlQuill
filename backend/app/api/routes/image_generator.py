@@ -2230,6 +2230,8 @@ def generate_image(
         "prompt": body.prompt,
         "strict_identity_mode": body.include_character,
         "is_cover": body.is_cover,
+        # Identity OS Beta: scene images are not canon by default
+        "scene_only": not body.is_cover,
     }
     if body.include_character:
         metadata["used_face_ref"] = used_face_ref
@@ -2250,7 +2252,9 @@ def generate_image(
     img = CharacterImage(
         character_id=character_id,
         user_id=current_user.id,  # B22: stamp for quota tracking
-        kind=ImageKindEnum.COVER if body.is_cover else ImageKindEnum.GENERATED,
+        # Identity OS Beta: generated scenes default to SCENE_ONLY — not canon.
+        # Promotion to face/body canon must be explicit via promote_to_canon flow.
+        kind=ImageKindEnum.COVER if body.is_cover else ImageKindEnum.SCENE_ONLY,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
         provider=actual_provider_name,
