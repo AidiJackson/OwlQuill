@@ -52,20 +52,25 @@ ACCESSORY_RULE = (
 SCENE_RULE = "Scene prompt is lower priority than locked character canon."
 
 # Injected into every COVERED block — hard relocation prohibition.
+# Explicitly targets reference-image reproduction: even if visual refs show the
+# marking, the clothing scene must override them.
 MARKING_COVERED_CLAUSE = (
     "These markings are canonical but covered by clothing in this scene. "
     "Do not render them. "
     "Do not move them to visible skin. "
     "Do not relocate them to preserve visibility. "
-    "Do not mirror, resize, reinterpret, or replace them."
+    "Do not mirror, resize, reinterpret, or replace them. "
+    "Even if reference images show these markings, they must remain hidden — "
+    "the clothing in this scene covers them entirely."
 )
 
-# Fix C: always appended when permanent marks are present — anatomical lock.
+# Always appended when permanent marks are present — anatomical lock.
+# Covers both prompt-driven and reference-image-driven relocation.
 MARKING_NO_RELOCATION_INVARIANT = (
     "Permanent body markings are locked to exact anatomical regions. "
-    "If clothing covers a marking, it must remain hidden. "
-    "Never move a covered marking to a forearm, wrist, hand, chest, neck, face, back, "
-    "or other visible area to preserve visibility."
+    "If clothing covers a marking, it must remain hidden — "
+    "do not render it on the forearm, wrist, hand, chest, neck, face, back, "
+    "or any other visible area, even if reference images show it there."
 )
 
 _SAFETY_PREFIX = "adult, fully clothed, non-explicit, tasteful"

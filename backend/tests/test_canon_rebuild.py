@@ -1107,3 +1107,139 @@ class TestMarkingVisibilityGating:
 
         # No-relocation invariant must be present.
         assert "do not relocate" in prompt.lower() or "Do not relocate" in prompt
+
+
+# ── P6: exact bar prompt regression ──────────────────────────────────
+
+class TestWolfRelocationRegression:
+    """P6 regression — right_upper_arm wolf must be COVERED in bar scene with rolled sleeves.
+
+    Reproduces the exact prompt that caused the relocation bug and verifies the
+    full output contract:
+      - wolf is in COVERED block
+      - 'do not render' present
+      - 'do not relocate' present
+      - reference-image override clause present
+      - wolf NOT in VISIBLE block
+    """
+
+    _BAR_PROMPT = (
+        "Leonardo Baptiste in a warm wooden bar, wearing a fitted grey button-up shirt "
+        "with sleeves rolled to the forearms, holding a beer bottle, silver chain visible, "
+        "serious expression."
+    )
+
+    def _make_leo_canon(self):
+        """Fixture matching Leonardo's corrected real-world canon data."""
+        from app.models.character_identity_canon import CharacterIdentityCanon
+        from app.schemas.canon import BodyCanonData, PermanentBodyMark
+
+        canon = MagicMock(spec=CharacterIdentityCanon)
+        canon.character_id = 41
+        canon.face_canon_json = None
+        canon.accessories_json = None
+
+        wolf = PermanentBodyMark(
+            label="Right Arm Tribal Wolf Mark",
+            type="tattoo",
+            body_region="right_upper_arm",
+            side="right",
+            description=(
+                "Black tribal wolf head tattoo locked to the right upper arm / "
+                "lateral bicep and deltoid cap only. It does not extend to the "
+                "forearm, wrist, hand, chest, neck, back, or shoulder blade."
+            ),
+        )
+        sleeve = PermanentBodyMark(
+            label="Left Arm Gothic Script Sleeve",
+            type="tattoo",
+            body_region="left_full_arm",
+            side="left",
+            description=(
+                "Black gothic script sleeve covering the left arm from upper shoulder "
+                "to wrist. It is a full left-arm sleeve of gothic lettering and symbols."
+            ),
+        )
+        body = BodyCanonData(
+            body_front_image_url="https://cdn.test/leo_body.png",
+            permanent_body_marks=[wolf, sleeve],
+            locked=True,
+        )
+        canon.body_canon_json = json.dumps(body.model_dump())
+        return canon
+
+    def test_wolf_in_covered_not_visible_bar_prompt(self):
+        """Wolf must be COVERED — not VISIBLE — for the exact bar prompt."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+
+        assert "COVERED PERMANENT BODY MARKS" in prompt, (
+            "Wolf must land in COVERED block when upper bicep is under a rolled-sleeve button shirt"
+        )
+        covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
+        covered_section = prompt[covered_start:]
+        assert "wolf" in covered_section.lower(), (
+            "Wolf description must appear inside the COVERED block"
+        )
+
+    def test_wolf_not_in_visible_block_bar_prompt(self):
+        """Wolf must not appear in VISIBLE block for the bar prompt."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+
+        if "PERMANENT BODY MARKS VISIBLE" in prompt:
+            visible_start = prompt.find("PERMANENT BODY MARKS VISIBLE")
+            covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
+            end = covered_start if covered_start > visible_start else len(prompt)
+            visible_section = prompt[visible_start:end]
+            assert "wolf" not in visible_section.lower(), (
+                f"Wolf must NOT be in VISIBLE block — it is on right upper bicep which is "
+                f"covered by the rolled-sleeve button shirt"
+            )
+
+    def test_do_not_render_in_prompt(self):
+        """COVERED block must contain 'Do not render'."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+        assert "Do not render" in prompt, "Covered block must say 'Do not render'"
+
+    def test_do_not_relocate_in_prompt(self):
+        """Covered block and invariant must contain relocation prohibition."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+        assert "Do not relocate" in prompt or "do not relocate" in prompt.lower()
+
+    def test_reference_image_override_clause_in_prompt(self):
+        """Covered block must tell the model to override reference images."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+        assert "reference images" in prompt.lower(), (
+            "Covered block must explicitly instruct the model to override reference images "
+            "that show the covered marking"
+        )
+
+    def test_gothic_sleeve_visible_via_sleeve_exception(self):
+        """Gothic script sleeve forearm portion must be VISIBLE with rolled sleeves."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+
+        assert "PERMANENT BODY MARKS VISIBLE" in prompt
+        visible_start = prompt.find("PERMANENT BODY MARKS VISIBLE")
+        covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
+        visible_section = prompt[visible_start:covered_start if covered_start > 0 else len(prompt)]
+        assert "gothic" in visible_section.lower(), (
+            "Gothic script sleeve forearm portion must be VISIBLE — "
+            "rolled sleeves expose the forearm of a full-arm sleeve"
+        )
