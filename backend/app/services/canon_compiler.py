@@ -73,9 +73,20 @@ MARKING_NO_RELOCATION_INVARIANT = (
     "or any other visible area, even if reference images show it there."
 )
 
+# Appended after MARKING_NO_RELOCATION_INVARIANT — prevents symmetry hallucination
+# and bilateral tattoo inference (the model mirroring a left-arm sleeve to the right).
+MARKING_SIDE_LOCK_INVARIANT = (
+    "Permanent body markings are anatomically side-locked and exclusive to their canonical regions. "
+    "A marking on the left arm must not appear on the right arm unless canon explicitly defines a matching marking. "
+    "A marking on the right arm must not appear on the left arm unless canon explicitly defines it. "
+    "Do not mirror, duplicate, symmetrize, infer matching tattoos, or redistribute markings "
+    "for visual balance or composition."
+)
+
 _SAFETY_PREFIX = "adult, fully clothed, non-explicit, tasteful"
 
-_PROMPT_CAP = 1800  # characters — hard ceiling
+# Raised from 1800 to accommodate relocation + side-lock invariants without truncation.
+_PROMPT_CAP = 2400
 
 # ── Marking visibility signals (Fix B) ───────────────────────────────
 # Mirror of the equivalent sets in image_generator.py — kept here so
@@ -170,6 +181,39 @@ _BODY_REGION_TO_EXPOSURE_REGION: dict[str, str] = {
     "left_calf": "left_leg",
     "right_calf": "right_leg",
 }
+
+# ── Side-lock lookup tables ───────────────────────────────────────────
+# For each arm body_region, the opposite-side areas to negate in the
+# side-lock clause ("There is no X on the right forearm, right wrist…").
+_OPPOSITE_ARM_REGIONS: dict[str, str] = {
+    "left_full_arm":   "the right forearm, right wrist, right lower arm, or right upper arm",
+    "left_arm":        "the right arm, right forearm, right wrist, or right upper arm",
+    "left_upper_arm":  "the right upper arm, right shoulder, or right bicep",
+    "left_lower_arm":  "the right lower arm, right wrist, or right forearm",
+    "left_forearm":    "the right forearm, right wrist, or right lower arm",
+    "right_full_arm":  "the left forearm, left wrist, left lower arm, or left upper arm",
+    "right_arm":       "the left arm, left forearm, left wrist, or left upper arm",
+    "right_upper_arm": "the left upper arm, left shoulder, or left bicep",
+    "right_lower_arm": "the left lower arm, left wrist, or left forearm",
+    "right_forearm":   "the left forearm, left wrist, or left lower arm",
+}
+
+# Human-readable canonical region for existence clauses
+# ("X exists only on the right upper bicep/deltoid region and nowhere else").
+_REGION_EXCLUSIVE_DESC: dict[str, str] = {
+    "right_upper_arm":  "right upper bicep/deltoid region",
+    "left_upper_arm":   "left upper bicep/deltoid region",
+    "right_forearm":    "right forearm",
+    "left_forearm":     "left forearm",
+    "right_lower_arm":  "right lower arm",
+    "left_lower_arm":   "left lower arm",
+    "right_full_arm":   "right arm, shoulder to wrist",
+    "left_full_arm":    "left arm, shoulder to wrist",
+    "right_arm":        "right arm",
+    "left_arm":         "left arm",
+}
+
+_ARM_LOCK_REGIONS = frozenset(_OPPOSITE_ARM_REGIONS.keys())
 
 
 # ── Marking visibility classification (Fix B) ─────────────────────────
@@ -266,6 +310,58 @@ def _make_mark_token(mark: PermanentBodyMark) -> str:
     side_str = mark.side if mark.side in ("centre", "bilateral") else f"{mark.side} side"
     readable_region = mark.body_region.replace("_", " ")
     return f"{mark.type} on {readable_region} ({side_str}): {mark.description}"
+
+
+def _side_lock_label(mark: PermanentBodyMark) -> str:
+    """Return a concise display name for side-lock clause text.
+
+    Strips leading side/location qualifiers from the label so the clause
+    reads naturally: "Left Arm Gothic Script Sleeve" → "gothic script sleeve".
+    """
+    label = mark.label or ""
+    for prefix in (
+        "Left Full Arm ", "Right Full Arm ",
+        "Left Arm ", "Right Arm ",
+        "Left Upper Arm ", "Right Upper Arm ",
+        "Left ", "Right ",
+    ):
+        if label.lower().startswith(prefix.lower()):
+            label = label[len(prefix):]
+            break
+    return label.lower() or "marking"
+
+
+def _build_side_lock_clauses(
+    visible_marks: list[PermanentBodyMark],
+    hidden_marks: list[PermanentBodyMark],
+) -> str:
+    """Build per-mark negative side-lock clauses for arm markings.
+
+    For visible arm marks: "There is no [mark] on [opposite side areas]."
+    For covered arm marks: "[Mark] exists only on [canonical region] and nowhere else."
+
+    Non-arm marks (chest, neck, face, etc.) are skipped — they have no
+    mirroring failure mode.
+    """
+    clauses: list[str] = []
+
+    for m in visible_marks:
+        region = m.body_region.lower().replace(" ", "_")
+        if region in _ARM_LOCK_REGIONS:
+            opposite = _OPPOSITE_ARM_REGIONS[region]
+            name = _side_lock_label(m)
+            clauses.append(f"There is no {name} on {opposite}.")
+
+    for m in hidden_marks:
+        region = m.body_region.lower().replace(" ", "_")
+        if region in _ARM_LOCK_REGIONS:
+            exclusive = _REGION_EXCLUSIVE_DESC.get(region, region.replace("_", " "))
+            name = _side_lock_label(m)
+            clauses.append(
+                f"The {name} exists only on the {exclusive} and nowhere else."
+            )
+
+    return " ".join(clauses)
 
 
 # ── Reference image collector ─────────────────────────────────────────
@@ -394,6 +490,12 @@ def compile_canon_prompt(
 
         # Fix C: always append the anatomical no-relocation invariant.
         parts.append(MARKING_NO_RELOCATION_INVARIANT)
+
+        # Fix P9: side-lock invariant prevents bilateral / symmetry hallucination.
+        parts.append(MARKING_SIDE_LOCK_INVARIANT)
+        side_lock_clauses = _build_side_lock_clauses(visible_marks, hidden_marks)
+        if side_lock_clauses:
+            parts.append(side_lock_clauses)
 
     # ── 4. REMOVABLE ACCESSORIES ──────────────────────────────────
     if accessories and include_accessories:

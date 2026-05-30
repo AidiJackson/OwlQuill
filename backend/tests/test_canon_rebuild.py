@@ -1415,3 +1415,170 @@ class TestCanonReferenceOrder:
             "face_expression must not occupy a slot in the sent-6 — "
             "it is lowest-priority and must yield to body truth refs"
         )
+
+
+# ── P9: Side-lock / anti-mirroring regression ─────────────────────────
+
+class TestSideLockAntiMirroring:
+    """P9 — Gothic script sleeve must not appear on right forearm.
+
+    Reproduces the exact bilateral hallucination failure:
+      left_full_arm sleeve visible (rolled sleeves expose forearm) +
+      right_upper_arm wolf covered  →
+      model mirrors script to right forearm.
+
+    The side-lock invariant and per-mark negative clauses must prevent this.
+    """
+
+    _BAR_PROMPT = (
+        "Leonardo Baptiste in a warm wooden bar, wearing a fitted grey button-up shirt "
+        "with sleeves rolled to the forearms, holding a beer bottle, silver chain visible, "
+        "serious expression."
+    )
+
+    def _make_leo_canon(self):
+        from app.models.character_identity_canon import CharacterIdentityCanon
+        from app.schemas.canon import BodyCanonData, PermanentBodyMark
+
+        canon = MagicMock(spec=CharacterIdentityCanon)
+        canon.character_id = 41
+        canon.face_canon_json = None
+        canon.accessories_json = None
+        wolf = PermanentBodyMark(
+            label="Right Arm Tribal Wolf Mark",
+            type="tattoo",
+            body_region="right_upper_arm",
+            side="right",
+            description=(
+                "Black tribal wolf head tattoo locked to the right upper arm / "
+                "lateral bicep and deltoid cap only. It does not extend to the "
+                "forearm, wrist, hand, chest, neck, back, or shoulder blade."
+            ),
+        )
+        sleeve = PermanentBodyMark(
+            label="Left Arm Gothic Script Sleeve",
+            type="tattoo",
+            body_region="left_full_arm",
+            side="left",
+            description=(
+                "Black gothic script sleeve covering the left arm from upper shoulder "
+                "to wrist. It is a full left-arm sleeve of gothic lettering and symbols."
+            ),
+        )
+        body = BodyCanonData(
+            body_front_image_url="https://cdn.test/leo_body.png",
+            permanent_body_marks=[wolf, sleeve],
+            locked=True,
+        )
+        canon.body_canon_json = json.dumps(body.model_dump())
+        return canon
+
+    def test_side_lock_invariant_present(self):
+        """MARKING_SIDE_LOCK_INVARIANT must appear in every prompt with arm marks."""
+        from app.services.canon_compiler import compile_canon_prompt, MARKING_SIDE_LOCK_INVARIANT
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+        assert "side-locked" in prompt, (
+            "MARKING_SIDE_LOCK_INVARIANT must be present when arm marks exist"
+        )
+
+    def test_no_gothic_sleeve_on_right_forearm_clause(self):
+        """Negative clause must explicitly negate the gothic sleeve on right arm areas."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+        assert "no gothic script sleeve on the right" in prompt, (
+            "Prompt must contain negative side-lock clause for left-arm sleeve: "
+            "'There is no gothic script sleeve on the right forearm...'"
+        )
+
+    def test_wolf_exists_only_on_right_bicep_clause(self):
+        """Existence clause must anchor wolf to right upper bicep only."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+        assert "exists only on the right upper bicep" in prompt, (
+            "Prompt must contain existence clause for covered right-arm wolf: "
+            "'The tribal wolf mark exists only on the right upper bicep/deltoid region'"
+        )
+
+    def test_do_not_mirror_in_prompt(self):
+        """'Do not mirror' must appear in side-lock invariant."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+        assert "Do not mirror" in prompt
+
+    def test_do_not_symmetrize_in_prompt(self):
+        """Side-lock invariant must prohibit symmetrization explicitly."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+        assert "symmetrize" in prompt
+
+    def test_sleeve_visible_wolf_covered_unchanged(self):
+        """Visibility classification must remain unchanged: sleeve VISIBLE, wolf COVERED."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+
+        assert "PERMANENT BODY MARKS VISIBLE" in prompt
+        assert "COVERED PERMANENT BODY MARKS" in prompt
+
+        visible_start = prompt.find("PERMANENT BODY MARKS VISIBLE")
+        covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
+        visible_section = prompt[visible_start:covered_start]
+        covered_section = prompt[covered_start:]
+
+        assert "gothic" in visible_section.lower(), "Gothic sleeve must be VISIBLE"
+        assert "wolf" in covered_section.lower(), "Wolf mark must be COVERED"
+        assert "wolf" not in visible_section.lower(), "Wolf must NOT be in VISIBLE"
+
+    def test_prompt_not_truncated(self):
+        """Full prompt with side-lock blocks must fit within the raised cap (2400)."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
+        assert len(prompt) <= 2400, (
+            f"Prompt exceeds cap: {len(prompt)} chars"
+        )
+
+    def test_non_arm_mark_has_no_side_lock_clause(self):
+        """Cheek scar (non-arm mark) must not produce an arm side-lock clause."""
+        from app.models.character_identity_canon import CharacterIdentityCanon
+        from app.schemas.canon import BodyCanonData, PermanentBodyMark
+        from app.services.canon_compiler import _build_side_lock_clauses
+
+        scar = PermanentBodyMark(
+            label="Right Cheek Scar",
+            type="scar",
+            body_region="right_cheek",
+            side="right",
+            description="diagonal slash scar across right cheek",
+        )
+        clauses = _build_side_lock_clauses(visible_marks=[scar], hidden_marks=[])
+        assert clauses == "", (
+            f"Non-arm marks must not produce side-lock clauses, got: {clauses!r}"
+        )
+
+    def test_both_arms_visible_shirtless(self):
+        """When shirtless both arms visible: each arm gets a negative clause for the other."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_leo_canon()
+        prompt = compile_canon_prompt(canon, "shirtless at the gym")
+
+        # Both marks visible when shirtless; each should have a side-lock clause.
+        assert "side-locked" in prompt
+        # Gothic sleeve on left — must negate right arm areas.
+        assert "no gothic script sleeve on the right" in prompt
+        # Wolf on right — must negate left arm areas.
+        assert "no right arm tribal wolf mark on the left" in prompt or \
+               "no tribal wolf mark on the left" in prompt
