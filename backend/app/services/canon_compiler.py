@@ -273,42 +273,47 @@ def _make_mark_token(mark: PermanentBodyMark) -> str:
 def collect_canon_reference_urls(
     canon: "CharacterIdentityCanon",
 ) -> list[str]:
-    """Collect all locked reference image URLs from canon in priority order.
+    """Collect reference image URLs in provider-priority order.
 
-    Order: face_front → face_3q → body_front → body_left → body_right
-           → body_back → body_map → final_card
+    Priority (positions 0–5 are always sent under the 6-image provider cap):
+      0. face_front            — primary face identity seed
+      1. face_left_3q          — face geometry supplement
+      2. face_right_3q         — face geometry supplement
+      3. body_front            — body morphology + tattoo placement truth
+      4. body_map              — canonical marking placement sheet
+      5. final_character_card  — holistic identity grounding
 
-    Returns empty list if no canon images are set.
+    May drop under provider cap (positions 6–9):
+      6. body_left             — side detail (optional)
+      7. body_right            — side detail (optional)
+      8. body_back             — back detail (optional)
+      9. face_expression       — lowest-value face variant; always last
+
+    Rationale: face_expression is a 4th face angle with marginal identity
+    value. body_map and final_character_card carry canonical marking truth
+    and must always reach the provider. Optional side/back refs may drop.
     """
     face = load_face_canon(canon)
     body = load_body_canon(canon)
-    urls: list[str] = []
 
-    if face:
-        for attr in (
-            "face_front_image_url",
-            "face_left_3q_image_url",
-            "face_right_3q_image_url",
-            "face_expression_image_url",
-        ):
-            url = getattr(face, attr, None)
-            if url:
-                urls.append(url)
+    def _f(obj: object, attr: str) -> str | None:
+        return getattr(obj, attr, None) if obj else None
 
-    if body:
-        for attr in (
-            "body_front_image_url",
-            "body_left_image_url",
-            "body_right_image_url",
-            "body_back_image_url",
-            "body_map_image_url",
-            "final_character_card_image_url",
-        ):
-            url = getattr(body, attr, None)
-            if url:
-                urls.append(url)
-
-    return urls
+    # Build in strict priority order — each entry is (url_or_None,).
+    # Skip None entries so sparse canons produce a compact list.
+    ordered = [
+        _f(face, "face_front_image_url"),           # 0 — always first
+        _f(face, "face_left_3q_image_url"),          # 1
+        _f(face, "face_right_3q_image_url"),         # 2
+        _f(body, "body_front_image_url"),            # 3 — body truth
+        _f(body, "body_map_image_url"),              # 4 — marking placement
+        _f(body, "final_character_card_image_url"),  # 5 — holistic grounding
+        _f(body, "body_left_image_url"),             # 6 — may drop
+        _f(body, "body_right_image_url"),            # 7 — may drop
+        _f(body, "body_back_image_url"),             # 8 — may drop
+        _f(face, "face_expression_image_url"),       # 9 — always last
+    ]
+    return [url for url in ordered if url]
 
 
 # ── Main compiler ─────────────────────────────────────────────────────

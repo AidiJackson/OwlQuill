@@ -1243,3 +1243,175 @@ class TestWolfRelocationRegression:
             "Gothic script sleeve forearm portion must be VISIBLE — "
             "rolled sleeves expose the forearm of a full-arm sleeve"
         )
+
+
+# ── P8: Canon reference priority order ───────────────────────────────
+
+class TestCanonReferenceOrder:
+    """P8 — body_map and final_character_card must always beat face_expression
+    under the 6-image provider cap.
+
+    Slot priority (0-indexed):
+      0 face_front  1 face_left_3q  2 face_right_3q
+      3 body_front  4 body_map       5 final_character_card
+      6 body_left   7 body_right     8 body_back
+      9 face_expression
+    """
+
+    def _make_full_canon(self):
+        """Return a mock canon with all 10 slots populated."""
+        from app.models.character_identity_canon import CharacterIdentityCanon
+        from app.schemas.canon import FaceCanonData, BodyCanonData
+
+        canon = MagicMock(spec=CharacterIdentityCanon)
+        canon.character_id = 99
+
+        face = FaceCanonData(
+            face_front_image_url="https://cdn.test/face_front.png",
+            face_left_3q_image_url="https://cdn.test/face_left_3q.png",
+            face_right_3q_image_url="https://cdn.test/face_right_3q.png",
+            face_expression_image_url="https://cdn.test/face_expression.png",
+        )
+        body = BodyCanonData(
+            body_front_image_url="https://cdn.test/body_front.png",
+            body_left_image_url="https://cdn.test/body_left.png",
+            body_right_image_url="https://cdn.test/body_right.png",
+            body_back_image_url="https://cdn.test/body_back.png",
+            body_map_image_url="https://cdn.test/body_map.png",
+            final_character_card_image_url="https://cdn.test/final_card.png",
+        )
+        canon.face_canon_json = json.dumps(face.model_dump())
+        canon.body_canon_json = json.dumps(body.model_dump())
+        canon.accessories_json = None
+        return canon
+
+    def test_full_order_all_ten_slots(self):
+        """All 10 slots set → verify exact canonical order."""
+        from app.services.canon_compiler import collect_canon_reference_urls
+
+        canon = self._make_full_canon()
+        urls = collect_canon_reference_urls(canon)
+
+        assert len(urls) == 10
+        expected = [
+            "https://cdn.test/face_front.png",
+            "https://cdn.test/face_left_3q.png",
+            "https://cdn.test/face_right_3q.png",
+            "https://cdn.test/body_front.png",
+            "https://cdn.test/body_map.png",
+            "https://cdn.test/final_card.png",
+            "https://cdn.test/body_left.png",
+            "https://cdn.test/body_right.png",
+            "https://cdn.test/body_back.png",
+            "https://cdn.test/face_expression.png",
+        ]
+        assert urls == expected, f"Order mismatch:\n  got:      {urls}\n  expected: {expected}"
+
+    def test_first_six_under_provider_cap(self):
+        """Under the 6-image provider cap the correct 6 slots are sent."""
+        from app.services.canon_compiler import collect_canon_reference_urls
+
+        canon = self._make_full_canon()
+        sent = collect_canon_reference_urls(canon)[:6]
+
+        assert sent == [
+            "https://cdn.test/face_front.png",
+            "https://cdn.test/face_left_3q.png",
+            "https://cdn.test/face_right_3q.png",
+            "https://cdn.test/body_front.png",
+            "https://cdn.test/body_map.png",
+            "https://cdn.test/final_card.png",
+        ], f"Wrong refs sent: {sent}"
+
+    def test_face_expression_is_last(self):
+        """face_expression must always be the last URL returned."""
+        from app.services.canon_compiler import collect_canon_reference_urls
+
+        canon = self._make_full_canon()
+        urls = collect_canon_reference_urls(canon)
+
+        assert urls[-1] == "https://cdn.test/face_expression.png", (
+            f"face_expression must be last, got {urls[-1]!r}"
+        )
+
+    def test_body_map_before_body_left(self):
+        """body_map (marking placement truth) must appear before body_left."""
+        from app.services.canon_compiler import collect_canon_reference_urls
+
+        canon = self._make_full_canon()
+        urls = collect_canon_reference_urls(canon)
+
+        map_pos = urls.index("https://cdn.test/body_map.png")
+        left_pos = urls.index("https://cdn.test/body_left.png")
+        assert map_pos < left_pos, (
+            f"body_map (pos={map_pos}) must precede body_left (pos={left_pos})"
+        )
+
+    def test_body_front_before_body_map(self):
+        """body_front (morphology truth) must appear before body_map."""
+        from app.services.canon_compiler import collect_canon_reference_urls
+
+        canon = self._make_full_canon()
+        urls = collect_canon_reference_urls(canon)
+
+        front_pos = urls.index("https://cdn.test/body_front.png")
+        map_pos = urls.index("https://cdn.test/body_map.png")
+        assert front_pos < map_pos
+
+    def test_final_card_before_optional_sides(self):
+        """final_character_card must appear before body_left/right/back."""
+        from app.services.canon_compiler import collect_canon_reference_urls
+
+        canon = self._make_full_canon()
+        urls = collect_canon_reference_urls(canon)
+
+        card_pos = urls.index("https://cdn.test/final_card.png")
+        for slot_url, slot_name in [
+            ("https://cdn.test/body_left.png",  "body_left"),
+            ("https://cdn.test/body_right.png", "body_right"),
+            ("https://cdn.test/body_back.png",  "body_back"),
+        ]:
+            side_pos = urls.index(slot_url)
+            assert card_pos < side_pos, (
+                f"final_card (pos={card_pos}) must precede {slot_name} (pos={side_pos})"
+            )
+
+    def test_sparse_canon_no_expression_skips_gracefully(self):
+        """Sparse canon (no expression, no back, no map) returns only set URLs in order."""
+        from app.models.character_identity_canon import CharacterIdentityCanon
+        from app.schemas.canon import FaceCanonData, BodyCanonData
+        from app.services.canon_compiler import collect_canon_reference_urls
+
+        canon = MagicMock(spec=CharacterIdentityCanon)
+        canon.character_id = 99
+        face = FaceCanonData(face_front_image_url="https://cdn.test/face_front.png")
+        body = BodyCanonData(
+            body_front_image_url="https://cdn.test/body_front.png",
+            final_character_card_image_url="https://cdn.test/final_card.png",
+        )
+        canon.face_canon_json = json.dumps(face.model_dump())
+        canon.body_canon_json = json.dumps(body.model_dump())
+        canon.accessories_json = None
+
+        urls = collect_canon_reference_urls(canon)
+        assert urls == [
+            "https://cdn.test/face_front.png",
+            "https://cdn.test/body_front.png",
+            "https://cdn.test/final_card.png",
+        ], f"Sparse canon order wrong: {urls}"
+
+    def test_body_map_in_sent_six_when_face_expression_only_optional(self):
+        """body_map must be in the sent-6 even when face_expression is present."""
+        from app.services.canon_compiler import collect_canon_reference_urls
+
+        canon = self._make_full_canon()
+        sent = set(collect_canon_reference_urls(canon)[:6])
+
+        assert "https://cdn.test/body_map.png" in sent, (
+            "body_map must be within the first 6 refs — it carries canonical "
+            "marking placement truth and must always reach the provider"
+        )
+        assert "https://cdn.test/face_expression.png" not in sent, (
+            "face_expression must not occupy a slot in the sent-6 — "
+            "it is lowest-priority and must yield to body truth refs"
+        )
