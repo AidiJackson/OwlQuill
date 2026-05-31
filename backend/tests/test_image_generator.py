@@ -307,9 +307,10 @@ def test_include_character_with_canon_succeeds(client: TestClient, db_session):
 
 # ── 4. Compiled prompt is sourced from canon_compiler ─────────────────
 
-def test_compiled_prompt_sourced_from_canon(client: TestClient, db_session):
-    """The provider prompt contains canon sections and the scene, and the
-    locked-canon clause — proving canon_compiler produced it."""
+def test_compiled_prompt_minimal_and_card_driven(client: TestClient, db_session):
+    """P12: the provider prompt is the user scene (essentially unchanged) plus a
+    minimal safety directive — identity comes from the routed canon cards, so no
+    canon prose / marking essays / relocation clauses appear in the prompt."""
     token = _register_and_login(client, "imggen_compiled@example.com")
     cid = _create_character(client, token)
     _setup_canon(db_session, cid)
@@ -324,14 +325,14 @@ def test_compiled_prompt_sourced_from_canon(client: TestClient, db_session):
 
     assert resp.status_code == 200, resp.text
     prompt = captured.get("prompt", "")
-    assert "FACE CANON" in prompt
-    assert "BODY CANON" in prompt
     assert "Riding a horse at sunset" in prompt
-    # Locked-canon clause from canon_compiler (face/body locked)
-    assert "locked" in prompt.lower() and "canon" in prompt.lower()
-    # And recorded in metadata
+    for banned in ("FACE CANON", "BODY CANON", "PERMANENT BODY MARKS",
+                   "relocate", "mirror", "locked face"):
+        assert banned not in prompt, f"Removed prose leaked into prompt: {banned!r}"
+    # canon_used is recorded and the prompt stays small.
     meta = resp.json()["metadata_json"]
     assert meta["compiled_prompt"]
+    assert meta["canon_used"] is True
 
 
 # ── 5. Removable accessories inject ONLY when requested ───────────────
@@ -447,8 +448,9 @@ _TATTOO_MARKS = [
 ]
 
 
-def test_permanent_marks_exact_in_prompt(client: TestClient, db_session):
-    """P3 #5: tattoo positions remain exact in the compiled prompt."""
+def test_permanent_marks_are_card_truth_not_prompt_prose(client: TestClient, db_session):
+    """P12: tattoo placement is carried by the routed body_map / body cards, not
+    by prompt prose. The compiled prompt must not enumerate marking regions."""
     token = _register_and_login(client, "imggen_marks@example.com")
     cid = _create_character(client, token)
     _setup_canon(db_session, cid, marks=_TATTOO_MARKS)
@@ -463,13 +465,14 @@ def test_permanent_marks_exact_in_prompt(client: TestClient, db_session):
 
     assert resp.status_code == 200, resp.text
     prompt = captured.get("prompt", "")
-    assert "PERMANENT BODY MARKS" in prompt
-    assert "right full arm" in prompt and "right side" in prompt
-    assert "left full arm" in prompt and "left side" in prompt
+    assert "Leonardo Baptiste in a sleeveless shirt" in prompt
+    assert "PERMANENT BODY MARKS" not in prompt
+    assert "tribal wolf" not in prompt and "gothic script" not in prompt
 
 
-def test_marks_carry_no_mirror_clause(client: TestClient, db_session):
-    """P3 #6: the locked-canon clause forbids mirroring/relocating marks."""
+def test_marks_carry_no_relocation_prose(client: TestClient, db_session):
+    """P12: the mirror/relocate invariant prose is gone — anti-mirroring is now
+    enforced by the side-locked canon cards, not by a prompt clause."""
     token = _register_and_login(client, "imggen_nomirror@example.com")
     cid = _create_character(client, token)
     _setup_canon(db_session, cid, marks=_TATTOO_MARKS)
@@ -484,7 +487,8 @@ def test_marks_carry_no_mirror_clause(client: TestClient, db_session):
 
     assert resp.status_code == 200, resp.text
     prompt = captured.get("prompt", "").lower()
-    assert "mirror" in prompt and "relocate" in prompt
+    assert "relocate" not in prompt
+    assert "do not mirror" not in prompt
 
 
 # ── 7. Reference images: multi-image vs grounded ──────────────────────

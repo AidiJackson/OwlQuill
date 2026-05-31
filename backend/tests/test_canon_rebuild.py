@@ -255,7 +255,15 @@ class TestSceneDoesNotMutateCanon:
 
 # ── Test 3 & 4: Prompt ordering ──────────────────────────────────────
 
-class TestPromptOrdering:
+class TestMinimalPrompt:
+    """P12: the compiled prompt is minimal and card-driven.
+
+    Identity truth (face, body, anatomy, tattoo placement) now travels in the
+    routed canon reference cards — NOT in prose. The compiler must therefore
+    keep the user's scene essentially unchanged and emit no canon paragraphs,
+    marking essays, or relocation/side-lock invariants.
+    """
+
     def _make_canon_with_content(self):
         from app.models.character_identity_canon import CharacterIdentityCanon
         from app.schemas.canon import FaceCanonData, BodyCanonData, PermanentBodyMark
@@ -283,58 +291,46 @@ class TestPromptOrdering:
         canon.accessories_json = None
         return canon
 
-    def test_face_canon_before_body_canon_in_prompt(self):
+    def test_scene_prompt_preserved(self):
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_canon_with_content()
-        prompt = compile_canon_prompt(canon, "standing on a beach")
-
-        face_pos = prompt.find("FACE CANON")
-        body_pos = prompt.find("BODY CANON")
-        assert face_pos != -1, "FACE CANON must appear in prompt"
-        assert body_pos != -1, "BODY CANON must appear in prompt"
-        assert face_pos < body_pos, (
-            f"FACE CANON (pos={face_pos}) must precede BODY CANON (pos={body_pos})"
-        )
-
-    def test_body_canon_before_scene_prompt_in_prompt(self):
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_canon_with_content()
-        scene = "sitting at a bar drinking whiskey"
+        scene = "Leonardo standing face on wearing a sleeveless black shirt on the beach"
         prompt = compile_canon_prompt(canon, scene)
+        assert scene in prompt, "User scene prompt must be preserved essentially unchanged"
 
-        body_pos = prompt.find("BODY CANON")
-        scene_pos = prompt.find(scene)
-        assert body_pos != -1
-        assert scene_pos != -1
-        assert body_pos < scene_pos, (
-            f"BODY CANON (pos={body_pos}) must precede scene (pos={scene_pos})"
-        )
+    def test_no_canon_prose_blocks(self):
+        from app.services.canon_compiler import compile_canon_prompt
 
-    def test_permanent_marks_before_scene_prompt(self):
+        canon = self._make_canon_with_content()
+        prompt = compile_canon_prompt(canon, "sitting at a bar drinking whiskey")
+        for banned in (
+            "FACE CANON", "BODY CANON", "PERMANENT BODY MARKS",
+            "COVERED PERMANENT BODY MARKS", "relocate", "mirror",
+            "side-locked", "do not render", "locked face",
+        ):
+            assert banned not in prompt, f"Removed prose leaked into prompt: {banned!r}"
+
+    def test_prompt_is_small(self):
+        """Minimal prompt = safety + scene; no multi-paragraph identity essays."""
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_canon_with_content()
         scene = "in a nightclub"
         prompt = compile_canon_prompt(canon, scene)
+        # safety prefix + scene only — comfortably under 200 chars.
+        assert len(prompt) < 200, f"Prompt unexpectedly large ({len(prompt)} chars): {prompt!r}"
 
-        marks_pos = prompt.find("PERMANENT BODY MARKS")
-        scene_pos = prompt.find(scene)
-        assert marks_pos != -1
-        assert marks_pos < scene_pos
-
-    def test_locked_canon_clause_at_end(self):
-        from app.services.canon_compiler import compile_canon_prompt, LOCKED_CANON_CLAUSE
-
-        canon = self._make_canon_with_content()
-        scene = "brief scene here"
-        prompt = compile_canon_prompt(canon, scene)
-
-        clause_pos = prompt.find("locked face")  # start of the locked canon clause
-        scene_pos = prompt.find(scene)
-        assert clause_pos != -1, "Locked canon clause must appear when face/body is locked"
-        assert clause_pos > scene_pos, "Locked canon clause must appear after scene prompt"
+    def test_removed_prose_symbols_gone(self):
+        """The deleted prose constants/helpers must no longer be importable."""
+        import app.services.canon_compiler as cc
+        for sym in (
+            "LOCKED_CANON_CLAUSE", "ACCESSORY_RULE",
+            "MARKING_NO_RELOCATION_INVARIANT", "MARKING_SIDE_LOCK_INVARIANT",
+            "MARKING_COVERED_CLAUSE", "_build_side_lock_clauses",
+            "_classify_canon_mark_exposure",
+        ):
+            assert not hasattr(cc, sym), f"P12 should have removed {sym}"
 
 
 # ── Test 5 & 6: Permanent tattoos are Body Canon, not accessories ─────
@@ -366,7 +362,13 @@ class TestPermanentTattoosAreBodyCanon:
         assert body.permanent_body_marks[0].type == "tattoo"
         assert body.permanent_body_marks[0].body_region == "left_full_arm"
 
-    def test_tattoo_injected_under_permanent_body_marks_not_accessories(self):
+    def test_tattoo_not_emitted_as_prompt_prose(self):
+        """P12: a permanent tattoo is canon-card truth, never accessory prose.
+
+        It is stored on the body canon (verified above) and rendered from the
+        body_map / body cards — it must NOT be injected as prompt prose, and
+        must never appear in an accessories block.
+        """
         from app.models.character_identity_canon import CharacterIdentityCanon
         from app.schemas.canon import BodyCanonData, PermanentBodyMark
         from app.services.canon_compiler import compile_canon_prompt
@@ -386,17 +388,9 @@ class TestPermanentTattoosAreBodyCanon:
         canon.accessories_json = None
 
         prompt = compile_canon_prompt(canon, "standing in sunlight")
-        assert "PERMANENT BODY MARKS" in prompt, "Tattoos must appear under PERMANENT BODY MARKS"
-        assert "gothic script inscription sleeve" in prompt
-        # Must NOT appear under ACCESSORIES
-        if "ACCESSORIES" in prompt:
-            # Accessories section exists — tattoo must not be there
-            acc_pos = prompt.find("ACCESSORIES")
-            marks_pos = prompt.find("PERMANENT BODY MARKS")
-            tattoo_pos = prompt.find("gothic script inscription sleeve")
-            assert tattoo_pos < acc_pos or tattoo_pos > acc_pos + 50, (
-                "Tattoo description must not be inside ACCESSORIES block"
-            )
+        assert "PERMANENT BODY MARKS" not in prompt
+        assert "gothic script inscription sleeve" not in prompt
+        assert "ACCESSORIES" not in prompt
 
     def test_permanent_mark_type_tattoo_is_not_accessory_type(self):
         from app.schemas.canon import PermanentBodyMark, RemovableAccessory
@@ -455,12 +449,14 @@ class TestRemovableAccessoryInjection:
             prompt = compile_canon_prompt(canon, scene)
             assert "ornate Venetian half-mask" in prompt, f"Mask must inject for keyword {kw!r}"
 
-    def test_accessory_rule_shown_when_no_accessories_triggered(self):
-        from app.services.canon_compiler import compile_canon_prompt, ACCESSORY_RULE
+    def test_no_accessory_rule_prose_when_untriggered(self):
+        """P12: removed the ACCESSORY_RULE prose — untriggered scenes stay clean."""
+        from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_canon_with_mask()
         prompt = compile_canon_prompt(canon, "walking in a park")
-        assert "Only include removable accessories" in prompt or ACCESSORY_RULE[:40] in prompt
+        assert "Venetian" not in prompt
+        assert "Only include removable accessories" not in prompt
 
 
 # ── Test 9 & 10: Admin can assign images ─────────────────────────────
@@ -870,379 +866,35 @@ class TestLeonardoPromptScenario:
         return canon
 
     def test_beach_no_mask_prompt(self):
+        """P12: scene preserved, mask untriggered, tattoo truth NOT in prose."""
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_leonardo_canon()
-        prompt = compile_canon_prompt(canon, "Leonardo standing on a beach in daylight")
+        scene = "Leonardo standing on a beach in daylight"
+        prompt = compile_canon_prompt(canon, scene)
 
-        assert "gothic script inscription sleeve" in prompt
-        assert "tribal wolf" in prompt  # in updated description: "Black tribal wolf head tattoo..."
-        assert "Venetian" not in prompt  # mask not triggered
-        assert "FACE CANON" in prompt
-        assert "BODY CANON" in prompt
-        assert "locked face" in prompt.lower()  # locked canon clause
+        assert scene in prompt
+        assert "Venetian" not in prompt          # mask not triggered
+        # Tattoos are card truth, not prose.
+        assert "gothic script inscription sleeve" not in prompt
+        assert "tribal wolf" not in prompt
+        # No canon essays.
+        assert "FACE CANON" not in prompt
+        assert "BODY CANON" not in prompt
 
     def test_beach_with_mask_prompt(self):
+        """P12: explicitly requested removable accessory is injected; marks are not."""
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_leonardo_canon()
-        prompt = compile_canon_prompt(
-            canon,
-            "Leonardo at a masquerade ball, wearing a mask",
-        )
+        scene = "Leonardo at a masquerade ball, wearing a mask"
+        prompt = compile_canon_prompt(canon, scene)
 
-        # Both marks appear — covered or visible, the description text is always present.
-        assert "gothic script inscription sleeve" in prompt
-        assert "tribal wolf" in prompt  # in updated description
-        assert "ornate Venetian half-mask" in prompt  # mask triggered
-
-    def test_face_description_before_body_in_prompt(self):
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leonardo_canon()
-        prompt = compile_canon_prompt(canon, "bar scene in black shirt")
-
-        face_pos = prompt.find("FACE CANON")
-        body_pos = prompt.find("BODY CANON")
-        marks_pos = prompt.find("PERMANENT BODY MARKS")
-
-        assert face_pos < body_pos < marks_pos, (
-            f"Wrong order: face={face_pos} body={body_pos} marks={marks_pos}"
-        )
-
-    def test_both_tattoos_in_prompt_not_mirrored(self):
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leonardo_canon()
-        prompt = compile_canon_prompt(canon, "shirtless side profile")
-
-        # Both marks must appear with their correct sides
-        assert "left" in prompt.lower()
-        assert "right" in prompt.lower()
-        assert "gothic script" in prompt
-        assert "tribal wolf" in prompt
-        # They appear separately (semicolon separated)
-        marks_start = prompt.find("PERMANENT BODY MARKS")
-        assert marks_start != -1
-        marks_section = prompt[marks_start:]
-        assert "gothic script" in marks_section
-        assert "tribal wolf" in marks_section
-
-
-# ── P4: Marking visibility gating tests ──────────────────────────────
-
-class TestMarkingVisibilityGating:
-    """P4 acceptance tests — anatomical marking visibility and no-relocation.
-
-    Verifies that compile_canon_prompt correctly classifies permanent body
-    marks as VISIBLE or COVERED based on the scene prompt, and always emits
-    the relocation prohibition when marks are covered.
-    """
-
-    def _make_canon_with_mark(
-        self,
-        body_region: str = "right_upper_arm",
-        description: str = "wolf tattoo",
-        side: str = "right",
-    ):
-        from app.models.character_identity_canon import CharacterIdentityCanon
-        from app.schemas.canon import BodyCanonData, PermanentBodyMark
-
-        canon = MagicMock(spec=CharacterIdentityCanon)
-        canon.character_id = 42
-        canon.face_canon_json = None
-        canon.accessories_json = None
-        mark = PermanentBodyMark(
-            label="Test mark",
-            type="tattoo",
-            body_region=body_region,
-            side=side,
-            description=description,
-        )
-        body = BodyCanonData(permanent_body_marks=[mark])
-        canon.body_canon_json = json.dumps(body.model_dump())
-        return canon
-
-    # ── Test 1: right_upper_arm + t-shirt → hidden ────────────────
-    def test_upper_arm_hidden_under_tshirt(self):
-        """T-shirt exposes forearm but NOT the upper bicep — wolf must be covered."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_canon_with_mark(
-            body_region="right_upper_arm",
-            description="Black tribal wolf head tattoo on right upper bicep",
-        )
-        prompt = compile_canon_prompt(canon, "standing in a bar wearing a t-shirt")
-
-        assert "COVERED PERMANENT BODY MARKS" in prompt
-        assert "PERMANENT BODY MARKS VISIBLE" not in prompt
-        assert "wolf" in prompt  # description still in covered block
-
-    # ── Test 2: right_upper_arm + sleeveless → visible ────────────
-    def test_upper_arm_visible_when_sleeveless(self):
-        """Sleeveless shirt exposes the full arm — wolf must be visible."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_canon_with_mark(
-            body_region="right_upper_arm",
-            description="Black tribal wolf head tattoo on right upper bicep",
-        )
-        prompt = compile_canon_prompt(canon, "standing in the sun wearing a sleeveless shirt")
-
-        assert "PERMANENT BODY MARKS VISIBLE" in prompt
-        assert "wolf" in prompt
-        # Must NOT appear in a covered block
-        assert "COVERED PERMANENT BODY MARKS" not in prompt
-
-    # ── Test 3: right_upper_arm + rolled sleeves → hidden ─────────
-    def test_upper_arm_hidden_with_rolled_sleeves(self):
-        """Rolled sleeves expose the forearm, not the upper bicep — wolf stays hidden."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_canon_with_mark(
-            body_region="right_upper_arm",
-            description="Black tribal wolf head tattoo on right upper bicep",
-        )
-        prompt = compile_canon_prompt(
-            canon, "bar scene, button shirt with sleeves rolled up"
-        )
-
-        assert "COVERED PERMANENT BODY MARKS" in prompt
-        assert "PERMANENT BODY MARKS VISIBLE" not in prompt
-
-    # ── Test 4: right_upper_arm token does not mention lower arm ──
-    def test_upper_arm_mark_token_stays_on_upper_arm(self):
-        """The compiled mark token must reference 'right upper arm', never 'forearm'."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_canon_with_mark(
-            body_region="right_upper_arm",
-            description="Black tribal wolf head tattoo on right upper bicep",
-        )
-        # Use a scene where the upper arm IS visible so it goes in the VISIBLE block.
-        prompt = compile_canon_prompt(canon, "shirtless in the gym")
-
-        assert "right upper arm" in prompt
-        # The mark must not be described as a forearm marking.
-        visible_start = prompt.find("PERMANENT BODY MARKS VISIBLE")
-        assert visible_start != -1, "Mark should be visible when shirtless"
-        visible_section = prompt[visible_start:]
-        assert "forearm" not in visible_section.lower().split("right upper arm")[0] or True
-        # Positive check: the token explicitly names the right upper arm.
-        assert "right upper arm" in visible_section
-
-    # ── Test 5: left_full_arm sleeve + rolled sleeves → visible ───
-    def test_full_arm_sleeve_visible_when_forearm_exposed(self):
-        """Sleeve exception: full-arm sleeve forearm portion shows with rolled sleeves."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_canon_with_mark(
-            body_region="left_full_arm",
-            description="gothic script inscription sleeve from shoulder to wrist",
-            side="left",
-        )
-        prompt = compile_canon_prompt(
-            canon, "shirt with sleeves rolled up"
-        )
-
-        # Sleeve exception: description contains "sleeve" and forearm is exposed.
-        assert "PERMANENT BODY MARKS VISIBLE" in prompt
-        assert "gothic script inscription sleeve" in prompt
-
-    # ── Test 6: covered block always has relocation prohibition ───
-    def test_covered_block_includes_do_not_relocate(self):
-        """Any covered block must contain the hard relocation prohibition."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_canon_with_mark(
-            body_region="right_upper_arm",
-            description="wolf tattoo on right upper arm",
-        )
-        # T-shirt: upper arm is covered.
-        prompt = compile_canon_prompt(canon, "wearing a t-shirt at the bar")
-
-        assert "COVERED PERMANENT BODY MARKS" in prompt
-        assert "Do not relocate" in prompt
-
-    # ── Test 7: Leonardo fixture stores wolf as right_upper_arm ───
-    def test_leonardo_wolf_stored_as_right_upper_arm(self):
-        """Fixture must use right_upper_arm (not right_full_arm) for the wolf."""
-        from app.schemas.canon import BodyCanonData
-        import json
-
-        scenario = TestLeonardoPromptScenario()
-        canon = scenario._make_leonardo_canon()
-        body = BodyCanonData(**json.loads(canon.body_canon_json))
-
-        wolf = next(
-            (m for m in body.permanent_body_marks if "wolf" in m.label.lower()),
-            None,
-        )
-        assert wolf is not None, "Wolf mark must exist in Leonardo's body canon"
-        assert wolf.body_region == "right_upper_arm", (
-            f"Wolf must be right_upper_arm, got {wolf.body_region!r}"
-        )
-        assert "right_full_arm" not in wolf.body_region
-
-    # ── Test 8: bar scene + rolled sleeves → wolf covered ─────────
-    def test_wolf_covered_in_bar_scene_with_rolled_sleeves(self):
-        """In a bar scene with rolled sleeves, the upper-bicep wolf must be hidden."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        scenario = TestLeonardoPromptScenario()
-        canon = scenario._make_leonardo_canon()
-
-        # Rolled sleeves expose the forearm but not the upper bicep.
-        prompt = compile_canon_prompt(
-            canon, "Leonardo at a bar, shirt with sleeves rolled up"
-        )
-
-        # Wolf (right_upper_arm) must be in the covered block.
-        assert "COVERED PERMANENT BODY MARKS" in prompt
-        covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
-        covered_section = prompt[covered_start:]
-        assert "wolf" in covered_section.lower(), (
-            "Wolf tattoo description must appear in COVERED block"
-        )
-
-        # No-relocation invariant must be present.
-        assert "do not relocate" in prompt.lower() or "Do not relocate" in prompt
-
-
-# ── P6: exact bar prompt regression ──────────────────────────────────
-
-class TestWolfRelocationRegression:
-    """P6 regression — right_upper_arm wolf must be COVERED in bar scene with rolled sleeves.
-
-    Reproduces the exact prompt that caused the relocation bug and verifies the
-    full output contract:
-      - wolf is in COVERED block
-      - 'do not render' present
-      - 'do not relocate' present
-      - reference-image override clause present
-      - wolf NOT in VISIBLE block
-    """
-
-    _BAR_PROMPT = (
-        "Leonardo Baptiste in a warm wooden bar, wearing a fitted grey button-up shirt "
-        "with sleeves rolled to the forearms, holding a beer bottle, silver chain visible, "
-        "serious expression."
-    )
-
-    def _make_leo_canon(self):
-        """Fixture matching Leonardo's corrected real-world canon data."""
-        from app.models.character_identity_canon import CharacterIdentityCanon
-        from app.schemas.canon import BodyCanonData, PermanentBodyMark
-
-        canon = MagicMock(spec=CharacterIdentityCanon)
-        canon.character_id = 41
-        canon.face_canon_json = None
-        canon.accessories_json = None
-
-        wolf = PermanentBodyMark(
-            label="Right Arm Tribal Wolf Mark",
-            type="tattoo",
-            body_region="right_upper_arm",
-            side="right",
-            description=(
-                "Black tribal wolf head tattoo locked to the right upper arm / "
-                "lateral bicep and deltoid cap only. It does not extend to the "
-                "forearm, wrist, hand, chest, neck, back, or shoulder blade."
-            ),
-        )
-        sleeve = PermanentBodyMark(
-            label="Left Arm Gothic Script Sleeve",
-            type="tattoo",
-            body_region="left_full_arm",
-            side="left",
-            description=(
-                "Black gothic script sleeve covering the left arm from upper shoulder "
-                "to wrist. It is a full left-arm sleeve of gothic lettering and symbols."
-            ),
-        )
-        body = BodyCanonData(
-            body_front_image_url="https://cdn.test/leo_body.png",
-            permanent_body_marks=[wolf, sleeve],
-            locked=True,
-        )
-        canon.body_canon_json = json.dumps(body.model_dump())
-        return canon
-
-    def test_wolf_in_covered_not_visible_bar_prompt(self):
-        """Wolf must be COVERED — not VISIBLE — for the exact bar prompt."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-
-        assert "COVERED PERMANENT BODY MARKS" in prompt, (
-            "Wolf must land in COVERED block when upper bicep is under a rolled-sleeve button shirt"
-        )
-        covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
-        covered_section = prompt[covered_start:]
-        assert "wolf" in covered_section.lower(), (
-            "Wolf description must appear inside the COVERED block"
-        )
-
-    def test_wolf_not_in_visible_block_bar_prompt(self):
-        """Wolf must not appear in VISIBLE block for the bar prompt."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-
-        if "PERMANENT BODY MARKS VISIBLE" in prompt:
-            visible_start = prompt.find("PERMANENT BODY MARKS VISIBLE")
-            covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
-            end = covered_start if covered_start > visible_start else len(prompt)
-            visible_section = prompt[visible_start:end]
-            assert "wolf" not in visible_section.lower(), (
-                f"Wolf must NOT be in VISIBLE block — it is on right upper bicep which is "
-                f"covered by the rolled-sleeve button shirt"
-            )
-
-    def test_do_not_render_in_prompt(self):
-        """COVERED block must contain 'Do not render'."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-        assert "Do not render" in prompt, "Covered block must say 'Do not render'"
-
-    def test_do_not_relocate_in_prompt(self):
-        """Covered block and invariant must contain relocation prohibition."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-        assert "Do not relocate" in prompt or "do not relocate" in prompt.lower()
-
-    def test_reference_image_override_clause_in_prompt(self):
-        """Covered block must tell the model to override reference images."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-        assert "reference images" in prompt.lower(), (
-            "Covered block must explicitly instruct the model to override reference images "
-            "that show the covered marking"
-        )
-
-    def test_gothic_sleeve_visible_via_sleeve_exception(self):
-        """Gothic script sleeve forearm portion must be VISIBLE with rolled sleeves."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-
-        assert "PERMANENT BODY MARKS VISIBLE" in prompt
-        visible_start = prompt.find("PERMANENT BODY MARKS VISIBLE")
-        covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
-        visible_section = prompt[visible_start:covered_start if covered_start > 0 else len(prompt)]
-        assert "gothic" in visible_section.lower(), (
-            "Gothic script sleeve forearm portion must be VISIBLE — "
-            "rolled sleeves expose the forearm of a full-arm sleeve"
-        )
+        assert scene in prompt
+        assert "ornate Venetian half-mask" in prompt   # mask triggered
+        # Permanent marks remain card truth — not injected as prose.
+        assert "gothic script inscription sleeve" not in prompt
+        assert "tribal wolf" not in prompt
 
 
 # ── P8: Canon reference priority order ───────────────────────────────
@@ -1417,168 +1069,3 @@ class TestCanonReferenceOrder:
         )
 
 
-# ── P9: Side-lock / anti-mirroring regression ─────────────────────────
-
-class TestSideLockAntiMirroring:
-    """P9 — Gothic script sleeve must not appear on right forearm.
-
-    Reproduces the exact bilateral hallucination failure:
-      left_full_arm sleeve visible (rolled sleeves expose forearm) +
-      right_upper_arm wolf covered  →
-      model mirrors script to right forearm.
-
-    The side-lock invariant and per-mark negative clauses must prevent this.
-    """
-
-    _BAR_PROMPT = (
-        "Leonardo Baptiste in a warm wooden bar, wearing a fitted grey button-up shirt "
-        "with sleeves rolled to the forearms, holding a beer bottle, silver chain visible, "
-        "serious expression."
-    )
-
-    def _make_leo_canon(self):
-        from app.models.character_identity_canon import CharacterIdentityCanon
-        from app.schemas.canon import BodyCanonData, PermanentBodyMark
-
-        canon = MagicMock(spec=CharacterIdentityCanon)
-        canon.character_id = 41
-        canon.face_canon_json = None
-        canon.accessories_json = None
-        wolf = PermanentBodyMark(
-            label="Right Arm Tribal Wolf Mark",
-            type="tattoo",
-            body_region="right_upper_arm",
-            side="right",
-            description=(
-                "Black tribal wolf head tattoo locked to the right upper arm / "
-                "lateral bicep and deltoid cap only. It does not extend to the "
-                "forearm, wrist, hand, chest, neck, back, or shoulder blade."
-            ),
-        )
-        sleeve = PermanentBodyMark(
-            label="Left Arm Gothic Script Sleeve",
-            type="tattoo",
-            body_region="left_full_arm",
-            side="left",
-            description=(
-                "Black gothic script sleeve covering the left arm from upper shoulder "
-                "to wrist. It is a full left-arm sleeve of gothic lettering and symbols."
-            ),
-        )
-        body = BodyCanonData(
-            body_front_image_url="https://cdn.test/leo_body.png",
-            permanent_body_marks=[wolf, sleeve],
-            locked=True,
-        )
-        canon.body_canon_json = json.dumps(body.model_dump())
-        return canon
-
-    def test_side_lock_invariant_present(self):
-        """MARKING_SIDE_LOCK_INVARIANT must appear in every prompt with arm marks."""
-        from app.services.canon_compiler import compile_canon_prompt, MARKING_SIDE_LOCK_INVARIANT
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-        assert "side-locked" in prompt, (
-            "MARKING_SIDE_LOCK_INVARIANT must be present when arm marks exist"
-        )
-
-    def test_no_gothic_sleeve_on_right_forearm_clause(self):
-        """Negative clause must explicitly negate the gothic sleeve on right arm areas."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-        assert "no gothic script sleeve on the right" in prompt, (
-            "Prompt must contain negative side-lock clause for left-arm sleeve: "
-            "'There is no gothic script sleeve on the right forearm...'"
-        )
-
-    def test_wolf_exists_only_on_right_bicep_clause(self):
-        """Existence clause must anchor wolf to right upper bicep only."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-        assert "exists only on the right upper bicep" in prompt, (
-            "Prompt must contain existence clause for covered right-arm wolf: "
-            "'The tribal wolf mark exists only on the right upper bicep/deltoid region'"
-        )
-
-    def test_do_not_mirror_in_prompt(self):
-        """'Do not mirror' must appear in side-lock invariant."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-        assert "Do not mirror" in prompt
-
-    def test_do_not_symmetrize_in_prompt(self):
-        """Side-lock invariant must prohibit symmetrization explicitly."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-        assert "symmetrize" in prompt
-
-    def test_sleeve_visible_wolf_covered_unchanged(self):
-        """Visibility classification must remain unchanged: sleeve VISIBLE, wolf COVERED."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-
-        assert "PERMANENT BODY MARKS VISIBLE" in prompt
-        assert "COVERED PERMANENT BODY MARKS" in prompt
-
-        visible_start = prompt.find("PERMANENT BODY MARKS VISIBLE")
-        covered_start = prompt.find("COVERED PERMANENT BODY MARKS")
-        visible_section = prompt[visible_start:covered_start]
-        covered_section = prompt[covered_start:]
-
-        assert "gothic" in visible_section.lower(), "Gothic sleeve must be VISIBLE"
-        assert "wolf" in covered_section.lower(), "Wolf mark must be COVERED"
-        assert "wolf" not in visible_section.lower(), "Wolf must NOT be in VISIBLE"
-
-    def test_prompt_not_truncated(self):
-        """Full prompt with side-lock blocks must fit within the raised cap (2400)."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, self._BAR_PROMPT)
-        assert len(prompt) <= 2400, (
-            f"Prompt exceeds cap: {len(prompt)} chars"
-        )
-
-    def test_non_arm_mark_has_no_side_lock_clause(self):
-        """Cheek scar (non-arm mark) must not produce an arm side-lock clause."""
-        from app.models.character_identity_canon import CharacterIdentityCanon
-        from app.schemas.canon import BodyCanonData, PermanentBodyMark
-        from app.services.canon_compiler import _build_side_lock_clauses
-
-        scar = PermanentBodyMark(
-            label="Right Cheek Scar",
-            type="scar",
-            body_region="right_cheek",
-            side="right",
-            description="diagonal slash scar across right cheek",
-        )
-        clauses = _build_side_lock_clauses(visible_marks=[scar], hidden_marks=[])
-        assert clauses == "", (
-            f"Non-arm marks must not produce side-lock clauses, got: {clauses!r}"
-        )
-
-    def test_both_arms_visible_shirtless(self):
-        """When shirtless both arms visible: each arm gets a negative clause for the other."""
-        from app.services.canon_compiler import compile_canon_prompt
-
-        canon = self._make_leo_canon()
-        prompt = compile_canon_prompt(canon, "shirtless at the gym")
-
-        # Both marks visible when shirtless; each should have a side-lock clause.
-        assert "side-locked" in prompt
-        # Gothic sleeve on left — must negate right arm areas.
-        assert "no gothic script sleeve on the right" in prompt
-        # Wolf on right — must negate left arm areas.
-        assert "no right arm tribal wolf mark on the left" in prompt or \
-               "no tribal wolf mark on the left" in prompt

@@ -604,22 +604,24 @@ def _generate(client: TestClient, token: str, cid: int, prompt: str):
 class TestCanonEndpointIntegration:
     """End-to-end route behaviour under the canon contract."""
 
-    def test_both_marks_in_permanent_section(self, client: TestClient, db_session):
+    def test_marks_are_card_truth_not_prompt_prose(self, client: TestClient, db_session):
+        """P12: tattoo placement comes from the routed body cards, not prompt prose."""
         token, cid = _setup_canon_char(client, db_session, "ep_canon_marks@bartest.com")
         resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
         assert resp.status_code == 200, resp.text
         prompt = captured.get("prompt", "")
-        assert "PERMANENT BODY MARKS" in prompt
-        assert "right_full_arm" in prompt and "right side" in prompt
-        assert "left_full_arm" in prompt and "left side" in prompt
-        assert "wolf" in prompt.lower() and "scripture" in prompt.lower()
+        assert "PERMANENT BODY MARKS" not in prompt
+        assert "wolf" not in prompt.lower() and "scripture" not in prompt.lower()
 
-    def test_locked_canon_clause_forbids_mirroring(self, client: TestClient, db_session):
+    def test_no_mirroring_prose_in_prompt(self, client: TestClient, db_session):
+        """P12: the mirror/relocate invariant prose is gone — anti-mirroring is now
+        carried by the side-locked canon cards, not by a prompt clause."""
         token, cid = _setup_canon_char(client, db_session, "ep_canon_mirror@bartest.com")
         resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
         assert resp.status_code == 200, resp.text
         prompt = captured.get("prompt", "").lower()
-        assert "mirror" in prompt and "relocate" in prompt
+        assert "relocate" not in prompt
+        assert "do not mirror" not in prompt
 
     def test_no_legacy_metadata(self, client: TestClient, db_session):
         token, cid = _setup_canon_char(client, db_session, "ep_canon_meta@bartest.com")
@@ -640,7 +642,11 @@ class TestCanonEndpointIntegration:
         assert resp.status_code == 200, (
             f"Endpoint returned {resp.status_code} for bar prompt: {bar_prompt!r}\n{resp.text}"
         )
-        assert "PERMANENT BODY MARKS" in captured.get("prompt", "")
+        # P12: prompt is minimal and card-driven — the user scene is preserved
+        # and no canon marking prose is injected.
+        prompt = captured.get("prompt", "")
+        assert bar_prompt in prompt
+        assert "PERMANENT BODY MARKS" not in prompt
 
     def test_missing_canon_returns_409(self, client: TestClient):
         token = _reg_login(client, "ep_canon_missing@bartest.com")
