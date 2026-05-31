@@ -468,7 +468,7 @@ def test_permanent_marks_are_compact_clause(client: TestClient, db_session):
     prompt = captured.get("prompt", "")
     assert "Leonardo Baptiste in a sleeveless shirt" in prompt
     assert "PERMANENT BODY MARKS" not in prompt          # no bloated header
-    assert "immutable canon" in prompt.lower()           # compact clause
+    assert "skin-bound anatomy" in prompt.lower()        # compact clause
     assert "tribal wolf" in prompt and "gothic script" in prompt
 
 
@@ -489,7 +489,7 @@ def test_marks_carry_compact_permanence_directive(client: TestClient, db_session
 
     assert resp.status_code == 200, resp.text
     prompt = captured.get("prompt", "").lower()
-    assert "do not redesign, mirror, relocate" in prompt
+    assert "do not redesign, relocate, mirror" in prompt
     assert "for visual balance or composition" not in prompt
 
 

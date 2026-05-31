@@ -335,8 +335,8 @@ class TestMinimalPrompt:
 
         canon = self._make_canon_with_content()
         prompt = compile_canon_prompt(canon, "in a nightclub")
-        assert "immutable canon" in prompt.lower()
-        assert "match canon references exactly" in prompt.lower()
+        assert "skin-bound anatomy" in prompt.lower()
+        assert "remain attached to the correct body region and side" in prompt.lower()
         assert "gothic script from shoulder to wrist" in prompt
 
     def test_removed_prose_symbols_gone(self):
@@ -403,7 +403,7 @@ class TestPermanentTattoosAreBodyCanon:
 
         prompt = compile_canon_prompt(canon, "standing in sunlight")
         assert "PERMANENT BODY MARKS" not in prompt          # no bloated header
-        assert "immutable canon" in prompt.lower()           # compact clause
+        assert "skin-bound anatomy" in prompt.lower()           # compact clause
         assert "gothic script inscription sleeve" in prompt  # design text present
         assert "ACCESSORIES" not in prompt
 
@@ -891,7 +891,7 @@ class TestLeonardoPromptScenario:
         assert scene in prompt
         assert "Venetian" not in prompt          # mask not triggered
         # Marks ARE surfaced as a compact immutable clause + design text.
-        assert "immutable canon" in prompt.lower()
+        assert "skin-bound anatomy" in prompt.lower()
         assert "gothic script inscription sleeve" in prompt
         assert "tribal wolf" in prompt
         # No bloated canon essays / pre-P12 side-lock prose.
@@ -910,7 +910,7 @@ class TestLeonardoPromptScenario:
         assert scene in prompt
         assert "ornate Venetian half-mask" in prompt   # mask triggered
         # Permanent marks surface via the compact immutable clause.
-        assert "immutable canon" in prompt.lower()
+        assert "skin-bound anatomy" in prompt.lower()
         assert "gothic script inscription sleeve" in prompt
         assert "tribal wolf" in prompt
 

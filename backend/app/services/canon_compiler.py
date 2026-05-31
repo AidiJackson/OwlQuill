@@ -57,13 +57,28 @@ _IDENTITY_PRIORITY = (
     "face from the name and do not resemble any real person or celebrity."
 )
 
-# ── Permanence directive (C) ──────────────────────────────────────────
+# ── Permanence + skin-binding directive (C + P13b) ────────────────────
 # One compact directive appended to the marking clause. Not the pre-P12 essay.
+# Targets the "floating symbol" failure mode: an isolated tattoo crop being
+# rendered as a free-standing graphic/accessory beside the body instead of a
+# skin-bound marking applied to the correct anatomy.
+_MARKING_HEADER = "Permanent markings are immutable skin-bound anatomy:"
+
 _PERMANENCE_DIRECTIVE = (
-    "Permanent tattoos/scars must match canon references exactly: "
-    "same design, placement, side, and scale. "
-    "Do not redesign, mirror, relocate, replace, or restyle permanent tattoos/scars."
+    "Do not redesign, relocate, mirror, enlarge, detach, float, duplicate, or "
+    "reinterpret markings as symbols, graphics, accessories, or background elements. "
+    "Permanent tattoos/scars must remain attached to the correct body region and side."
 )
+
+
+def _skin_phrase(mark: object) -> str:
+    """Type-aware skin-binding suffix that frames the mark as inked-in anatomy."""
+    t = (getattr(mark, "type", "") or "").lower()
+    if t == "scar":
+        return "permanently set into the skin"
+    if t in ("tattoo", "body_marking", ""):
+        return "permanently inked into skin"
+    return "permanently part of the skin"
 
 
 # ── Reference image collector ─────────────────────────────────────────
@@ -187,13 +202,13 @@ def _permanent_marks_clause(canon: "CharacterIdentityCanon") -> str:
         region = _region_phrase(getattr(m, "body_region", ""))
         design = (getattr(m, "description", None) or getattr(m, "label", None)
                   or "permanent marking").strip()
-        lines.append(f"- {region}: {design}, exact placement and design from references")
+        lines.append(f"- {region}: {design} {_skin_phrase(m)}")
 
     if not lines:
         return ""
 
     return (
-        "Permanent markings are immutable canon:\n"
+        _MARKING_HEADER + "\n"
         + "\n".join(lines)
         + "\n" + _PERMANENCE_DIRECTIVE
     )

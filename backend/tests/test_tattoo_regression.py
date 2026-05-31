@@ -150,10 +150,10 @@ class TestCanonDrivesMarkings:
             )
         assert resp.status_code == 200, resp.text
         prompt = captured.get("prompt", "")
-        # P13 (A+C): mark surfaces via the compact immutable clause (region + design),
-        # not the legacy "PERMANENT BODY MARKS" header.
+        # P13/P13b (A+C): mark surfaces via the compact skin-bound clause (region +
+        # design), not the legacy "PERMANENT BODY MARKS" header.
         assert "PERMANENT BODY MARKS" not in prompt
-        assert "immutable canon" in prompt.lower()
+        assert "skin-bound anatomy" in prompt.lower()
         assert "right arm" in prompt.lower()
         assert "tribal wolf tattoo sleeve" in prompt
 

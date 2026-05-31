@@ -482,3 +482,72 @@ class TestExposureGatedCropRouting:
             BODY_FRONT, FACE_FRONT, FINAL_CARD,
             BODY_MAP, FACE_LEFT_3Q, FACE_RIGHT_3Q,
         ]
+
+
+# ── P13b tattoo-binding regression: skin-bound crops, never floating symbols ──
+
+class TestTattooBindingRegression:
+    """Pool / open-arm scene: the wolf tattoo must bind to right-upper-arm
+    anatomy, never render as a free-floating symbol beside the body.
+
+    Covers the P13b fix end to end:
+      #1 SceneMeta carries body-binding metadata for each routed crop
+      #2 the compiled marking clause frames marks as skin-bound anatomy
+      #3 routed refs pair the crop with a body anchor — never routed alone
+    """
+
+    _POOL_PROMPT = "facing camera at a swimming pool, arms out"
+
+    def test_wolf_crop_paired_with_body_anchor(self):
+        """#3: the wolf crop is routed, and a body anchor is always alongside it,
+        so the provider grounds it on anatomy instead of floating it."""
+        urls, meta = route_canon_refs(self._POOL_PROMPT, _make_canon_with_marks(_arm_marks()))
+        assert RIGHT_WOLF_CROP in urls
+        assert any(u in urls for u in (BODY_FRONT, BODY_MAP)), (
+            f"crop routed without a body anchor — detached-symbol risk: {urls!r}"
+        )
+        assert meta.mark_crops >= 1
+
+    def test_wolf_binding_metadata_is_right_upper_arm_anatomy(self):
+        """#1: the routed crop preserves body_region/side/label/visibility so the
+        wolf is interpreted as right upper-arm anatomy, not a loose graphic."""
+        _, meta = route_canon_refs(self._POOL_PROMPT, _make_canon_with_marks(_arm_marks()))
+        wolf = next((b for b in meta.mark_crop_bindings if b.url == RIGHT_WOLF_CROP), None)
+        assert wolf is not None, f"wolf binding missing from {meta.mark_crop_bindings!r}"
+        assert wolf.body_region == "right_upper_arm"
+        assert wolf.side == "right"
+        assert "wolf" in wolf.label.lower()
+        assert wolf.visibility == "exposed"
+
+    def test_crop_never_routed_alone_without_body_anchor(self):
+        """#3 negative path: with no body anchor available, crops are dropped
+        rather than routed alone — there is no detached-symbol path."""
+        from app.models.character_identity_canon import CharacterIdentityCanon
+        from app.schemas.canon import FaceCanonData, BodyCanonData
+
+        canon = MagicMock(spec=CharacterIdentityCanon)
+        canon.character_id = 7
+        face = FaceCanonData(face_front_image_url=FACE_FRONT)
+        # Marks + crops present, but the body carries NO image slots (no anchor).
+        body = BodyCanonData(permanent_body_marks=_arm_marks())
+        canon.face_canon_json = json.dumps(face.model_dump())
+        canon.body_canon_json = json.dumps(body.model_dump())
+        canon.accessories_json = None
+
+        urls, meta = route_canon_refs(self._POOL_PROMPT, canon)
+        assert RIGHT_WOLF_CROP not in urls
+        assert LEFT_SLEEVE_CROP not in urls
+        assert meta.mark_crops == 0
+        assert meta.mark_crop_bindings == []
+
+    def test_pool_clause_frames_wolf_as_skin_bound(self):
+        """#2: the compiled marking clause frames the wolf as skin-bound anatomy
+        and forbids detaching/floating it or reinterpreting it as a symbol."""
+        from app.services.canon_compiler import _permanent_marks_clause
+
+        clause = _permanent_marks_clause(_make_canon_with_marks(_arm_marks())).lower()
+        assert "skin-bound anatomy" in clause
+        assert "right upper arm: wolf howling permanently inked into skin" in clause
+        assert "detach, float" in clause
+        assert "reinterpret markings as symbols" in clause
+        assert "remain attached to the correct body region and side" in clause

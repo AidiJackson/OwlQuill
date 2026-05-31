@@ -612,9 +612,9 @@ class TestCanonEndpointIntegration:
         prompt = captured.get("prompt", "")
         # No legacy bloated header, but the compact clause + design tokens are present.
         assert "PERMANENT BODY MARKS" not in prompt
-        assert "immutable canon" in prompt.lower()
+        assert "skin-bound anatomy" in prompt.lower()
         assert "wolf" in prompt.lower()
-        assert "match canon references exactly" in prompt.lower()
+        assert "remain attached to the correct body region and side" in prompt.lower()
 
     def test_permanence_directive_present_no_legacy_bloat(self, client: TestClient, db_session):
         """P13 (C): the compact anti-restyle directive is present; the pre-P12
@@ -623,7 +623,8 @@ class TestCanonEndpointIntegration:
         resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
         assert resp.status_code == 200, resp.text
         prompt = captured.get("prompt", "").lower()
-        assert "do not redesign, mirror, relocate" in prompt
+        assert "do not redesign, relocate, mirror" in prompt
+        assert "detach, float" in prompt          # P13b: anti floating-symbol clause
         assert "for visual balance or composition" not in prompt
 
     def test_no_legacy_metadata(self, client: TestClient, db_session):

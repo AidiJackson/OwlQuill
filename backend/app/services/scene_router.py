@@ -211,15 +211,39 @@ def _mark_region_exposed(body_region: str, is_sleeve: bool, prompt_lower: str) -
     return False
 
 
+# Body-anchor slots: a routed tattoo crop must always be paired with at least
+# one of these so the provider grounds the crop on anatomy rather than treating
+# it as a free-floating symbol/accessory. Crops are never routed without one.
+_BODY_ANCHOR_SLOTS = frozenset({
+    "body_front", "body_map", "body_back", "body_left", "body_right",
+})
+
+
+@dataclass
+class MarkCropBinding:
+    """Body-binding metadata travelling with a routed permanent-mark crop.
+
+    Carries the anatomy the crop must be applied to, so the crop is interpreted
+    as 'apply this marking to <region>/<side>' rather than 'include this object'.
+    """
+    url: str
+    body_region: str
+    side: str
+    label: str
+    visibility: str  # "exposed" — only exposed-region crops are ever routed
+
+
 def _collect_exposed_mark_crops(
     canon: "CharacterIdentityCanon",
     prompt_lower: str,
     camera: str,
-) -> list[str]:
-    """Return reference-image-crop URLs for permanent marks the scene exposes.
+) -> list["MarkCropBinding"]:
+    """Return body-bound crop records for permanent marks the scene exposes.
 
     Portrait close-ups never route body crops. Marks without a
     reference_image_url degrade gracefully (skipped). Capped at _MAX_MARK_CROPS.
+    Each record preserves body_region / side / label / visibility so the crop
+    stays bound to the correct anatomy downstream (binding metadata, #1).
     """
     if camera == "portrait_closeup":
         return []
@@ -227,13 +251,19 @@ def _collect_exposed_mark_crops(
     marks = getattr(body, "permanent_body_marks", None) if body else None
     if not marks:
         return []
-    crops: list[str] = []
+    crops: list[MarkCropBinding] = []
     for m in marks:
         url = getattr(m, "reference_image_url", None)
         if not url:
             continue  # graceful degrade — no crop available for this mark
         if _mark_region_exposed(getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower):
-            crops.append(url)
+            crops.append(MarkCropBinding(
+                url=url,
+                body_region=getattr(m, "body_region", "") or "",
+                side=getattr(m, "side", "") or "",
+                label=getattr(m, "label", "") or "",
+                visibility="exposed",
+            ))
         if len(crops) >= _MAX_MARK_CROPS:
             break
     return crops
@@ -242,16 +272,23 @@ def _collect_exposed_mark_crops(
 def _merge_crops(
     slots_avail: list[str],
     slot_urls: dict[str, str],
-    crops: list[str],
+    crops: list["MarkCropBinding"],
 ) -> tuple[list[str], list[str]]:
-    """Splice mark crops in after the lead body ref, guaranteeing body_front +
-    body_map survive, then cap at MAX_PROVIDER_REFS.
+    """Splice mark crops in after the lead body ref, guaranteeing a body anchor
+    (body_front / body_map) survives, then cap at MAX_PROVIDER_REFS.
+
+    Routing guarantee (#3): a tattoo crop is NEVER routed alone. If no body
+    anchor is available the crops are dropped and plain slot routing is returned,
+    so the provider always has anatomy to bind the marking onto.
 
     Returns (slot_tokens, urls); crop entries use the token 'mark_crop'.
     """
-    if not slots_avail:
-        crops = crops[:MAX_PROVIDER_REFS]
-        return (["mark_crop"] * len(crops), list(crops))
+    plain_slots = slots_avail[:MAX_PROVIDER_REFS]
+    plain_urls = [slot_urls[s] for s in plain_slots]
+
+    # Guarantee: never route a crop without a parent body card for grounding.
+    if not any(s in _BODY_ANCHOR_SLOTS for s in slots_avail):
+        return plain_slots, plain_urls
 
     lead = slots_avail[0]
     rest = slots_avail[1:]
@@ -264,7 +301,7 @@ def _merge_crops(
     out_slots: list[str] = []
     out_urls: list[str] = []
     for s in ordered:
-        out_urls.append(next(crop_iter) if s == "mark_crop" else slot_urls[s])
+        out_urls.append(next(crop_iter).url if s == "mark_crop" else slot_urls[s])
         out_slots.append(s)
         if len(out_urls) >= MAX_PROVIDER_REFS:
             break
@@ -331,6 +368,10 @@ class SceneMeta:
     routed: bool = False                              # True = routing applied; False = fallback
     route_slots: list[str] = field(default_factory=list)  # slot names in returned order
     mark_crops: int = 0                               # exposed permanent-mark crops routed
+    # Body-binding metadata for the crops actually routed (#1): each carries the
+    # body_region/side/label the crop must be applied to, so the preserved
+    # binding survives routing and is auditable downstream.
+    mark_crop_bindings: list["MarkCropBinding"] = field(default_factory=list)
 
 
 # ── Internal helpers ──────────────────────────────────────────────────
@@ -475,9 +516,13 @@ def route_canon_refs(
         slots_avail = [s for s in route_slots if s in slot_urls]
         slots_hit, urls = _merge_crops(slots_avail, slot_urls, crops)
         crop_count = slots_hit.count("mark_crop")
+        # Crops are spliced contiguously right after the lead ref, so the first
+        # crop_count bindings are exactly the ones that survived the cap (#1/#3).
+        routed_bindings = crops[:crop_count]
     else:
         urls, slots_hit = _resolve_route(camera, slot_urls)
         crop_count = 0
+        routed_bindings = []
 
     meta = SceneMeta(
         camera=camera,
@@ -485,6 +530,7 @@ def route_canon_refs(
         routed=True,
         route_slots=slots_hit,
         mark_crops=crop_count,
+        mark_crop_bindings=routed_bindings,
     )
     logger.info(
         "SCENE_ROUTER char=%s camera=%s routed=true exposure=%s slots=%s refs=%d crops=%d",
