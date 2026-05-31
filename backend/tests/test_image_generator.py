@@ -448,9 +448,10 @@ _TATTOO_MARKS = [
 ]
 
 
-def test_permanent_marks_are_card_truth_not_prompt_prose(client: TestClient, db_session):
-    """P12: tattoo placement is carried by the routed body_map / body cards, not
-    by prompt prose. The compiled prompt must not enumerate marking regions."""
+def test_permanent_marks_are_compact_clause(client: TestClient, db_session):
+    """P13 (A+C): tattoo design surfaces as a compact immutable clause (so the
+    provider has a semantic anchor), while geometry still comes from the cards.
+    The bloated pre-P12 enumeration header stays gone."""
     token = _register_and_login(client, "imggen_marks@example.com")
     cid = _create_character(client, token)
     _setup_canon(db_session, cid, marks=_TATTOO_MARKS)
@@ -466,13 +467,14 @@ def test_permanent_marks_are_card_truth_not_prompt_prose(client: TestClient, db_
     assert resp.status_code == 200, resp.text
     prompt = captured.get("prompt", "")
     assert "Leonardo Baptiste in a sleeveless shirt" in prompt
-    assert "PERMANENT BODY MARKS" not in prompt
-    assert "tribal wolf" not in prompt and "gothic script" not in prompt
+    assert "PERMANENT BODY MARKS" not in prompt          # no bloated header
+    assert "immutable canon" in prompt.lower()           # compact clause
+    assert "tribal wolf" in prompt and "gothic script" in prompt
 
 
-def test_marks_carry_no_relocation_prose(client: TestClient, db_session):
-    """P12: the mirror/relocate invariant prose is gone — anti-mirroring is now
-    enforced by the side-locked canon cards, not by a prompt clause."""
+def test_marks_carry_compact_permanence_directive(client: TestClient, db_session):
+    """P13 (C): the compact permanence directive is present; the pre-P12 verbose
+    side-lock / relocation essays are NOT reintroduced."""
     token = _register_and_login(client, "imggen_nomirror@example.com")
     cid = _create_character(client, token)
     _setup_canon(db_session, cid, marks=_TATTOO_MARKS)
@@ -487,8 +489,8 @@ def test_marks_carry_no_relocation_prose(client: TestClient, db_session):
 
     assert resp.status_code == 200, resp.text
     prompt = captured.get("prompt", "").lower()
-    assert "relocate" not in prompt
-    assert "do not mirror" not in prompt
+    assert "do not redesign, mirror, relocate" in prompt
+    assert "for visual balance or composition" not in prompt
 
 
 # ── 7. Reference images: multi-image vs grounded ──────────────────────

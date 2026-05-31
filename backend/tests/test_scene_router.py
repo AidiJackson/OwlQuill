@@ -341,3 +341,144 @@ class TestP11WeightingAcceptance:
             FACE_LEFT_3Q, FACE_RIGHT_3Q, FACE_EXPRESSION,
         ]
         assert len(urls) == 6
+
+
+# ── P13 exposure-gated cropped-mark routing ───────────────────────────
+
+LEFT_SLEEVE_CROP = "https://cdn.test/crop_left_sleeve.png"
+RIGHT_WOLF_CROP = "https://cdn.test/crop_right_wolf.png"
+NECK_CROP = "https://cdn.test/crop_neck.png"
+
+
+def _make_canon_with_marks(marks):
+    """Full-slot canon plus the supplied permanent_body_marks."""
+    from app.models.character_identity_canon import CharacterIdentityCanon
+    from app.schemas.canon import FaceCanonData, BodyCanonData
+
+    canon = MagicMock(spec=CharacterIdentityCanon)
+    canon.character_id = 42
+    face = FaceCanonData(
+        face_front_image_url=FACE_FRONT,
+        face_left_3q_image_url=FACE_LEFT_3Q,
+        face_right_3q_image_url=FACE_RIGHT_3Q,
+    )
+    body = BodyCanonData(
+        body_front_image_url=BODY_FRONT,
+        body_left_image_url=BODY_LEFT,
+        body_right_image_url=BODY_RIGHT,
+        body_back_image_url=BODY_BACK,
+        body_map_image_url=BODY_MAP,
+        final_character_card_image_url=FINAL_CARD,
+        permanent_body_marks=marks,
+    )
+    canon.face_canon_json = json.dumps(face.model_dump())
+    canon.body_canon_json = json.dumps(body.model_dump())
+    canon.accessories_json = None
+    return canon
+
+
+def _arm_marks():
+    from app.schemas.canon import PermanentBodyMark
+    return [
+        PermanentBodyMark(
+            label="Left sleeve", type="tattoo", body_region="left_full_arm",
+            side="left", description="gothic script sleeve",
+            reference_image_url=LEFT_SLEEVE_CROP,
+        ),
+        PermanentBodyMark(
+            label="Wolf", type="tattoo", body_region="right_upper_arm",
+            side="right", description="wolf howling",
+            reference_image_url=RIGHT_WOLF_CROP,
+        ),
+    ]
+
+
+class TestExposureGatedCropRouting:
+    """Acceptance: exposed-region marks route their crops; covered marks do not."""
+
+    def test_sleeveless_front_routes_arm_crops(self):
+        """1. Sleeveless/front routes body_front, body_map, and both arm crops."""
+        urls, meta = route_canon_refs(
+            "facing camera, sleeveless shirt, arms visible", _make_canon_with_marks(_arm_marks())
+        )
+        assert meta.camera == "front"
+        assert LEFT_SLEEVE_CROP in urls
+        assert RIGHT_WOLF_CROP in urls
+        assert BODY_FRONT in urls
+        assert BODY_MAP in urls
+        assert len(urls) <= 6
+        assert meta.mark_crops == 2
+
+    def test_rolled_sleeves_routes_forearm_sleeve_not_upper_arm(self):
+        """2. Rolled sleeves routes the visible sleeve crop, not the covered upper-arm wolf."""
+        urls, meta = route_canon_refs(
+            "facing camera, sleeves rolled up", _make_canon_with_marks(_arm_marks())
+        )
+        assert LEFT_SLEEVE_CROP in urls           # sleeve forearm portion visible
+        assert RIGHT_WOLF_CROP not in urls         # upper arm stays covered
+        assert BODY_FRONT in urls and BODY_MAP in urls
+        assert meta.mark_crops == 1
+
+    def test_pool_scene_routes_exposed_arm_crops(self):
+        """3. Pool / open-arm scene routes exposed arm crops."""
+        urls, meta = route_canon_refs(
+            "facing camera at a swimming pool, arms out", _make_canon_with_marks(_arm_marks())
+        )
+        assert LEFT_SLEEVE_CROP in urls
+        assert RIGHT_WOLF_CROP in urls
+
+    def test_closeup_portrait_routes_no_crops(self):
+        """4. Close portrait still prioritises face refs and routes no body crops."""
+        urls, meta = route_canon_refs(
+            "close-up portrait smiling", _make_canon_with_marks(_arm_marks())
+        )
+        assert meta.camera == "portrait_closeup"
+        assert LEFT_SLEEVE_CROP not in urls
+        assert RIGHT_WOLF_CROP not in urls
+        assert meta.mark_crops == 0
+        assert urls[0] == FACE_FRONT
+
+    def test_open_collar_routes_neck_crop(self):
+        from app.schemas.canon import PermanentBodyMark
+        marks = [PermanentBodyMark(
+            label="Neck ink", type="tattoo", body_region="neck", side="centre",
+            description="blackwork", reference_image_url=NECK_CROP,
+        )]
+        urls, meta = route_canon_refs(
+            "facing camera, open collar shirt", _make_canon_with_marks(marks)
+        )
+        assert NECK_CROP in urls
+        assert meta.mark_crops == 1
+
+    def test_long_sleeves_routes_no_arm_crops(self):
+        """Covered arms route no crops and preserve body truth."""
+        urls, meta = route_canon_refs(
+            "facing camera, long-sleeve sweater", _make_canon_with_marks(_arm_marks())
+        )
+        assert LEFT_SLEEVE_CROP not in urls
+        assert RIGHT_WOLF_CROP not in urls
+        assert meta.mark_crops == 0
+        assert BODY_FRONT in urls and BODY_MAP in urls
+
+    def test_marks_without_crop_url_degrade_gracefully(self):
+        """No reference_image_url → no crop routed; base routing intact."""
+        from app.schemas.canon import PermanentBodyMark
+        marks = [PermanentBodyMark(
+            label="Left sleeve", type="tattoo", body_region="left_full_arm",
+            side="left", description="gothic script sleeve",
+        )]
+        urls, meta = route_canon_refs(
+            "facing camera, sleeveless shirt", _make_canon_with_marks(marks)
+        )
+        assert meta.mark_crops == 0
+        assert BODY_FRONT in urls
+        assert len(urls) <= 6
+
+    def test_no_marks_routing_unchanged(self):
+        """Canon with zero marks routes identically to the no-crop baseline."""
+        urls, meta = route_canon_refs("facing camera, sleeveless shirt", _make_canon_with_marks([]))
+        assert meta.mark_crops == 0
+        assert urls == [
+            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            BODY_MAP, FACE_LEFT_3Q, FACE_RIGHT_3Q,
+        ]

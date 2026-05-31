@@ -604,24 +604,27 @@ def _generate(client: TestClient, token: str, cid: int, prompt: str):
 class TestCanonEndpointIntegration:
     """End-to-end route behaviour under the canon contract."""
 
-    def test_marks_are_card_truth_not_prompt_prose(self, client: TestClient, db_session):
-        """P12: tattoo placement comes from the routed body cards, not prompt prose."""
+    def test_marks_appear_as_compact_immutable_clause(self, client: TestClient, db_session):
+        """P13 (A+C): tattoo design is reintroduced as a compact immutable clause."""
         token, cid = _setup_canon_char(client, db_session, "ep_canon_marks@bartest.com")
         resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
         assert resp.status_code == 200, resp.text
         prompt = captured.get("prompt", "")
+        # No legacy bloated header, but the compact clause + design tokens are present.
         assert "PERMANENT BODY MARKS" not in prompt
-        assert "wolf" not in prompt.lower() and "scripture" not in prompt.lower()
+        assert "immutable canon" in prompt.lower()
+        assert "wolf" in prompt.lower()
+        assert "match canon references exactly" in prompt.lower()
 
-    def test_no_mirroring_prose_in_prompt(self, client: TestClient, db_session):
-        """P12: the mirror/relocate invariant prose is gone — anti-mirroring is now
-        carried by the side-locked canon cards, not by a prompt clause."""
+    def test_permanence_directive_present_no_legacy_bloat(self, client: TestClient, db_session):
+        """P13 (C): the compact anti-restyle directive is present; the pre-P12
+        verbose side-lock/relocation essays are not reintroduced."""
         token, cid = _setup_canon_char(client, db_session, "ep_canon_mirror@bartest.com")
         resp, captured = _generate(client, token, cid, _BAR_PROMPT_1)
         assert resp.status_code == 200, resp.text
         prompt = captured.get("prompt", "").lower()
-        assert "relocate" not in prompt
-        assert "do not mirror" not in prompt
+        assert "do not redesign, mirror, relocate" in prompt
+        assert "for visual balance or composition" not in prompt
 
     def test_no_legacy_metadata(self, client: TestClient, db_session):
         token, cid = _setup_canon_char(client, db_session, "ep_canon_meta@bartest.com")

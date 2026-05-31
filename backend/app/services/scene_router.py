@@ -110,6 +110,167 @@ _COAT_EXPOSURE = frozenset({
 MAX_PROVIDER_REFS = 6
 
 
+# ── P13: exposure-gated cropped-mark reference routing ────────────────
+# When a scene exposes the skin region a permanent mark sits on, its high-
+# fidelity crop (PermanentBodyMark.reference_image_url) is routed ahead of the
+# lower-priority whole-body/face variants. Whole-body cards average tattoo
+# detail away; a tight crop preserves geometry. Covered marks are never routed.
+
+# Cap on crops per scene — leaves room for body_front + body_map under the 6-cap.
+_MAX_MARK_CROPS = 2
+
+_CROP_FULL_ARM = frozenset({
+    "shirtless", "bare-chested", "bare chested", "bare chest", "no shirt",
+    "topless", "bare torso", "sleeveless", "tank top", "tank", "vest",
+    "bare arms", "arms bare", "arms out", "arms visible", "both arms visible",
+    "swimwear", "swimsuit", "swimming", "swimming pool", "poolside",
+    "pool party", "at the pool", "in the pool", "beach", "bikini",
+})
+_CROP_FOREARM_ONLY = frozenset({
+    "t-shirt", "tshirt", "tee shirt", "tee-shirt",
+    "short sleeve", "short-sleeve", "short sleeved", "short-sleeved",
+    "rolled sleeve", "rolled sleeves", "rolled-up sleeve", "rolled-up sleeves",
+    "rolled up sleeve", "rolled up sleeves", "sleeves rolled", "sleeve rolled",
+    "sleeves rolled up", "sleeves pushed up", "pushed-up sleeves",
+})
+_CROP_NECK_EXPOSE = frozenset({
+    "open collar", "open shirt", "shirt open", "unbuttoned", "v-neck", "v neck",
+    "scoop neck", "low neckline", "deep neckline", "bare neck", "neck visible",
+    "shirtless", "bare chest", "tank top", "sleeveless", "swimming",
+    "swimming pool", "poolside",
+})
+_CROP_NECK_COVER = frozenset({
+    "turtleneck", "high collar", "scarf", "buttoned-up", "buttoned up",
+    "closed collar", "hood up", "balaclava",
+})
+_CROP_TORSO_EXPOSE = frozenset({
+    "shirtless", "bare-chested", "bare chested", "bare chest", "no shirt",
+    "topless", "bare torso", "open shirt", "shirt open", "unbuttoned",
+    "swimming", "swimming pool", "poolside", "swimwear", "bikini",
+})
+_CROP_BACK_EXPOSE = frozenset({
+    "shirtless", "bare back", "back visible", "from behind", "back view", "topless",
+})
+
+
+def _is_sleeve_mark(mark: object) -> bool:
+    """True if a permanent mark is a full-arm sleeve (forearm portion visible
+    even under a t-shirt / rolled sleeves)."""
+    region = (getattr(mark, "body_region", "") or "").lower()
+    if region in ("left_full_arm", "right_full_arm", "left_arm", "right_arm"):
+        return True
+    text = (
+        (getattr(mark, "label", "") or "") + " "
+        + (getattr(mark, "description", "") or "")
+    ).lower()
+    return "sleeve" in text
+
+
+def _mark_region_exposed(body_region: str, is_sleeve: bool, prompt_lower: str) -> bool:
+    """Return True when the scene exposes the skin region a mark sits on.
+
+    Deterministic substring matching only — no inference. Conservative: when
+    there is no positive exposure signal for a region it returns False so the
+    crop is NOT routed (the whole-body cards still carry the covered mark).
+    """
+    region = (body_region or "").lower().strip().replace(" ", "_")
+    full_arm = any(s in prompt_lower for s in _CROP_FULL_ARM)
+    forearm = any(s in prompt_lower for s in _CROP_FOREARM_ONLY)
+
+    # ── Arms ──
+    if "forearm" in region or "lower_arm" in region:
+        return bool(full_arm or forearm)
+    if "upper_arm" in region:
+        # forearm-only / rolled sleeves leave the upper arm covered.
+        return bool(full_arm)
+    if region in ("left_full_arm", "right_full_arm", "left_arm", "right_arm"):
+        # Full-arm mark: exposed if the arm is bare, or (sleeve) the forearm shows.
+        if full_arm:
+            return True
+        if forearm:
+            return True
+        return False
+    # ── Neck / throat ──
+    if region in ("neck", "throat"):
+        if any(s in prompt_lower for s in _CROP_NECK_COVER):
+            return False
+        return any(s in prompt_lower for s in _CROP_NECK_EXPOSE)
+    # ── Torso ──
+    if region in ("chest", "sternum", "abdomen", "ribs", "side", "stomach"):
+        return any(s in prompt_lower for s in _CROP_TORSO_EXPOSE)
+    # ── Back ──
+    if "back" in region:
+        return any(s in prompt_lower for s in _CROP_BACK_EXPOSE)
+    # ── Hands / face are generally visible ──
+    if region in (
+        "left_hand", "right_hand", "hand", "knuckles", "face",
+        "right_cheek", "left_cheek", "jaw", "forehead", "chin",
+    ):
+        return True
+    # Legs / other regions → conservative (not routed without explicit signal).
+    return False
+
+
+def _collect_exposed_mark_crops(
+    canon: "CharacterIdentityCanon",
+    prompt_lower: str,
+    camera: str,
+) -> list[str]:
+    """Return reference-image-crop URLs for permanent marks the scene exposes.
+
+    Portrait close-ups never route body crops. Marks without a
+    reference_image_url degrade gracefully (skipped). Capped at _MAX_MARK_CROPS.
+    """
+    if camera == "portrait_closeup":
+        return []
+    body = load_body_canon(canon)
+    marks = getattr(body, "permanent_body_marks", None) if body else None
+    if not marks:
+        return []
+    crops: list[str] = []
+    for m in marks:
+        url = getattr(m, "reference_image_url", None)
+        if not url:
+            continue  # graceful degrade — no crop available for this mark
+        if _mark_region_exposed(getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower):
+            crops.append(url)
+        if len(crops) >= _MAX_MARK_CROPS:
+            break
+    return crops
+
+
+def _merge_crops(
+    slots_avail: list[str],
+    slot_urls: dict[str, str],
+    crops: list[str],
+) -> tuple[list[str], list[str]]:
+    """Splice mark crops in after the lead body ref, guaranteeing body_front +
+    body_map survive, then cap at MAX_PROVIDER_REFS.
+
+    Returns (slot_tokens, urls); crop entries use the token 'mark_crop'.
+    """
+    if not slots_avail:
+        crops = crops[:MAX_PROVIDER_REFS]
+        return (["mark_crop"] * len(crops), list(crops))
+
+    lead = slots_avail[0]
+    rest = slots_avail[1:]
+    # body_map + final_character_card must survive (C: card survival).
+    must = [s for s in ("body_map", "final_character_card") if s in rest]
+    others = [s for s in rest if s not in must]
+    ordered = [lead] + ["mark_crop"] * len(crops) + must + others
+
+    crop_iter = iter(crops)
+    out_slots: list[str] = []
+    out_urls: list[str] = []
+    for s in ordered:
+        out_urls.append(next(crop_iter) if s == "mark_crop" else slot_urls[s])
+        out_slots.append(s)
+        if len(out_urls) >= MAX_PROVIDER_REFS:
+            break
+    return out_slots, out_urls
+
+
 # ── P11 orientation-aware weighting: camera → priority-ordered slots ───
 # Slots are listed in descending reference priority for each camera. P10
 # detection chooses the camera; this layer chooses the order in which that
@@ -169,6 +330,7 @@ class SceneMeta:
     exposure: list[str] = field(default_factory=list) # active exposure signal names
     routed: bool = False                              # True = routing applied; False = fallback
     route_slots: list[str] = field(default_factory=list)  # slot names in returned order
+    mark_crops: int = 0                               # exposed permanent-mark crops routed
 
 
 # ── Internal helpers ──────────────────────────────────────────────────
@@ -304,15 +466,28 @@ def route_canon_refs(
         )
         return fallback_urls, meta
 
-    urls, slots_hit = _resolve_route(camera, slot_urls)
+    # P13: exposure-gated cropped-mark routing. When the scene exposes a mark's
+    # region, splice its high-fidelity crop ahead of lower-priority refs while
+    # guaranteeing body_front + body_map survive. No exposed marks → unchanged.
+    crops = _collect_exposed_mark_crops(canon, prompt_lower, camera)
+    if crops:
+        route_slots = _ROUTES.get(camera, _ROUTES["front"])
+        slots_avail = [s for s in route_slots if s in slot_urls]
+        slots_hit, urls = _merge_crops(slots_avail, slot_urls, crops)
+        crop_count = slots_hit.count("mark_crop")
+    else:
+        urls, slots_hit = _resolve_route(camera, slot_urls)
+        crop_count = 0
+
     meta = SceneMeta(
         camera=camera,
         exposure=exposure,
         routed=True,
         route_slots=slots_hit,
+        mark_crops=crop_count,
     )
     logger.info(
-        "SCENE_ROUTER char=%s camera=%s routed=true exposure=%s slots=%s refs=%d",
-        char_id, camera, exposure, slots_hit, len(urls),
+        "SCENE_ROUTER char=%s camera=%s routed=true exposure=%s slots=%s refs=%d crops=%d",
+        char_id, camera, exposure, slots_hit, len(urls), crop_count,
     )
     return urls, meta

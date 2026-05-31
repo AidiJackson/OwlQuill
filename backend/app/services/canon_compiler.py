@@ -46,6 +46,25 @@ _SAFETY_PREFIX = "adult, fully clothed, non-explicit, tasteful"
 # this almost never triggers; retained purely as a defensive truncation guard.
 _PROMPT_CAP = 2400
 
+# ── Identity-priority directive (name-neutralisation) ─────────────────
+# Added only when the canon has image references. Tells the provider that
+# identity comes from the reference cards, not from any personal name the
+# user typed in the scene (which otherwise drifts toward a real-person/celebrity
+# likeness — e.g. "Leonardo" resembling a famous actor).
+_IDENTITY_PRIORITY = (
+    "Depict the exact character shown in the reference images. "
+    "Treat any personal name in the scene as a label only — do not infer the "
+    "face from the name and do not resemble any real person or celebrity."
+)
+
+# ── Permanence directive (C) ──────────────────────────────────────────
+# One compact directive appended to the marking clause. Not the pre-P12 essay.
+_PERMANENCE_DIRECTIVE = (
+    "Permanent tattoos/scars must match canon references exactly: "
+    "same design, placement, side, and scale. "
+    "Do not redesign, mirror, relocate, replace, or restyle permanent tattoos/scars."
+)
+
 
 # ── Reference image collector ─────────────────────────────────────────
 # Unchanged from P8: the canonical static priority ordering. The scene router
@@ -118,6 +137,68 @@ def _requested_accessories(
     return requested
 
 
+# ── Permanent marking clause (A) ──────────────────────────────────────
+
+def _region_phrase(region: str) -> str:
+    """Turn a body_region key into a short human phrase.
+
+    'left_full_arm' → 'left arm'; 'right_upper_arm' → 'right upper arm';
+    'neck' → 'neck'; 'right_cheek' → 'right cheek'.
+    """
+    r = (region or "").lower().strip()
+    if r.endswith("_full_arm"):
+        return r[: -len("_full_arm")].replace("_", " ") + " arm"
+    return r.replace("_", " ")
+
+
+def _has_image_refs(canon: "CharacterIdentityCanon") -> bool:
+    """True if the canon carries any face or body image reference."""
+    face = load_face_canon(canon)
+    body = load_body_canon(canon)
+    if face and any([
+        face.face_front_image_url,
+        face.face_left_3q_image_url,
+        face.face_right_3q_image_url,
+    ]):
+        return True
+    if body and any([
+        body.body_front_image_url,
+        body.body_map_image_url,
+        body.final_character_card_image_url,
+    ]):
+        return True
+    return False
+
+
+def _permanent_marks_clause(canon: "CharacterIdentityCanon") -> str:
+    """Compile a compact, structured permanent-marking clause (A + C).
+
+    One short header, one line per mark (region + design), and the single
+    permanence directive. NO covered/side-lock essays, NO pre-P12 prose.
+    Returns '' when there are no permanent marks.
+    """
+    body = load_body_canon(canon)
+    marks = getattr(body, "permanent_body_marks", None) if body else None
+    if not marks:
+        return ""
+
+    lines: list[str] = []
+    for m in marks:
+        region = _region_phrase(getattr(m, "body_region", ""))
+        design = (getattr(m, "description", None) or getattr(m, "label", None)
+                  or "permanent marking").strip()
+        lines.append(f"- {region}: {design}, exact placement and design from references")
+
+    if not lines:
+        return ""
+
+    return (
+        "Permanent markings are immutable canon:\n"
+        + "\n".join(lines)
+        + "\n" + _PERMANENCE_DIRECTIVE
+    )
+
+
 # ── Main compiler ─────────────────────────────────────────────────────
 
 def compile_canon_prompt(
@@ -140,11 +221,20 @@ def compile_canon_prompt(
     scene = scene_prompt.strip()
     parts: list[str] = [_SAFETY_PREFIX]
 
+    # Identity-priority directive — only when image refs back it (name fix).
+    if _has_image_refs(canon):
+        parts.append(_IDENTITY_PRIORITY)
+
     requested: list["RemovableAccessory"] = []
     if include_accessories:
         requested = _requested_accessories(canon, scene.lower())
         if requested:
             parts.append("wearing " + "; ".join(a.description for a in requested))
+
+    # Compact permanent-marking clause (A + C) — only when marks exist.
+    marks_clause = _permanent_marks_clause(canon)
+    if marks_clause:
+        parts.append(marks_clause)
 
     parts.append(scene)
 
@@ -158,8 +248,8 @@ def compile_canon_prompt(
         )
 
     logger.info(
-        "CANON_PROMPT character_id=%s accessories=%d prompt_len=%d",
-        canon.character_id, len(requested), len(prompt),
+        "CANON_PROMPT character_id=%s accessories=%d marks_clause=%s prompt_len=%d",
+        canon.character_id, len(requested), bool(marks_clause), len(prompt),
     )
 
     return prompt

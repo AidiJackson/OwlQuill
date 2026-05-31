@@ -304,22 +304,40 @@ class TestMinimalPrompt:
 
         canon = self._make_canon_with_content()
         prompt = compile_canon_prompt(canon, "sitting at a bar drinking whiskey")
+        # P13: the bloated pre-P12 prose headers / side-lock essays stay gone.
+        # The compact permanence directive legitimately uses "relocate"/"mirror"
+        # as a one-line anti-restyle instruction (see test_permanence_clause below).
         for banned in (
             "FACE CANON", "BODY CANON", "PERMANENT BODY MARKS",
-            "COVERED PERMANENT BODY MARKS", "relocate", "mirror",
+            "COVERED PERMANENT BODY MARKS",
             "side-locked", "do not render", "locked face",
+            "for visual balance or composition",
         ):
             assert banned not in prompt, f"Removed prose leaked into prompt: {banned!r}"
 
     def test_prompt_is_small(self):
-        """Minimal prompt = safety + scene; no multi-paragraph identity essays."""
+        """Compact prompt = safety + identity-priority + compact mark clause + scene.
+
+        P13 (A+C) reintroduces a short structured marking clause, so the bound is
+        higher than the P12 bare-scene minimum — but still far below the pre-P12
+        multi-paragraph essays.
+        """
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_canon_with_content()
         scene = "in a nightclub"
         prompt = compile_canon_prompt(canon, scene)
-        # safety prefix + scene only — comfortably under 200 chars.
-        assert len(prompt) < 200, f"Prompt unexpectedly large ({len(prompt)} chars): {prompt!r}"
+        assert len(prompt) < 700, f"Prompt unexpectedly large ({len(prompt)} chars): {prompt!r}"
+
+    def test_permanence_clause_present(self):
+        """P13 (A+C): a compact immutable-marking clause + permanence directive."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_canon_with_content()
+        prompt = compile_canon_prompt(canon, "in a nightclub")
+        assert "immutable canon" in prompt.lower()
+        assert "match canon references exactly" in prompt.lower()
+        assert "gothic script from shoulder to wrist" in prompt
 
     def test_removed_prose_symbols_gone(self):
         """The deleted prose constants/helpers must no longer be importable."""
@@ -362,13 +380,9 @@ class TestPermanentTattoosAreBodyCanon:
         assert body.permanent_body_marks[0].type == "tattoo"
         assert body.permanent_body_marks[0].body_region == "left_full_arm"
 
-    def test_tattoo_not_emitted_as_prompt_prose(self):
-        """P12: a permanent tattoo is canon-card truth, never accessory prose.
-
-        It is stored on the body canon (verified above) and rendered from the
-        body_map / body cards — it must NOT be injected as prompt prose, and
-        must never appear in an accessories block.
-        """
+    def test_tattoo_is_compact_clause_not_accessory(self):
+        """P13 (A+C): a permanent tattoo surfaces as a compact immutable clause,
+        never as an accessory block; the bloated pre-P12 header stays gone."""
         from app.models.character_identity_canon import CharacterIdentityCanon
         from app.schemas.canon import BodyCanonData, PermanentBodyMark
         from app.services.canon_compiler import compile_canon_prompt
@@ -388,8 +402,9 @@ class TestPermanentTattoosAreBodyCanon:
         canon.accessories_json = None
 
         prompt = compile_canon_prompt(canon, "standing in sunlight")
-        assert "PERMANENT BODY MARKS" not in prompt
-        assert "gothic script inscription sleeve" not in prompt
+        assert "PERMANENT BODY MARKS" not in prompt          # no bloated header
+        assert "immutable canon" in prompt.lower()           # compact clause
+        assert "gothic script inscription sleeve" in prompt  # design text present
         assert "ACCESSORIES" not in prompt
 
     def test_permanent_mark_type_tattoo_is_not_accessory_type(self):
@@ -866,7 +881,7 @@ class TestLeonardoPromptScenario:
         return canon
 
     def test_beach_no_mask_prompt(self):
-        """P12: scene preserved, mask untriggered, tattoo truth NOT in prose."""
+        """P13 (A+C): scene preserved, mask untriggered, marks as compact clause."""
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_leonardo_canon()
@@ -875,15 +890,17 @@ class TestLeonardoPromptScenario:
 
         assert scene in prompt
         assert "Venetian" not in prompt          # mask not triggered
-        # Tattoos are card truth, not prose.
-        assert "gothic script inscription sleeve" not in prompt
-        assert "tribal wolf" not in prompt
-        # No canon essays.
+        # Marks ARE surfaced as a compact immutable clause + design text.
+        assert "immutable canon" in prompt.lower()
+        assert "gothic script inscription sleeve" in prompt
+        assert "tribal wolf" in prompt
+        # No bloated canon essays / pre-P12 side-lock prose.
         assert "FACE CANON" not in prompt
         assert "BODY CANON" not in prompt
+        assert "for visual balance or composition" not in prompt
 
     def test_beach_with_mask_prompt(self):
-        """P12: explicitly requested removable accessory is injected; marks are not."""
+        """P13: requested accessory injected; marks present as compact clause."""
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_leonardo_canon()
@@ -892,9 +909,10 @@ class TestLeonardoPromptScenario:
 
         assert scene in prompt
         assert "ornate Venetian half-mask" in prompt   # mask triggered
-        # Permanent marks remain card truth — not injected as prose.
-        assert "gothic script inscription sleeve" not in prompt
-        assert "tribal wolf" not in prompt
+        # Permanent marks surface via the compact immutable clause.
+        assert "immutable canon" in prompt.lower()
+        assert "gothic script inscription sleeve" in prompt
+        assert "tribal wolf" in prompt
 
 
 # ── P8: Canon reference priority order ───────────────────────────────
