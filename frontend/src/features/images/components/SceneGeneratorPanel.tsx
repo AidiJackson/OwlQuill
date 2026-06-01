@@ -3,10 +3,12 @@ import { ImageIcon, RefreshCw } from 'lucide-react';
 import { generateImage } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 import type { Character } from '@/lib/types';
+import { useAuthStore } from '@/lib/store';
 
 const MAX_PROMPT_LENGTH = 800;
 
-// B17: Set to false to hide the provider toggle (revert to Option 1 / OpenAI only).
+// Beta: Google (option2) is the primary "Canon" provider for everyone. The
+// OpenAI (option1) provider is shown only to admins as an experimental option.
 const SHOW_PROVIDER_TOGGLE = true;
 
 interface Props {
@@ -34,9 +36,17 @@ export default function SceneGeneratorPanel({
   // null = "No character"; number = character id
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const initialCharacterIdRef = useRef(initialCharacterId);
-  const [providerOption, setProviderOption] = useState<'option1' | 'option2'>('option1');
+  // Beta default: Google ("Canon"). OpenAI (option1) is admin-only.
+  const [providerOption, setProviderOption] = useState<'option1' | 'option2'>('option2');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const isAdmin = useAuthStore((s) => !!s.user?.is_admin);
+
+  // Guard: if a non-admin ever ends up on the OpenAI option, snap back to Canon.
+  useEffect(() => {
+    if (!isAdmin && providerOption === 'option1') setProviderOption('option2');
+  }, [isAdmin, providerOption]);
 
   // Set default selection once when characters first load
   const didInitRef = useRef(false);
@@ -166,33 +176,38 @@ export default function SceneGeneratorPanel({
           </select>
         </div>
 
-        {/* Mode toggle (Studio / Cinematic) — easy to remove for production */}
+        {/* Provider selector. Beta: Google = "Canon" (primary, everyone).
+            OpenAI = "Experimental" (admin-only). Non-admins see Canon only. */}
         {SHOW_PROVIDER_TOGGLE && (
           <div className="flex items-center gap-1 rounded-md border border-gray-700 overflow-hidden text-xs">
             <button
               type="button"
-              onClick={() => setProviderOption('option1')}
-              disabled={loading}
-              className={`px-3 py-1 transition-colors ${
-                providerOption === 'option1'
-                  ? 'bg-emerald-700 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
-            >
-              Studio
-            </button>
-            <button
-              type="button"
               onClick={() => setProviderOption('option2')}
               disabled={loading}
+              title="Google — the recommended Canon image provider"
               className={`px-3 py-1 transition-colors ${
                 providerOption === 'option2'
-                  ? 'bg-purple-700 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-purple-900/40 hover:text-purple-300'
+                  ? 'bg-emerald-700 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-emerald-900/40 hover:text-emerald-300'
               }`}
             >
-              Cinematic
+              Canon · Recommended
             </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setProviderOption('option1')}
+                disabled={loading}
+                title="OpenAI — experimental, admin-only"
+                className={`px-3 py-1 transition-colors ${
+                  providerOption === 'option1'
+                    ? 'bg-amber-700 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-amber-900/40 hover:text-amber-300'
+                }`}
+              >
+                Experimental · Admin
+              </button>
+            )}
           </div>
         )}
       </div>

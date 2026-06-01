@@ -39,7 +39,11 @@ from app.models.character_image import (
     ImageVisibilityEnum,
 )
 from app.schemas.character_image import CharacterImageRead
-from app.services.image_provider import get_provider_for_option, get_fallback_provider
+from app.services.image_provider import (
+    get_provider_for_option,
+    get_fallback_provider,
+    resolve_canon_provider_option,
+)
 from app.services.stub_image_generator import generate_placeholder_png
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.services.canon_compiler import (
@@ -141,7 +145,9 @@ class ImageGenerateRequest(BaseModel):
 
     prompt: str = Field(..., min_length=1, max_length=800)
     include_character: bool = False
-    provider_option: Literal["option1", "option2"] = "option1"
+    # Beta: Google (option2) is the default Canon provider. OpenAI (option1) is
+    # admin-only and falls back to Google for non-admins (enforced server-side).
+    provider_option: Literal["option1", "option2"] = "option2"
     is_cover: bool = False  # When True, saves with kind=COVER for use as a character cover banner
 
 
@@ -1133,9 +1139,19 @@ def generate_image(
     if quota_error is not None:
         return quota_error
 
-    # ── Provider resolution ────────────────────────────────────────
-    effective_option = body.provider_option if settings.IMAGE_GENERATOR_PROVIDER_TOGGLE else "option1"
+    # ── Provider resolution + beta gating ──────────────────────────
+    requested_option = body.provider_option if settings.IMAGE_GENERATOR_PROVIDER_TOGGLE else "option1"
+    # OpenAI (option1) is admin-only for beta; non-admins fall back to Google.
+    effective_option, provider_gate_meta = resolve_canon_provider_option(
+        requested_option, is_admin=bool(current_user.is_admin)
+    )
     resolved_provider_name = _OPTION_PROVIDER_NAMES[effective_option]
+    if provider_gate_meta:
+        logger.info(
+            "IMAGE_GEN_PROVIDER_GATED character_id=%s user_id=%s requested=%s effective=%s reason=%s",
+            character_id, current_user.id, requested_option, effective_option,
+            provider_gate_meta.get("provider_fallback_reason"),
+        )
 
     base_prompt = body.prompt.strip()
 
@@ -1322,6 +1338,9 @@ def generate_image(
         metadata["used_ref"] = used_ref
         metadata["cover_retry_attempted"] = cover_retry_attempted
         metadata["cover_retry_succeeded"] = cover_retry_succeeded
+
+    # Beta provider-gating audit trail (empty unless a fallback occurred).
+    metadata.update(provider_gate_meta)
 
     img = CharacterImage(
         character_id=character_id,

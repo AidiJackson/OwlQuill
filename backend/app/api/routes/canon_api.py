@@ -63,7 +63,11 @@ from app.services.canon_service import (
     update_body_canon,
     update_face_canon,
 )
-from app.services.image_provider import get_provider_for_option, get_fallback_provider
+from app.services.image_provider import (
+    get_provider_for_option,
+    get_fallback_provider,
+    resolve_canon_provider_option,
+)
 from app.services.stub_image_generator import generate_placeholder_png
 
 logger = logging.getLogger(__name__)
@@ -424,7 +428,9 @@ async def admin_upload_mark_reference(
 class SceneGenerateRequest(BaseModel):
     prompt: str
     include_accessories: bool = True
-    provider_option: str = "option1"
+    # Beta: Google (option2) is the default Canon provider; OpenAI (option1) is
+    # admin-only and falls back to Google for non-admins (enforced server-side).
+    provider_option: str = "option2"
 
 
 @router.post(
@@ -496,8 +502,19 @@ def generate_scene_from_canon(
     provider_name = "stub"
     png_bytes: bytes | None = None
 
+    # Beta gating: OpenAI (option1) is admin-only; non-admins fall back to Google.
+    effective_option, provider_gate_meta = resolve_canon_provider_option(
+        req.provider_option, is_admin=bool(current_user.is_admin)
+    )
+    if provider_gate_meta:
+        logger.info(
+            "SCENE_GEN_PROVIDER_GATED character_id=%s user_id=%s requested=%s effective=%s reason=%s",
+            character_id, current_user.id, req.provider_option, effective_option,
+            provider_gate_meta.get("provider_fallback_reason"),
+        )
+
     try:
-        provider = get_provider_for_option(req.provider_option)
+        provider = get_provider_for_option(effective_option)
     except (RuntimeError, ValueError):
         provider = None
 
@@ -567,6 +584,7 @@ def generate_scene_from_canon(
             "refs_count": len(ref_bytes),
             "compiled_prompt": compiled_prompt[:400],
             "provider": provider_name,
+            **provider_gate_meta,  # beta provider-gating audit trail (empty unless fallback)
         },
         file_path=file_path,
     )

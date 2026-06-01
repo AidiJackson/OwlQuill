@@ -447,6 +447,46 @@ def get_provider_for_option(option: str) -> ImageProvider:
     raise ValueError(f"No provider implementation for resolved name: {provider_name!r}")
 
 
+# ── Beta provider gating ──────────────────────────────────────────────
+# Closed beta: Google (option2) is the primary Canon image provider for ALL
+# users. OpenAI (option1) is gated to admin/internal testing — it is currently
+# less stable around reference order, tattoo detail, and images.edit weighting
+# for the visual-card routed identity flow. A non-admin OpenAI request safely
+# falls back to Google with audit metadata rather than being hard-rejected.
+
+_ADMIN_ONLY_PROVIDER_OPTIONS = frozenset({"option1"})  # option1 == openai
+CANON_DEFAULT_PROVIDER_OPTION = "option2"              # option2 == google
+_PROVIDER_OPTION_NAMES = {"option1": "openai", "option2": "google"}
+
+
+def resolve_canon_provider_option(
+    requested_option: str,
+    *,
+    is_admin: bool,
+) -> tuple[str, dict]:
+    """Apply beta provider gating to a requested provider option.
+
+    Google (option2) is allowed for everyone. OpenAI (option1) is admin-only;
+    a non-admin OpenAI request falls back to Google instead of failing.
+
+    Returns ``(effective_option, fallback_metadata)``. ``fallback_metadata`` is
+    ``{}`` when the requested option is allowed; on fallback it records::
+
+        original_requested_provider = "openai"
+        provider_fallback_reason    = "openai_admin_only_beta"
+    """
+    opt = (requested_option or CANON_DEFAULT_PROVIDER_OPTION).lower()
+    if opt in _ADMIN_ONLY_PROVIDER_OPTIONS and not is_admin:
+        return CANON_DEFAULT_PROVIDER_OPTION, {
+            "original_requested_provider": _PROVIDER_OPTION_NAMES.get(opt, opt),
+            "provider_fallback_reason": "openai_admin_only_beta",
+        }
+    # Unknown option keys collapse to the safe default (defensive).
+    if opt not in _PROVIDER_OPTION_NAMES:
+        return CANON_DEFAULT_PROVIDER_OPTION, {}
+    return opt, {}
+
+
 def get_fallback_provider() -> ImageProvider | None:
     """Factory: return a fallback provider for tier-C generation.
 
