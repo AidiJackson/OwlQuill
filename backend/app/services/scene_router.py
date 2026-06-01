@@ -117,7 +117,7 @@ MAX_PROVIDER_REFS = 6
 
 # ── P13: exposure-gated cropped-mark reference routing ────────────────
 # When a scene exposes the skin region a permanent mark sits on, its high-
-# fidelity crop (PermanentBodyMark.reference_image_url) is routed ahead of the
+# fidelity crop (PermanentBodyMark.detail_crop_url or .reference_image_url) is routed ahead of the
 # lower-priority whole-body/face variants. Whole-body cards average tattoo
 # detail away; a tight crop preserves geometry. Covered marks are never routed.
 
@@ -278,10 +278,12 @@ def _collect_exposed_mark_crops(
 ) -> list["MarkCropBinding"]:
     """Return body-bound crop records for permanent marks the scene exposes.
 
-    Portrait close-ups never route body crops. Marks without a
-    reference_image_url degrade gracefully (skipped). Capped at _MAX_MARK_CROPS.
-    Each record preserves body_region / side / label / visibility so the crop
-    stays bound to the correct anatomy downstream (binding metadata, #1).
+    Portrait close-ups never route body crops. The high-fidelity mark-detail
+    card is preferred (detail_crop_url) with a fallback to the general reference
+    photo (reference_image_url); marks with neither degrade gracefully (skipped).
+    Capped at _MAX_MARK_CROPS. Each record preserves body_region / side / label /
+    visibility so the crop stays bound to the correct anatomy downstream
+    (binding metadata, #1).
     """
     if camera == "portrait_closeup":
         return []
@@ -291,7 +293,8 @@ def _collect_exposed_mark_crops(
         return []
     crops: list[MarkCropBinding] = []
     for m in marks:
-        url = getattr(m, "reference_image_url", None)
+        # Prefer the dedicated close-up detail crop; fall back to a general ref.
+        url = getattr(m, "detail_crop_url", None) or getattr(m, "reference_image_url", None)
         if not url:
             continue  # graceful degrade — no crop available for this mark
         if _mark_region_exposed(getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower):

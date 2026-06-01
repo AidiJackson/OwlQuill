@@ -241,16 +241,39 @@ def assign_mark_reference_image(
     image_url: str,
 ) -> bool:
     """Assign a reference image to a specific permanent body mark."""
+    return _assign_mark_image_field(canon, mark_id, "reference_image_url", image_url)
+
+
+def assign_mark_detail_crop(
+    canon: CharacterIdentityCanon,
+    mark_id: str,
+    image_url: str,
+) -> bool:
+    """Assign a high-fidelity close-up detail crop to a permanent body mark.
+
+    The detail crop captures the mark's exact geometry/lettering and is the
+    preferred fidelity reference routed when the mark's region is exposed.
+    """
+    return _assign_mark_image_field(canon, mark_id, "detail_crop_url", image_url)
+
+
+def _assign_mark_image_field(
+    canon: CharacterIdentityCanon,
+    mark_id: str,
+    field: str,
+    image_url: str,
+) -> bool:
+    """Set one image-URL field on a permanent mark by id. Returns True if found."""
     body = load_body_canon(canon)
     if not body:
         return False
     for i, m in enumerate(body.permanent_body_marks):
         if m.id == mark_id:
-            body.permanent_body_marks[i] = m.model_copy(update={"reference_image_url": image_url})
+            body.permanent_body_marks[i] = m.model_copy(update={field: image_url})
             _save_body(canon, body)
             logger.info(
-                "canon_mark_ref_assigned character_id=%s mark_id=%s url=%s",
-                canon.character_id, mark_id, image_url,
+                "canon_mark_image_assigned character_id=%s mark_id=%s field=%s url=%s",
+                canon.character_id, mark_id, field, image_url,
             )
             return True
     return False

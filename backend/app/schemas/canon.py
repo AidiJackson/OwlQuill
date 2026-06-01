@@ -35,7 +35,12 @@ class PermanentBodyMark(BaseModel):
     side: Literal["left", "right", "centre", "bilateral"]
     description: str = Field(..., min_length=1, max_length=500,
                               description="Full visual description for prompt injection")
+    # Visual fidelity aids for this specific mark. A general reference photo and a
+    # tight close-up "detail crop" that captures the exact tattoo geometry /
+    # lettering texture. The router prefers detail_crop_url, falling back to
+    # reference_image_url, and only routes one when the mark's region is exposed.
     reference_image_url: Optional[str] = None
+    detail_crop_url: Optional[str] = None
     locked: bool = False
 
     model_config = {"from_attributes": True}
@@ -170,6 +175,7 @@ class AddPermanentMarkRequest(BaseModel):
     side: Literal["left", "right", "centre", "bilateral"]
     description: str = Field(..., min_length=1, max_length=500)
     reference_image_url: Optional[str] = None
+    detail_crop_url: Optional[str] = None
 
 
 class AddAccessoryRequest(BaseModel):

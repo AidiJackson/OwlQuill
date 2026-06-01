@@ -51,6 +51,7 @@ from app.services.canon_service import (
     add_permanent_mark,
     assign_accessory_image,
     assign_canon_slot_image,
+    assign_mark_detail_crop,
     assign_mark_reference_image,
     get_or_create_canon,
     load_accessories,
@@ -387,17 +388,24 @@ async def admin_upload_canon_image(
     "/{character_id}/identity-canon/upload/mark/{mark_id}",
     response_model=CanonUploadResponse,
     status_code=201,
-    summary="[Admin] Upload a reference image for a permanent body mark",
+    summary="[Admin] Upload a reference / detail-crop image for a permanent body mark",
 )
 async def admin_upload_mark_reference(
     character_id: int,
     mark_id: str,
     file: UploadFile = File(...),
+    slot: str = Form("reference"),  # "reference" | "detail" (high-fidelity close-up)
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CanonUploadResponse:
     _require_admin(current_user)
     _get_owned_character(character_id, current_user, db)
+
+    if slot not in ("reference", "detail"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown mark image slot {slot!r}. Valid: 'reference', 'detail'.",
+        )
 
     content_type = file.content_type or ""
     if content_type not in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
@@ -409,7 +417,10 @@ async def admin_upload_mark_reference(
 
     image_url = save_image(raw)
     canon = get_or_create_canon(character_id, db)
-    found = assign_mark_reference_image(canon, mark_id, image_url)
+    if slot == "detail":
+        found = assign_mark_detail_crop(canon, mark_id, image_url)
+    else:
+        found = assign_mark_reference_image(canon, mark_id, image_url)
     if not found:
         raise HTTPException(status_code=404, detail=f"Mark '{mark_id}' not found.")
     db.commit()
@@ -417,7 +428,7 @@ async def admin_upload_mark_reference(
 
     return CanonUploadResponse(
         character_id=character_id,
-        slot=f"mark/{mark_id}",
+        slot=f"mark/{mark_id}/{slot}",
         url=image_url,
         canon=_canon_to_read(canon),
     )
