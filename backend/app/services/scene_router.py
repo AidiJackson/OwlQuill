@@ -89,6 +89,11 @@ _ROLLED_SLEEVE_EXPOSURE = frozenset({
     "sleeves rolled up", "sleeves pushed up",
 })
 
+_SHORT_SLEEVE_EXPOSURE = frozenset({
+    "short sleeve", "short-sleeve", "short sleeved", "short-sleeved",
+    "t-shirt", "tshirt", "tee shirt", "tee-shirt",
+})
+
 _LONG_SLEEVE_EXPOSURE = frozenset({
     "long sleeve", "long-sleeve", "long sleeved", "long-sleeved",
 })
@@ -443,6 +448,7 @@ def _detect_exposure(prompt_lower: str) -> list[str]:
         ("shirtless",     _SHIRTLESS_EXPOSURE),
         ("sleeveless",    _SLEEVELESS_EXPOSURE),
         ("rolled_sleeves", _ROLLED_SLEEVE_EXPOSURE),
+        ("short_sleeves", _SHORT_SLEEVE_EXPOSURE),
         ("long_sleeves",  _LONG_SLEEVE_EXPOSURE),
         ("jacket",        _JACKET_EXPOSURE),
         ("coat",          _COAT_EXPOSURE),
@@ -492,6 +498,14 @@ def route_canon_refs(
     camera = _detect_camera(prompt_lower)
     exposure = _detect_exposure(prompt_lower)
     char_id = getattr(canon, "character_id", "?")
+
+    # A clothing-described scene without an explicit orientation keyword is
+    # treated as a front-facing body shot so exposure-gated crop routing can
+    # engage. A garment description (e.g. "button-up shirt, sleeves rolled to
+    # the forearms") implies the body is in view even when no camera signal is
+    # present. Truly ambiguous prompts (no exposure signal) still fall back.
+    if camera is None and exposure:
+        camera = "front"
 
     if camera is None:
         fallback_urls = collect_canon_reference_urls(canon)

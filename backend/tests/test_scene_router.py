@@ -551,3 +551,104 @@ class TestTattooBindingRegression:
         assert "detach, float" in clause
         assert "reinterpret markings as symbols" in clause
         assert "remain attached to the correct body region and side" in clause
+
+
+# ── Clothing truth > tattoo visibility (2026-05-31) ───────────────────
+
+class TestClothingTruthOverTattooVisibility:
+    """Clothing truth outranks tattoo visibility.
+
+    Hierarchy: identity > anatomical binding > clothing truth >
+    tattoo visibility > scene aesthetics.
+
+    A covered tattoo must stay hidden — the model must never restyle a garment
+    (cut/roll/tear/remove) to expose it. Only a region the requested clothing
+    naturally leaves uncovered routes its high-fidelity crop. These regressions
+    pin the Leo/Pan kitchen failure where a button-up shirt was turned into a
+    cutout to reveal the right upper-arm wolf.
+    """
+
+    _KITCHEN = (
+        "Leonardo standing in a beautiful modern kitchen, wearing a fitted "
+        "black button-up shirt with sleeves rolled to the forearms, "
+        "cinematic realism."
+    )
+
+    def test_1_kitchen_rolled_sleeve_forearm_routes_upper_arm_does_not(self):
+        """1. Kitchen rolled-sleeve: forearm sleeve crop routes, the covered
+        right upper-arm wolf does NOT, a body anchor still routes, no bloat."""
+        canon = _make_canon_with_marks(_arm_marks())
+        urls, meta = route_canon_refs(self._KITCHEN, canon)
+
+        # Clothing-described scene with no orientation keyword still routes
+        # (treated as a front body shot so exposure gating can run).
+        assert meta.routed is True
+        assert meta.camera == "front"
+        assert "rolled_sleeves" in meta.exposure
+        # Forearm portion of the left sleeve is exposed by rolled sleeves.
+        assert LEFT_SLEEVE_CROP in urls
+        # Right upper arm stays under the still-present sleeve → wolf NOT routed.
+        assert RIGHT_WOLF_CROP not in urls
+        assert meta.mark_crops == 1
+        # Body anchor still routes so the marking binds to anatomy.
+        assert any(u in urls for u in (BODY_FRONT, BODY_MAP))
+        # No prompt bloat — routed payload never exceeds the provider cap.
+        assert len(urls) <= 6
+
+    def test_1_kitchen_prompt_carries_clothing_truth_directive(self):
+        """1 (cont.): the compiled prompt asserts clothing truth over visibility."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        prompt = compile_canon_prompt(_make_canon_with_marks(_arm_marks()), self._KITCHEN).lower()
+        assert "permanent markings obey scene clothing" in prompt
+        assert "hidden markings remain hidden" in prompt
+        # Compact, not a return to pre-P12 multi-paragraph prose bloat.
+        assert "for visual balance or composition" not in prompt
+        assert len(prompt) < 1200
+
+    def test_2_sleeveless_routes_both_arm_crops(self):
+        """2. Sleeveless: full arms exposed → both arm crops route."""
+        urls, meta = route_canon_refs(
+            "Leonardo wearing a sleeveless shirt, full arms visible",
+            _make_canon_with_marks(_arm_marks()),
+        )
+        assert RIGHT_WOLF_CROP in urls
+        assert LEFT_SLEEVE_CROP in urls
+        assert meta.mark_crops == 2
+
+    def test_3_short_sleeve_exposes_forearm_covers_upper_arm(self):
+        """3. Short-sleeve: forearm crop routes (visible region); the upper-arm
+        wolf stays covered by the short sleeve."""
+        urls, meta = route_canon_refs(
+            "Leonardo wearing a short-sleeve shirt",
+            _make_canon_with_marks(_arm_marks()),
+        )
+        assert meta.routed is True
+        assert "short_sleeves" in meta.exposure
+        # Forearm sleeve crop depends on visible-region logic → exposed here.
+        assert LEFT_SLEEVE_CROP in urls
+        # Upper-arm wolf is covered by a short sleeve → stays hidden.
+        assert RIGHT_WOLF_CROP not in urls
+
+    def test_4_long_sleeve_routes_no_arm_crops(self):
+        """4. Long-sleeve: arms covered → no arm tattoo crops route."""
+        urls, meta = route_canon_refs(
+            "Leonardo wearing a long-sleeve shirt",
+            _make_canon_with_marks(_arm_marks()),
+        )
+        assert LEFT_SLEEVE_CROP not in urls
+        assert RIGHT_WOLF_CROP not in urls
+        assert meta.mark_crops == 0
+        # Body truth still routes — the covered marks ride the whole-body cards.
+        assert BODY_FRONT in urls and BODY_MAP in urls
+
+    def test_5_portrait_closeup_routes_no_arm_crops(self):
+        """5. Portrait close-up: facial identity only → no arm tattoo crops."""
+        urls, meta = route_canon_refs(
+            "close-up portrait of Leonardo smiling",
+            _make_canon_with_marks(_arm_marks()),
+        )
+        assert meta.camera == "portrait_closeup"
+        assert LEFT_SLEEVE_CROP not in urls
+        assert RIGHT_WOLF_CROP not in urls
+        assert meta.mark_crops == 0

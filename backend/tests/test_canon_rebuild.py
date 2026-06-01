@@ -339,6 +339,21 @@ class TestMinimalPrompt:
         assert "remain attached to the correct body region and side" in prompt.lower()
         assert "gothic script from shoulder to wrist" in prompt
 
+    def test_clothing_truth_directive_present(self):
+        """Clothing truth > tattoo visibility: covered marks stay hidden and the
+        model must not restyle garments to reveal them. One compact directive,
+        no pre-P12 prose bloat."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_canon_with_content()
+        prompt = compile_canon_prompt(canon, "in a nightclub").lower()
+        assert "permanent markings obey scene clothing" in prompt
+        assert "hidden markings remain hidden" in prompt
+        # Anti-restyle verbs that target the cut/roll/tear failure mode.
+        assert "cut" in prompt and "tear" in prompt
+        # Still compact — the directive does not reintroduce prose essays.
+        assert "for visual balance or composition" not in prompt
+
     def test_removed_prose_symbols_gone(self):
         """The deleted prose constants/helpers must no longer be importable."""
         import app.services.canon_compiler as cc

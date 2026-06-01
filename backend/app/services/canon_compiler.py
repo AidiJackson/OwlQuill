@@ -70,6 +70,15 @@ _PERMANENCE_DIRECTIVE = (
     "Permanent tattoos/scars must remain attached to the correct body region and side."
 )
 
+# Clothing truth outranks tattoo visibility. The model must never restyle a
+# garment to expose a covered marking; a tattoo is only visible when the
+# requested clothing naturally leaves that skin region uncovered.
+_CLOTHING_TRUTH_DIRECTIVE = (
+    "Permanent markings obey scene clothing. Do not alter, cut, remove, roll "
+    "higher, tear, or reinterpret garments to reveal covered tattoos/scars. "
+    "Hidden markings remain hidden."
+)
+
 
 def _skin_phrase(mark: object) -> str:
     """Type-aware skin-binding suffix that frames the mark as inked-in anatomy."""
@@ -211,6 +220,7 @@ def _permanent_marks_clause(canon: "CharacterIdentityCanon") -> str:
         _MARKING_HEADER + "\n"
         + "\n".join(lines)
         + "\n" + _PERMANENCE_DIRECTIVE
+        + "\n" + _CLOTHING_TRUTH_DIRECTIVE
     )
 
 
