@@ -329,14 +329,38 @@ class TestMinimalPrompt:
         prompt = compile_canon_prompt(canon, scene)
         assert len(prompt) < 700, f"Prompt unexpectedly large ({len(prompt)} chars): {prompt!r}"
 
-    def test_permanence_clause_present(self):
-        """P13 (A+C): a compact immutable-marking clause + permanence directive."""
+    def test_ambiguous_scene_suppresses_permanence_clause(self):
+        """P15 conservative policy: an ambiguous scene with no clothing/exposure
+        signal does NOT force the permanent-marking reproduction clause. Clothing
+        truth and non-mutation are safer than forcing tattoo visibility — the
+        user must request exposed clothing to surface marks.
+
+        The compact clothing-truth directive may remain; the skin-bound /
+        permanence / design geometry block must not."""
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_canon_with_content()
-        prompt = compile_canon_prompt(canon, "in a nightclub")
-        assert "skin-bound anatomy" in prompt.lower()
-        assert "remain attached to the correct body region and side" in prompt.lower()
+        prompt = compile_canon_prompt(canon, "in a nightclub").lower()
+        # No tattoo reproduction / permanence-geometry forcing for an ambiguous scene.
+        assert "skin-bound anatomy" not in prompt
+        assert "remain attached to the correct body region and side" not in prompt
+        assert "gothic script from shoulder to wrist" not in prompt
+        # Clothing truth may (and does) remain as the safe default.
+        assert "permanent markings obey scene clothing" in prompt
+        assert "hidden markings remain hidden" in prompt
+
+    def test_exposed_scene_includes_permanence_clause(self):
+        """Positive counterpart: an EXPLICITLY exposed scene (sleeveless / bare
+        arms) DOES include the compact immutable-marking clause + permanence
+        directive + the mark's design geometry."""
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = self._make_canon_with_content()
+        prompt = compile_canon_prompt(
+            canon, "wearing a sleeveless shirt, arms visible"
+        ).lower()
+        assert "skin-bound anatomy" in prompt
+        assert "remain attached to the correct body region and side" in prompt
         assert "gothic script from shoulder to wrist" in prompt
 
     def test_clothing_truth_directive_present(self):
@@ -396,7 +420,8 @@ class TestPermanentTattoosAreBodyCanon:
         assert body.permanent_body_marks[0].body_region == "left_full_arm"
 
     def test_tattoo_is_compact_clause_not_accessory(self):
-        """P13 (A+C): a permanent tattoo surfaces as a compact immutable clause,
+        """P13 (A+C): when surfaced (here via an explicitly exposed scene under
+        the P15 policy), a permanent tattoo appears as a compact immutable clause,
         never as an accessory block; the bloated pre-P12 header stays gone."""
         from app.models.character_identity_canon import CharacterIdentityCanon
         from app.schemas.canon import BodyCanonData, PermanentBodyMark
@@ -416,7 +441,8 @@ class TestPermanentTattoosAreBodyCanon:
         canon.body_canon_json = json.dumps(body.model_dump())
         canon.accessories_json = None
 
-        prompt = compile_canon_prompt(canon, "standing in sunlight")
+        # Exposed scene → the compact clause surfaces (ambiguous would suppress it).
+        prompt = compile_canon_prompt(canon, "standing in sunlight, sleeveless, arms bare")
         assert "PERMANENT BODY MARKS" not in prompt          # no bloated header
         assert "skin-bound anatomy" in prompt.lower()           # compact clause
         assert "gothic script inscription sleeve" in prompt  # design text present
@@ -915,19 +941,24 @@ class TestLeonardoPromptScenario:
         assert "for visual balance or composition" not in prompt
 
     def test_beach_with_mask_prompt(self):
-        """P13: requested accessory injected; marks present as compact clause."""
+        """P15: a requested accessory is still injected, but an ambiguous scene
+        (masquerade ball, no exposure signal) does NOT force the permanent-mark
+        reproduction clause — clothing truth wins over tattoo visibility."""
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_leonardo_canon()
         scene = "Leonardo at a masquerade ball, wearing a mask"
         prompt = compile_canon_prompt(canon, scene)
+        low = prompt.lower()
 
         assert scene in prompt
-        assert "ornate Venetian half-mask" in prompt   # mask triggered
-        # Permanent marks surface via the compact immutable clause.
-        assert "skin-bound anatomy" in prompt.lower()
-        assert "gothic script inscription sleeve" in prompt
-        assert "tribal wolf" in prompt
+        assert "ornate Venetian half-mask" in prompt   # mask still triggered
+        # Ambiguous scene → marks are NOT surfaced / reproduced.
+        assert "skin-bound anatomy" not in low
+        assert "gothic script inscription sleeve" not in prompt
+        assert "tribal wolf" not in low
+        # Clothing truth remains as the safe default.
+        assert "permanent markings obey scene clothing" in low
 
 
 # ── P8: Canon reference priority order ───────────────────────────────
