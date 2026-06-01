@@ -111,12 +111,16 @@ class TestSpecRouting:
         assert BODY_RIGHT not in urls
 
     def test_closeup_portrait_routes_portrait(self):
-        """'close-up portrait smiling' → portrait refs (face_front, expression, card)."""
+        """'close-up portrait smiling' → P14 hardened face stack: face_front,
+        both 3/4 geometry refs, expression, then holistic card."""
         urls, meta = route_canon_refs("close-up portrait smiling", _make_full_canon())
 
         assert meta.routed is True
         assert meta.camera == "portrait_closeup"
-        assert urls == [FACE_FRONT, FACE_EXPRESSION, FINAL_CARD]
+        assert urls == [
+            FACE_FRONT, FACE_LEFT_3Q, FACE_RIGHT_3Q, FACE_EXPRESSION, FINAL_CARD,
+        ]
+        assert urls[0] == FACE_FRONT  # face identity leads
         # Portrait closeup intentionally drops body refs.
         assert BODY_FRONT not in urls
         assert BODY_MAP not in urls
@@ -291,10 +295,12 @@ class TestP11WeightingAcceptance:
         assert urls[:2] == [BODY_RIGHT, FACE_RIGHT_3Q]
 
     def test_E_portrait_closeup_exact_order(self):
-        """E. portrait smiling close-up → facial identity stack only."""
+        """E. portrait smiling close-up → P14 hardened facial identity stack."""
         urls, meta = route_canon_refs("portrait smiling close-up", _make_full_canon())
         assert meta.camera == "portrait_closeup"
-        assert urls == [FACE_FRONT, FACE_EXPRESSION, FINAL_CARD]
+        assert urls == [
+            FACE_FRONT, FACE_LEFT_3Q, FACE_RIGHT_3Q, FACE_EXPRESSION, FINAL_CARD,
+        ]
 
     def test_F_ambiguous_fallback_unchanged(self):
         """F. ambiguous prompt → existing static fallback ordering, untouched."""
@@ -541,11 +547,13 @@ class TestTattooBindingRegression:
         assert meta.mark_crop_bindings == []
 
     def test_pool_clause_frames_wolf_as_skin_bound(self):
-        """#2: the compiled marking clause frames the wolf as skin-bound anatomy
-        and forbids detaching/floating it or reinterpreting it as a symbol."""
+        """#2: in an exposed (pool) scene the marking clause frames the wolf as
+        skin-bound anatomy and forbids detaching/floating/reinterpreting it."""
         from app.services.canon_compiler import _permanent_marks_clause
 
-        clause = _permanent_marks_clause(_make_canon_with_marks(_arm_marks())).lower()
+        clause = _permanent_marks_clause(
+            _make_canon_with_marks(_arm_marks()), self._POOL_PROMPT
+        ).lower()
         assert "skin-bound anatomy" in clause
         assert "right upper arm: wolf howling permanently inked into skin" in clause
         assert "detach, float" in clause
@@ -652,3 +660,93 @@ class TestClothingTruthOverTattooVisibility:
         assert LEFT_SLEEVE_CROP not in urls
         assert RIGHT_WOLF_CROP not in urls
         assert meta.mark_crops == 0
+
+
+# ── P14 body-truth dominance: crops are supporting evidence, never primary ──
+
+class TestBodyTruthDominance:
+    """P14 Phase 1/2 — body truth dominates the routed list; mark crops follow.
+
+    Pins the Leo failure: a wolf crop must never act as primary truth. Body
+    truth (body_front + body_map) and the face anchor must precede every crop so
+    the provider reads "this person with these tattoos", not "a tattoo concept".
+    """
+
+    def test_face_leads_then_body_truth_then_crops(self):
+        """Sleeveless front: face anchor leads, body truth precedes both crops,
+        crops come last as supporting evidence."""
+        urls, meta = route_canon_refs(
+            "facing camera, sleeveless shirt, arms visible",
+            _make_canon_with_marks(_arm_marks()),
+        )
+        slots = meta.route_slots
+        # 1. Face identity leads (Phase 3) — never buried behind body/crops.
+        assert slots[0] == "face_front"
+        assert urls[0] == FACE_FRONT
+        # 2. body_front + body_map both present and AHEAD of any crop (Phase 1/2).
+        assert "body_front" in slots and "body_map" in slots
+        first_crop = slots.index("mark_crop")
+        assert slots.index("body_front") < first_crop
+        assert slots.index("body_map") < first_crop
+        # 3. Crops are supporting — strictly after body truth, never position 0/1.
+        assert first_crop >= 2
+        assert LEFT_SLEEVE_CROP in urls and RIGHT_WOLF_CROP in urls
+        assert len(urls) <= 6
+
+    def test_crop_never_precedes_body_truth_profile(self):
+        """Profile crop scene: body_front + body_map are pulled from the full
+        canon (not just the camera route) and still precede the crop."""
+        urls, meta = route_canon_refs(
+            "left profile, sleeveless, arms visible",
+            _make_canon_with_marks(_arm_marks()),
+        )
+        assert meta.camera == "left_profile"
+        slots = meta.route_slots
+        if "mark_crop" in slots:
+            first_crop = slots.index("mark_crop")
+            assert "body_front" in slots and slots.index("body_front") < first_crop
+            assert "body_map" in slots and slots.index("body_map") < first_crop
+            # Orientation-matched side also precedes the crop.
+            assert "body_left" in slots and slots.index("body_left") < first_crop
+
+    def test_skin_exposure_promotes_ambiguous_scene_to_front(self):
+        """P14: a pool / open-shirt scene with NO camera keyword still engages
+        body + crop routing (previously fell back to ambiguous, routing 0 crops).
+        Named acceptance scenario: 'Pool/open shirt: tattoos match geometry'."""
+        urls, meta = route_canon_refs(
+            "at the swimming pool, open shirt, arms out, relaxed",
+            _make_canon_with_marks(_arm_marks()),
+        )
+        assert meta.routed is True
+        assert meta.camera == "front"
+        # Exposed arm crops now route, grounded on body truth.
+        assert RIGHT_WOLF_CROP in urls
+        assert LEFT_SLEEVE_CROP in urls
+        assert BODY_FRONT in urls and BODY_MAP in urls
+        assert meta.mark_crops >= 1
+
+    def test_truly_ambiguous_scene_still_falls_back(self):
+        """No camera, garment, or skin cue → still the static fallback (unchanged)."""
+        urls, meta = route_canon_refs(
+            "standing in a sunny field", _make_canon_with_marks(_arm_marks())
+        )
+        assert meta.routed is False
+        assert meta.camera == "unknown"
+        assert meta.mark_crops == 0
+
+    def test_crops_remain_contiguous_for_binding_slice(self):
+        """Crops stay contiguous and in input order so crops[:crop_count]
+        binding metadata stays aligned after the provider cap."""
+        _, meta = route_canon_refs(
+            "facing camera, sleeveless shirt, arms visible",
+            _make_canon_with_marks(_arm_marks()),
+        )
+        slots = meta.route_slots
+        crop_positions = [i for i, s in enumerate(slots) if s == "mark_crop"]
+        # Contiguous block.
+        assert crop_positions == list(
+            range(crop_positions[0], crop_positions[0] + len(crop_positions))
+        )
+        # Bindings align to the routed crops in order.
+        assert len(meta.mark_crop_bindings) == meta.mark_crops
+        assert meta.mark_crop_bindings[0].url == LEFT_SLEEVE_CROP

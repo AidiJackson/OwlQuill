@@ -158,6 +158,17 @@ _CROP_BACK_EXPOSE = frozenset({
 })
 
 
+# Union of all skin-exposure signals (P14). Any of these implies the body is in
+# frame with skin exposed, even when the prompt carries no camera-orientation
+# keyword. Used to promote an otherwise-ambiguous scene to a front body shot so
+# body-truth + exposed-mark crop routing engages (e.g. "open shirt, arms out at
+# the pool" — a named acceptance scenario). Cover signals are deliberately
+# excluded; per-region exposure is still gated by _mark_region_exposed.
+_SKIN_EXPOSURE_PROMOTION = (
+    _CROP_FULL_ARM | _CROP_FOREARM_ONLY | _CROP_NECK_EXPOSE | _CROP_TORSO_EXPOSE
+)
+
+
 def _is_sleeve_mark(mark: object) -> bool:
     """True if a permanent mark is a full-arm sleeve (forearm portion visible
     even under a t-shirt / rolled sleeves)."""
@@ -223,6 +234,28 @@ _BODY_ANCHOR_SLOTS = frozenset({
     "body_front", "body_map", "body_back", "body_left", "body_right",
 })
 
+# Face identity slots — used to identify the camera's primary face anchor so it
+# leads the routed list (P14 Phase 3: body/crop refs must not overpower face).
+_FACE_SLOTS = frozenset({
+    "face_front", "face_left_3q", "face_right_3q", "face_expression",
+})
+
+# P14 Phase 1/2 — Body-truth dominance ordering.
+# When a scene exposes a permanent mark, the *body truth* refs (whole-body
+# anatomy + canonical marking placement) must precede the high-fidelity mark
+# crop so the provider reads "this person with these tattoos" rather than
+# isolating "a tattoo concept". The crop is supporting evidence only and is
+# NEVER allowed to lead. body_front + body_map are pulled from the full canon
+# (not just the camera route) so they are always present when the body is
+# visible, joined by the orientation-matched side for the active camera.
+_ORIENTATION_BODY: dict[str, str] = {
+    "back": "body_back",
+    "left_profile": "body_left",
+    "left_3q": "body_left",
+    "right_profile": "body_right",
+    "right_3q": "body_right",
+}
+
 
 @dataclass
 class MarkCropBinding:
@@ -275,32 +308,67 @@ def _collect_exposed_mark_crops(
 
 
 def _merge_crops(
+    camera: str,
     slots_avail: list[str],
     slot_urls: dict[str, str],
     crops: list["MarkCropBinding"],
 ) -> tuple[list[str], list[str]]:
-    """Splice mark crops in after the lead body ref, guaranteeing a body anchor
-    (body_front / body_map) survives, then cap at MAX_PROVIDER_REFS.
+    """Order refs so BODY TRUTH dominates and mark crops are supporting only.
 
-    Routing guarantee (#3): a tattoo crop is NEVER routed alone. If no body
-    anchor is available the crops are dropped and plain slot routing is returned,
-    so the provider always has anatomy to bind the marking onto.
+    P14 Phase 1/2 — body-truth dominance. The provider must see "this person
+    with these exact tattoos", not "a tattoo concept". The routed order is:
 
-    Returns (slot_tokens, urls); crop entries use the token 'mark_crop'.
+        1. primary face anchor   — face identity leads (Phase 3); never buried
+        2. body truth block      — body_front, body_map, orientation side,
+                                    final card (in that dominance order)
+        3. mark crops            — SUPPORTING evidence only, never primary
+        4. remaining face geometry
+
+    body_front + body_map are pulled from the full canon (slot_urls), not just
+    the camera route, so they are always present when the body is visible and a
+    crop is about to be routed (Phase 2: "never allow exposed-mark routing
+    without body truth present").
+
+    Routing guarantee (#3): a tattoo crop is NEVER routed alone or ahead of body
+    truth. If no real body anchor is available the crops are dropped and plain
+    slot routing is returned, so the provider always has anatomy to bind onto.
+
+    Returns (slot_tokens, urls); crop entries use the token 'mark_crop'. Crops
+    stay contiguous and in input order, so the caller's crops[:crop_count]
+    binding slice remains correct after the provider cap.
     """
     plain_slots = slots_avail[:MAX_PROVIDER_REFS]
     plain_urls = [slot_urls[s] for s in plain_slots]
 
-    # Guarantee: never route a crop without a parent body card for grounding.
-    if not any(s in _BODY_ANCHOR_SLOTS for s in slots_avail):
+    # Body-truth block in dominance priority (Phase 1): front body truth first,
+    # canonical marking-placement map second, orientation-matched side third,
+    # holistic card last. Deduped and filtered to populated canon slots.
+    seen: set[str] = set()
+    body_truth: list[str] = []
+    for s in ("body_front", "body_map", _ORIENTATION_BODY.get(camera),
+              "final_character_card"):
+        if s and s in slot_urls and s not in seen:
+            body_truth.append(s)
+            seen.add(s)
+
+    # Guarantee (#3): never route a crop without a real body anchor (a holistic
+    # card alone is not anatomy to bind onto). Drop crops → plain routing.
+    if not any(s in _BODY_ANCHOR_SLOTS for s in body_truth):
         return plain_slots, plain_urls
 
-    lead = slots_avail[0]
-    rest = slots_avail[1:]
-    # body_map + final_character_card must survive (C: card survival).
-    must = [s for s in ("body_map", "final_character_card") if s in rest]
-    others = [s for s in rest if s not in must]
-    ordered = [lead] + ["mark_crop"] * len(crops) + must + others
+    # Face dominance (Phase 3): lead with the camera's primary face anchor so the
+    # body-truth block and crops never overpower facial identity.
+    primary_face = [s for s in slots_avail if s in _FACE_SLOTS][:1]
+    for s in primary_face:
+        seen.add(s)
+    rest_face = [s for s in slots_avail if s in _FACE_SLOTS and s not in seen]
+
+    ordered = (
+        primary_face                    # 1. face identity anchor
+        + body_truth                    # 2. body truth dominates, precedes crops
+        + ["mark_crop"] * len(crops)    # 3. crops — supporting evidence only
+        + rest_face                     # 4. remaining face geometry
+    )
 
     crop_iter = iter(crops)
     out_slots: list[str] = []
@@ -357,8 +425,12 @@ _ROUTES: dict[str, list[str]] = {
         "body_right", "face_right_3q", "final_character_card",
         "body_map", "face_front", "face_left_3q",
     ],
+    # P14 Phase 3 — face dominance hardening. A close-up is pure facial identity:
+    # lead with face_front, reinforce with both 3/4 geometry refs (matching face),
+    # then the optional expression card, then the holistic card. No body routing.
     "portrait_closeup": [
-        "face_front", "face_expression", "final_character_card",
+        "face_front", "face_left_3q", "face_right_3q",
+        "face_expression", "final_character_card",
     ],
 }
 
@@ -499,12 +571,15 @@ def route_canon_refs(
     exposure = _detect_exposure(prompt_lower)
     char_id = getattr(canon, "character_id", "?")
 
-    # A clothing-described scene without an explicit orientation keyword is
-    # treated as a front-facing body shot so exposure-gated crop routing can
-    # engage. A garment description (e.g. "button-up shirt, sleeves rolled to
-    # the forearms") implies the body is in view even when no camera signal is
-    # present. Truly ambiguous prompts (no exposure signal) still fall back.
-    if camera is None and exposure:
+    # A clothing- or skin-described scene without an explicit orientation keyword
+    # is treated as a front-facing body shot so exposure-gated crop routing can
+    # engage. A garment description ("button-up shirt, sleeves rolled to the
+    # forearms") OR a skin-exposure cue ("open shirt, arms out at the pool")
+    # implies the body is in view even when no camera signal is present. Truly
+    # ambiguous prompts (no exposure or skin cue) still fall back.
+    if camera is None and (
+        exposure or any(s in prompt_lower for s in _SKIN_EXPOSURE_PROMOTION)
+    ):
         camera = "front"
 
     if camera is None:
@@ -528,7 +603,7 @@ def route_canon_refs(
     if crops:
         route_slots = _ROUTES.get(camera, _ROUTES["front"])
         slots_avail = [s for s in route_slots if s in slot_urls]
-        slots_hit, urls = _merge_crops(slots_avail, slot_urls, crops)
+        slots_hit, urls = _merge_crops(camera, slots_avail, slot_urls, crops)
         crop_count = slots_hit.count("mark_crop")
         # Crops are spliced contiguously right after the lead ref, so the first
         # crop_count bindings are exactly the ones that survived the cap (#1/#3).

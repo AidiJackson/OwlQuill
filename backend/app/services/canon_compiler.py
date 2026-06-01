@@ -67,7 +67,9 @@ _MARKING_HEADER = "Permanent markings are immutable skin-bound anatomy:"
 _PERMANENCE_DIRECTIVE = (
     "Do not redesign, relocate, mirror, enlarge, detach, float, duplicate, or "
     "reinterpret markings as symbols, graphics, accessories, or background elements. "
-    "Permanent tattoos/scars must remain attached to the correct body region and side."
+    "Permanent tattoos/scars must remain attached to the correct body region and side. "
+    "Reproduce each marking's exact shape, line work, and scale from the reference "
+    "images — this specific design, not a stylistic or tribal reinterpretation."
 )
 
 # Clothing truth outranks tattoo visibility. The model must never restyle a
@@ -194,34 +196,82 @@ def _has_image_refs(canon: "CharacterIdentityCanon") -> bool:
     return False
 
 
-def _permanent_marks_clause(canon: "CharacterIdentityCanon") -> str:
-    """Compile a compact, structured permanent-marking clause (A + C).
+def _permanent_marks_clause(
+    canon: "CharacterIdentityCanon",
+    scene_prompt: str,
+) -> str:
+    """Compile a scene-aware permanent-marking clause (A + C).
 
-    One short header, one line per mark (region + design), and the single
-    permanence directive. NO covered/side-lock essays, NO pre-P12 prose.
-    Returns '' when there are no permanent marks.
+    Clothing truth > tattoo visibility. The text is aligned with the routing
+    layer's already-correct visibility decisions so the prompt never instructs
+    the provider to reproduce a tattoo the scene covers (which previously made
+    garments split/cut open to expose hidden marks).
+
+    Visibility is decided by the SAME logic the scene router uses for crop
+    routing — `_detect_camera`, `_is_sleeve_mark`, `_mark_region_exposed` — so
+    text and references can never drift apart (single source of truth).
+
+    Emission rules:
+      * portrait / close-up        → no marking block at all (face-only frame).
+      * exposed marks (this scene) → skin-bound header + per-mark geometry lines
+                                      + permanence/exact-geometry directive.
+      * covered marks present      → ONLY the compact clothing-truth directive;
+                                      covered marks are never named, never given
+                                      a permanence/geometry reproduction clause.
+      * no exposed marks           → permanence/geometry section suppressed
+                                      entirely (just the clothing-truth line).
+
+    Returns '' when there are no permanent marks, or for portraits.
     """
     body = load_body_canon(canon)
     marks = getattr(body, "permanent_body_marks", None) if body else None
     if not marks:
         return ""
 
-    lines: list[str] = []
-    for m in marks:
-        region = _region_phrase(getattr(m, "body_region", ""))
-        design = (getattr(m, "description", None) or getattr(m, "label", None)
-                  or "permanent marking").strip()
-        lines.append(f"- {region}: {design} {_skin_phrase(m)}")
+    # Single source of truth: reuse the router's deterministic scene logic.
+    from app.services.scene_router import (
+        _detect_camera,
+        _is_sleeve_mark,
+        _mark_region_exposed,
+    )
 
-    if not lines:
+    prompt_lower = (scene_prompt or "").lower()
+
+    # Portrait / close-up frames carry no body region — emit no marking block
+    # (matches the router skipping all body-crop routing for portraits).
+    if _detect_camera(prompt_lower) == "portrait_closeup":
         return ""
 
-    return (
-        _MARKING_HEADER + "\n"
-        + "\n".join(lines)
-        + "\n" + _PERMANENCE_DIRECTIVE
-        + "\n" + _CLOTHING_TRUTH_DIRECTIVE
-    )
+    # Partition marks by THIS scene's exposure, using the identical per-mark gate
+    # the router applies to crop routing. Covered/uncertain regions → not exposed.
+    exposed: list = []
+    for m in marks:
+        if _mark_region_exposed(
+            getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower
+        ):
+            exposed.append(m)
+
+    parts: list[str] = []
+
+    # Exposed marks only: skin-bound wording + permanence + exact-geometry clause.
+    if exposed:
+        lines: list[str] = []
+        for m in exposed:
+            region = _region_phrase(getattr(m, "body_region", ""))
+            design = (getattr(m, "description", None) or getattr(m, "label", None)
+                      or "permanent marking").strip()
+            lines.append(f"- {region}: {design} {_skin_phrase(m)}")
+        parts.append(
+            _MARKING_HEADER + "\n"
+            + "\n".join(lines)
+            + "\n" + _PERMANENCE_DIRECTIVE
+        )
+
+    # Clothing truth always asserted when the character has marks in a body
+    # scene — this is what keeps covered marks hidden instead of forcing them.
+    parts.append(_CLOTHING_TRUTH_DIRECTIVE)
+
+    return "\n".join(parts)
 
 
 # ── Main compiler ─────────────────────────────────────────────────────
@@ -256,8 +306,9 @@ def compile_canon_prompt(
         if requested:
             parts.append("wearing " + "; ".join(a.description for a in requested))
 
-    # Compact permanent-marking clause (A + C) — only when marks exist.
-    marks_clause = _permanent_marks_clause(canon)
+    # Scene-aware permanent-marking clause (A + C) — exposed marks get the
+    # skin-bound/geometry block; covered marks get only the clothing-truth line.
+    marks_clause = _permanent_marks_clause(canon, scene)
     if marks_clause:
         parts.append(marks_clause)
 
