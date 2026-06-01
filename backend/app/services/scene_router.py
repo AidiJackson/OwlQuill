@@ -329,9 +329,20 @@ def _merge_crops(
     crop is about to be routed (Phase 2: "never allow exposed-mark routing
     without body truth present").
 
-    Routing guarantee (#3): a tattoo crop is NEVER routed alone or ahead of body
-    truth. If no real body anchor is available the crops are dropped and plain
-    slot routing is returned, so the provider always has anatomy to bind onto.
+    Routing guarantee (#3): a tattoo crop is NEVER routed alone or ahead of the
+    leading body anchors. If no real body anchor is available the crops are
+    dropped and plain slot routing is returned, so the provider always has
+    anatomy to bind onto.
+
+    P15b — OpenAI rolled-sleeve forearm fidelity. The leading anchors
+    (body_front, body_map, orientation side) stay first to dominate and prevent
+    floating, but the exposed-mark crops are spliced in BEFORE the holistic
+    final_character_card. OpenAI's images.edit is position-weighted and
+    first-image-dominant; behind the holistic card the crop was too weak and the
+    forearm tattoo under-rendered. Promoting the crop ahead of the holistic card
+    (still behind the two grounding anchors) restores OpenAI forearm fidelity
+    without weakening body-truth dominance, reopening over-forcing, or affecting
+    Google (which weights all refs evenly).
 
     Returns (slot_tokens, urls); crop entries use the token 'mark_crop'. Crops
     stay contiguous and in input order, so the caller's crops[:crop_count]
@@ -340,20 +351,25 @@ def _merge_crops(
     plain_slots = slots_avail[:MAX_PROVIDER_REFS]
     plain_urls = [slot_urls[s] for s in plain_slots]
 
-    # Body-truth block in dominance priority (Phase 1): front body truth first,
-    # canonical marking-placement map second, orientation-matched side third,
-    # holistic card last. Deduped and filtered to populated canon slots.
+    # Leading body anchors in dominance priority (Phase 1): front body truth
+    # first, canonical marking-placement map second, orientation-matched side
+    # third. These stay AHEAD of the crops as the anti-float grounding anchors.
     seen: set[str] = set()
-    body_truth: list[str] = []
-    for s in ("body_front", "body_map", _ORIENTATION_BODY.get(camera),
-              "final_character_card"):
+    body_anchors: list[str] = []
+    for s in ("body_front", "body_map", _ORIENTATION_BODY.get(camera)):
         if s and s in slot_urls and s not in seen:
-            body_truth.append(s)
+            body_anchors.append(s)
             seen.add(s)
 
-    # Guarantee (#3): never route a crop without a real body anchor (a holistic
+    # Holistic identity card — support only; demoted to AFTER the crops (P15b).
+    holistic = [s for s in ("final_character_card",)
+                if s in slot_urls and s not in seen]
+    for s in holistic:
+        seen.add(s)
+
+    # Guarantee (#3): never route a crop without a real body anchor (the holistic
     # card alone is not anatomy to bind onto). Drop crops → plain routing.
-    if not any(s in _BODY_ANCHOR_SLOTS for s in body_truth):
+    if not any(s in _BODY_ANCHOR_SLOTS for s in body_anchors):
         return plain_slots, plain_urls
 
     # Face dominance (Phase 3): lead with the camera's primary face anchor so the
@@ -365,9 +381,10 @@ def _merge_crops(
 
     ordered = (
         primary_face                    # 1. face identity anchor
-        + body_truth                    # 2. body truth dominates, precedes crops
-        + ["mark_crop"] * len(crops)    # 3. crops — supporting evidence only
-        + rest_face                     # 4. remaining face geometry
+        + body_anchors                  # 2. leading body anchors (anti-float)
+        + ["mark_crop"] * len(crops)    # 3. exposed crops — ahead of holistic card
+        + holistic                      # 4. holistic identity card — support only
+        + rest_face                     # 5. remaining face geometry
     )
 
     crop_iter = iter(crops)

@@ -693,6 +693,27 @@ class TestBodyTruthDominance:
         assert LEFT_SLEEVE_CROP in urls and RIGHT_WOLF_CROP in urls
         assert len(urls) <= 6
 
+    def test_exposed_crop_precedes_holistic_card_p15b(self):
+        """P15b: exposed mark crops route AHEAD of final_character_card (but still
+        behind body_front/body_map) so OpenAI's position-weighted images.edit
+        renders the forearm tattoo. body anchors stay dominant; no float."""
+        urls, meta = route_canon_refs(
+            "modern kitchen, button-up shirt with sleeves rolled to the forearms",
+            _make_canon_with_marks(_arm_marks()),
+        )
+        slots = meta.route_slots
+        assert "mark_crop" in slots and "final_character_card" in slots
+        crop_i = slots.index("mark_crop")
+        card_i = slots.index("final_character_card")
+        # Crop now ahead of the holistic card (the P15b fix)...
+        assert crop_i < card_i, f"crop must precede holistic card: {slots}"
+        # ...but the two grounding anchors still lead it (anti-float preserved).
+        assert slots.index("body_front") < crop_i
+        assert slots.index("body_map") < crop_i
+        # Rolled sleeve: forearm sleeve routed, upper-arm wolf still hidden.
+        assert LEFT_SLEEVE_CROP in urls
+        assert RIGHT_WOLF_CROP not in urls
+
     def test_crop_never_precedes_body_truth_profile(self):
         """Profile crop scene: body_front + body_map are pulled from the full
         canon (not just the camera route) and still precede the crop."""
