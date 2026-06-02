@@ -95,6 +95,17 @@ class Settings(BaseSettings):
     # Must support image input (vision). Defaults to gpt-4o-mini (cheap + capable).
     OPENAI_VISION_MODEL: str = "gpt-4o-mini"
 
+    # ── Closed-loop face verification (identity consistency gate) ──────
+    # After a character-inclusive scene image is generated, compare the
+    # generated face against the locked canon face_front. If similarity is
+    # below the threshold, regenerate with escalated grounding (up to N tries)
+    # and keep the best-scoring result. Best-effort: silently skipped when there
+    # is no OPENAI_API_KEY, no canon face reference, or a stub provider is used,
+    # so it never affects tests or offline runs. Disable with =false in prod.
+    IDENTITY_FACE_VERIFY: bool = True
+    IDENTITY_FACE_VERIFY_THRESHOLD: float = 0.6
+    IDENTITY_FACE_VERIFY_MAX_RETRIES: int = 1
+
     # Grammar engine — LanguageTool
     # Self-host: docker run -p 8010:8010 erikvl87/languagetool
     #            then set LANGUAGETOOL_URL=http://localhost:8010/v2

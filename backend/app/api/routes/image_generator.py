@@ -50,6 +50,8 @@ from app.services.canon_compiler import (
     compile_canon_prompt,
     has_any_canon_content,
 )
+from app.services.canon_service import load_face_canon
+from app.services.face_verifier import verify_face_match, passes as _face_passes
 from app.services.scene_router import route_canon_refs
 from app.services.character_accessory import build_accessory_prompt_block, get_triggered_accessory
 from app.services.style_elements import apply_style_elements_to_image_prompt
@@ -151,7 +153,25 @@ class ImageGenerateRequest(BaseModel):
     is_cover: bool = False  # When True, saves with kind=COVER for use as a character cover banner
 
 
-# ── Helpers ───────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════
+# LEGACY / DEAD CODE — NOT REACHED BY THE LIVE ENDPOINT.
+#
+# Everything from here down to the `# ── Closed-loop face verification`
+# section (the prose strict-identity prompt builders, anchor loaders, and the
+# exposure/visibility/marking-partition helpers) is NO LONGER CALLED by
+# generate_image(). Since the P12 refactor the live endpoint compiles the
+# prompt with canon_compiler.compile_canon_prompt and selects references with
+# scene_router.route_canon_refs — identity is carried by canon reference images,
+# not by these prose builders.
+#
+# It is retained ONLY because ~20 test modules still import these symbols
+# directly. DO NOT add new behaviour here or "fix tattoos" by editing these
+# functions — changes have no runtime effect. The exposure/visibility source of
+# truth is app/services/scene_router.py.
+#
+# Removal plan (scoped follow-up): migrate the dependent tests to scene_router /
+# canon_compiler equivalents, then delete this block. See the audit notes.
+# ═══════════════════════════════════════════════════════════════════════
 
 
 def _parse_anchor_json(raw: str | None) -> dict | None:
@@ -1084,6 +1104,128 @@ def _build_strict_identity_prompt(
     return combined
 
 
+# ── Closed-loop face verification helper ──────────────────────────────
+
+# Escalated identity directive prepended on a verification-triggered retry.
+_FACE_REGEN_PREFIX = (
+    "CRITICAL IDENTITY MATCH: reproduce the exact same person as the reference "
+    "images — identical face shape, jaw, nose, eye shape, brow, and bone "
+    "structure. Do not drift toward a generic or different face. "
+)
+
+
+def _generate_scene_png(
+    provider,
+    *,
+    prompt: str,
+    ref_bytes: list[bytes],
+    provider_supports_multi: bool,
+) -> bytes | None:
+    """Run the multi-image → grounded → text generation tiers for one prompt.
+
+    Returns PNG bytes, or None if every tier failed. Mirrors the inline tier
+    chain used for the first pass so a verification retry takes the identical
+    path with an escalated prompt.
+    """
+    if ref_bytes and provider_supports_multi:
+        try:
+            return provider.generate_with_anchors(prompt=prompt, anchor_images=ref_bytes)
+        except (ValueError, RuntimeError, NotImplementedError, AttributeError):
+            pass
+    if ref_bytes:
+        try:
+            return provider.generate_grounded_image(prompt=prompt, reference_image_bytes=ref_bytes[0])
+        except (ValueError, RuntimeError, NotImplementedError, AttributeError):
+            pass
+    try:
+        return provider.generate_image(prompt=prompt)
+    except (ValueError, RuntimeError):
+        return None
+
+
+def _verify_and_regenerate(
+    *,
+    provider,
+    canon,
+    compiled_prompt: str,
+    ref_bytes: list[bytes],
+    provider_supports_multi: bool,
+    initial_png: bytes,
+    character_id: int,
+) -> tuple[bytes, dict]:
+    """Score the initial image against canon face; regenerate on confident drift.
+
+    Returns ``(best_png, meta)``. ``meta`` records the verification outcome for
+    the image record. The initial image is always a valid fallback — if no
+    retry scores better, it is returned unchanged.
+    """
+    meta: dict = {"face_verify_enabled": True}
+
+    face = load_face_canon(canon)
+    face_ref_url = getattr(face, "face_front_image_url", None) if face else None
+    if not face_ref_url:
+        return initial_png, {**meta, "face_verify_skipped": "no_face_ref"}
+    try:
+        ref_png = load_image_bytes(face_ref_url)
+    except Exception:
+        return initial_png, {**meta, "face_verify_skipped": "face_ref_load_failed"}
+
+    threshold = settings.IDENTITY_FACE_VERIFY_THRESHOLD
+    max_retries = max(0, int(settings.IDENTITY_FACE_VERIFY_MAX_RETRIES))
+
+    verdict = verify_face_match(ref_png, initial_png)
+    meta["face_verify_initial"] = {
+        "similarity": verdict.get("similarity"),
+        "match": verdict.get("match"),
+        "skip_reason": verdict.get("skip_reason"),
+    }
+    if _face_passes(verdict, threshold):
+        meta["face_verify_result"] = "passed" if verdict.get("ok") else "unverified"
+        return initial_png, meta
+
+    # Confident mismatch → regenerate with escalated grounding, keep best score.
+    best_png = initial_png
+    best_sim = float(verdict.get("similarity", 0.0))
+    retry_prompt = _FACE_REGEN_PREFIX + compiled_prompt
+    attempts = 0
+    for _ in range(max_retries):
+        attempts += 1
+        cand = _generate_scene_png(
+            provider,
+            prompt=retry_prompt,
+            ref_bytes=ref_bytes,
+            provider_supports_multi=provider_supports_multi,
+        )
+        if cand is None:
+            break
+        cand_verdict = verify_face_match(ref_png, cand)
+        cand_sim = float(cand_verdict.get("similarity", 0.0))
+        if _face_passes(cand_verdict, threshold):
+            logger.info(
+                "IMAGE_GEN_FACE_VERIFY character_id=%s result=recovered attempt=%d sim=%.2f",
+                character_id, attempts, cand_sim,
+            )
+            return cand, {
+                **meta,
+                "face_verify_result": "recovered",
+                "face_verify_attempts": attempts,
+                "face_verify_final_similarity": cand_sim,
+            }
+        if cand_sim > best_sim:
+            best_png, best_sim = cand, cand_sim
+
+    logger.info(
+        "IMAGE_GEN_FACE_VERIFY character_id=%s result=below_threshold attempts=%d best_sim=%.2f",
+        character_id, attempts, best_sim,
+    )
+    return best_png, {
+        **meta,
+        "face_verify_result": "below_threshold",
+        "face_verify_attempts": attempts,
+        "face_verify_final_similarity": best_sim,
+    }
+
+
 # ── Endpoint ─────────────────────────────────────────────────────────
 
 
@@ -1270,6 +1412,31 @@ def generate_image(
             except (ValueError, RuntimeError):
                 pass
 
+    # ── Closed-loop face verification + regeneration ──────────────────
+    # Confirm the generated face actually matches the locked identity; if it
+    # confidently drifted, regenerate with escalated grounding and keep the
+    # best-scoring result. Best-effort and tightly gated (real provider + canon
+    # face ref + enabled + not a cover) so it is a no-op in tests/offline.
+    face_verify_meta: dict = {}
+    if (
+        png_bytes is not None
+        and body.include_character
+        and not body.is_cover
+        and using_canon
+        and provider is not None
+        and actual_provider_name not in ("stub", "fal")
+        and settings.IDENTITY_FACE_VERIFY
+    ):
+        png_bytes, face_verify_meta = _verify_and_regenerate(
+            provider=provider,
+            canon=canon,
+            compiled_prompt=compiled_prompt,
+            ref_bytes=ref_bytes,
+            provider_supports_multi=provider_supports_multi,
+            initial_png=png_bytes,
+            character_id=character_id,
+        )
+
     if png_bytes is not None:
         file_path = save_image(png_bytes)
     else:
@@ -1338,6 +1505,8 @@ def generate_image(
         metadata["used_ref"] = used_ref
         metadata["cover_retry_attempted"] = cover_retry_attempted
         metadata["cover_retry_succeeded"] = cover_retry_succeeded
+        if face_verify_meta:
+            metadata.update(face_verify_meta)
 
     # Beta provider-gating audit trail (empty unless a fallback occurred).
     metadata.update(provider_gate_meta)

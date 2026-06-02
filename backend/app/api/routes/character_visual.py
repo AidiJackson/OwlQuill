@@ -1597,6 +1597,22 @@ def accept_identity_pack(
             character_id, _skip_reason,
         )
 
+    # ── Seed + lock the identity canon from the pack (keystone bridge) ──
+    # The canon (CharacterIdentityCanon) is the single source of truth for
+    # scene generation. Populate it from the freshly-locked pack so self-serve
+    # characters are immediately usable by the canon-routed generator instead of
+    # requiring a manual admin upload. Best-effort: never blocks the lock.
+    try:
+        from app.services.canon_bridge import seed_canon_from_pack
+
+        db.refresh(character)
+        seed_canon_from_pack(character, db)
+    except Exception as _bridge_exc:
+        logger.warning(
+            "CANON_BRIDGE_INVOKE_FAILED character_id=%s error=%s",
+            character_id, type(_bridge_exc).__name__,
+        )
+
     return IdentityPackAcceptResponse(
         anchors=[CharacterImageRead.model_validate(img) for img in matching],
         dna=CharacterDNARead.model_validate(dna) if dna else None,
