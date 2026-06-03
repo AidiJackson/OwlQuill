@@ -76,9 +76,12 @@ def _setup(client, db_session, email):
         cid,
         marks=[
             {
-                "label": "Right Arm Wolf Sleeve", "type": "tattoo",
+                # A non-sleeve upper-arm tattoo: covered by a short sleeve, so it
+                # exercises selective per-region gating (the full "Wolf Sleeve"
+                # case lives in test_canon_router_arm_visibility.py).
+                "label": "Right Arm Wolf", "type": "tattoo",
                 "body_region": "right_upper_arm", "side": "right",
-                "description": "howling wolf, grey ink",
+                "description": "howling wolf head, grey ink",
                 "reference_image_url": wolf_url,
             },
             {
@@ -173,7 +176,7 @@ class TestBodyMarkRefUsedDiagnostic:
 
         used = [r.getMessage() for r in caplog.records if "BODY_MARK_REF_USED" in r.getMessage()]
         assert any(
-            "Right Arm Wolf Sleeve" in m and "source=reference_image_url" in m for m in used
+            "Right Arm Wolf" in m and "source=reference_image_url" in m for m in used
         ), used
         assert any("Left Arm Scripture Sleeve" in m for m in used), used
 

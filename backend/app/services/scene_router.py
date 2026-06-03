@@ -127,7 +127,10 @@ _MAX_MARK_CROPS = 2
 _CROP_FULL_ARM = frozenset({
     "shirtless", "bare-chested", "bare chested", "bare chest", "no shirt",
     "topless", "bare torso", "sleeveless", "tank top", "tank", "vest",
-    "bare arms", "arms bare", "arms out", "arms visible", "both arms visible",
+    "muscle shirt", "muscle tee", "camisole", "racerback",
+    "bare arms", "arms bare", "bare arm", "arms out", "arm out",
+    "arms visible", "arm visible", "both arms visible", "arms exposed",
+    "arm exposed", "exposed arms", "arms uncovered", "arms shown",
     "swimwear", "swimsuit", "swimming", "swimming pool", "poolside",
     "pool party", "at the pool", "in the pool", "beach", "bikini",
 })
@@ -136,7 +139,11 @@ _CROP_FOREARM_ONLY = frozenset({
     "short sleeve", "short-sleeve", "short sleeved", "short-sleeved",
     "rolled sleeve", "rolled sleeves", "rolled-up sleeve", "rolled-up sleeves",
     "rolled up sleeve", "rolled up sleeves", "sleeves rolled", "sleeve rolled",
-    "sleeves rolled up", "sleeves pushed up", "pushed-up sleeves",
+    "sleeves rolled up", "sleeves pushed up", "pushed-up sleeves", "pushed up sleeves",
+    "rolled to the elbow", "rolled to the elbows", "rolled past the elbow",
+    "rolled above the elbow", "sleeves up", "sleeve up",
+    "forearm visible", "forearms visible", "forearm exposed", "forearms exposed",
+    "forearms out", "bare forearm", "bare forearms", "forearms bare",
 })
 _CROP_NECK_EXPOSE = frozenset({
     "open collar", "open shirt", "shirt open", "unbuttoned", "v-neck", "v neck",
@@ -197,7 +204,13 @@ def _mark_region_exposed(body_region: str, is_sleeve: bool, prompt_lower: str) -
     if "forearm" in region or "lower_arm" in region:
         return bool(full_arm or forearm)
     if "upper_arm" in region:
-        # forearm-only / rolled sleeves leave the upper arm covered.
+        # A non-sleeve upper-arm mark is covered by short/rolled sleeves (they
+        # leave only the forearm bare). A SLEEVE, however, spans the whole arm,
+        # so its forearm portion still shows — honour is_sleeve here so a mark
+        # labelled "... sleeve" on the upper arm is not wrongly suppressed when
+        # the forearm is exposed.
+        if is_sleeve:
+            return bool(full_arm or forearm)
         return bool(full_arm)
     if region in ("left_full_arm", "right_full_arm", "left_arm", "right_arm"):
         # Full-arm mark: exposed if the arm is bare, or (sleeve) the forearm shows.
