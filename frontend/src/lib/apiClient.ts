@@ -749,6 +749,30 @@ class ApiClient {
     return response.json();
   }
 
+  // Upload the visual marking image for a specific permanent body mark.
+  // The image — not prose — is the primary canon truth for the mark.
+  async uploadCanonMarkImage(
+    characterId: number,
+    markId: string,
+    form: FormData,
+  ): Promise<Record<string, unknown>> {
+    const token = this.getToken();
+    const response = await fetch(
+      `${API_BASE_URL}/characters/${characterId}/identity-canon/upload/mark/${markId}`,
+      {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+        credentials: 'include',
+      },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
   async generateCanonScene(
     characterId: number,
     data: { prompt: string; include_accessories?: boolean },

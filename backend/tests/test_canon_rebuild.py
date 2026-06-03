@@ -731,6 +731,123 @@ class TestAdminGuard:
         assert resp.status_code == 403, f"Expected 403, got {resp.status_code}"
 
 
+# ── Permanent marking image cards: upload + persistence ──────────────
+
+class TestMarkImageUpload:
+    """Admin can attach a visual image to a permanent body mark, and it persists
+    as canon truth (image-first markings, surfaced by the Manage Canon modal)."""
+
+    @staticmethod
+    def _png():
+        import base64
+        return base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9Q"
+            "DwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )
+
+    @staticmethod
+    def _make_admin(client, db_session, email, username):
+        from app.models.user import User as UserModel
+        token = get_auth_token(client, email=email, username=username)
+        db_session.expire_all()
+        admin = db_session.query(UserModel).filter(UserModel.email == email).first()
+        admin.is_admin = True
+        db_session.commit()
+        return auth_headers(token)
+
+    def test_admin_uploads_mark_image_and_it_persists(self, client, db_session):
+        hdrs = self._make_admin(client, db_session, "mk_admin1@ficshon.com", "mk_admin1")
+        char_id = _create_character(client, hdrs, name="WolfSleeveChar")
+        mark = _add_mark(
+            client, hdrs, char_id,
+            label="Right Arm Wolf Sleeve", type="tattoo",
+            body_region="right_full_arm", side="right",
+        )
+
+        resp = client.post(
+            f"/characters/{char_id}/identity-canon/upload/mark/{mark['id']}",
+            data={"slot": "reference"},
+            files={"file": ("wolf.png", self._png(), "image/png")},
+            headers=hdrs,
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["url"]
+
+        # Persists on canon read (survives "refresh").
+        canon = _get_canon(client, hdrs, char_id)
+        marks = canon["body_canon"]["permanent_body_marks"]
+        wolf = next(m for m in marks if m["id"] == mark["id"])
+        assert wolf["reference_image_url"] is not None
+        assert wolf["label"] == "Right Arm Wolf Sleeve"
+
+    def test_two_marking_cards_each_keep_their_own_image(self, client, db_session):
+        hdrs = self._make_admin(client, db_session, "mk_admin2@ficshon.com", "mk_admin2")
+        char_id = _create_character(client, hdrs, name="LeoSleeves")
+        wolf = _add_mark(
+            client, hdrs, char_id, label="Right Arm Wolf Sleeve",
+            type="tattoo", body_region="right_full_arm", side="right",
+        )
+        script = _add_mark(
+            client, hdrs, char_id, label="Left Arm Scripture Sleeve",
+            type="tattoo", body_region="left_full_arm", side="left",
+        )
+        for mk in (wolf, script):
+            resp = client.post(
+                f"/characters/{char_id}/identity-canon/upload/mark/{mk['id']}",
+                data={"slot": "reference"},
+                files={"file": ("m.png", self._png(), "image/png")},
+                headers=hdrs,
+            )
+            assert resp.status_code == 201, resp.text
+
+        canon = _get_canon(client, hdrs, char_id)
+        by_id = {m["id"]: m for m in canon["body_canon"]["permanent_body_marks"]}
+        assert by_id[wolf["id"]]["reference_image_url"] is not None
+        assert by_id[script["id"]]["reference_image_url"] is not None
+
+    def test_admin_can_upload_mark_image_after_body_lock(self, client, db_session):
+        """Req: locked body truth still permits admin to add/replace marking images."""
+        hdrs = self._make_admin(client, db_session, "mk_admin3@ficshon.com", "mk_admin3")
+        char_id = _create_character(client, hdrs, name="LockedSleeveChar")
+        mark = _add_mark(
+            client, hdrs, char_id, label="Right Arm Wolf Sleeve",
+            type="tattoo", body_region="right_full_arm", side="right",
+        )
+        # Lock the body (requires body_front_image_url).
+        client.patch(
+            f"/characters/{char_id}/identity-canon/body",
+            json={"body_front_image_url": "https://cdn.example.com/body.png"},
+            headers=hdrs,
+        )
+        lock = client.post(f"/characters/{char_id}/identity-canon/body/lock", headers=hdrs)
+        assert lock.status_code == 200, lock.text
+
+        resp = client.post(
+            f"/characters/{char_id}/identity-canon/upload/mark/{mark['id']}",
+            data={"slot": "reference"},
+            files={"file": ("wolf.png", self._png(), "image/png")},
+            headers=hdrs,
+        )
+        assert resp.status_code == 201, resp.text
+        canon = _get_canon(client, hdrs, char_id)
+        wolf = next(m for m in canon["body_canon"]["permanent_body_marks"] if m["id"] == mark["id"])
+        assert wolf["reference_image_url"] is not None
+
+    def test_non_admin_cannot_upload_mark_image(self, client):
+        token = get_auth_token(client, email="mk_nonadmin@test.com", username="mk_nonadmin")
+        hdrs = auth_headers(token)
+        char_id = _create_character(client, hdrs, name="NonAdminMarkChar")
+        mark = _add_mark(client, hdrs, char_id, label="Scar", type="scar",
+                         body_region="left_cheek", side="left")
+        resp = client.post(
+            f"/characters/{char_id}/identity-canon/upload/mark/{mark['id']}",
+            data={"slot": "reference"},
+            files={"file": ("s.png", self._png(), "image/png")},
+            headers=hdrs,
+        )
+        assert resp.status_code == 403
+
+
 # ── Test 14: Auto-sync is disabled ───────────────────────────────────
 
 class TestAutoSyncDisabled:

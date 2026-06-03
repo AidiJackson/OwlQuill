@@ -28,6 +28,7 @@ interface PermanentBodyMark {
   side: 'left' | 'right' | 'centre' | 'bilateral';
   description: string;
   reference_image_url: string | null;
+  detail_crop_url: string | null;
   locked: boolean;
 }
 
@@ -165,6 +166,78 @@ function CanonImageSlot({
         <label className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white cursor-pointer transition-colors">
           <Upload className="w-3 h-3" />
           {url ? 'Replace' : 'Upload'}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={handleFileChange}
+            disabled={busy}
+          />
+        </label>
+      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+// Per-mark visual truth. The uploaded image — not prose — is the primary
+// canon for a permanent marking. Admin can upload/replace even after the body
+// is locked (locked body truth still permits canon-edit corrections).
+function MarkImageSlot({
+  mark,
+  characterId,
+  isAdmin,
+  onUploaded,
+}: {
+  mark: PermanentBodyMark;
+  characterId: number;
+  isAdmin: boolean;
+  onUploaded: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const url = mark.detail_crop_url || mark.reference_image_url;
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    setError('');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('slot', 'reference');
+      await apiClient.uploadCanonMarkImage(characterId, mark.id, form);
+      onUploaded();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+      e.target.value = '';
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 overflow-hidden aspect-square w-32 flex items-center justify-center relative">
+        {url ? (
+          <img src={url} alt={`${mark.label} marking`} className="w-full h-full object-cover" />
+        ) : (
+          <div className="flex flex-col items-center gap-1.5 text-zinc-600">
+            <Image className="w-5 h-5" />
+            <span className="text-xs">No image</span>
+          </div>
+        )}
+        {busy && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <Loader2 className="w-5 h-5 text-white animate-spin" />
+          </div>
+        )}
+      </div>
+      {isAdmin && (
+        <label className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white cursor-pointer transition-colors">
+          <Upload className="w-3 h-3" />
+          {url ? 'Replace marking image' : 'Upload marking image'}
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"
@@ -321,6 +394,7 @@ function BodyCanonSection({
   const [markForm, setMarkForm] = useState({
     label: '', type: 'tattoo', body_region: '', side: 'left', description: '',
   });
+  const [markFile, setMarkFile] = useState<File | null>(null);
   const [addingMark, setAddingMark] = useState(false);
   const [markError, setMarkError] = useState('');
   const [removingMark, setRemovingMark] = useState<string | null>(null);
@@ -343,8 +417,23 @@ function BodyCanonSection({
     setAddingMark(true);
     setMarkError('');
     try {
-      await apiClient.addCanonBodyMark(characterId, markForm);
+      // The image is the primary truth; notes are optional. Fall back to the
+      // label so the description field (which backend requires) is never prose-heavy.
+      const payload = {
+        ...markForm,
+        description: markForm.description.trim() || markForm.label.trim(),
+      };
+      const result = await apiClient.addCanonBodyMark(characterId, payload);
+      // Create-then-upload: the upload endpoint needs the new mark's id.
+      const mark = (result as { mark?: { id?: string } }).mark;
+      if (markFile && mark?.id) {
+        const form = new FormData();
+        form.append('file', markFile);
+        form.append('slot', 'reference');
+        await apiClient.uploadCanonMarkImage(characterId, mark.id, form);
+      }
       setMarkForm({ label: '', type: 'tattoo', body_region: '', side: 'left', description: '' });
+      setMarkFile(null);
       setShowAddMark(false);
       onRefresh();
     } catch (err: unknown) {
@@ -430,6 +519,17 @@ function BodyCanonSection({
               }}
             >
               <div className="flex items-center gap-2 min-w-0">
+                {(mark.detail_crop_url || mark.reference_image_url) ? (
+                  <img
+                    src={mark.detail_crop_url || mark.reference_image_url || ''}
+                    alt=""
+                    className="w-6 h-6 rounded object-cover border border-zinc-600 shrink-0"
+                  />
+                ) : (
+                  <span className="w-6 h-6 rounded bg-zinc-700/60 flex items-center justify-center shrink-0">
+                    <Image className="w-3 h-3 text-zinc-500" />
+                  </span>
+                )}
                 <span className="text-xs font-medium bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded shrink-0">
                   {TYPE_LABELS[mark.type] ?? mark.type}
                 </span>
@@ -445,7 +545,17 @@ function BodyCanonSection({
             </button>
             {expandedMarks.has(mark.id) && (
               <div className="px-2.5 pb-2.5 space-y-2 border-t border-zinc-700/50">
-                <p className="text-xs text-zinc-400 pt-2">{mark.description}</p>
+                <div className="pt-2">
+                  <MarkImageSlot
+                    mark={mark}
+                    characterId={characterId}
+                    isAdmin={isAdmin}
+                    onUploaded={onRefresh}
+                  />
+                </div>
+                {mark.description && mark.description !== mark.label && (
+                  <p className="text-xs text-zinc-400">{mark.description}</p>
+                )}
                 <p className="text-xs text-zinc-500">Region: {mark.body_region}</p>
                 {!canon.body_locked && (
                   <button
@@ -514,10 +624,25 @@ function BodyCanonSection({
                   placeholder="Body region (e.g. left_full_arm)"
                   className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white focus:outline-none"
                 />
+                {/* Image is the primary truth for the marking. */}
+                {isAdmin && (
+                  <label className="flex items-center gap-1.5 text-xs text-zinc-300 hover:text-white cursor-pointer border border-dashed border-zinc-600 rounded px-2.5 py-2 transition-colors">
+                    <Upload className="w-3 h-3 shrink-0" />
+                    <span className="truncate">
+                      {markFile ? markFile.name : 'Marking image (required) — the visual truth'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={e => setMarkFile(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                )}
                 <textarea
                   value={markForm.description}
                   onChange={e => setMarkForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="Full description for prompt injection"
+                  placeholder="Notes (optional) — the uploaded image is the primary truth"
                   rows={2}
                   className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white resize-none focus:outline-none"
                 />
@@ -525,12 +650,18 @@ function BodyCanonSection({
                 <div className="flex gap-2">
                   <button
                     onClick={handleAddMark}
-                    disabled={addingMark || !markForm.label || !markForm.description || !markForm.body_region}
+                    disabled={
+                      addingMark || !markForm.label || !markForm.body_region ||
+                      (isAdmin && !markFile)
+                    }
                     className="text-xs btn btn-primary"
                   >
                     {addingMark ? 'Adding…' : 'Add Mark'}
                   </button>
-                  <button onClick={() => setShowAddMark(false)} className="text-xs text-zinc-500 hover:text-white">
+                  <button
+                    onClick={() => { setShowAddMark(false); setMarkFile(null); }}
+                    className="text-xs text-zinc-500 hover:text-white"
+                  >
                     Cancel
                   </button>
                 </div>
