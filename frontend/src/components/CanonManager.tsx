@@ -413,7 +413,26 @@ function BodyCanonSection({
     }
   }
 
+  function resetMarkForm() {
+    setMarkForm({ label: '', type: 'tattoo', body_region: '', side: 'left', description: '' });
+    setMarkFile(null);
+  }
+
   async function handleAddMark() {
+    // Inline validation — never silently fail. Required: label, region, and
+    // (for admins) the marking image, which is the primary visual truth.
+    const missing: string[] = [];
+    if (!markForm.label.trim()) missing.push('label');
+    if (!markForm.body_region.trim()) missing.push('body region');
+    if (isAdmin && !markFile) missing.push('marking image');
+    if (missing.length > 0) {
+      setMarkError(`Please add: ${missing.join(', ')}.`);
+      return;
+    }
+
+    // Snapshot this submission's image so a later edit to the shared form state
+    // cannot reassign it to a different mark — each mark owns its own image.
+    const fileForThisMark = markFile;
     setAddingMark(true);
     setMarkError('');
     try {
@@ -426,14 +445,16 @@ function BodyCanonSection({
       const result = await apiClient.addCanonBodyMark(characterId, payload);
       // Create-then-upload: the upload endpoint needs the new mark's id.
       const mark = (result as { mark?: { id?: string } }).mark;
-      if (markFile && mark?.id) {
+      if (!mark?.id) {
+        throw new Error('Mark was not created — no id returned.');
+      }
+      if (fileForThisMark) {
         const form = new FormData();
-        form.append('file', markFile);
+        form.append('file', fileForThisMark);
         form.append('slot', 'reference');
         await apiClient.uploadCanonMarkImage(characterId, mark.id, form);
       }
-      setMarkForm({ label: '', type: 'tattoo', body_region: '', side: 'left', description: '' });
-      setMarkFile(null);
+      resetMarkForm();
       setShowAddMark(false);
       onRefresh();
     } catch (err: unknown) {
@@ -580,7 +601,7 @@ function BodyCanonSection({
         <div>
           {!showAddMark ? (
               <button
-                onClick={() => setShowAddMark(true)}
+                onClick={() => { resetMarkForm(); setMarkError(''); setShowAddMark(true); }}
                 className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white transition-colors"
               >
                 <Plus className="w-3 h-3" /> Add permanent marking
@@ -646,20 +667,22 @@ function BodyCanonSection({
                   rows={2}
                   className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white resize-none focus:outline-none"
                 />
+                <p className="text-xs text-zinc-500">
+                  Required: label, body region{isAdmin ? ', marking image' : ''}.
+                </p>
                 {markError && <p className="text-xs text-red-400">{markError}</p>}
                 <div className="flex gap-2">
+                  {/* Always clickable (except while saving) so missing-field
+                      validation is shown inline instead of failing silently. */}
                   <button
                     onClick={handleAddMark}
-                    disabled={
-                      addingMark || !markForm.label || !markForm.body_region ||
-                      (isAdmin && !markFile)
-                    }
+                    disabled={addingMark}
                     className="text-xs btn btn-primary"
                   >
                     {addingMark ? 'Adding…' : 'Add Mark'}
                   </button>
                   <button
-                    onClick={() => { setShowAddMark(false); setMarkFile(null); }}
+                    onClick={() => { setShowAddMark(false); resetMarkForm(); setMarkError(''); }}
                     className="text-xs text-zinc-500 hover:text-white"
                   >
                     Cancel
