@@ -269,6 +269,10 @@ class MarkCropBinding:
     side: str
     label: str
     visibility: str  # "exposed" — only exposed-region crops are ever routed
+    # Audit-only provenance (no routing effect): which mark this crop came from
+    # and which canon field supplied the URL (detail_crop_url | reference_image_url).
+    mark_id: str = ""
+    source: str = ""
 
 
 def _collect_exposed_mark_crops(
@@ -294,7 +298,8 @@ def _collect_exposed_mark_crops(
     crops: list[MarkCropBinding] = []
     for m in marks:
         # Prefer the dedicated close-up detail crop; fall back to a general ref.
-        url = getattr(m, "detail_crop_url", None) or getattr(m, "reference_image_url", None)
+        detail = getattr(m, "detail_crop_url", None)
+        url = detail or getattr(m, "reference_image_url", None)
         if not url:
             continue  # graceful degrade — no crop available for this mark
         if _mark_region_exposed(getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower):
@@ -304,6 +309,8 @@ def _collect_exposed_mark_crops(
                 side=getattr(m, "side", "") or "",
                 label=getattr(m, "label", "") or "",
                 visibility="exposed",
+                mark_id=getattr(m, "id", "") or "",
+                source="detail_crop_url" if detail else "reference_image_url",
             ))
         if len(crops) >= _MAX_MARK_CROPS:
             break

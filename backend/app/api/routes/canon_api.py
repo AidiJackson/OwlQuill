@@ -501,13 +501,28 @@ def generate_scene_from_canon(
 
     # ── Load reference image bytes ────────────────────────────────
     ref_bytes: list[bytes] = []
+    loaded_urls: set[str] = set()
     for url in reference_urls[:6]:  # cap at 6 reference images
         try:
             b = load_image_bytes(url)
             ref_bytes.append(b)
+            loaded_urls.add(url)
             logger.info("SCENE_GEN_REF_LOADED url=%s bytes=%d", url, len(b))
         except Exception as exc:
             logger.warning("SCENE_GEN_REF_LOAD_FAILED url=%s error=%r", url, str(exc))
+
+    # Diagnostic: confirm which exposed permanent-mark image refs actually
+    # reached the provider payload (routed AND successfully loaded into ref_bytes).
+    # Covered/hidden marks never produce a binding, so they never log here.
+    if scene_meta is not None:
+        for binding in scene_meta.mark_crop_bindings:
+            if binding.url in loaded_urls:
+                logger.info(
+                    "BODY_MARK_REF_USED character_id=%s mark_id=%s label=%r side=%s "
+                    "region=%s source=%s",
+                    character_id, binding.mark_id, binding.label, binding.side,
+                    binding.body_region, binding.source,
+                )
 
     # ── Generate ──────────────────────────────────────────────────
     provider_name = "stub"
