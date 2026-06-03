@@ -575,10 +575,10 @@ function BodyCanonSection({
           </div>
         ))}
 
-        {/* Add mark */}
-        {!canon.body_locked && (
-          <div>
-            {!showAddMark ? (
+        {/* Add mark — always available; marking edits are not gated by the
+            body anatomy lock (only anatomy editing is). */}
+        <div>
+          {!showAddMark ? (
               <button
                 onClick={() => setShowAddMark(true)}
                 className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white transition-colors"
@@ -667,8 +667,7 @@ function BodyCanonSection({
                 </div>
               </div>
             )}
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Lock button */}
