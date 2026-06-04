@@ -197,6 +197,10 @@ def _mark_region_exposed(body_region: str, is_sleeve: bool, prompt_lower: str) -
     crop is NOT routed (the whole-body cards still carry the covered mark).
     """
     region = (body_region or "").lower().strip().replace(" ", "_")
+    # Tolerate position-first arm wording ("full_right_arm") → canonical
+    # side-first form ("right_full_arm") so free-text region drift still matches.
+    if region in ("full_right_arm", "full_left_arm"):
+        region = "right_full_arm" if "right" in region else "left_full_arm"
     full_arm = any(s in prompt_lower for s in _CROP_FULL_ARM)
     forearm = any(s in prompt_lower for s in _CROP_FOREARM_ONLY)
 
