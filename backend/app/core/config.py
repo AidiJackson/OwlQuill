@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     # OPENROUTER_IMAGE_MODEL selects the image-generation model on OpenRouter.
     OPENROUTER_IMAGE_MODEL: str = "openai/gpt-image-1"
 
+    # FLUX via OpenRouter — admin/internal testing only (option3 / option4).
+    # FLUX does NOT support multi-reference image conditioning; generation is
+    # text-to-image only.  Set these to the exact OpenRouter model slugs.
+    OPENROUTER_FLUX_PRO_MODEL: str = "black-forest-labs/flux-pro-v1.1"
+    OPENROUTER_FLUX_MAX_MODEL: str = "black-forest-labs/flux-pro-v1.1-ultra"
+
     # Vision model used for identity pack front-anchor validation (B6).
     # Must support image input (vision). Defaults to gpt-4o-mini (cheap + capable).
     OPENAI_VISION_MODEL: str = "gpt-4o-mini"

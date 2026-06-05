@@ -81,6 +81,8 @@ _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static"
 _OPTION_PROVIDER_NAMES: dict[str, str] = {
     "option1": "openai",
     "option2": "google",
+    "option3": "flux_pro",
+    "option4": "flux_max",
 }
 
 # ── B18/B19 strict identity prompt constants ──────────────────────────
@@ -147,9 +149,11 @@ class ImageGenerateRequest(BaseModel):
 
     prompt: str = Field(..., min_length=1, max_length=800)
     include_character: bool = False
-    # Beta: Google (option2) is the default Canon provider. OpenAI (option1) is
-    # admin-only and falls back to Google for non-admins (enforced server-side).
-    provider_option: Literal["option1", "option2"] = "option2"
+    # Beta: Google (option2) is the default Canon provider. OpenAI (option1),
+    # FLUX Pro (option3), and FLUX Max (option4) are admin-only and fall back to
+    # Google for non-admins (enforced server-side).
+    # FLUX options generate text-to-image only — refs are not forwarded.
+    provider_option: Literal["option1", "option2", "option3", "option4"] = "option2"
     is_cover: bool = False  # When True, saves with kind=COVER for use as a character cover banner
 
 
@@ -1489,6 +1493,10 @@ def generate_image(
         "image_generator": True,
         "provider_option": effective_option,
         "provider": actual_provider_name,
+        # Model slug used for generation (populated for FLUX providers; None for others).
+        "model": (lambda v: v if isinstance(v, str) else None)(
+            getattr(provider, "model_name", None) if provider is not None else None
+        ),
         "include_character": body.include_character,
         "character_id": character_id if body.include_character else None,
         "prompt": body.prompt,
@@ -1507,6 +1515,14 @@ def generate_image(
         metadata["cover_retry_succeeded"] = cover_retry_succeeded
         if face_verify_meta:
             metadata.update(face_verify_meta)
+        # When refs were loaded but not forwarded to the provider, record why so
+        # admins can see the explicit reason rather than inferring from False flags.
+        if ref_bytes and not multi_image_used and not used_ref and provider is not None:
+            _ref_support = getattr(provider, "refs_support_level", None)
+            ref_support = _ref_support if isinstance(_ref_support, str) else None
+            if ref_support == "none":
+                metadata["refs_not_used_reason"] = "provider_does_not_support_reference_input"
+                metadata["refs_support_level"] = "none"
 
     # Beta provider-gating audit trail (empty unless a fallback occurred).
     metadata.update(provider_gate_meta)

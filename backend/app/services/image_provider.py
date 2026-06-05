@@ -422,8 +422,10 @@ def get_provider_for_option(option: str) -> ImageProvider:
     """Return the image provider mapped to a B17 provider option key.
 
     Mapping (internal, not exposed to end users):
-      option1 -> openai
-      option2 -> google
+      option1 -> openai   (admin-only)
+      option2 -> google   (production default)
+      option3 -> flux_pro (admin/internal testing only — text-to-image, no refs)
+      option4 -> flux_max (admin/internal testing only — text-to-image, no refs)
 
     When IMAGE_GENERATOR_PROVIDER_TOGGLE is False, always returns the openai
     provider regardless of the option value (easy rollback path).
@@ -435,28 +437,61 @@ def get_provider_for_option(option: str) -> ImageProvider:
     _OPTION_MAP = {
         "option1": "openai",
         "option2": "google",
+        "option3": "flux_pro",
+        "option4": "flux_max",
     }
     effective = option.lower() if settings.IMAGE_GENERATOR_PROVIDER_TOGGLE else "option1"
     provider_name = _OPTION_MAP.get(effective)
     if provider_name is None:
-        raise ValueError(f"Unknown provider option: {option!r}. Expected 'option1' or 'option2'.")
+        raise ValueError(
+            f"Unknown provider option: {option!r}. "
+            f"Expected 'option1', 'option2', 'option3', or 'option4'."
+        )
     if provider_name == "openai":
         return _OpenAIImageProvider()
     if provider_name == "google":
         return _GoogleImageProviderAdapter()
+    if provider_name == "flux_pro":
+        return _FluxOpenRouterAdapter(
+            model=settings.OPENROUTER_FLUX_PRO_MODEL,
+            provider_label="flux_pro",
+        )
+    if provider_name == "flux_max":
+        return _FluxOpenRouterAdapter(
+            model=settings.OPENROUTER_FLUX_MAX_MODEL,
+            provider_label="flux_max",
+        )
     raise ValueError(f"No provider implementation for resolved name: {provider_name!r}")
 
 
 # ── Beta provider gating ──────────────────────────────────────────────
 # Closed beta: Google (option2) is the primary Canon image provider for ALL
-# users. OpenAI (option1) is gated to admin/internal testing — it is currently
-# less stable around reference order, tattoo detail, and images.edit weighting
-# for the visual-card routed identity flow. A non-admin OpenAI request safely
-# falls back to Google with audit metadata rather than being hard-rejected.
+# users. OpenAI (option1), FLUX Pro (option3), and FLUX Max (option4) are gated
+# to admin/internal testing only.  A non-admin request for any admin-only
+# provider safely falls back to Google with audit metadata.
+#
+# FLUX notes (option3 / option4):
+#   FLUX via OpenRouter does NOT support multi-reference image conditioning.
+#   Generation falls through to text-to-image only.  Metadata records
+#   refs_support_level="none" and refs_not_used_reason so admins can see
+#   exactly why identity refs were not forwarded.
 
-_ADMIN_ONLY_PROVIDER_OPTIONS = frozenset({"option1"})  # option1 == openai
+_ADMIN_ONLY_PROVIDER_OPTIONS = frozenset({"option1", "option3", "option4"})
 CANON_DEFAULT_PROVIDER_OPTION = "option2"              # option2 == google
-_PROVIDER_OPTION_NAMES = {"option1": "openai", "option2": "google"}
+_PROVIDER_OPTION_NAMES = {
+    "option1": "openai",
+    "option2": "google",
+    "option3": "flux_pro",
+    "option4": "flux_max",
+}
+
+# Per-option fallback reason logged in audit metadata when a non-admin requests
+# an admin-only provider and is silently routed to Google instead.
+_ADMIN_GATE_REASONS: dict[str, str] = {
+    "option1": "openai_admin_only_beta",
+    "option3": "flux_pro_admin_only",
+    "option4": "flux_max_admin_only",
+}
 
 
 def resolve_canon_provider_option(
@@ -466,20 +501,22 @@ def resolve_canon_provider_option(
 ) -> tuple[str, dict]:
     """Apply beta provider gating to a requested provider option.
 
-    Google (option2) is allowed for everyone. OpenAI (option1) is admin-only;
-    a non-admin OpenAI request falls back to Google instead of failing.
+    Google (option2) is allowed for everyone.  OpenAI (option1), FLUX Pro
+    (option3), and FLUX Max (option4) are admin-only; a non-admin request for
+    any of these falls back to Google instead of failing.
 
     Returns ``(effective_option, fallback_metadata)``. ``fallback_metadata`` is
     ``{}`` when the requested option is allowed; on fallback it records::
 
-        original_requested_provider = "openai"
-        provider_fallback_reason    = "openai_admin_only_beta"
+        original_requested_provider = <provider name>
+        provider_fallback_reason    = <reason string>
     """
     opt = (requested_option or CANON_DEFAULT_PROVIDER_OPTION).lower()
     if opt in _ADMIN_ONLY_PROVIDER_OPTIONS and not is_admin:
+        reason = _ADMIN_GATE_REASONS.get(opt, "admin_only")
         return CANON_DEFAULT_PROVIDER_OPTION, {
             "original_requested_provider": _PROVIDER_OPTION_NAMES.get(opt, opt),
-            "provider_fallback_reason": "openai_admin_only_beta",
+            "provider_fallback_reason": reason,
         }
     # Unknown option keys collapse to the safe default (defensive).
     if opt not in _PROVIDER_OPTION_NAMES:
@@ -539,6 +576,44 @@ class _OpenRouterImageProviderAdapter(ImageProvider):
             reference_image_bytes=reference_image_bytes,
             size=size,
         )
+
+
+class _FluxOpenRouterAdapter(ImageProvider):
+    """Adapt FluxOpenRouterProvider (FLUX via OpenRouter Images API) to the ImageProvider interface.
+
+    FLUX via OpenRouter does NOT support multi-reference image conditioning or
+    grounded (image-to-image) generation.  Both flags are explicitly False so the
+    endpoint generation tier-chain skips directly to text-only without attempting
+    reference calls.  The metadata field ``refs_support_level`` is set to "none"
+    so the admin can see exactly why refs were not used.
+    """
+
+    supports_image_guidance = False
+    supports_multi_image_input = False
+    # Surfaced in endpoint metadata to explain why refs were not forwarded.
+    refs_support_level: str = "none"
+
+    def __init__(self, model: str, provider_label: str) -> None:
+        from app.services.image_providers.flux_openrouter_provider import (
+            FluxOpenRouterProvider,
+        )
+        self._flux = FluxOpenRouterProvider(model=model, provider_label=provider_label)
+        self._model_name = model
+        self._provider_label = provider_label
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    def _generate(
+        self,
+        *,
+        prompt: str,
+        size: str,
+        reference_image_url: str | None,
+    ) -> bytes:
+        # Text-to-image only — reference_image_url deliberately ignored.
+        return self._flux.generate_text_to_image(prompt=prompt, size=size)
 
 
 class _FalProviderAdapter(ImageProvider):

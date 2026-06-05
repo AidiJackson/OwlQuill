@@ -7,9 +7,12 @@ import { useAuthStore } from '@/lib/store';
 
 const MAX_PROMPT_LENGTH = 800;
 
-// Beta: Google (option2) is the primary "Canon" provider for everyone. The
-// OpenAI (option1) provider is shown only to admins as an experimental option.
+// Beta: Google (option2) is the primary "Canon" provider for everyone.
+// OpenAI (option1), FLUX Pro (option3), and FLUX Max (option4) are admin-only.
+// FLUX options are text-to-image only — identity refs are not forwarded.
 const SHOW_PROVIDER_TOGGLE = true;
+
+type ProviderOption = 'option1' | 'option2' | 'option3' | 'option4';
 
 interface Props {
   characters: Character[];
@@ -36,16 +39,17 @@ export default function SceneGeneratorPanel({
   // null = "No character"; number = character id
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const initialCharacterIdRef = useRef(initialCharacterId);
-  // Beta default: Google ("Canon"). OpenAI (option1) is admin-only.
-  const [providerOption, setProviderOption] = useState<'option1' | 'option2'>('option2');
+  // Beta default: Google ("Canon"). OpenAI, FLUX Pro, FLUX Max are admin-only.
+  const [providerOption, setProviderOption] = useState<ProviderOption>('option2');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const isAdmin = useAuthStore((s) => !!s.user?.is_admin);
 
-  // Guard: if a non-admin ever ends up on the OpenAI option, snap back to Canon.
+  // Guard: if a non-admin ends up on any admin-only option, snap back to Canon.
   useEffect(() => {
-    if (!isAdmin && providerOption === 'option1') setProviderOption('option2');
+    const adminOnly: ProviderOption[] = ['option1', 'option3', 'option4'];
+    if (!isAdmin && adminOnly.includes(providerOption)) setProviderOption('option2');
   }, [isAdmin, providerOption]);
 
   // Set default selection once when characters first load
@@ -177,7 +181,8 @@ export default function SceneGeneratorPanel({
         </div>
 
         {/* Provider selector. Beta: Google = "Canon" (primary, everyone).
-            OpenAI = "Experimental" (admin-only). Non-admins see Canon only. */}
+            OpenAI, FLUX Pro, FLUX Max are admin-only.
+            FLUX options are text-to-image only — refs not forwarded. */}
         {SHOW_PROVIDER_TOGGLE && (
           <div className="flex items-center gap-1 rounded-md border border-gray-700 overflow-hidden text-xs">
             <button
@@ -194,19 +199,47 @@ export default function SceneGeneratorPanel({
               Canon · Recommended
             </button>
             {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setProviderOption('option1')}
-                disabled={loading}
-                title="OpenAI — experimental, admin-only"
-                className={`px-3 py-1 transition-colors ${
-                  providerOption === 'option1'
-                    ? 'bg-amber-700 text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-amber-900/40 hover:text-amber-300'
-                }`}
-              >
-                Experimental · Admin
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setProviderOption('option1')}
+                  disabled={loading}
+                  title="OpenAI — experimental, admin-only"
+                  className={`px-3 py-1 transition-colors ${
+                    providerOption === 'option1'
+                      ? 'bg-amber-700 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-amber-900/40 hover:text-amber-300'
+                  }`}
+                >
+                  OpenAI · Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProviderOption('option3')}
+                  disabled={loading}
+                  title="FLUX Pro — OpenRouter, admin-only, text-to-image only (refs not forwarded)"
+                  className={`px-3 py-1 transition-colors ${
+                    providerOption === 'option3'
+                      ? 'bg-violet-700 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-violet-900/40 hover:text-violet-300'
+                  }`}
+                >
+                  FLUX Pro · Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProviderOption('option4')}
+                  disabled={loading}
+                  title="FLUX Max — OpenRouter, admin-only, text-to-image only (refs not forwarded)"
+                  className={`px-3 py-1 transition-colors ${
+                    providerOption === 'option4'
+                      ? 'bg-violet-700 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-violet-900/40 hover:text-violet-300'
+                  }`}
+                >
+                  FLUX Max · Admin
+                </button>
+              </>
             )}
           </div>
         )}

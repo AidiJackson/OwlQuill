@@ -145,7 +145,7 @@ export async function generateImage(
   characterId: number,
   prompt: string,
   includeCharacter: boolean,
-  providerOption: 'option1' | 'option2',
+  providerOption: 'option1' | 'option2' | 'option3' | 'option4',
   isCover = false,
 ): Promise<CharacterImageRead> {
   return request(`/characters/${characterId}/image-generator/generate`, {
