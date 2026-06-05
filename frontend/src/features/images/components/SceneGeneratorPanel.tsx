@@ -8,11 +8,12 @@ import { useAuthStore } from '@/lib/store';
 const MAX_PROMPT_LENGTH = 800;
 
 // Beta: Google (option2) is the primary "Canon" provider for everyone.
-// OpenAI (option1), FLUX Pro (option3), and FLUX Max (option4) are admin-only.
+// OpenAI (option1), FLUX Pro (option3), FLUX Max (option4), and Together FLUX.2 (option5) are admin-only.
 // FLUX options are text-to-image only — identity refs are not forwarded.
+// Together (option5) supports URL-based refs when public HTTPS canon URLs are available.
 const SHOW_PROVIDER_TOGGLE = true;
 
-type ProviderOption = 'option1' | 'option2' | 'option3' | 'option4';
+type ProviderOption = 'option1' | 'option2' | 'option3' | 'option4' | 'option5';
 
 interface Props {
   characters: Character[];
@@ -48,7 +49,7 @@ export default function SceneGeneratorPanel({
 
   // Guard: if a non-admin ends up on any admin-only option, snap back to Canon.
   useEffect(() => {
-    const adminOnly: ProviderOption[] = ['option1', 'option3', 'option4'];
+    const adminOnly: ProviderOption[] = ['option1', 'option3', 'option4', 'option5'];
     if (!isAdmin && adminOnly.includes(providerOption)) setProviderOption('option2');
   }, [isAdmin, providerOption]);
 
@@ -238,6 +239,19 @@ export default function SceneGeneratorPanel({
                   }`}
                 >
                   FLUX Max · Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProviderOption('option5')}
+                  disabled={loading}
+                  title="Together FLUX.2 — admin-only, URL-based refs when public HTTPS canon URLs are available"
+                  className={`px-3 py-1 transition-colors ${
+                    providerOption === 'option5'
+                      ? 'bg-sky-700 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-sky-900/40 hover:text-sky-300'
+                  }`}
+                >
+                  Together · Admin
                 </button>
               </>
             )}

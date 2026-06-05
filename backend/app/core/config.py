@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     OPENROUTER_FLUX_PRO_MODEL: str = "black-forest-labs/flux-pro-v1.1"
     OPENROUTER_FLUX_MAX_MODEL: str = "black-forest-labs/flux-pro-v1.1-ultra"
 
+    # Together AI FLUX.2 — admin/internal testing only (option5).
+    # References are supported via public HTTPS URLs (refs_support_level="url_required").
+    # Local static paths are not accessible by Together's backend — they are filtered
+    # before the payload is sent.
+    TOGETHER_API_KEY: Optional[str] = None
+    TOGETHER_FLUX_MODEL: str = "black-forest-labs/FLUX.1-schnell-Free"
+
     # Vision model used for identity pack front-anchor validation (B6).
     # Must support image input (vision). Defaults to gpt-4o-mini (cheap + capable).
     OPENAI_VISION_MODEL: str = "gpt-4o-mini"

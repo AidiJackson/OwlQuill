@@ -83,6 +83,7 @@ _OPTION_PROVIDER_NAMES: dict[str, str] = {
     "option2": "google",
     "option3": "flux_pro",
     "option4": "flux_max",
+    "option5": "together_flux",
 }
 
 # ── B18/B19 strict identity prompt constants ──────────────────────────
@@ -150,10 +151,11 @@ class ImageGenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=800)
     include_character: bool = False
     # Beta: Google (option2) is the default Canon provider. OpenAI (option1),
-    # FLUX Pro (option3), and FLUX Max (option4) are admin-only and fall back to
-    # Google for non-admins (enforced server-side).
+    # FLUX Pro (option3), FLUX Max (option4), and Together FLUX.2 (option5) are
+    # admin-only and fall back to Google for non-admins (enforced server-side).
     # FLUX options generate text-to-image only — refs are not forwarded.
-    provider_option: Literal["option1", "option2", "option3", "option4"] = "option2"
+    # Together (option5) supports URL-based refs when public HTTPS URLs are available.
+    provider_option: Literal["option1", "option2", "option3", "option4", "option5"] = "option2"
     is_cover: bool = False  # When True, saves with kind=COVER for use as a character cover banner
 
 
@@ -1372,6 +1374,56 @@ def generate_image(
     multi_image_used = False
     used_ref = False
 
+    # ── Together AI: URL-based multi-reference (option5 only) ────────────
+    # Together AI requires public HTTPS URLs for reference_images — its backend
+    # fetches them directly, so local /static/ paths are not accessible.
+    # This path runs before the bytes-based tier chain because _TogetherFluxAdapter
+    # sets supports_multi_image_input=False (bytes tier skipped) but exposes
+    # generate_with_anchor_urls() for URL-based conditioning.
+    # TOGETHER_DIAG log entries record selected_refs/loaded_refs/provider_refs_sent/
+    # provider_response_mode for benchmark diagnostics.
+    together_urls_sent: list[str] = []
+    together_response_mode: str = "not_applicable"
+
+    if png_bytes is None and provider is not None and reference_urls and hasattr(provider, "generate_with_anchor_urls"):
+        public_urls = [u for u in reference_urls[:6] if u.startswith("https://")]
+        local_refs = [u for u in reference_urls[:6] if not u.startswith("https://")]
+        logger.info(
+            "TOGETHER_DIAG character_id=%s selected_refs=%d loaded_bytes=%d "
+            "public_refs=%d local_refs=%d",
+            character_id, len(reference_urls), len(ref_bytes),
+            len(public_urls), len(local_refs),
+        )
+        if public_urls:
+            try:
+                png_bytes = provider.generate_with_anchor_urls(
+                    prompt=compiled_prompt,
+                    anchor_urls=public_urls,
+                )
+                actual_provider_name = resolved_provider_name
+                multi_image_used = True
+                together_urls_sent = public_urls
+                together_response_mode = "multi_url"
+                logger.info(
+                    "TOGETHER_DIAG character_id=%s provider_refs_sent=%d "
+                    "provider_response_mode=multi_url",
+                    character_id, len(public_urls),
+                )
+            except (ValueError, RuntimeError) as exc:
+                together_response_mode = "multi_url_failed"
+                logger.warning(
+                    "TOGETHER_DIAG character_id=%s provider_refs_sent=%d "
+                    "provider_response_mode=multi_url_failed failure_reason=%r",
+                    character_id, len(public_urls), str(exc),
+                )
+        else:
+            together_response_mode = "local_refs_only"
+            logger.info(
+                "TOGETHER_DIAG character_id=%s provider_refs_sent=0 "
+                "provider_response_mode=local_refs_only reason=no_public_https_urls",
+                character_id,
+            )
+
     # ── Generate: multi-image → grounded → text-only → fal → stub ──
     provider_supports_multi = bool(getattr(provider, "supports_multi_image_input", False))
     if provider is not None and ref_bytes and provider_supports_multi:
@@ -1515,6 +1567,11 @@ def generate_image(
         metadata["cover_retry_succeeded"] = cover_retry_succeeded
         if face_verify_meta:
             metadata.update(face_verify_meta)
+        # Together AI URL-based ref diagnostics (option5 only).
+        if together_response_mode != "not_applicable":
+            metadata["together_response_mode"] = together_response_mode
+            metadata["together_refs_sent"] = len(together_urls_sent)
+
         # When refs were loaded but not forwarded to the provider, record why so
         # admins can see the explicit reason rather than inferring from False flags.
         if ref_bytes and not multi_image_used and not used_ref and provider is not None:
@@ -1523,6 +1580,14 @@ def generate_image(
             if ref_support == "none":
                 metadata["refs_not_used_reason"] = "provider_does_not_support_reference_input"
                 metadata["refs_support_level"] = "none"
+            elif ref_support == "url_required":
+                metadata["refs_support_level"] = "url_required"
+                if together_response_mode == "local_refs_only":
+                    metadata["refs_not_used_reason"] = "all_refs_are_local_paths_not_accessible_by_provider"
+                elif together_response_mode == "multi_url_failed":
+                    metadata["refs_not_used_reason"] = "provider_multi_url_failed"
+                else:
+                    metadata["refs_not_used_reason"] = "url_based_refs_unavailable"
 
     # Beta provider-gating audit trail (empty unless a fallback occurred).
     metadata.update(provider_gate_meta)

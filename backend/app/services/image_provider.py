@@ -422,10 +422,11 @@ def get_provider_for_option(option: str) -> ImageProvider:
     """Return the image provider mapped to a B17 provider option key.
 
     Mapping (internal, not exposed to end users):
-      option1 -> openai   (admin-only)
-      option2 -> google   (production default)
-      option3 -> flux_pro (admin/internal testing only — text-to-image, no refs)
-      option4 -> flux_max (admin/internal testing only — text-to-image, no refs)
+      option1 -> openai        (admin-only)
+      option2 -> google        (production default)
+      option3 -> flux_pro      (admin/internal testing only — text-to-image, no refs)
+      option4 -> flux_max      (admin/internal testing only — text-to-image, no refs)
+      option5 -> together_flux (admin/internal testing only — URL-based refs)
 
     When IMAGE_GENERATOR_PROVIDER_TOGGLE is False, always returns the openai
     provider regardless of the option value (easy rollback path).
@@ -439,13 +440,14 @@ def get_provider_for_option(option: str) -> ImageProvider:
         "option2": "google",
         "option3": "flux_pro",
         "option4": "flux_max",
+        "option5": "together_flux",
     }
     effective = option.lower() if settings.IMAGE_GENERATOR_PROVIDER_TOGGLE else "option1"
     provider_name = _OPTION_MAP.get(effective)
     if provider_name is None:
         raise ValueError(
             f"Unknown provider option: {option!r}. "
-            f"Expected 'option1', 'option2', 'option3', or 'option4'."
+            f"Expected 'option1' through 'option5'."
         )
     if provider_name == "openai":
         return _OpenAIImageProvider()
@@ -461,28 +463,39 @@ def get_provider_for_option(option: str) -> ImageProvider:
             model=settings.OPENROUTER_FLUX_MAX_MODEL,
             provider_label="flux_max",
         )
+    if provider_name == "together_flux":
+        return _TogetherFluxAdapter(model=settings.TOGETHER_FLUX_MODEL)
     raise ValueError(f"No provider implementation for resolved name: {provider_name!r}")
 
 
 # ── Beta provider gating ──────────────────────────────────────────────
 # Closed beta: Google (option2) is the primary Canon image provider for ALL
-# users. OpenAI (option1), FLUX Pro (option3), and FLUX Max (option4) are gated
-# to admin/internal testing only.  A non-admin request for any admin-only
-# provider safely falls back to Google with audit metadata.
+# users. OpenAI (option1), FLUX Pro (option3), FLUX Max (option4), and
+# Together FLUX.2 (option5) are gated to admin/internal testing only.
+# A non-admin request for any admin-only provider safely falls back to Google
+# with audit metadata.
 #
 # FLUX notes (option3 / option4):
 #   FLUX via OpenRouter does NOT support multi-reference image conditioning.
 #   Generation falls through to text-to-image only.  Metadata records
 #   refs_support_level="none" and refs_not_used_reason so admins can see
 #   exactly why identity refs were not forwarded.
+#
+# Together FLUX.2 notes (option5):
+#   References are supported via public HTTPS URLs (refs_support_level="url_required").
+#   Local static paths (/static/...) are filtered before the payload is sent.
+#   Metadata records refs_support_level="url_required" and together_response_mode
+#   so admins can see whether multi-URL conditioning was attempted and whether
+#   public URLs were available.
 
-_ADMIN_ONLY_PROVIDER_OPTIONS = frozenset({"option1", "option3", "option4"})
+_ADMIN_ONLY_PROVIDER_OPTIONS = frozenset({"option1", "option3", "option4", "option5"})
 CANON_DEFAULT_PROVIDER_OPTION = "option2"              # option2 == google
 _PROVIDER_OPTION_NAMES = {
     "option1": "openai",
     "option2": "google",
     "option3": "flux_pro",
     "option4": "flux_max",
+    "option5": "together_flux",
 }
 
 # Per-option fallback reason logged in audit metadata when a non-admin requests
@@ -491,6 +504,7 @@ _ADMIN_GATE_REASONS: dict[str, str] = {
     "option1": "openai_admin_only_beta",
     "option3": "flux_pro_admin_only",
     "option4": "flux_max_admin_only",
+    "option5": "together_flux_admin_only",
 }
 
 
@@ -614,6 +628,64 @@ class _FluxOpenRouterAdapter(ImageProvider):
     ) -> bytes:
         # Text-to-image only — reference_image_url deliberately ignored.
         return self._flux.generate_text_to_image(prompt=prompt, size=size)
+
+
+class _TogetherFluxAdapter(ImageProvider):
+    """Adapt TogetherFluxProvider (Together AI FLUX.2) to the ImageProvider interface.
+
+    References are accepted as public HTTPS URL strings only — Together AI
+    fetches them server-side, so local static paths are inaccessible.  The
+    adapter exposes ``generate_with_anchor_urls()`` for the Together-specific
+    URL-ref path in image_generator.py; the standard bytes-based tier chain
+    is skipped via ``supports_multi_image_input = False`` and
+    ``supports_image_guidance = False``.
+
+    ``refs_support_level = "url_required"`` signals that refs ARE supported
+    when public HTTPS URLs are available — distinguishing this provider from
+    FLUX/OpenRouter where refs are never forwarded at all.
+    """
+
+    supports_image_guidance = False
+    supports_multi_image_input = False
+    refs_support_level: str = "url_required"
+
+    def __init__(self, model: str) -> None:
+        from app.services.image_providers.together_flux_provider import TogetherFluxProvider
+        self._together = TogetherFluxProvider(
+            api_key=settings.TOGETHER_API_KEY or "",
+            model=model,
+        )
+        self._model_name = model
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    def _generate(
+        self,
+        *,
+        prompt: str,
+        size: str,
+        reference_image_url: str | None,
+    ) -> bytes:
+        return self._together.generate_text_to_image(prompt=prompt, size=size)
+
+    def generate_with_anchor_urls(
+        self,
+        *,
+        prompt: str,
+        anchor_urls: list[str],
+        size: str = "1024x1024",
+    ) -> bytes:
+        """Generate conditioned on public HTTPS reference URL strings.
+
+        Called by image_generator.py's Together-specific URL-ref path when
+        public HTTPS URLs are available. Raises ValueError when no valid
+        public URLs survive the filter (triggers text-only fallback in caller).
+        """
+        return self._together.generate_with_reference_urls(
+            prompt=prompt, anchor_urls=anchor_urls, size=size
+        )
 
 
 class _FalProviderAdapter(ImageProvider):
