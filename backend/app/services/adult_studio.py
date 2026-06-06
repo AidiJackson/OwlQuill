@@ -12,8 +12,11 @@ Responsibilities:
 """
 from __future__ import annotations
 
+import io
+import json
 import logging
 import re
+import zipfile
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -26,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 # Hard cap on reference images forwarded to the provider.
 MAX_ADULT_STUDIO_REFS = 6
+
+# Default subject phrase used in LoRA captions when the manifest gives no hint.
+_DEFAULT_SUBJECT = "adult woman"
 
 
 # ── Safety gate ────────────────────────────────────────────────────────
@@ -208,3 +214,207 @@ def build_adult_prompt(base_prompt: str, manifest: dict, character_name: str = "
         parts.append(f"PERMANENT MARKINGS to preserve exactly where skin is exposed: {mark_txt}")
 
     return ". ".join(p.rstrip(". ") for p in parts if p) + "."
+
+
+# ── Training pack export (SDXL LoRA) ───────────────────────────────────
+#
+# Build an offline, self-contained training pack from the prepared manifest so a
+# per-character SDXL LoRA can be trained/validated OUTSIDE Ficshon. This does NOT
+# train, generate, or call any provider — it only packages the locked-canon
+# source images + captions into a ZIP. Canon is read-only.
+
+# Manifest ref roles that map to a fixed, stable filename slot.
+_FIXED_ROLE_FILENAMES = {
+    "face_front": "face_front.png",
+    "face_left_3q": "face_left_3q.png",
+    "face_right_3q": "face_right_3q.png",
+    "expression": "expression.png",
+    "body_front": "body_front.png",
+    "body_left": "body_left.png",
+    "body_right": "body_right.png",
+    "body_back": "body_back.png",
+    "body_map": "body_map.png",
+    "final_card": "final_card.png",
+}
+
+_FACE_VIEW = {
+    "face_front": "front view",
+    "face_left_3q": "left three-quarter view",
+    "face_right_3q": "right three-quarter view",
+}
+_BODY_VIEW = {
+    "body_front": "front view",
+    "body_left": "left side view",
+    "body_right": "right side view",
+    "body_back": "back view",
+}
+
+
+def _slug(text: str) -> str:
+    """Lowercase a label into a stable filesystem-safe token."""
+    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", (text or "").lower())).strip("_")
+
+
+def trigger_token(character_name: str) -> str:
+    """Derive a unique LoRA trigger token, e.g. 'Summer Fielding' → 'ficsummerfielding'."""
+    slug = re.sub(r"[^a-z0-9]", "", (character_name or "").lower())
+    return f"fic{slug}" if slug else "ficcharacter"
+
+
+def _ref_filename(role: str) -> str:
+    """Map a manifest ref role to a stable, readable image filename."""
+    if role in _FIXED_ROLE_FILENAMES:
+        return _FIXED_ROLE_FILENAMES[role]
+    if role.startswith("mark:"):
+        return f"mark_{_slug(role.split(':', 1)[1])}.png"
+    return f"{_slug(role) or 'ref'}.png"
+
+
+def _marks_phrase(marks: list[dict]) -> str:
+    """Compose a short markings descriptor for body captions."""
+    bits: list[str] = []
+    for m in marks:
+        region = (m.get("body_region") or "").lower().strip()
+        detail = (m.get("description") or m.get("label") or m.get("type") or "tattoo").lower().strip()
+        loc = region or (m.get("side") or "").lower().strip()
+        phrase = f"{loc} {detail}".strip()
+        if phrase:
+            bits.append(phrase)
+    return ", ".join(bits)
+
+
+def _caption_for(role: str, manifest: dict, trigger: str, subject: str) -> str:
+    """Build a LoRA-style caption for a single reference image."""
+    marks = manifest.get("marks") or []
+    face_desc = (manifest.get("face_description") or "").strip()
+    build = (manifest.get("build") or "").strip()
+
+    if role in _FACE_VIEW:
+        parts = [trigger, subject]
+        if face_desc:
+            parts.append(face_desc)
+        parts += ["face reference", _FACE_VIEW[role]]
+        return ", ".join(parts)
+    if role == "expression":
+        return ", ".join([trigger, subject, "face reference", "expression"])
+    if role in _BODY_VIEW:
+        parts = [trigger, subject, "full body reference", _BODY_VIEW[role]]
+        if build:
+            parts.append(f"{build} build")
+        mp = _marks_phrase(marks)
+        if mp:
+            parts.append(mp)
+        return ", ".join(parts)
+    if role == "body_map":
+        return ", ".join([trigger, subject, "body map reference"])
+    if role == "final_card":
+        return ", ".join([trigger, subject, "identity reference card"])
+    if role.startswith("mark:"):
+        region_raw = role.split(":", 1)[1]
+        m = next((x for x in marks if (x.get("body_region") or "") == region_raw), None)
+        region = region_raw.lower().strip()
+        detail = (m.get("description") or m.get("label")) if m else None
+        detail = detail.lower().strip() if detail else None
+        tail = f"{region} {detail}".strip() if detail else region
+        return ", ".join([trigger, "permanent tattoo reference", tail])
+    return ", ".join([trigger, subject, role.replace("_", " ")])
+
+
+def _training_readme(character_name: str, trigger: str, image_count: int) -> str:
+    return (
+        f"Ficshon Adult Studio — Training Pack\n"
+        f"Character: {character_name}\n"
+        f"Trigger token: {trigger}\n"
+        f"Images: {image_count}\n"
+        f"\n"
+        f"Contents:\n"
+        f"  manifest.json        — raw Adult Studio identity manifest (source of truth)\n"
+        f"  captions.json        — {{ image_filename: caption }} map\n"
+        f"  training_notes.json  — recommended model/method + provenance\n"
+        f"  images/<name>.png    — locked-canon reference images\n"
+        f"  images/<name>.txt    — per-image caption (kohya/SDXL LoRA layout)\n"
+        f"\n"
+        f"Intended use:\n"
+        f"  Train a per-character SDXL character LoRA OUTSIDE Ficshon (e.g. kohya_ss /\n"
+        f"  ComfyUI). Use the trigger token '{trigger}' in prompts to invoke the\n"
+        f"  identity. Every image here is derived from the character's LOCKED canon\n"
+        f"  pack and must be treated as identity truth — do not substitute, retouch\n"
+        f"  identity features, or move permanent markings between limbs.\n"
+        f"\n"
+        f"This pack performs no training and contains no generated output. It is a\n"
+        f"packaging of existing canon references only.\n"
+    )
+
+
+def build_training_pack(
+    manifest: dict,
+    *,
+    character_id: int,
+    character_name: str,
+) -> tuple[bytes, dict]:
+    """Package the manifest's canon references into a LoRA training ZIP.
+
+    Returns (zip_bytes, summary). Loads ALL manifest refs (not capped like the
+    provider path) and gives each a stable filename + caption. Unreadable refs
+    are skipped and reported in the summary — never silently dropped.
+    """
+    trigger = trigger_token(character_name)
+    subject = (manifest.get("subject") or _DEFAULT_SUBJECT).strip() or _DEFAULT_SUBJECT
+    refs = manifest.get("refs") or []
+
+    images: dict[str, bytes] = {}
+    captions: dict[str, str] = {}
+    skipped: list[dict] = []
+
+    for entry in refs:
+        role = entry.get("role", "")
+        url = entry.get("url")
+        if not url:
+            continue
+        fname = _ref_filename(role)
+        # Avoid collisions if two roles slug to the same name.
+        if fname in images:
+            fname = f"{fname[:-4]}_{_slug(role)}.png"
+        try:
+            data = load_image_bytes(url)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("training_pack ref load failed role=%s url=%s err=%r", role, url, str(exc))
+            skipped.append({"role": role, "error": str(exc)})
+            continue
+        images[fname] = data
+        captions[fname] = _caption_for(role, manifest, trigger, subject)
+
+    training_notes = {
+        "character_id": character_id,
+        "character_name": character_name,
+        "trigger_token": trigger,
+        "source": "adult_studio_manifest",
+        "recommended_model": "SDXL",
+        "recommended_method": "character_lora",
+        "notes": (
+            "All source images come from the character's LOCKED canon pack and must "
+            "be treated as identity truth. Preserve face geometry, hair, body build, "
+            "and all permanent markings in their exact anatomical placement. Do not "
+            "substitute a different person or relocate tattoos between limbs."
+        ),
+        "image_count": len(images),
+        "skipped_refs": skipped,
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname, data in images.items():
+            zf.writestr(f"images/{fname}", data)
+            zf.writestr(f"images/{fname[:-4]}.txt", captions[fname])
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+        zf.writestr("captions.json", json.dumps(captions, indent=2, ensure_ascii=False))
+        zf.writestr("training_notes.json", json.dumps(training_notes, indent=2, ensure_ascii=False))
+        zf.writestr("README.txt", _training_readme(character_name, trigger, len(images)))
+
+    summary = {
+        "trigger_token": trigger,
+        "image_count": len(images),
+        "skipped": skipped,
+        "filenames": sorted(images.keys()),
+    }
+    return buf.getvalue(), summary

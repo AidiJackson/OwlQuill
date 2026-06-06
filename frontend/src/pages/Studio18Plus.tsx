@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon } from 'lucide-react';
+import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon, Download } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Character, AdultStudioStatus, AdultStudioGenerateResult } from '@/lib/types';
@@ -55,6 +55,10 @@ export default function Studio18Plus() {
   const [preparing, setPreparing] = useState(false);
   const [prepareError, setPrepareError] = useState('');
 
+  // Training pack export state.
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+
   // Generation state.
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
@@ -98,6 +102,7 @@ export default function Studio18Plus() {
     setGenMeta(null);
     setResult(null);
     setPrompt('');
+    setExportError('');
     if (selectedId == null || statusByChar[selectedId]) return;
     apiClient
       .getAdultStudioStatus(selectedId)
@@ -130,6 +135,21 @@ export default function Studio18Plus() {
       }));
     } finally {
       if (mountedRef.current) setPreparing(false);
+    }
+  };
+
+  const handleExportTrainingPack = async () => {
+    if (!selected) return;
+    setExporting(true);
+    setExportError('');
+    try {
+      await apiClient.exportAdultStudioTrainingPack(selected.id);
+    } catch (err) {
+      if (mountedRef.current) {
+        setExportError(err instanceof Error ? err.message : 'Failed to export training pack');
+      }
+    } finally {
+      if (mountedRef.current) setExporting(false);
     }
   };
 
@@ -278,6 +298,31 @@ export default function Studio18Plus() {
                 Identity manifest ready from the locked canon pack
                 {studio ? ` — ${studio.refs_count} reference image(s), ${studio.marks_count} marking(s).` : '.'}
               </p>
+            )}
+
+            {status === 'ready' && (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={handleExportTrainingPack}
+                  disabled={exporting}
+                  className="btn btn-secondary text-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {exporting ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Exporting…</>
+                  ) : (
+                    <><Download className="w-3.5 h-3.5" /> Export Training Pack</>
+                  )}
+                </button>
+                <p className="text-xs text-gray-500">
+                  Downloads a ZIP of canon reference images + captions for SDXL LoRA training.
+                </p>
+                {exportError && (
+                  <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
+                    {exportError}
+                  </p>
+                )}
+              </div>
             )}
           </section>
         )}

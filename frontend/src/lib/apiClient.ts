@@ -828,6 +828,42 @@ class ApiClient {
     }
     return payload as AdultStudioGenerateResult;
   }
+
+  /**
+   * Download the SDXL LoRA training pack ZIP for a Ready character. Triggers a
+   * browser download; resolves once the download has been initiated.
+   */
+  async exportAdultStudioTrainingPack(characterId: number): Promise<void> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(
+      `${API_BASE_URL}/adult-studio/characters/${characterId}/training-pack`,
+      { method: 'GET', headers, credentials: 'include' },
+    );
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({} as Record<string, unknown>));
+      const detail = (payload as { detail?: unknown }).detail;
+      throw new Error(typeof detail === 'string' ? detail : `Export failed (HTTP ${response.status})`);
+    }
+
+    const blob = await response.blob();
+    // Derive filename from Content-Disposition, fall back to a stable default.
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match?.[1] || `ficshon_training_pack_${characterId}.zip`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 }
 
 export const apiClient = new ApiClient();

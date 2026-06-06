@@ -10,9 +10,11 @@ the Canon Studio generator (image_generator.generate_image), never mutates canon
 and never touches Identity OS / Scene Router / Canon Router / tattoo routing.
 """
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -310,4 +312,73 @@ def generate_adult_studio_image(
         used_refs=ref_roles,
         multi_image_used=True,
         failure_reason=None,
+    )
+
+
+@router.get(
+    "/characters/{character_id}/training-pack",
+    summary="Export a per-character SDXL LoRA training pack (ZIP) from the manifest",
+)
+def export_adult_studio_training_pack(
+    character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Package the prepared Adult Studio manifest into a downloadable training ZIP.
+
+    Offline only — packages locked-canon references + captions for SDXL LoRA
+    training OUTSIDE Ficshon. Does NOT train, generate, or call any provider.
+    """
+    character = _require_owned_character(character_id, current_user, db)
+
+    rec = (
+        db.query(AdultStudioIdentity)
+        .filter(AdultStudioIdentity.character_id == character_id)
+        .first()
+    )
+    if not rec or rec.status != "ready":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Prepare the 18+ Studio identity for this character first.",
+        )
+
+    manifest = rec.training_notes_json or {}
+    if not (manifest.get("refs")):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No identity manifest references are available to export.",
+        )
+
+    try:
+        zip_bytes, summary = svc.build_training_pack(
+            manifest, character_id=character_id, character_name=character.name
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("adult_studio training-pack failed character_id=%s err=%r", character_id, str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to build training pack: {exc}",
+        )
+
+    if summary["image_count"] == 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No reference images could be loaded for the training pack.",
+        )
+
+    safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", character.name or "character").strip("_") or "character"
+    filename = f"ficshon_training_pack_{safe_name}_{character_id}.zip"
+
+    logger.info(
+        "adult_studio training-pack exported character_id=%s images=%d skipped=%d",
+        character_id, summary["image_count"], len(summary["skipped"]),
+    )
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Training-Pack-Images": str(summary["image_count"]),
+            "X-Training-Pack-Trigger": summary["trigger_token"],
+        },
     )
