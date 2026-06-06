@@ -314,14 +314,29 @@ export default function Studio18Plus() {
               </p>
             )}
 
+            {/* Failure detail — shown to ALL users (not just admins) so a failed
+                generation is always explainable. No generic "An error occurred". */}
+            {genError && genMeta && (
+              <div className="rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-xs text-red-200/80 space-y-0.5">
+                <p className="font-medium uppercase tracking-wide text-red-300/70 mb-1 flex items-center gap-1.5">
+                  <XCircle className="w-3.5 h-3.5" /> Generation failed
+                </p>
+                <p>provider: <span className="text-red-100">{genMeta.provider ?? '—'}</span></p>
+                <p>model: <span className="text-red-100">{genMeta.model_ref ?? '—'}</span></p>
+                <p>refs_count: <span className="text-red-100">{genMeta.refs_count ?? 0}</span></p>
+                <p>multi_image_used: <span className="text-red-100">{String(genMeta.multi_image_used ?? false)}</span></p>
+                <p>failure_reason: <span className="text-red-100">{genMeta.failure_reason ?? genError}</span></p>
+              </div>
+            )}
+
             {result && (
               <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 max-w-xs">
                 <img src={result.image_url} alt="18+ Studio result" className="w-full object-cover" />
               </div>
             )}
 
-            {/* Admin metadata — provider / refs / multi-image / failure reason. */}
-            {isAdmin && genMeta && (
+            {/* Admin metadata — provider / refs / multi-image (success path). */}
+            {isAdmin && genMeta && !genError && (
               <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-xs text-gray-400 space-y-0.5">
                 <p className="font-medium uppercase tracking-wide text-gray-500 mb-1 flex items-center gap-1.5">
                   <Shield className="w-3.5 h-3.5" /> Admin · generation metadata
