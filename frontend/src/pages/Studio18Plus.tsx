@@ -1,29 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
-import type { Character } from '@/lib/types';
+import type { Character, AdultStudioStatus, AdultStudioGenerateResult } from '@/lib/types';
 
 /**
- * 18+ Studio — MVP shell.
+ * 18+ Studio — first working pipeline path.
  *
- * A separate workflow that prepares for a future trained identity-lock pipeline
- * for adult-adjacent scenes (swimwear, lingerie, underwear, mature romance).
- *
- * This step deliberately does NOT generate images, integrate providers, or
- * change content policy. Training status is frontend placeholder state only.
- * Canon Studio / Identity OS / routers are untouched.
+ * SEPARATE from Canon Studio. Reads the locked Canon Pack as source truth via
+ * the /adult-studio endpoints. Prepare builds an identity manifest; Generate
+ * runs an adult-specific, identity-conditioned generation through the Adult
+ * Studio backend (never the Canon Studio generator). No silent text fallback.
  */
 
-type TrainingStatus = 'not_trained' | 'training' | 'ready' | 'failed';
+type StudioStatus = AdultStudioStatus['status'];
 
 const STATUS_META: Record<
-  TrainingStatus,
+  StudioStatus,
   { label: string; icon: typeof Clock; cls: string }
 > = {
   not_trained: { label: 'Not trained', icon: Clock, cls: 'text-gray-400 border-gray-700 bg-gray-800/40' },
-  training: { label: 'Training', icon: Loader2, cls: 'text-amber-300 border-amber-800/50 bg-amber-900/20' },
+  preparing: { label: 'Preparing', icon: Loader2, cls: 'text-amber-300 border-amber-800/50 bg-amber-900/20' },
   ready: { label: 'Ready', icon: CheckCircle2, cls: 'text-emerald-300 border-emerald-800/50 bg-emerald-900/20' },
   failed: { label: 'Failed', icon: XCircle, cls: 'text-red-300 border-red-800/50 bg-red-900/20' },
 };
@@ -47,18 +45,24 @@ export default function Studio18Plus() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  // Per-character placeholder training status (frontend-only for the MVP shell).
-  const [trainingState, setTrainingState] = useState<Record<number, TrainingStatus>>({});
+
+  // Per-character 18+ identity status (from the backend).
+  const [statusByChar, setStatusByChar] = useState<Record<number, AdultStudioStatus>>({});
+  const [preparing, setPreparing] = useState(false);
+  const [prepareError, setPrepareError] = useState('');
+
+  // Generation state.
+  const [prompt, setPrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState<AdultStudioGenerateResult | null>(null);
+  const [genError, setGenError] = useState('');
+  const [genMeta, setGenMeta] = useState<AdultStudioGenerateResult | null>(null);
 
   const mountedRef = useRef(true);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+    return () => { mountedRef.current = false; };
   }, []);
 
   useEffect(() => {
@@ -77,19 +81,65 @@ export default function Studio18Plus() {
       });
   }, []);
 
-  const selected = characters.find((c) => c.id === selectedId) ?? null;
-  const status: TrainingStatus = selected ? trainingState[selected.id] ?? 'not_trained' : 'not_trained';
+  // Load 18+ status for the selected character, and reset generation UI.
+  useEffect(() => {
+    setPrepareError('');
+    setGenError('');
+    setGenMeta(null);
+    setResult(null);
+    setPrompt('');
+    if (selectedId == null || statusByChar[selectedId]) return;
+    apiClient
+      .getAdultStudioStatus(selectedId)
+      .then((s) => { if (mountedRef.current) setStatusByChar((p) => ({ ...p, [selectedId]: s })); })
+      .catch(() => {});
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handlePrepare = () => {
+  const selected = characters.find((c) => c.id === selectedId) ?? null;
+  const studio: AdultStudioStatus | undefined = selectedId != null ? statusByChar[selectedId] : undefined;
+  const status: StudioStatus = studio?.status ?? 'not_trained';
+
+  const handlePrepare = async () => {
     if (!selected) return;
-    const id = selected.id;
-    setTrainingState((prev) => ({ ...prev, [id]: 'training' }));
-    if (timerRef.current) clearTimeout(timerRef.current);
-    // Placeholder: briefly show "Training", then settle on "Ready".
-    timerRef.current = setTimeout(() => {
+    setPreparing(true);
+    setPrepareError('');
+    // Optimistic "Preparing" card state.
+    setStatusByChar((p) => ({
+      ...p,
+      [selected.id]: { ...(p[selected.id] ?? { character_id: selected.id, refs_count: 0, marks_count: 0 }), status: 'preparing' },
+    }));
+    try {
+      const s = await apiClient.prepareAdultStudio(selected.id);
+      if (mountedRef.current) setStatusByChar((p) => ({ ...p, [selected.id]: s }));
+    } catch (err) {
       if (!mountedRef.current) return;
-      setTrainingState((prev) => ({ ...prev, [id]: 'ready' }));
-    }, 1600);
+      setPrepareError(err instanceof Error ? err.message : 'Failed to prepare 18+ identity');
+      setStatusByChar((p) => ({
+        ...p,
+        [selected.id]: { ...(p[selected.id] ?? { character_id: selected.id, refs_count: 0, marks_count: 0 }), status: 'failed' },
+      }));
+    } finally {
+      if (mountedRef.current) setPreparing(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!selected || !prompt.trim()) return;
+    setGenerating(true);
+    setGenError('');
+    setGenMeta(null);
+    setResult(null);
+    try {
+      const res = await apiClient.generateAdultStudioImage(selected.id, prompt.trim());
+      if (mountedRef.current) { setResult(res); setGenMeta(res); }
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setGenError(err instanceof Error ? err.message : 'Generation failed');
+      const meta = (err as { meta?: AdultStudioGenerateResult }).meta;
+      if (meta) setGenMeta(meta);
+    } finally {
+      if (mountedRef.current) setGenerating(false);
+    }
   };
 
   return (
@@ -174,13 +224,13 @@ export default function Studio18Plus() {
           )}
         </section>
 
-        {/* ── Identity training status ─────────────────────────────── */}
+        {/* ── Identity status + prepare ────────────────────────────── */}
         {selected && (
           <section className="space-y-3">
             <h2 className="text-sm font-medium text-gray-300">18+ identity status</h2>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(Object.keys(STATUS_META) as TrainingStatus[]).map((key) => {
+              {(Object.keys(STATUS_META) as StudioStatus[]).map((key) => {
                 const meta = STATUS_META[key];
                 const Icon = meta.icon;
                 const active = status === key;
@@ -191,7 +241,7 @@ export default function Studio18Plus() {
                       active ? meta.cls : 'text-gray-600 border-gray-800 bg-gray-900/40 opacity-60'
                     }`}
                   >
-                    <Icon className={`w-4 h-4 ${active && key === 'training' ? 'animate-spin' : ''}`} />
+                    <Icon className={`w-4 h-4 ${active && key === 'preparing' ? 'animate-spin' : ''}`} />
                     {meta.label}
                   </div>
                 );
@@ -201,17 +251,78 @@ export default function Studio18Plus() {
             <button
               type="button"
               onClick={handlePrepare}
-              disabled={status === 'training'}
+              disabled={preparing || status === 'preparing'}
               className="btn btn-primary text-sm disabled:opacity-50"
             >
-              {status === 'training' ? 'Preparing…' : 'Prepare 18+ Identity'}
+              {preparing || status === 'preparing' ? 'Preparing…' : 'Prepare 18+ Identity'}
             </button>
 
-            {(status === 'ready' || status === 'training') && (
-              <p className="text-sm text-gray-400 bg-gray-900/50 border border-gray-800 rounded-lg px-4 py-3">
-                Identity training pipeline coming next. This will use the existing canon
-                pack as the source of truth.
+            {prepareError && (
+              <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
+                {prepareError}
               </p>
+            )}
+
+            {status === 'ready' && (
+              <p className="text-sm text-gray-400 bg-gray-900/50 border border-gray-800 rounded-lg px-4 py-3">
+                Identity manifest ready from the locked canon pack
+                {studio ? ` — ${studio.refs_count} reference image(s), ${studio.marks_count} marking(s).` : '.'}
+              </p>
+            )}
+          </section>
+        )}
+
+        {/* ── Generation (only when Ready) ─────────────────────────── */}
+        {selected && status === 'ready' && (
+          <section className="space-y-3">
+            <h2 className="text-sm font-medium text-gray-300">Generate in 18+ Studio</h2>
+            <textarea
+              className="textarea w-full"
+              rows={3}
+              maxLength={800}
+              placeholder="Describe the adult-adjacent scene (e.g. swimwear, lingerie, beach)…"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              disabled={generating}
+            />
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={generating || !prompt.trim()}
+              className="btn btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+            >
+              {generating ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
+              ) : (
+                <><ImageIcon className="w-3.5 h-3.5" /> Generate in 18+ Studio</>
+              )}
+            </button>
+
+            {genError && (
+              <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
+                {genError}
+              </p>
+            )}
+
+            {result && (
+              <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 max-w-xs">
+                <img src={result.image_url} alt="18+ Studio result" className="w-full object-cover" />
+              </div>
+            )}
+
+            {/* Admin metadata — provider / refs / multi-image / failure reason. */}
+            {isAdmin && genMeta && (
+              <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-xs text-gray-400 space-y-0.5">
+                <p className="font-medium uppercase tracking-wide text-gray-500 mb-1 flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5" /> Admin · generation metadata
+                </p>
+                <p>provider: <span className="text-gray-300">{genMeta.provider}</span></p>
+                <p>model_ref: <span className="text-gray-300">{genMeta.model_ref ?? '—'}</span></p>
+                <p>refs_count: <span className="text-gray-300">{genMeta.refs_count}</span></p>
+                <p>multi_image_used: <span className="text-gray-300">{String(genMeta.multi_image_used)}</span></p>
+                <p>used_refs: <span className="text-gray-300">{genMeta.used_refs?.join(', ') || '—'}</span></p>
+                <p>failure_reason: <span className="text-gray-300">{genMeta.failure_reason ?? 'none'}</span></p>
+              </div>
             )}
           </section>
         )}

@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -781,6 +781,52 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  }
+
+  // ── 18+ Studio (Adult Studio) — separate from Canon Studio ──────────
+
+  async getAdultStudioStatus(characterId: number): Promise<AdultStudioStatus> {
+    return this.request<AdultStudioStatus>(`/adult-studio/characters/${characterId}`);
+  }
+
+  async prepareAdultStudio(characterId: number): Promise<AdultStudioStatus> {
+    return this.request<AdultStudioStatus>(
+      `/adult-studio/characters/${characterId}/prepare`,
+      { method: 'POST' },
+    );
+  }
+
+  /**
+   * Generate an adult-adjacent image. On failure the backend returns metadata
+   * (provider, refs_count, failure_reason) — surfaced via the thrown error's
+   * `.meta` so the UI can show why it failed (no silent fallback).
+   */
+  async generateAdultStudioImage(
+    characterId: number,
+    prompt: string,
+  ): Promise<AdultStudioGenerateResult> {
+    const token = this.getToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(
+      `${API_BASE_URL}/adult-studio/characters/${characterId}/generate`,
+      { method: 'POST', headers, credentials: 'include', body: JSON.stringify({ prompt }) },
+    );
+
+    const payload = await response.json().catch(() => ({} as Record<string, unknown>));
+    if (!response.ok) {
+      const detail = (payload as { detail?: unknown }).detail;
+      // detail may be a metadata object (generation failure) or a plain string (auth/safety).
+      const meta = detail && typeof detail === 'object' ? (detail as AdultStudioGenerateResult) : undefined;
+      const message =
+        meta?.failure_reason ||
+        (typeof detail === 'string' ? detail : `Generation failed (HTTP ${response.status})`);
+      const err = new Error(message) as Error & { meta?: AdultStudioGenerateResult };
+      if (meta) err.meta = meta;
+      throw err;
+    }
+    return payload as AdultStudioGenerateResult;
   }
 }
 

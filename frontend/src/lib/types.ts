@@ -589,3 +589,24 @@ export interface SaveGeneratedTurnRequest {
   model_used?: string | null;
   generation_time_ms?: number | null;
 }
+
+// ── 18+ Studio (Adult Studio) ─────────────────────────────────────────
+
+export interface AdultStudioStatus {
+  character_id: number;
+  status: 'not_trained' | 'preparing' | 'ready' | 'failed';
+  provider?: string | null;
+  model_ref?: string | null;
+  refs_count: number;
+  marks_count: number;
+}
+
+export interface AdultStudioGenerateResult {
+  image_url: string;
+  provider: string;
+  model_ref?: string | null;
+  refs_count: number;
+  used_refs: string[];
+  multi_image_used: boolean;
+  failure_reason?: string | null;
+}

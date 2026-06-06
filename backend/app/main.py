@@ -14,7 +14,7 @@ from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
 from app.core.invite_seed import seed_invite_codes
 from app.core.style_shop_seed import seed_style_presets
-from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory, identity_evolution, candidate_slot, notifications, style_shops, body_canon, body_identity, canon_api
+from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory, identity_evolution, candidate_slot, notifications, style_shops, body_canon, body_identity, canon_api, adult_studio
 from app.api.routes.story_spaces import published_router
 from app.api.routes import rp_stories
 
@@ -121,6 +121,7 @@ app.include_router(body_canon.router, prefix="/characters", tags=["body-canon"])
 app.include_router(body_identity.router, prefix="/characters", tags=["body-identity"])
 app.include_router(canon_api.router, prefix="/characters", tags=["identity-canon"])
 app.include_router(rp_stories.router, prefix="/rp-stories", tags=["rp-stories"])
+app.include_router(adult_studio.router, prefix="/adult-studio", tags=["adult-studio"])
 
 # Mirror all routes under /api/* prefix
 api_router = APIRouter(prefix="/api")
@@ -155,6 +156,7 @@ api_router.include_router(body_canon.router, prefix="/characters", tags=["body-c
 api_router.include_router(body_identity.router, prefix="/characters", tags=["body-identity"])
 api_router.include_router(canon_api.router, prefix="/characters", tags=["identity-canon"])
 api_router.include_router(rp_stories.router, prefix="/rp-stories", tags=["rp-stories"])
+api_router.include_router(adult_studio.router, prefix="/adult-studio", tags=["adult-studio"])
 app.include_router(api_router)
 
 
