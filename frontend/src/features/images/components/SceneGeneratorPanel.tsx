@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ImageIcon, RefreshCw } from 'lucide-react';
 import { generateImage } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 import type { Character } from '@/lib/types';
 import { useAuthStore } from '@/lib/store';
+import { isAdultAdjacent } from '@/features/images/adultContent';
 
 const MAX_PROMPT_LENGTH = 800;
 
 // Beta: Google (option2) is the primary "Canon" provider for everyone.
-// OpenAI (option1), FLUX Pro (option3), FLUX Max (option4), and Together FLUX.2 (option5) are admin-only.
-// FLUX options are text-to-image only — identity refs are not forwarded.
-// Together (option5) supports URL-based refs when public HTTPS canon URLs are available.
+// OpenAI (option1) is admin-only, internal testing.
+// The experimental FLUX/Together providers (option3/4/5) remain on the backend
+// but are intentionally hidden from this selector — they did not solve canon
+// consistency and only cluttered the UI. Do not re-expose without a decision.
 const SHOW_PROVIDER_TOGGLE = true;
 
 type ProviderOption = 'option1' | 'option2' | 'option3' | 'option4' | 'option5';
@@ -40,12 +43,15 @@ export default function SceneGeneratorPanel({
   // null = "No character"; number = character id
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const initialCharacterIdRef = useRef(initialCharacterId);
-  // Beta default: Google ("Canon"). OpenAI, FLUX Pro, FLUX Max are admin-only.
+  // Beta default: Google ("Canon"). OpenAI (option1) is admin-only.
   const [providerOption, setProviderOption] = useState<ProviderOption>('option2');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Adult-adjacent soft nudge — advisory only, does not block generation.
+  const [showAdultNudge, setShowAdultNudge] = useState(false);
 
   const isAdmin = useAuthStore((s) => !!s.user?.is_admin);
+  const navigate = useNavigate();
 
   // Guard: if a non-admin ends up on any admin-only option, snap back to Canon.
   useEffect(() => {
@@ -95,8 +101,14 @@ export default function SceneGeneratorPanel({
   const anchorGuardActive = selectedCharacterId !== null && isCharacterLocked && hasIdentityAnchor === false;
   const canGenerate = prompt.trim().length > 0 && !loading && !lockedGuardActive && !anchorGuardActive;
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (skipAdultCheck = false) => {
     if (!canGenerate) return;
+    // Adult-adjacent soft nudge: surface the 18+ Studio entry once before generating.
+    // Advisory only — "Continue here" re-invokes with skipAdultCheck=true.
+    if (!skipAdultCheck && isAdultAdjacent(prompt)) {
+      setShowAdultNudge(true);
+      return;
+    }
     // For "No character", route through the first character (ownership only; include_character=false)
     const routeCharacterId = selectedCharacterId ?? characters[0]?.id;
     if (!routeCharacterId) return;
@@ -182,8 +194,8 @@ export default function SceneGeneratorPanel({
         </div>
 
         {/* Provider selector. Beta: Google = "Canon" (primary, everyone).
-            OpenAI, FLUX Pro, FLUX Max are admin-only.
-            FLUX options are text-to-image only — refs not forwarded. */}
+            OpenAI (option1) is admin-only, internal testing.
+            The experimental FLUX/Together providers are hidden — see header note. */}
         {SHOW_PROVIDER_TOGGLE && (
           <div className="flex items-center gap-1 rounded-md border border-gray-700 overflow-hidden text-xs">
             <button
@@ -200,60 +212,19 @@ export default function SceneGeneratorPanel({
               Canon · Recommended
             </button>
             {isAdmin && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setProviderOption('option1')}
-                  disabled={loading}
-                  title="OpenAI — experimental, admin-only"
-                  className={`px-3 py-1 transition-colors ${
-                    providerOption === 'option1'
-                      ? 'bg-amber-700 text-white'
-                      : 'bg-gray-800 text-gray-400 hover:bg-amber-900/40 hover:text-amber-300'
-                  }`}
-                >
-                  OpenAI · Admin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setProviderOption('option3')}
-                  disabled={loading}
-                  title="FLUX Pro — OpenRouter, admin-only, text-to-image only (refs not forwarded)"
-                  className={`px-3 py-1 transition-colors ${
-                    providerOption === 'option3'
-                      ? 'bg-violet-700 text-white'
-                      : 'bg-gray-800 text-gray-400 hover:bg-violet-900/40 hover:text-violet-300'
-                  }`}
-                >
-                  FLUX Pro · Admin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setProviderOption('option4')}
-                  disabled={loading}
-                  title="FLUX Max — OpenRouter, admin-only, text-to-image only (refs not forwarded)"
-                  className={`px-3 py-1 transition-colors ${
-                    providerOption === 'option4'
-                      ? 'bg-violet-700 text-white'
-                      : 'bg-gray-800 text-gray-400 hover:bg-violet-900/40 hover:text-violet-300'
-                  }`}
-                >
-                  FLUX Max · Admin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setProviderOption('option5')}
-                  disabled={loading}
-                  title="Together FLUX.2 — admin-only, URL-based refs when public HTTPS canon URLs are available"
-                  className={`px-3 py-1 transition-colors ${
-                    providerOption === 'option5'
-                      ? 'bg-sky-700 text-white'
-                      : 'bg-gray-800 text-gray-400 hover:bg-sky-900/40 hover:text-sky-300'
-                  }`}
-                >
-                  Together · Admin
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => setProviderOption('option1')}
+                disabled={loading}
+                title="OpenAI — experimental, admin-only"
+                className={`px-3 py-1 transition-colors ${
+                  providerOption === 'option1'
+                    ? 'bg-amber-700 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-amber-900/40 hover:text-amber-300'
+                }`}
+              >
+                OpenAI · Admin
+              </button>
             )}
           </div>
         )}
@@ -280,7 +251,7 @@ export default function SceneGeneratorPanel({
         </span>
         <button
           className="btn btn-primary text-sm flex items-center gap-2"
-          onClick={handleGenerate}
+          onClick={() => handleGenerate()}
           disabled={!canGenerate}
         >
           {loading ? (
@@ -301,6 +272,51 @@ export default function SceneGeneratorPanel({
         <p className="text-sm text-amber-400/90 bg-amber-400/10 border border-amber-800/30 rounded-lg px-4 py-2">
           {error}
         </p>
+      )}
+
+      {/* Adult-adjacent soft nudge — advisory, does not block generation. */}
+      {showAdultNudge && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        >
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setShowAdultNudge(false)}
+          />
+          <div className="relative z-10 w-full max-w-md bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl p-6 space-y-4">
+            <h2 className="text-base font-semibold text-gray-100">
+              Looks like adult-adjacent content
+            </h2>
+            <p className="text-sm leading-relaxed text-gray-300">
+              This looks like adult-adjacent content. For stronger identity consistency in
+              swimwear, lingerie, underwear, and mature scenes, try our upcoming 18+ Studio.
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                onClick={() => {
+                  setShowAdultNudge(false);
+                  handleGenerate(true);
+                }}
+              >
+                Continue here
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary text-sm"
+                onClick={() => {
+                  setShowAdultNudge(false);
+                  navigate('/studio/18-plus');
+                }}
+              >
+                Open 18+ Studio
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
