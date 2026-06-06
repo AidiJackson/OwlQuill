@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
@@ -41,6 +41,10 @@ function identityStatus(c: Character): string {
 export default function Studio18Plus() {
   const isAdmin = useAuthStore((s) => !!s.user?.is_admin);
 
+  const [searchParams] = useSearchParams();
+  // Optionally forwarded from the Image Library entry point.
+  const preselectId = searchParams.get('characterId') ? Number(searchParams.get('characterId')) : null;
+
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -71,7 +75,13 @@ export default function Studio18Plus() {
       .then((chars) => {
         if (!mountedRef.current) return;
         setCharacters(chars);
-        if (chars.length === 1) setSelectedId(chars[0].id);
+        // Preselect the character forwarded from Image Library if it's owned,
+        // else auto-select when there's only one.
+        if (preselectId != null && chars.some((c) => c.id === preselectId)) {
+          setSelectedId(preselectId);
+        } else if (chars.length === 1) {
+          setSelectedId(chars[0].id);
+        }
       })
       .catch((err) => {
         if (mountedRef.current) setLoadError(err instanceof Error ? err.message : 'Failed to load characters');

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Image, X, Check, Trash2, Flag } from 'lucide-react';
+import { ArrowLeft, Image, X, Check, Trash2, Flag, Sparkles } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage, Character } from '@/lib/types';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -384,6 +384,29 @@ export default function Images() {
             }}
           />
         )}
+
+        {/* 18+ Studio entry point — separate workflow, stronger identity-locking */}
+        <div className="border border-fuchsia-800/40 bg-fuchsia-900/10 rounded-lg px-4 py-3 flex items-start gap-3">
+          <div className="rounded-lg bg-fuchsia-900/30 border border-fuchsia-800/40 p-2 shrink-0">
+            <Sparkles className="w-4 h-4 text-fuchsia-300" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-fuchsia-200">18+ Studio</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Use stronger identity-locking for swimwear, lingerie, underwear, and mature character scenes.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const studioCharId = onboardingCharId ?? myCharacters[0]?.id;
+              navigate(studioCharId != null ? `/studio/18-plus?characterId=${studioCharId}` : '/studio/18-plus');
+            }}
+            className="btn btn-secondary text-sm shrink-0 self-center"
+          >
+            Open 18+ Studio
+          </button>
+        </div>
 
         {/* Weekly allowance */}
         {quota && !quota.unlimited && (
