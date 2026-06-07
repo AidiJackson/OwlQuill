@@ -12,8 +12,9 @@ No provider, no training, no generation, no external call, no canon writes.
 from unittest.mock import patch
 
 from app.core.config import settings
-from app.models.adult_identity import AdultIdentityModel
+from app.models.adult_identity import AdultIdentityMarkRender, AdultIdentityModel
 from app.models.adult_studio import AdultStudioIdentity
+from app.services.adult_identity_preparation import prepare_adult_identity
 from app.services.adult_identity_backfill import (
     LEGACY_TO_NEW_STATUS,
     backfill_all,
@@ -242,6 +243,57 @@ def test_backfill_legacy_ready_becomes_prepared(client, db_session):
     assert model.prepared_manifest_json == legacy.training_notes_json
     # Legacy row is untouched.
     assert legacy.status == "ready"
+
+
+def test_backfilled_row_then_prepare_stays_prepared_not_stale(client, db_session):
+    """Mirrors the live Summer flow: as03 backfill creates a 'prepared' model with a
+    NULL fingerprint and no mark renders; the subsequent prepare must keep it
+    'prepared' (NOT flip it to 'stale') while filling in fingerprint + mark routes.
+    """
+    token = _login(client)
+    cid = _create_character(client, token, name="Summer Fielding")
+    setup_canon(db_session, cid, marks=_summer_marks(), lock=True, with_images=True)
+
+    # Simulate the as03 bulk-insert: a 'prepared' model with NULL fingerprint, no marks.
+    model = AdultIdentityModel(
+        character_id=cid, status="prepared", canon_fingerprint=None,
+        prepared_manifest_json={"refs": [{"role": "face_front", "url": "x.png"}]},
+    )
+    db_session.add(model)
+    db_session.commit()
+
+    res = prepare_adult_identity(cid, db_session)
+
+    db_session.refresh(model)
+    assert model.status == "prepared"          # NOT 'stale' on first fingerprinting
+    assert res.model_status == "prepared"
+    assert model.canon_fingerprint            # fingerprint now present
+
+    renders = (
+        db_session.query(AdultIdentityMarkRender)
+        .filter(AdultIdentityMarkRender.identity_id == model.id)
+        .all()
+    )
+    routes = {(r.body_region, r.route) for r in renders}
+    assert len(renders) == 2
+    assert ("right_upper_arm", "ip_adapter") in routes      # butterfly floral sleeve
+    assert ("left_forearm", "controlnet_canny") in routes   # ballerina
+    assert model.active_version_id is None                  # nothing trained
+
+
+def test_backfilled_not_trained_promoted_to_prepared(client, db_session):
+    """A backfilled 'not_trained' row (NULL fingerprint) becomes 'prepared' on prepare."""
+    token = _login(client)
+    cid = _create_character(client, token)
+    setup_canon(db_session, cid, lock=True, with_images=True)
+    model = AdultIdentityModel(character_id=cid, status="not_trained", canon_fingerprint=None)
+    db_session.add(model)
+    db_session.commit()
+
+    prepare_adult_identity(cid, db_session)
+    db_session.refresh(model)
+    assert model.status == "prepared"
+    assert model.canon_fingerprint
 
 
 def test_backfill_all_is_idempotent(client, db_session):

@@ -89,7 +89,14 @@ def prepare_adult_identity(character_id: int, db: "Session") -> PreparationResul
         db.add(model)
         db.flush()  # assign model.id for mark_render FKs
     else:
-        if model.canon_fingerprint != fingerprint:
+        if model.canon_fingerprint is None:
+            # First prepare of a backfilled/never-fingerprinted model: this run
+            # establishes the baseline, it is NOT 'stale' (stale means canon moved
+            # since a PRIOR prepare/train). A backfilled row sits at 'prepared' or
+            # 'not_trained' — promote the latter now that it has a fingerprint+routes.
+            if model.status == "not_trained":
+                model.status = "prepared"
+        elif model.canon_fingerprint != fingerprint:
             # Canon moved since this model was last prepared/trained → stale.
             model.status = "stale"
         model.canon_fingerprint = fingerprint
