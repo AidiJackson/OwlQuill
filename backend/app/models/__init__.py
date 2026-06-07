@@ -32,8 +32,19 @@ from app.models.post_mention import PostMention
 from app.models.style_shop import StylePreset, CharacterStyleElement, ShopTypeEnum, AttachmentModeEnum, PlacementEnum, StyleElementStatusEnum
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.adult_studio import AdultStudioIdentity
+from app.models.adult_identity import (
+    AdultIdentityModel,
+    AdultIdentityModelVersion,
+    AdultIdentityTrainingJob,
+    AdultIdentityMarkRender,
+)
 
 __all__ = [
+    "AdultStudioIdentity",
+    "AdultIdentityModel",
+    "AdultIdentityModelVersion",
+    "AdultIdentityTrainingJob",
+    "AdultIdentityMarkRender",
     "Story",
     "StoryState",
     "GenerationLog",
