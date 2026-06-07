@@ -53,8 +53,15 @@ def override_get_db():
 def db_session():
     """Create a fresh database for each test."""
     Base.metadata.create_all(bind=engine)
-    yield TestingSessionLocal()
-    Base.metadata.drop_all(bind=engine)
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        # Close the session so its connection returns to the pool. Without this
+        # every test leaks one connection and a long run eventually exhausts the
+        # QueuePool (size 5 + overflow 10) at teardown's drop_all.
+        session.close()
+        Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture(scope="function")

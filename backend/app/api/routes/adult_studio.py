@@ -25,8 +25,16 @@ from app.core.storage import save_image, file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel
 from app.models.character_identity_canon import CharacterIdentityCanon
-from app.models.adult_studio import AdultStudioIdentity
+from app.models.adult_identity import (
+    AdultIdentityMarkRender,
+    AdultIdentityModel,
+    AdultIdentityModelVersion,
+)
 from app.services import adult_studio as svc
+from app.services.adult_identity_preparation import (
+    CanonNotReadyError,
+    prepare_adult_identity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +57,36 @@ def _get_adult_provider():
 # ── Schemas ────────────────────────────────────────────────────────────
 
 
+class AdultStudioMarkRoute(BaseModel):
+    """One permanent mark's resolved render route (from the new mark-render plan)."""
+
+    canon_mark_id: str
+    region: Optional[str] = None
+    side: Optional[str] = None
+    route: str
+    reason: Optional[str] = None
+
+
 class AdultStudioStatusResponse(BaseModel):
     model_config = {"protected_namespaces": ()}
 
     character_id: int
+    # status now comes from the 6-value AdultIdentityModel vocabulary:
+    #   not_trained | prepared | training | ready | stale | failed
     status: str
     provider: Optional[str] = None
     model_ref: Optional[str] = None
     refs_count: int = 0
     marks_count: int = 0
+    # ── Phase 2 additive fields (read from AdultIdentityModel) ────────────
+    canon_fingerprint: Optional[str] = None
+    stale: bool = False
+    active_version_id: Optional[int] = None
+    version_index: Optional[int] = None
+    marks: list[AdultStudioMarkRoute] = []
+    # Echo the env flags so the UI can gate itself (both False in Phase 2).
+    training_enabled: bool = False
+    generation_enabled: bool = False
 
 
 class AdultStudioGenerateRequest(BaseModel):
@@ -110,15 +139,58 @@ def _load_locked_canon(character_id: int, db: Session) -> CharacterIdentityCanon
     return canon
 
 
-def _status_payload(rec: AdultStudioIdentity) -> AdultStudioStatusResponse:
-    manifest = rec.training_notes_json or {}
+def _not_prepared_payload(character_id: int) -> AdultStudioStatusResponse:
+    """Status for a character that has no AdultIdentityModel yet (echoes flags)."""
     return AdultStudioStatusResponse(
-        character_id=rec.character_id,
-        status=rec.status,
-        provider=rec.provider,
-        model_ref=rec.model_ref,
+        character_id=character_id,
+        status="not_trained",
+        training_enabled=settings.ADULT_STUDIO_TRAINING_ENABLED,
+        generation_enabled=settings.ADULT_STUDIO_GENERATION_ENABLED,
+    )
+
+
+def _status_payload_from_model(
+    model: AdultIdentityModel, db: Session
+) -> AdultStudioStatusResponse:
+    """Build the status response from the new AdultIdentityModel + its render plan."""
+    manifest = model.prepared_manifest_json or {}
+
+    mark_rows = (
+        db.query(AdultIdentityMarkRender)
+        .filter(AdultIdentityMarkRender.identity_id == model.id)
+        .all()
+    )
+    marks = [
+        AdultStudioMarkRoute(
+            canon_mark_id=r.canon_mark_id,
+            region=r.body_region,
+            side=r.side,
+            route=r.route,
+            reason=(r.params_json or {}).get("reason"),
+        )
+        for r in mark_rows
+    ]
+
+    version_index: Optional[int] = None
+    if model.active_version_id is not None:
+        version = db.get(AdultIdentityModelVersion, model.active_version_id)
+        if version is not None:
+            version_index = version.version_index
+
+    return AdultStudioStatusResponse(
+        character_id=model.character_id,
+        status=model.status,
+        provider=model.provider,
+        model_ref=model.base_model,
         refs_count=len(manifest.get("refs") or []),
         marks_count=len(manifest.get("marks") or []),
+        canon_fingerprint=model.canon_fingerprint,
+        stale=(model.status == "stale"),
+        active_version_id=model.active_version_id,
+        version_index=version_index,
+        marks=marks,
+        training_enabled=settings.ADULT_STUDIO_TRAINING_ENABLED,
+        generation_enabled=settings.ADULT_STUDIO_GENERATION_ENABLED,
     )
 
 
@@ -136,14 +208,14 @@ def get_adult_studio_status(
     db: Session = Depends(get_db),
 ):
     _require_owned_character(character_id, current_user, db)
-    rec = (
-        db.query(AdultStudioIdentity)
-        .filter(AdultStudioIdentity.character_id == character_id)
+    model = (
+        db.query(AdultIdentityModel)
+        .filter(AdultIdentityModel.character_id == character_id)
         .first()
     )
-    if not rec:
-        return AdultStudioStatusResponse(character_id=character_id, status="not_trained")
-    return _status_payload(rec)
+    if not model:
+        return _not_prepared_payload(character_id)
+    return _status_payload_from_model(model, db)
 
 
 @router.post(
@@ -156,59 +228,57 @@ def prepare_adult_studio_identity(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Read the locked Canon Pack, build a manifest of source images, persist it.
+    """Prepare the 18+ identity on the new AdultIdentityModel system.
 
-    MVP: status is set to 'ready' once the manifest is created. Canon is read-only.
+    Bridges onto Phase 1's idempotent ``prepare_adult_identity``: it loads LOCKED
+    canon (read-only), computes the canon fingerprint, resolves every permanent mark
+    to a render route, and upserts the AdultIdentityModel (creates as 'prepared';
+    flips 'stale' on a canon change). The legacy adult_studio_identities table is NOT
+    written. No training, no generation, no provider, no external call.
     """
     character = _require_owned_character(character_id, current_user, db)
-    canon = _load_locked_canon(character_id, db)
-
-    rec = (
-        db.query(AdultStudioIdentity)
-        .filter(AdultStudioIdentity.character_id == character_id)
-        .first()
-    )
-    if not rec:
-        rec = AdultStudioIdentity(character_id=character_id, status="preparing")
-        db.add(rec)
-    else:
-        rec.status = "preparing"
-    db.flush()
 
     try:
-        manifest = svc.build_manifest(canon)
-    except Exception as exc:  # noqa: BLE001
-        rec.status = "failed"
-        rec.training_notes_json = {"error": str(exc)}
-        db.commit()
-        logger.warning("adult_studio prepare failed character_id=%s err=%r", character_id, str(exc))
+        prepare_adult_identity(character_id, db)
+    except CanonNotReadyError:
+        # Same UX as before: lock canon (face + body) first.
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to build 18+ identity manifest: {exc}",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Character canon must be locked (face and body) before preparing "
+                "an 18+ Studio identity."
+            ),
         )
 
-    if not (manifest.get("refs")):
-        rec.status = "failed"
-        rec.training_notes_json = {**manifest, "error": "no_canon_refs"}
+    model = (
+        db.query(AdultIdentityModel)
+        .filter(AdultIdentityModel.character_id == character_id)
+        .first()
+    )
+
+    # Persist the source manifest on the new model so ref counts and the offline
+    # training-pack keep working (no provider, no network — pure canon packaging).
+    canon = _load_locked_canon(character_id, db)
+    manifest = svc.build_manifest(canon)
+    if not manifest.get("refs"):
+        model.last_error = "no_canon_refs"
+        model.status = "failed"
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Canon has no usable reference images to prepare an 18+ identity.",
         )
-
-    rec.provider = _ADULT_PROVIDER_NAME
-    rec.model_ref = settings.IMAGE_MODEL
-    rec.training_notes_json = manifest
-    rec.status = "ready"  # MVP: ready as soon as the manifest exists
+    model.prepared_manifest_json = manifest
     db.commit()
-    db.refresh(rec)
+    db.refresh(model)
 
     logger.info(
-        "adult_studio prepared character_id=%s refs=%d marks=%d",
-        character_id, len(manifest.get("refs") or []), len(manifest.get("marks") or []),
+        "adult_studio prepared character_id=%s status=%s refs=%d marks=%d",
+        character_id, model.status,
+        len(manifest.get("refs") or []), len(manifest.get("marks") or []),
     )
     _ = character  # ownership already validated
-    return _status_payload(rec)
+    return _status_payload_from_model(model, db)
 
 
 @router.post(
@@ -222,25 +292,34 @@ def generate_adult_studio_image(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Phase 2: generation is disabled by default. Return 409 BEFORE constructing
+    # any provider or touching canon — guarantees no provider/no external call.
+    if not settings.ADULT_STUDIO_GENERATION_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Adult Studio generation is disabled in this environment.",
+        )
+
     character = _require_owned_character(character_id, current_user, db)
 
-    rec = (
-        db.query(AdultStudioIdentity)
-        .filter(AdultStudioIdentity.character_id == character_id)
+    model = (
+        db.query(AdultIdentityModel)
+        .filter(AdultIdentityModel.character_id == character_id)
         .first()
     )
-    if not rec or rec.status != "ready":
+    if not model or model.status not in ("prepared", "ready", "stale"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Prepare the 18+ Studio identity for this character first.",
         )
+    rec = model  # alias: downstream provider path reads the manifest/model_ref below
 
     # Safety gate — block minors / illegal content. Adult-adjacent is allowed.
     block_reason = svc.check_prompt_safety(body.prompt)
     if block_reason:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=block_reason)
 
-    manifest = rec.training_notes_json or {}
+    manifest = rec.prepared_manifest_json or {}
     ref_bytes, ref_roles = svc.load_manifest_refs(manifest)
     refs_count = len(ref_bytes)
 
@@ -248,7 +327,7 @@ def generate_adult_studio_image(
 
     base_meta = {
         "provider": _ADULT_PROVIDER_NAME,
-        "model_ref": rec.model_ref or settings.IMAGE_MODEL,
+        "model_ref": rec.base_model or settings.IMAGE_MODEL,
         "refs_count": refs_count,
         "used_refs": ref_roles,
     }
@@ -307,12 +386,51 @@ def generate_adult_studio_image(
     return AdultStudioGenerateResponse(
         image_url=image_url,
         provider=_ADULT_PROVIDER_NAME,
-        model_ref=rec.model_ref or settings.IMAGE_MODEL,
+        model_ref=rec.base_model or settings.IMAGE_MODEL,
         refs_count=refs_count,
         used_refs=ref_roles,
         multi_image_used=True,
         failure_reason=None,
     )
+
+
+@router.post(
+    "/characters/{character_id}/train",
+    response_model=AdultStudioStatusResponse,
+    summary="Train the 18+ identity model (disabled by default → 409)",
+)
+def train_adult_studio_identity(
+    character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Kick off identity training. DISABLED in Phase 2.
+
+    With ``ADULT_STUDIO_TRAINING_ENABLED`` false (the default) this returns 409 BEFORE
+    any provider is constructed — no TrainingProvider, no RunPod/Replicate, no external
+    call, no GPU, no spend. When the flag is enabled in a later phase this will drive
+    AdultIdentityTrainingService through the configured provider.
+    """
+    if not settings.ADULT_STUDIO_TRAINING_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Adult Studio training is disabled in this environment.",
+        )
+
+    # Unreachable while disabled — ownership/precondition checks live here for when
+    # the flag is turned on in a later sprint.
+    _require_owned_character(character_id, current_user, db)
+    model = (
+        db.query(AdultIdentityModel)
+        .filter(AdultIdentityModel.character_id == character_id)
+        .first()
+    )
+    if not model or model.status not in ("prepared", "stale"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Prepare the 18+ Studio identity for this character first.",
+        )
+    return _status_payload_from_model(model, db)
 
 
 @router.get(
@@ -331,18 +449,18 @@ def export_adult_studio_training_pack(
     """
     character = _require_owned_character(character_id, current_user, db)
 
-    rec = (
-        db.query(AdultStudioIdentity)
-        .filter(AdultStudioIdentity.character_id == character_id)
+    model = (
+        db.query(AdultIdentityModel)
+        .filter(AdultIdentityModel.character_id == character_id)
         .first()
     )
-    if not rec or rec.status != "ready":
+    if not model or model.status not in ("prepared", "ready", "stale"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Prepare the 18+ Studio identity for this character first.",
         )
 
-    manifest = rec.training_notes_json or {}
+    manifest = model.prepared_manifest_json or {}
     if not (manifest.get("refs")):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

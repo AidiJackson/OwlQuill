@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon, Download } from 'lucide-react';
+import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon, Download, RefreshCw, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Character, AdultStudioStatus, AdultStudioGenerateResult } from '@/lib/types';
@@ -20,11 +20,21 @@ const STATUS_META: Record<
   StudioStatus,
   { label: string; icon: typeof Clock; cls: string }
 > = {
-  not_trained: { label: 'Not trained', icon: Clock, cls: 'text-gray-400 border-gray-700 bg-gray-800/40' },
+  not_trained: { label: 'Not prepared', icon: Clock, cls: 'text-gray-400 border-gray-700 bg-gray-800/40' },
   preparing: { label: 'Preparing', icon: Loader2, cls: 'text-amber-300 border-amber-800/50 bg-amber-900/20' },
+  prepared: { label: 'Prepared', icon: CheckCircle2, cls: 'text-sky-300 border-sky-800/50 bg-sky-900/20' },
+  training: { label: 'Training', icon: Loader2, cls: 'text-amber-300 border-amber-800/50 bg-amber-900/20' },
   ready: { label: 'Ready', icon: CheckCircle2, cls: 'text-emerald-300 border-emerald-800/50 bg-emerald-900/20' },
+  stale: { label: 'Update available', icon: AlertTriangle, cls: 'text-amber-300 border-amber-800/50 bg-amber-900/20' },
   failed: { label: 'Failed', icon: XCircle, cls: 'text-red-300 border-red-800/50 bg-red-900/20' },
 };
+
+// The canonical states shown as the status grid (the transient 'preparing' is
+// optimistic-only and not rendered as its own cell).
+const STATUS_GRID: StudioStatus[] = ['not_trained', 'prepared', 'training', 'ready', 'stale', 'failed'];
+
+// Statuses for which an identity manifest exists (training-pack + downstream UI).
+const PREPARED_STATES: StudioStatus[] = ['prepared', 'training', 'ready', 'stale'];
 
 /** Short human-readable identity status derived from canon state. */
 function identityStatus(c: Character): string {
@@ -113,6 +123,10 @@ export default function Studio18Plus() {
   const selected = characters.find((c) => c.id === selectedId) ?? null;
   const studio: AdultStudioStatus | undefined = selectedId != null ? statusByChar[selectedId] : undefined;
   const status: StudioStatus = studio?.status ?? 'not_trained';
+  const isPrepared = PREPARED_STATES.includes(status);
+  // Phase 2: training + generation are flag-gated OFF by default (the backend
+  // returns 409 while disabled). The UI mirrors those flags.
+  const generationEnabled = studio?.generation_enabled ?? false;
 
   const handlePrepare = async () => {
     if (!selected) return;
@@ -259,19 +273,21 @@ export default function Studio18Plus() {
           <section className="space-y-3">
             <h2 className="text-sm font-medium text-gray-300">18+ identity status</h2>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(Object.keys(STATUS_META) as StudioStatus[]).map((key) => {
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {STATUS_GRID.map((key) => {
                 const meta = STATUS_META[key];
                 const Icon = meta.icon;
-                const active = status === key;
+                // 'preparing' is optimistic-only → light up the 'prepared' cell.
+                const active = status === key || (status === 'preparing' && key === 'prepared');
+                const spin = active && (status === 'preparing' || status === 'training');
                 return (
                   <div
                     key={key}
-                    className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-3 text-xs transition-opacity ${
+                    className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-3 text-[11px] text-center transition-opacity ${
                       active ? meta.cls : 'text-gray-600 border-gray-800 bg-gray-900/40 opacity-60'
                     }`}
                   >
-                    <Icon className={`w-4 h-4 ${active && key === 'preparing' ? 'animate-spin' : ''}`} />
+                    <Icon className={`w-4 h-4 ${spin ? 'animate-spin' : ''}`} />
                     {meta.label}
                   </div>
                 );
@@ -293,14 +309,39 @@ export default function Studio18Plus() {
               </p>
             )}
 
-            {status === 'ready' && (
-              <p className="text-sm text-gray-400 bg-gray-900/50 border border-gray-800 rounded-lg px-4 py-3">
-                Identity manifest ready from the locked canon pack
-                {studio ? ` — ${studio.refs_count} reference image(s), ${studio.marks_count} marking(s).` : '.'}
+            {status === 'stale' && (
+              <p className="text-sm text-amber-300 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-3 flex items-start gap-2">
+                <RefreshCw className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                Canon changed since this identity was prepared — re-prepare to refresh.
               </p>
             )}
 
-            {status === 'ready' && (
+            {isPrepared && (
+              <p className="text-sm text-gray-400 bg-gray-900/50 border border-gray-800 rounded-lg px-4 py-3">
+                Identity manifest ready from the locked canon pack
+                {studio ? ` — ${studio.refs_count} reference image(s), ${studio.marks_count} marking(s).` : '.'}
+                <span className="block mt-1 text-xs text-gray-500">
+                  Training is disabled in this environment — identity is prepared, not trained.
+                </span>
+              </p>
+            )}
+
+            {/* Per-mark render routes (e.g. butterfly → ip_adapter). */}
+            {isPrepared && studio?.marks && studio.marks.length > 0 && (
+              <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 space-y-1">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-1">
+                  Permanent mark routing
+                </p>
+                {studio.marks.map((m) => (
+                  <p key={m.canon_mark_id} className="text-xs text-gray-400 flex items-center justify-between gap-2">
+                    <span className="truncate">{m.region || m.canon_mark_id}{m.side ? ` · ${m.side}` : ''}</span>
+                    <span className="text-gray-300 font-mono flex-shrink-0">{m.route}</span>
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {isPrepared && (
               <div className="space-y-2">
                 <button
                   type="button"
@@ -327,8 +368,18 @@ export default function Studio18Plus() {
           </section>
         )}
 
-        {/* ── Generation (only when Ready) ─────────────────────────── */}
-        {selected && status === 'ready' && (
+        {/* ── Generation disabled notice (Phase 2 default) ─────────── */}
+        {selected && isPrepared && !generationEnabled && (
+          <section>
+            <p className="text-sm text-gray-400 bg-gray-900/50 border border-gray-800 rounded-lg px-4 py-3 flex items-start gap-2">
+              <Lock className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              Generation is disabled in this environment.
+            </p>
+          </section>
+        )}
+
+        {/* ── Generation (only when prepared AND generation enabled) ── */}
+        {selected && isPrepared && generationEnabled && (
           <section className="space-y-3">
             <h2 className="text-sm font-medium text-gray-300">Generate in 18+ Studio</h2>
             <textarea

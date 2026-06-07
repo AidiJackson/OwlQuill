@@ -168,6 +168,17 @@ class Settings(BaseSettings):
     # Object storage — set true to write new images to Cloudflare R2
     USE_OBJECT_STORAGE: bool = False
 
+    # ── Adult Studio (18+) — Phase 2 flags ────────────────────────────────
+    # Real GPU training/generation providers stay OFF by default. With the
+    # defaults below the /train and /generate endpoints return 409 and NO
+    # provider is constructed and NO external call is made. See
+    # docs/ADULT_STUDIO_PHASE2_DESIGN.md §5.
+    ADULT_STUDIO_TRAINING_ENABLED: bool = False
+    ADULT_STUDIO_GENERATION_ENABLED: bool = False
+    # Provider selector. "disabled" → none; "fake" → in-memory FakeTrainingProvider
+    # (tests/dev only). No real provider value resolves to a network call in Phase 2.
+    ADULT_STUDIO_PROVIDER: str = "disabled"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

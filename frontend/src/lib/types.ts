@@ -592,13 +592,31 @@ export interface SaveGeneratedTurnRequest {
 
 // ── 18+ Studio (Adult Studio) ─────────────────────────────────────────
 
+export interface AdultStudioMarkRoute {
+  canon_mark_id: string;
+  region?: string | null;
+  side?: string | null;
+  route: string;
+  reason?: string | null;
+}
+
 export interface AdultStudioStatus {
   character_id: number;
-  status: 'not_trained' | 'preparing' | 'ready' | 'failed';
+  // 6-value vocabulary from the new AdultIdentityModel system. 'preparing' is the
+  // legacy/optimistic-only transient (kept so the UI's optimistic state still types).
+  status: 'not_trained' | 'preparing' | 'prepared' | 'training' | 'ready' | 'stale' | 'failed';
   provider?: string | null;
   model_ref?: string | null;
   refs_count: number;
   marks_count: number;
+  // ── Phase 2 additive fields ──
+  canon_fingerprint?: string | null;
+  stale?: boolean;
+  active_version_id?: number | null;
+  version_index?: number | null;
+  marks?: AdultStudioMarkRoute[];
+  training_enabled?: boolean;
+  generation_enabled?: boolean;
 }
 
 export interface AdultStudioGenerateResult {
