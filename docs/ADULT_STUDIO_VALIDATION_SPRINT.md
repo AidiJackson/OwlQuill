@@ -13,11 +13,11 @@
 Pulled from the existing benchmark harness (`backend/tests/test_together_flux_provider.py`), which is the current record of Summer's permanent markings:
 
 - **Face/build:** athletic blonde woman, blue eyes, athletic body shape.
-- **Butterfly tattoo:** **left forearm.** *(Task says "butterfly sleeve" — canon currently records a forearm butterfly, not a full sleeve. **Confirm which is canon before scoring.**)*
-- **Ballet-slipper tattoo:** **right ankle.** *(Task says "ballet tattoo" — canon places it on the ankle.)*
+- **Butterfly floral sleeve tattoo:** **right upper arm** (butterfly and floral sleeve).
+- **Black-and-white ballerina tattoo:** **left forearm.**
 
 **Action item before running:** export Summer's **Canon Pack** from Ficshon as the reference set —
-multi-view face refs, a body/full-length ref, a **left-forearm butterfly close-up**, and a **right-ankle ballet-slipper close-up**. Target **15–30 images**, varied angle/lighting, clean crops. This set is the training/conditioning input for every track below. *(Read-only export — Canon Studio is not modified.)*
+multi-view face refs, a body/full-length ref, a **right-upper-arm butterfly floral sleeve close-up**, and a **left-forearm black-and-white ballerina close-up**. Target **15–30 images**, varied angle/lighting, clean crops. This set is the training/conditioning input for every track below. *(Read-only export — Canon Studio is not modified.)*
 
 ---
 
@@ -51,7 +51,7 @@ Run Track A first (10 min) as the "instant but weak" control, then Track B for t
 
 ### Track B — SDXL Character LoRA (the evidence)
 1. **Trainer:** Replicate `stability-ai/sdxl` train, or fal.ai SDXL/Flux LoRA trainer. *(Prefer SDXL to keep it commercial-clean for later; Flux-dev is non-commercial.)*
-2. **Upload** the 15–30-image Canon Pack export. Caption with a unique token, e.g. `summ3r woman`, and explicitly caption the tattoo close-ups (`butterfly tattoo on left forearm`, `ballet slipper tattoo on right ankle`).
+2. **Upload** the 15–30-image Canon Pack export. Caption with a unique token, e.g. `summ3r woman`, and explicitly caption the tattoo close-ups (`right upper arm butterfly and floral sleeve tattoo`, `left forearm black-and-white ballerina tattoo`).
 3. **Train:** ~1000–1500 steps / ~10–15 min. Download the LoRA weights.
 4. **Generate** the 4 benchmark prompts (below) at SDXL 1024×1024, ~30 steps, with the LoRA loaded at weight ~0.8–1.0.
 5. **Expect:** strong face lock + both tattoos in roughly the right place + athletic build — the comparison target vs Google.
@@ -61,9 +61,9 @@ Run Track A first (10 min) as the "instant but weak" control, then Track B for t
 2. Prompt 1. **Expect:** good face, **no tattoos, no body canon** → confirms face-only methods can't satisfy the criteria. One image is enough to document the limitation.
 
 ### Benchmark prompts (canon-grounded — reuse across tracks for apples-to-apples)
-- **Prompt 1 (yellow bikini / golden hour):** "Summer, an athletic blonde woman with blue eyes, wearing a yellow string bikini standing on a white sand beach. Butterfly tattoo on left forearm visible. Ballet-slipper tattoo on right ankle. Warm golden-hour lighting. Photorealistic."
-- **Prompt 2 (blue bikini / tropical):** "Summer, athletic blonde, blue eyes, bright blue bikini on a sunny tropical beach. Butterfly tattoo on left forearm. Ballet-slipper tattoo on right ankle. Clear ocean background. Photorealistic."
-- **Prompt 3 (full-body framing):** same as Prompt 1 but "full-body shot, standing, both forearms and ankles visible" — forces the tattoos into frame for scoring.
+- **Prompt 1 (yellow bikini / golden hour):** "Summer, an athletic blonde woman with blue eyes, wearing a yellow string bikini standing on a white sand beach. Butterfly floral sleeve tattoo on right upper arm visible. Black-and-white ballerina tattoo on left forearm. Warm golden-hour lighting. Photorealistic."
+- **Prompt 2 (blue bikini / tropical):** "Summer, athletic blonde, blue eyes, bright blue bikini on a sunny tropical beach. Butterfly floral sleeve tattoo on right upper arm. Black-and-white ballerina tattoo on left forearm. Clear ocean background. Photorealistic."
+- **Prompt 3 (full-body framing):** same as Prompt 1 but "full-body shot, standing, right upper arm and left forearm visible" — forces the tattoos into frame for scoring.
 - **Prompt 4 (control, covered):** floral sundress courtyard scene — confirms identity holds when skin/tattoos are mostly covered.
 
 ---
@@ -97,8 +97,8 @@ For each track, save the generated PNGs and the exact prompt/seed, then score ag
 | Axis | Google (current) | Track A IP-Adapter | Track B LoRA | Track C PhotoMaker |
 |---|---|---|---|---|
 | Face identity | _ /3 | _ /3 | _ /3 | _ /3 |
-| Butterfly (L forearm) | _ /3 | _ /3 | _ /3 | _ /3 |
-| Ballet slipper (R ankle) | _ /3 | _ /3 | _ /3 | _ /3 |
+| Butterfly floral sleeve (R upper arm) | _ /3 | _ /3 | _ /3 | _ /3 |
+| Ballerina (L forearm) | _ /3 | _ /3 | _ /3 | _ /3 |
 | Body shape (athletic) | _ /3 | _ /3 | _ /3 | _ /3 |
 | Bikini/beach renders cleanly (no refusal) | _ /3 | _ /3 | _ /3 | _ /3 |
 | **Total** | **_ /15** | **_ /15** | **_ /15** | **_ /15** |

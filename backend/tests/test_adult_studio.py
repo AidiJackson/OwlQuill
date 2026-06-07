@@ -37,21 +37,21 @@ def _create_character(client: TestClient, token: str, name="Summer") -> int:
 def _summer_marks() -> list[dict]:
     return [
         {
-            "label": "Left upper arm butterfly floral tattoo",
+            "label": "Butterfly floral sleeve",
             "type": "tattoo",
-            "body_region": "left_upper_arm",
-            "side": "left",
-            "description": "colourful butterfly with floral detail on the left upper arm",
-            "reference_image_url": "static/generated/mark_left.png",
+            "body_region": "right_upper_arm",
+            "side": "right",
+            "description": "Right upper arm butterfly and floral sleeve tattoo",
+            "reference_image_url": "static/generated/mark_right.png",
             "detail_crop_url": None,
         },
         {
-            "label": "Right forearm ballet dancer tattoo",
+            "label": "Black-and-white ballerina tattoo",
             "type": "tattoo",
-            "body_region": "right_forearm",
-            "side": "right",
-            "description": "black ink ballet dancer on the right forearm",
-            "reference_image_url": "static/generated/mark_right.png",
+            "body_region": "left_forearm",
+            "side": "left",
+            "description": "Left forearm black-and-white ballerina tattoo",
+            "reference_image_url": "static/generated/mark_left.png",
         },
     ]
 
@@ -247,8 +247,8 @@ def test_training_pack_exports_zip_with_captions_and_trigger(client, db_session)
     assert "images/face_front.png" in names
     assert "images/body_front.png" in names
     # Mark images derived from canon marking regions.
-    assert any(n.startswith("images/mark_left_upper_arm") for n in names)
-    assert any(n.startswith("images/mark_right_forearm") for n in names)
+    assert any(n.startswith("images/mark_right_upper_arm") for n in names)
+    assert any(n.startswith("images/mark_left_forearm") for n in names)
     # Each image has a paired .txt caption.
     for n in names:
         if n.startswith("images/") and n.endswith(".png"):
@@ -258,6 +258,10 @@ def test_training_pack_exports_zip_with_captions_and_trigger(client, db_session)
     captions = json.loads(zf.read("captions.json"))
     assert captions, "captions.json empty"
     assert all(c.startswith("ficsummerfielding") for c in captions.values())
+    # Captions reflect the corrected permanent-mark truth metadata.
+    caption_blob = " ".join(captions.values()).lower()
+    assert "right upper arm butterfly and floral sleeve tattoo" in caption_blob
+    assert "left forearm black-and-white ballerina tattoo" in caption_blob
 
     notes = json.loads(zf.read("training_notes.json"))
     assert notes["character_id"] == cid

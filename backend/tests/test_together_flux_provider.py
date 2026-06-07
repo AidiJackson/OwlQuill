@@ -660,8 +660,8 @@ _SKIP_BENCHMARKS = pytest.mark.skipif(
 
 _SUMMER_BASE_PROMPT_TOKENS = [
     "Summer",       # character name token
-    "butterfly",    # butterfly tattoo (left forearm)
-    "ballet",       # ballet slipper tattoo
+    "butterfly",    # butterfly floral sleeve tattoo (right upper arm)
+    "ballet",       # black-and-white ballerina tattoo (left forearm)
 ]
 
 
@@ -675,8 +675,8 @@ class TestSummerBenchmark:
 
     Success criteria (manual review):
       - face similarity to canon face ref (visual inspection)
-      - butterfly tattoo retention (left forearm visible in beach shots)
-      - ballet tattoo retention (varies by scene)
+      - butterfly floral sleeve retention (right upper arm visible in beach shots)
+      - ballerina tattoo retention (left forearm, varies by scene)
       - generation does not fail / time out
 
     Note: together_response_mode will be 'local_refs_only' in local dev unless
@@ -710,8 +710,9 @@ class TestSummerBenchmark:
         provider = self._make_summer_provider()
         prompt = (
             "Summer, an athletic blonde woman with blue eyes, wearing a yellow "
-            "string bikini standing on a white sand beach. Butterfly tattoo on "
-            "left forearm visible. Warm golden hour lighting. Photorealistic."
+            "string bikini standing on a white sand beach. Butterfly floral "
+            "sleeve tattoo on right upper arm visible. Warm golden hour lighting. "
+            "Photorealistic."
         )
         png, diag = self._run_scene(provider, prompt, "A-yellow-bikini-beach")
         assert diag["success"], f"Test A failed: PNG only {diag['png_size_bytes']} bytes"
@@ -721,8 +722,9 @@ class TestSummerBenchmark:
         provider = self._make_summer_provider()
         prompt = (
             "Summer, an athletic blonde woman with blue eyes, wearing a bright "
-            "blue bikini on a sunny tropical beach. Butterfly tattoo on left "
-            "forearm. Ballet-slipper tattoo on right ankle. Clear ocean background."
+            "blue bikini on a sunny tropical beach. Butterfly floral sleeve "
+            "tattoo on right upper arm. Black-and-white ballerina tattoo on left "
+            "forearm. Clear ocean background."
         )
         png, diag = self._run_scene(provider, prompt, "B-blue-bikini-beach")
         assert diag["success"], f"Test B failed: PNG only {diag['png_size_bytes']} bytes"
@@ -732,8 +734,8 @@ class TestSummerBenchmark:
         provider = self._make_summer_provider()
         prompt = (
             "Summer, athletic blonde woman in a red one-piece swimsuit sitting "
-            "by an infinity pool. Butterfly tattoo visible on left forearm. "
-            "Sunny afternoon, luxury resort setting. Photorealistic."
+            "by an infinity pool. Butterfly floral sleeve tattoo visible on right "
+            "upper arm. Sunny afternoon, luxury resort setting. Photorealistic."
         )
         png, diag = self._run_scene(provider, prompt, "C-poolside-swimsuit")
         assert diag["success"], f"Test C failed: PNG only {diag['png_size_bytes']} bytes"
@@ -743,8 +745,9 @@ class TestSummerBenchmark:
         provider = self._make_summer_provider()
         prompt = (
             "Summer, a blonde woman with blue eyes wearing a floral sundress "
-            "in a sunlit European courtyard. She is smiling. Butterfly tattoo "
-            "on left forearm partially visible. Warm, candid travel photography."
+            "in a sunlit European courtyard. She is smiling. Butterfly floral "
+            "sleeve tattoo on right upper arm partially visible. Warm, candid "
+            "travel photography."
         )
         png, diag = self._run_scene(provider, prompt, "D-summer-dress")
         assert diag["success"], f"Test D failed: PNG only {diag['png_size_bytes']} bytes"
