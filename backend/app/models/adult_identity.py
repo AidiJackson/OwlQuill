@@ -41,7 +41,7 @@ ADULT_IDENTITY_STATUSES = (
 # State of a single trained version.
 ADULT_VERSION_STATES = ("active", "superseded", "failed")
 # State of a training job.
-ADULT_TRAINING_JOB_STATES = ("queued", "running", "succeeded", "failed", "canceled")
+ADULT_TRAINING_JOB_STATES = ("queued", "running", "completed", "failed", "canceled")
 # Render mechanism chosen for a mark (docs §6.1; Sprint 2 routing vocabulary).
 ADULT_MARK_ROUTES = (
     "ip_adapter",        # texture/sleeve/pattern marks (IP-Adapter reference)

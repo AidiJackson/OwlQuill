@@ -38,7 +38,7 @@ def test_create_and_relationships(db_session):
         base_model="sdxl-base", state="active", canon_fingerprint="a" * 64,
         training_config_json={"steps": 700, "rank": 32})
     j = AdultIdentityTrainingJob(
-        identity_id=m.id, provider="replicate", external_job_id="job_abc", state="succeeded",
+        identity_id=m.id, provider="replicate", external_job_id="job_abc", state="completed",
         cost_usd=0.34)
     r = AdultIdentityMarkRender(
         identity_id=m.id, canon_mark_id="pbm_8cff990d", mark_type="tattoo",
