@@ -1,12 +1,13 @@
-"""Adult Studio (18+) admin diagnostics — read-only operational visibility.
+"""Adult Studio (18+) admin diagnostics + readiness — read-only operational visibility.
 
 Admin-only. Exposes WHY a character's Adult Studio identity is in its current
 lifecycle state (prepared / stale / training / ready / failed): fingerprints,
 versions, training jobs, mark-render routes, last error, and — for stale models —
-the current-vs-trained canon fingerprint comparison.
+the current-vs-trained canon fingerprint comparison. Also exposes a training-readiness
+check (locked-canon preconditions + prepared state + per-mark references).
 
 Strictly read-only: no writes, no provider construction, no training, no generation,
-no Canon Studio access. SEPARATE from the Canon Studio admin surface.
+no Canon Studio writes. SEPARATE from the Canon Studio admin surface.
 """
 from typing import Optional
 
@@ -19,6 +20,7 @@ from app.core.database import get_db
 from app.models.character import Character as CharacterModel
 from app.models.user import User
 from app.services.adult_identity_diagnostics import build_diagnostics
+from app.services.adult_identity_readiness import build_readiness
 
 router = APIRouter()
 
@@ -96,3 +98,49 @@ def get_adult_studio_diagnostics(
         )
     _ = admin  # admin identity already enforced by the dependency
     return build_diagnostics(character_id, db)
+
+
+# ── Readiness ────────────────────────────────────────────────────────────────
+
+
+class ReadinessChecks(BaseModel):
+    face_locked: bool
+    body_locked: bool
+    identity_exists: bool
+    fingerprint_exists: bool
+    mark_references_exist: bool
+    routes_resolved: bool
+    not_stale: bool
+    status_trainable: bool
+
+
+class AdultStudioReadinessResponse(BaseModel):
+    character_id: int
+    ready_to_train: bool
+    status: Optional[str] = None
+    stale: bool = False
+    blocking_reasons: list[str] = []
+    checks: ReadinessChecks
+    canon_mark_count: int = 0
+    mark_render_count: int = 0
+    unreferenced_marks: list[str] = []
+
+
+@router.get(
+    "/characters/{character_id}/readiness",
+    response_model=AdultStudioReadinessResponse,
+    summary="Admin: read-only Adult Studio training-readiness check for a character",
+)
+def get_adult_studio_readiness(
+    character_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Return ready_to_train + blocking_reasons. 404 only if the character is missing."""
+    character = db.get(CharacterModel, character_id)
+    if character is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Character not found."
+        )
+    _ = admin  # admin identity already enforced by the dependency
+    return build_readiness(character_id, db)
