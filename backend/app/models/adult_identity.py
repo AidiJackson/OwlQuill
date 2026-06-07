@@ -42,8 +42,14 @@ ADULT_IDENTITY_STATUSES = (
 ADULT_VERSION_STATES = ("active", "superseded", "failed")
 # State of a training job.
 ADULT_TRAINING_JOB_STATES = ("queued", "running", "succeeded", "failed", "canceled")
-# Render mechanism chosen for a mark (docs §6.1).
-ADULT_MARK_ROUTES = ("ip_adapter", "controlnet_canny", "hybrid", "skip")
+# Render mechanism chosen for a mark (docs §6.1; Sprint 2 routing vocabulary).
+ADULT_MARK_ROUTES = (
+    "ip_adapter",        # texture/sleeve/pattern marks (IP-Adapter reference)
+    "controlnet_canny",  # figural/specific-shape marks (Canny of the crop)
+    "inpaint_direct",    # skin marks (scar/birthmark/mole) — plain masked inpaint
+    "hybrid",            # reserved: structure + style (not emitted yet)
+    "skip",              # region not renderable / no usable reference
+)
 
 
 class AdultIdentityModel(Base):

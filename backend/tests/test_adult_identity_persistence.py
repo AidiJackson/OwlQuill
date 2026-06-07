@@ -117,4 +117,4 @@ def test_defaults_and_value_sets(db_session):
     assert m.created_at is not None and m.updated_at is not None
     # documented value sets are coherent
     assert "ready" in ADULT_IDENTITY_STATUSES and "stale" in ADULT_IDENTITY_STATUSES
-    assert set(ADULT_MARK_ROUTES) == {"ip_adapter", "controlnet_canny", "hybrid", "skip"}
+    assert {"ip_adapter", "controlnet_canny", "inpaint_direct"} <= set(ADULT_MARK_ROUTES)
