@@ -52,8 +52,8 @@ _IDENTITY_TRANSITIONS: dict[str, set[str]] = {
     "stale": {"prepared"},
 }
 _JOB_TRANSITIONS: dict[str, set[str]] = {
-    "queued": {"running"},
-    "running": {"completed", "failed"},
+    "queued": {"running", "canceled"},
+    "running": {"completed", "failed", "canceled"},
 }
 
 
@@ -211,3 +211,78 @@ def fail_training_job(job_id: int, reason: str, db: "Session") -> AdultIdentityT
     db.commit()
     db.refresh(job)
     return job
+
+
+# ── Provider-driven orchestration ─────────────────────────────────────────────
+
+class AdultIdentityTrainingService:
+    """Drives the Sprint 4 lifecycle through a pluggable TrainingProvider.
+
+    The provider is OPTIONAL: with no provider the service still creates/starts a local
+    job (lifecycle-only). With a provider, submit/poll/cancel are mediated through the
+    provider seam — which, in tests, is the in-memory FakeTrainingProvider (no external
+    calls, no GPU, no spend). No real provider is invoked by this class.
+    """
+
+    def __init__(self, db: "Session", provider=None) -> None:
+        self.db = db
+        self.provider = provider
+
+    def submit(self, identity_id: int, *, base_model: Optional[str] = None,
+               training_config: Optional[dict] = None) -> AdultIdentityTrainingJob:
+        """Create + start a training job, recording the provider's job id/cost."""
+        model = _get_model(identity_id, self.db)
+        provider_name = getattr(self.provider, "name", None) or "stub"
+        job = create_training_job(identity_id, self.db, provider=provider_name)
+
+        if self.provider is not None:
+            pj = self.provider.create_training_job(
+                identity_id=identity_id,
+                trigger_token=model.trigger_token,
+                base_model=base_model or model.base_model,
+                training_config=training_config,
+                source_manifest=model.prepared_manifest_json,
+            )
+            job.external_job_id = pj.provider_job_id
+            job.cost_usd = pj.cost_estimate
+            self.db.commit()
+
+        start_training_job(job.id, self.db)
+        self.db.refresh(job)
+        return job
+
+    def poll(self, job_id: int) -> AdultIdentityTrainingJob:
+        """Poll the provider and apply the outcome to the lifecycle."""
+        from app.services.adult_identity_provider import ProviderStatus
+
+        job = _get_job(job_id, self.db)
+        if self.provider is None or not job.external_job_id:
+            return job
+
+        pj = self.provider.poll_training_job(job.external_job_id)
+        if pj.status == ProviderStatus.COMPLETED:
+            complete_training_job(
+                job.id, self.db,
+                lora_weights_uri=pj.model_artifact_uri,
+                base_model=getattr(self.provider, "base_model", None),
+            )
+            job = _get_job(job_id, self.db)
+            if pj.cost_estimate is not None:
+                job.cost_usd = pj.cost_estimate
+                self.db.commit()
+        elif pj.status == ProviderStatus.FAILED:
+            fail_training_job(job.id, pj.error or "provider reported failure", self.db)
+        # RUNNING / SUBMITTED → no state change yet.
+        return _get_job(job_id, self.db)
+
+    def cancel(self, job_id: int) -> AdultIdentityTrainingJob:
+        """Cancel a job via the provider; mark the local job canceled."""
+        job = _get_job(job_id, self.db)
+        if self.provider is not None and job.external_job_id:
+            self.provider.cancel_training_job(job.external_job_id)
+        _check(_JOB_TRANSITIONS, job.state, "canceled", "job")
+        job.state = "canceled"
+        job.finished_at = datetime.utcnow()
+        self.db.commit()
+        self.db.refresh(job)
+        return job
