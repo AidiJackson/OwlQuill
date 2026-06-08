@@ -1,0 +1,65 @@
+{
+  "identity_id": 1,
+  "spend_cap_usd": 0.1,
+  "lora_scale": 0.7,
+  "trigger_token": "TOK",
+  "disable_safety_checker": true,
+  "generations": [
+    {
+      "key": "portrait_headshot",
+      "prompt": "a photo of TOK, an adult woman with long blonde hair and blue eyes, headshot portrait, face clearly visible, looking at camera, soft natural lighting, photorealistic",
+      "size": "832x1216",
+      "status": "succeeded",
+      "image_url": "https://replicate.delivery/xezq/hBNQQOpnK24xDxIkuoxqCYHBEzU4ZffcWfC9noqZRJ9pVNatA/out-0.png",
+      "predict_time_s": 7.173097649,
+      "cost_usd": 0.00699,
+      "error": null
+    },
+    {
+      "key": "casual_sleeveless",
+      "prompt": "a photo of TOK, an adult woman with long blonde hair and blue eyes, wearing a casual sleeveless top, arms visible, waist-up, natural daylight, photorealistic",
+      "size": "832x1216",
+      "status": "succeeded",
+      "image_url": "https://replicate.delivery/xezq/J8mRx26Si2qyMdjJkjxirJ4MKhMFCh3r8ueNGWG9wjSfqGtWA/out-0.png",
+      "predict_time_s": 4.631479369,
+      "cost_usd": 0.00452,
+      "error": null
+    },
+    {
+      "key": "blue_bikini_full_body",
+      "prompt": "a photo of TOK, an adult woman with long blonde hair and blue eyes, in a light blue bikini standing on a sandy beach, full body, ocean and blue sky background, natural daylight, photorealistic",
+      "size": "832x1216",
+      "status": "succeeded",
+      "image_url": "https://replicate.delivery/xezq/QYqOq7VD9FqgO1xZ1nuzUkmO3ILFDkALzeEe7plqsmeXWNatA/out-0.png",
+      "predict_time_s": 4.674414495,
+      "cost_usd": 0.00456,
+      "error": null
+    },
+    {
+      "key": "black_dress_portrait",
+      "prompt": "a photo of TOK, an adult woman with long blonde hair and blue eyes, wearing an elegant black dress, waist-up portrait, face clearly visible, soft studio lighting, photorealistic",
+      "size": "832x1216",
+      "status": "succeeded",
+      "image_url": "https://replicate.delivery/xezq/DeIqrxA0s6SVayBNnJJ6kJZC0uUn5l6EWUTirelmZslXrGtWA/out-0.png",
+      "predict_time_s": 4.650952426,
+      "cost_usd": 0.00453,
+      "error": null
+    }
+  ],
+  "model_version_id": 1,
+  "model_artifact_uri": "https://replicate.delivery/xezq/zExYV6vfTT1mP6w2M10gpldOVmv9enSRDYbqaBd3HmJzzFtWA/trained_model.tar",
+  "provider": "replicate",
+  "provider_job_id": "n3bn2qytphrmr0cymw39wvzx40",
+  "training_cost_usd": 0.4266,
+  "runnable_version": "aidijackson/ficshon-adult-1:ca1af4ae2c9b652e2c1207763084bc8186e5f5e79601d9fbc6bd6c8d4fffb45f",
+  "generation_cost_usd_total": 0.0206,
+  "runtime_s": 74.1,
+  "images_succeeded": 4,
+  "image_urls": [
+    "https://replicate.delivery/xezq/hBNQQOpnK24xDxIkuoxqCYHBEzU4ZffcWfC9noqZRJ9pVNatA/out-0.png",
+    "https://replicate.delivery/xezq/J8mRx26Si2qyMdjJkjxirJ4MKhMFCh3r8ueNGWG9wjSfqGtWA/out-0.png",
+    "https://replicate.delivery/xezq/QYqOq7VD9FqgO1xZ1nuzUkmO3ILFDkALzeEe7plqsmeXWNatA/out-0.png",
+    "https://replicate.delivery/xezq/DeIqrxA0s6SVayBNnJJ6kJZC0uUn5l6EWUTirelmZslXrGtWA/out-0.png"
+  ],
+  "result": "SUCCESS"
+}
