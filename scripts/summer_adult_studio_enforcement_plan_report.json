@@ -1,0 +1,40 @@
+{
+  "character_id": 60,
+  "identity_id": 1,
+  "status": "ready",
+  "active_version_id": 1,
+  "model_artifact_uri": "https://replicate.delivery/xezq/zExYV6vfTT1mP6w2M10gpldOVmv9enSRDYbqaBd3HmJzzFtWA/trained_model.tar",
+  "marks": [
+    {
+      "canon_mark_id": "pbm_de30011b",
+      "region": "Left forearm",
+      "side": "left",
+      "route": "controlnet_canny",
+      "reference_uri": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/generated/efd8bd5522af4be2a8f155647b43b64c.png",
+      "reason": "matched figural keyword 'ballerina' \u2192 controlnet_canny",
+      "mark_fingerprint": "2f66607e1b3e31b0f021aba6e3ee609d1306a408a09765c9bcdfd3367102e1c7"
+    },
+    {
+      "canon_mark_id": "pbm_8cff990d",
+      "region": "Right upper arm",
+      "side": "right",
+      "route": "ip_adapter",
+      "reference_uri": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/generated/49a155d1a8834e71885105519cfaab3e.png",
+      "reason": "matched sleeve/coverage keyword 'sleeve' \u2192 ip_adapter",
+      "mark_fingerprint": "3b58d408dc9211640cf82c11ff7ba86403418ee86f7a9b3cf94eb196a00601b4"
+    }
+  ],
+  "checks": {
+    "identity_exists": true,
+    "status_ready": true,
+    "active_version_present": true,
+    "model_artifact_present": true,
+    "has_mark_renders": true,
+    "all_references_present": true,
+    "all_routes_supported": true,
+    "route_expectations_met": true
+  },
+  "executor_required": true,
+  "ready_for_executor": true,
+  "blocking_reasons": []
+}
