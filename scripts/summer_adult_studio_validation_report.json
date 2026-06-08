@@ -1,0 +1,79 @@
+{
+  "harness": "adult_studio_validation_harness",
+  "mode": "live",
+  "identity_id": 1,
+  "character_id": 60,
+  "character_name": "Summer Fielding",
+  "provider": "replicate",
+  "model_version_id": 1,
+  "active_version_id": 1,
+  "runnable_version": "aidijackson/ficshon-adult-1:ca1af4ae2c9b652e2c1207763084bc8186e5f5e79601d9fbc6bd6c8d4fffb45f",
+  "trigger_token": "TOK",
+  "disable_safety_checker": true,
+  "spend_cap_usd": 0.1,
+  "generation_cost_usd_total": 0.02033,
+  "generation_runtime_s": 68.1,
+  "harness_runtime_s": 68.5,
+  "benchmark": [
+    {
+      "key": "portrait_headshot",
+      "prompt": "a photo of TOK, an adult woman with long blonde hair and blue eyes, headshot portrait, face clearly visible, looking at camera, soft natural lighting, photorealistic",
+      "size": "832x1216",
+      "status": "succeeded",
+      "image_url": "https://replicate.delivery/xezq/yIBdLuaYvo7LNpeDssNyGYSyLdxmH0Wdtz4AoYMfxv9W9GtWA/out-0.png",
+      "predict_time_s": 6.437872505,
+      "cost_usd": 0.00628,
+      "error": null,
+      "visual_pass": null,
+      "manual_notes": ""
+    },
+    {
+      "key": "casual_sleeveless",
+      "prompt": "a photo of TOK, an adult woman with long blonde hair and blue eyes, wearing a casual sleeveless top, arms visible, waist-up, natural daylight, photorealistic",
+      "size": "832x1216",
+      "status": "succeeded",
+      "image_url": "https://replicate.delivery/xezq/BJ0LHaDpgSK3FlNL7A2IJWXMbyr11fwE1S6fnihSP94c9GtWA/out-0.png",
+      "predict_time_s": 4.688775837,
+      "cost_usd": 0.00457,
+      "error": null,
+      "visual_pass": null,
+      "manual_notes": ""
+    },
+    {
+      "key": "blue_bikini_full_body",
+      "prompt": "a photo of TOK, an adult woman with long blonde hair and blue eyes, in a light blue bikini standing on a sandy beach, full body, ocean and blue sky background, natural daylight, photorealistic",
+      "size": "832x1216",
+      "status": "succeeded",
+      "image_url": "https://replicate.delivery/xezq/0ZLHqJzih8JKD1wIUh90Cas0dwZme34DPFP9sv1XJOc0eGtWA/out-0.png",
+      "predict_time_s": 5.052914983,
+      "cost_usd": 0.00493,
+      "error": null,
+      "visual_pass": null,
+      "manual_notes": ""
+    },
+    {
+      "key": "black_dress_portrait",
+      "prompt": "a photo of TOK, an adult woman with long blonde hair and blue eyes, wearing an elegant black dress, waist-up portrait, face clearly visible, soft studio lighting, photorealistic",
+      "size": "832x1216",
+      "status": "succeeded",
+      "image_url": "https://replicate.delivery/xezq/Igq2Jm4st3YZN1b3yT4UbJxTLMajJKWkRexx61UGaUV6eGtWA/out-0.png",
+      "predict_time_s": 4.668733766,
+      "cost_usd": 0.00455,
+      "error": null,
+      "visual_pass": null,
+      "manual_notes": ""
+    }
+  ],
+  "automatic_checks": {
+    "all_prompts_completed": true,
+    "all_urls_returned": true,
+    "cost_under_cap": true,
+    "no_errors": true,
+    "active_version_id_used": true
+  },
+  "technical_verdict": "PASS",
+  "manual_review_required": true,
+  "inference_result": "SUCCESS",
+  "inference_error": null,
+  "notes": "Automatic checks cover TECHNICAL completion only (prompts ran, URLs returned, cost within cap, no provider errors, active version used). Visual fidelity, identity likeness, and anatomy are NOT auto-scored and require manual review."
+}
