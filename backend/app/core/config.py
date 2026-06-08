@@ -176,8 +176,18 @@ class Settings(BaseSettings):
     ADULT_STUDIO_TRAINING_ENABLED: bool = False
     ADULT_STUDIO_GENERATION_ENABLED: bool = False
     # Provider selector. "disabled" → none; "fake" → in-memory FakeTrainingProvider
-    # (tests/dev only). No real provider value resolves to a network call in Phase 2.
+    # (tests/dev only); "replicate" → ReplicateTrainingProvider (Phase 3, real LoRA
+    # training). A real provider is constructed ONLY when the selector is "replicate"
+    # AND ADULT_STUDIO_TRAINING_ENABLED is true — otherwise no provider, no network.
     ADULT_STUDIO_PROVIDER: str = "disabled"
+
+    # ── Adult Studio (18+) — Phase 3 Replicate training provider ──────────────
+    # Only consulted when ADULT_STUDIO_PROVIDER=replicate AND training is enabled.
+    # REPLICATE_API_TOKEN: Replicate API token (Bearer). Empty → provider refuses
+    #   to construct, so no half-configured network calls are possible.
+    # ADULT_STUDIO_REPLICATE_OWNER: account that owns the trained destination models.
+    REPLICATE_API_TOKEN: str = ""
+    ADULT_STUDIO_REPLICATE_OWNER: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -105,3 +105,36 @@ class FakeTrainingProvider:
         self.calls.append(("cancel", provider_job_id))
         return ProviderJob(provider_job_id=provider_job_id, status=ProviderStatus.CANCELED,
                            cost_estimate=self._cost)
+
+
+# ── Gated factory ──────────────────────────────────────────────────────────────
+
+def get_training_provider(settings=None) -> Optional[TrainingProvider]:
+    """Construct the configured TrainingProvider, or None when training is off.
+
+    A REAL provider is built ONLY when ``ADULT_STUDIO_TRAINING_ENABLED`` is true AND a
+    real provider is selected. With the defaults (training disabled, provider
+    "disabled") this returns None and NOTHING is imported or constructed — no network,
+    no GPU, no spend. "fake" returns the in-memory provider for dev/tests.
+    """
+    if settings is None:
+        from app.core.config import settings as settings  # noqa: PLW0127
+
+    if not getattr(settings, "ADULT_STUDIO_TRAINING_ENABLED", False):
+        return None
+
+    provider = (getattr(settings, "ADULT_STUDIO_PROVIDER", "disabled") or "disabled").lower()
+    if provider == "disabled":
+        return None
+    if provider == "fake":
+        return FakeTrainingProvider()
+    if provider == "replicate":
+        from app.services.providers.replicate_training_provider import (
+            ReplicateTrainingProvider,
+        )
+
+        return ReplicateTrainingProvider(
+            api_token=getattr(settings, "REPLICATE_API_TOKEN", "") or "",
+            owner=getattr(settings, "ADULT_STUDIO_REPLICATE_OWNER", "") or "",
+        )
+    raise ValueError(f"unknown ADULT_STUDIO_PROVIDER: {provider!r}")
