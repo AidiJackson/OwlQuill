@@ -1,0 +1,75 @@
+{
+  "executor": "adult_identity_enforcement_executor",
+  "version": "v1",
+  "character_id": 60,
+  "identity_id": 1,
+  "active_version_id": 1,
+  "model_version_id": 1,
+  "model_artifact_uri": "https://replicate.delivery/xezq/zExYV6vfTT1mP6w2M10gpldOVmv9enSRDYbqaBd3HmJzzFtWA/trained_model.tar",
+  "plan_status": "ready",
+  "enforcement_mode": "conditioning_preview",
+  "diffusion_pass": "deferred",
+  "spend_cap_usd": 0.15,
+  "base_image": {
+    "status": "succeeded",
+    "image_url": "https://replicate.delivery/xezq/ZUwmEFq0XgbXJtpiFUNufcQVVRlFgUQy16moOzxkR1WB9kWLA/out-0.png",
+    "cost_usd": 0.00677,
+    "prompt": "a photo of TOK, an adult woman with long blonde hair and blue eyes, standing, arms relaxed at her sides, both arms fully visible, wearing a sleeveless top, natural daylight, full body, photorealistic",
+    "predict_time_s": 6.945858179,
+    "error": null,
+    "runnable_version": "aidijackson/ficshon-adult-1:ca1af4ae2c9b652e2c1207763084bc8186e5f5e79601d9fbc6bd6c8d4fffb45f"
+  },
+  "routes_executed": [
+    {
+      "canon_mark_id": "pbm_de30011b",
+      "region": "Left forearm",
+      "side": "left",
+      "route": "controlnet_canny",
+      "reference_uri": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/generated/efd8bd5522af4be2a8f155647b43b64c.png",
+      "reason": "matched figural keyword 'ballerina' \u2192 controlnet_canny",
+      "status": "prepared",
+      "artifact_kind": "controlnet_edge_map",
+      "artifact_url": "static/generated/eac3641bb3af49f5ae6c1c12f65913c6.png",
+      "params": {
+        "controlnet_conditioning_scale": 0.9,
+        "edge_op": "PIL.FIND_EDGES",
+        "artifact_size": [
+          398,
+          768
+        ]
+      }
+    },
+    {
+      "canon_mark_id": "pbm_8cff990d",
+      "region": "Right upper arm",
+      "side": "right",
+      "route": "ip_adapter",
+      "reference_uri": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/generated/49a155d1a8834e71885105519cfaab3e.png",
+      "reason": "matched sleeve/coverage keyword 'sleeve' \u2192 ip_adapter",
+      "status": "prepared",
+      "artifact_kind": "ip_adapter_style_reference",
+      "artifact_url": "static/generated/53cd9ed4b1ef45f290b7cf3c2f288179.png",
+      "params": {
+        "ip_adapter_scale": 0.8,
+        "artifact_size": [
+          398,
+          768
+        ]
+      }
+    }
+  ],
+  "final_image_url": "static/generated/20c42ef5c5c443259c7f5a6b412ba841.png",
+  "success": true,
+  "manual_review_required": true,
+  "blocking_reasons": [],
+  "spend_usd": 0.00677,
+  "runtime_s": 39.32,
+  "image_urls": {
+    "base": "https://replicate.delivery/xezq/ZUwmEFq0XgbXJtpiFUNufcQVVRlFgUQy16moOzxkR1WB9kWLA/out-0.png",
+    "final": "static/generated/20c42ef5c5c443259c7f5a6b412ba841.png",
+    "artifacts": [
+      "static/generated/eac3641bb3af49f5ae6c1c12f65913c6.png",
+      "static/generated/53cd9ed4b1ef45f290b7cf3c2f288179.png"
+    ]
+  }
+}
