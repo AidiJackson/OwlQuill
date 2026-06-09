@@ -3,7 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon, Download, RefreshCw, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
-import type { Character, AdultStudioStatus, AdultStudioGenerateResult } from '@/lib/types';
+import type { Character, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderGenerateResult } from '@/lib/types';
+import {
+  canFounderGenerate,
+  canSubmitFounderPrompt,
+  formatFounderResult,
+} from '@/features/adultStudio/founderGenerate';
 
 /**
  * 18+ Studio — first working pipeline path.
@@ -76,6 +81,12 @@ export default function Studio18Plus() {
   const [genError, setGenError] = useState('');
   const [genMeta, setGenMeta] = useState<AdultStudioGenerateResult | null>(null);
 
+  // Founder/admin-only Generate (validated pipeline: active LoRA + tattoo enforcement).
+  const [founderPrompt, setFounderPrompt] = useState('');
+  const [founderGenerating, setFounderGenerating] = useState(false);
+  const [founderResult, setFounderResult] = useState<AdultStudioFounderGenerateResult | null>(null);
+  const [founderError, setFounderError] = useState('');
+
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -113,6 +124,9 @@ export default function Studio18Plus() {
     setResult(null);
     setPrompt('');
     setExportError('');
+    setFounderPrompt('');
+    setFounderResult(null);
+    setFounderError('');
     if (selectedId == null || statusByChar[selectedId]) return;
     apiClient
       .getAdultStudioStatus(selectedId)
@@ -185,6 +199,33 @@ export default function Studio18Plus() {
       if (mountedRef.current) setGenerating(false);
     }
   };
+
+  const handleFounderGenerate = async () => {
+    if (!selected || !canSubmitFounderPrompt(founderPrompt, founderGenerating)) return;
+    setFounderGenerating(true);
+    setFounderError('');
+    setFounderResult(null);
+    try {
+      const res = await apiClient.founderGenerateAdultStudio(selected.id, founderPrompt.trim());
+      if (mountedRef.current) setFounderResult(res);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setFounderError(err instanceof Error ? err.message : 'Founder generation failed');
+      const meta = (err as { meta?: AdultStudioFounderGenerateResult }).meta;
+      if (meta) setFounderResult(meta);
+    } finally {
+      if (mountedRef.current) setFounderGenerating(false);
+    }
+  };
+
+  // Founder/admin-only Generate path — Summer only, validated pipeline.
+  const showFounderPanel = canFounderGenerate({
+    isAdmin,
+    characterId: selectedId,
+    status: studio?.status,
+    activeVersionId: studio?.active_version_id,
+  });
+  const founderView = founderResult ? formatFounderResult(founderResult) : null;
 
   return (
     <div className="min-h-screen">
@@ -443,6 +484,81 @@ export default function Studio18Plus() {
                 <p>multi_image_used: <span className="text-gray-300">{String(genMeta.multi_image_used)}</span></p>
                 <p>used_refs: <span className="text-gray-300">{genMeta.used_refs?.join(', ') || '—'}</span></p>
                 <p>failure_reason: <span className="text-gray-300">{genMeta.failure_reason ?? 'none'}</span></p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── Founder/admin-only Generate (validated pipeline) ──────────
+            Summer only, status 'ready', active version present. Uses the active
+            LoRA + enforcement plan + tattoo-enforcement executor (both routes) —
+            NOT the OpenAI gpt-image path. $0.05 hard cap; manual review required. */}
+        {showFounderPanel && (
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-fuchsia-300" />
+              <h2 className="text-sm font-medium text-gray-200">Founder Generate · validated pipeline</h2>
+            </div>
+            <p className="text-xs text-gray-500">
+              Summer only · active LoRA + tattoo enforcement · $0.05 cap · admin only.
+              Output requires manual review.
+            </p>
+
+            <textarea
+              className="textarea w-full"
+              rows={3}
+              maxLength={800}
+              placeholder="Describe the scene for Summer (e.g. relaxing poolside at sunset)…"
+              value={founderPrompt}
+              onChange={(e) => setFounderPrompt(e.target.value)}
+              disabled={founderGenerating}
+            />
+            <button
+              type="button"
+              onClick={handleFounderGenerate}
+              disabled={!canSubmitFounderPrompt(founderPrompt, founderGenerating)}
+              className="btn btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+            >
+              {founderGenerating ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
+              ) : (
+                <><Sparkles className="w-3.5 h-3.5" /> Generate</>
+              )}
+            </button>
+
+            {founderError && (
+              <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
+                {founderError}
+              </p>
+            )}
+
+            {/* Failure detail (blocking reasons) — always explainable. */}
+            {founderError && founderResult && founderResult.blocking_reasons?.length > 0 && (
+              <div className="rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-xs text-red-200/80 space-y-0.5">
+                <p className="font-medium uppercase tracking-wide text-red-300/70 mb-1 flex items-center gap-1.5">
+                  <XCircle className="w-3.5 h-3.5" /> Generation blocked
+                </p>
+                {founderResult.blocking_reasons.map((r, i) => (
+                  <p key={i}>{r}</p>
+                ))}
+              </div>
+            )}
+
+            {founderView?.finalImageUrl && (
+              <div className="space-y-2">
+                <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 max-w-md">
+                  <img src={founderView.finalImageUrl} alt="Founder Generate result" className="w-full object-cover" />
+                </div>
+                <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-xs text-gray-400 space-y-0.5">
+                  <p>cost: <span className="text-gray-200">{founderView.costLabel}</span></p>
+                  <p>runtime: <span className="text-gray-200">{founderView.runtimeLabel}</span></p>
+                  <p>routes: <span className="text-gray-200">{founderView.routeLabels.join(', ') || '—'}</span></p>
+                  {founderView.manualReviewRequired && (
+                    <p className="text-amber-300 flex items-center gap-1.5 mt-1">
+                      <AlertTriangle className="w-3.5 h-3.5" /> Manual review required before any use.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </section>

@@ -628,3 +628,26 @@ export interface AdultStudioGenerateResult {
   multi_image_used: boolean;
   failure_reason?: string | null;
 }
+
+// Founder/admin-only Generate via the VALIDATED pipeline (active LoRA + enforcement
+// plan + tattoo-enforcement executor) — NOT the OpenAI gpt-image path. Summer only.
+export interface AdultStudioFounderRoute {
+  route: string;
+  status?: string;
+  region?: string | null;
+  side?: string | null;
+  artifact_kind?: string | null;
+  artifact_url?: string | null;
+}
+
+export interface AdultStudioFounderGenerateResult {
+  final_image_url: string | null;
+  intermediate_artifact_urls: string[];
+  cost: number;
+  runtime: number;
+  routes_executed: AdultStudioFounderRoute[];
+  manual_review_required: boolean;
+  success: boolean;
+  blocking_reasons: string[];
+  orphaned_workers: string[];
+}

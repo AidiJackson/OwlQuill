@@ -25,6 +25,10 @@ from app.models.adult_identity import (
 from app.models.character import Character as CharacterModel
 from app.models.user import User
 from app.services.adult_identity_diagnostics import build_diagnostics
+from app.services.adult_identity_founder_generate import (
+    FounderGenerateBlocked,
+    run_founder_generate,
+)
 from app.services.adult_identity_provider import get_training_provider
 from app.services.adult_identity_readiness import build_readiness
 from app.services.adult_identity_training import (
@@ -326,3 +330,58 @@ def poll_adult_studio_training_job(
             status_code=status.HTTP_404_NOT_FOUND, detail="Training job not found."
         )
     return _job_status_payload(job, db)
+
+
+# ── Founder generate (Phase 3, Sprint 8) — Summer-only, validated pipeline ─────
+#
+# The smallest founder-only Generate path. It runs the VALIDATED Adult Studio
+# pipeline (active LoRA + DB enforcement plan + masked-diffusion / tattoo-enforcement
+# executor + both Summer tattoo routes) — explicitly NOT the old OpenAI gpt-image
+# Adult Studio generate endpoint. Admin-only (require_admin), Summer-only (id=60),
+# hard $0.05 spend cap, worker always terminated, manual_review_required always true.
+
+
+class FounderGenerateRequest(BaseModel):
+    prompt: str
+
+
+class FounderGenerateResponse(BaseModel):
+    final_image_url: Optional[str] = None
+    intermediate_artifact_urls: list[str] = []
+    cost: float = 0.0
+    runtime: float = 0.0
+    routes_executed: list[dict] = []
+    manual_review_required: bool = True
+    success: bool = False
+    blocking_reasons: list[str] = []
+    orphaned_workers: list[str] = []
+
+
+@router.post(
+    "/characters/{character_id}/founder-generate",
+    response_model=FounderGenerateResponse,
+    summary="Admin/founder: Summer-only Generate via the validated Adult Studio pipeline",
+)
+def founder_generate_adult_studio(
+    character_id: int,
+    body: FounderGenerateRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Run one founder generation through the validated enforcement pipeline.
+
+    Gates (in order, all BEFORE any generator is constructed → no spend on refusal):
+    admin (dependency) → Summer-only (id=60) → prompt required → identity 'ready' with
+    an active version → prompt safety (minors/illegal blocked). On a completed run the
+    worker lifecycle is always terminated and verified for orphans.
+    """
+    _ = admin  # admin identity already enforced by the dependency
+    try:
+        result = run_founder_generate(db, character_id, body.prompt)
+    except FounderGenerateBlocked as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+    if not result["success"]:
+        # Surface the full report so the founder UI can explain the failure.
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result)
+    return result
