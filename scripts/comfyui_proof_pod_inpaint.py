@@ -185,23 +185,31 @@ def main():
             m = Image.fromarray((b.astype("uint8") * 255), "L").filter(ImageFilter.MaxFilter(15))
             return m.filter(ImageFilter.GaussianBlur(6))
 
-        def half(b, which):
+        def half(b, which, drop_bottom_frac=0.0):
             ys = np.where(b.any(axis=1))[0]
             if len(ys) == 0:
                 return b
-            ymid = (ys.min() + ys.max()) // 2
+            ymin, ymax = int(ys.min()), int(ys.max())
+            ymid = (ymin + ymax) // 2
             out = b.copy()
             if which == "upper":
                 out[ymid:, :] = False
-            else:  # lower (forearm)
+            else:  # lower (forearm) — keep the forearm band, DROP the wrist + hand
                 out[:ymid, :] = False
+                if drop_bottom_frac > 0:
+                    # The hand/fingers sit at the very bottom of the arm bbox (SegFormer
+                    # has no hand class). Cut the bottom fraction of the lower-arm span so
+                    # the mask targets the forearm tattoo zone only — never the hand.
+                    cut = ymax - int(drop_bottom_frac * (ymax - ymid))
+                    out[cut:, :] = False
             return out
 
         if right_arm.sum() > 400:
             masks["right_upper_arm"] = mask_from_bool(half(right_arm, "upper"))
             upload_img("02_mask_right_upper_arm", masks["right_upper_arm"].convert("RGB"))
         if left_arm.sum() > 400:
-            masks["left_forearm"] = mask_from_bool(half(left_arm, "lower"))
+            # Exclude the bottom ~38% of the lower arm (wrist + hand + fingers).
+            masks["left_forearm"] = mask_from_bool(half(left_arm, "lower", drop_bottom_frac=0.38))
             upload_img("02_mask_left_forearm", masks["left_forearm"].convert("RGB"))
         log(f"arm masks: {list(masks.keys())}")
     except Exception as e:  # noqa: BLE001
@@ -210,19 +218,30 @@ def main():
 
     current = base
 
+    def paste_back(new_img, base_img, mask_l):
+        """Quality-preserving composite: keep base pixels OUTSIDE the (feathered) tattoo
+        mask, use the inpaint ONLY inside it. The whole-frame inpaint regenerates the full
+        image (and would globally degrade face/eyes/hands/background via the VAE round-trip),
+        so we discard everything except the masked tattoo zone. The feathered mask edge
+        blends the seam. Guarantees non-tattoo pixels == base, bit-for-bit where mask==0.
+        """
+        return Image.composite(new_img.convert("RGB"), base_img.convert("RGB"), mask_l)
+
     # ── Stage 3a: butterfly via IP-Adapter on right upper arm ────────────
     if "right_upper_arm" in masks and status.get("ip_adapter"):
         push_status("inpaint_butterfly")
         try:
             pipe.set_ip_adapter_scale(0.7)
-            current = pipe(
+            raw = pipe(
                 prompt="a photo of TOK, blonde woman, blue bikini, intricate black-ink "
                        "butterfly and floral sleeve tattoo on the right upper arm, photorealistic skin",
                 negative_prompt=neg, image=current, mask_image=masks["right_upper_arm"],
                 control_image=blank_ctrl, controlnet_conditioning_scale=0.0,
-                ip_adapter_image=butterfly, strength=0.9, num_inference_steps=32,
+                ip_adapter_image=butterfly, strength=0.6, num_inference_steps=32,
                 guidance_scale=7.0, width=W, height=H,
                 generator=torch.Generator("cuda").manual_seed(21)).images[0]
+            # Keep ONLY the masked tattoo zone; preserve all other pixels from base.
+            current = paste_back(raw, current, masks["right_upper_arm"])
             upload_img("03_after_butterfly", current)
         except Exception as e:  # noqa: BLE001
             status["errors"].append(f"butterfly: {e!r}")
@@ -250,14 +269,16 @@ def main():
             upload_img("03b_ballerina_canny_control", ctrl)
 
             pipe.set_ip_adapter_scale(0.0)
-            current = pipe(
+            raw = pipe(
                 prompt="a photo of TOK, blonde woman, blue bikini, detailed black-and-white "
                        "ballerina dancer tattoo on the left forearm, fine black linework, photorealistic skin",
                 negative_prompt=neg, image=current, mask_image=masks["left_forearm"],
                 control_image=ctrl, controlnet_conditioning_scale=0.85,
-                ip_adapter_image=ballerina, strength=0.97, num_inference_steps=34,
+                ip_adapter_image=ballerina, strength=0.6, num_inference_steps=34,
                 guidance_scale=7.5, width=W, height=H,
                 generator=torch.Generator("cuda").manual_seed(33)).images[0]
+            # Keep ONLY the forearm tattoo zone; preserve the hand + everything else.
+            current = paste_back(raw, current, masks["left_forearm"])
             upload_img("04_after_ballerina", current)
         except Exception as e:  # noqa: BLE001
             status["errors"].append(f"ballerina: {e!r}")
