@@ -295,53 +295,7 @@ def test_spend_cap_is_five_cents():
     assert fg.FOUNDER_SPEND_CAP_USD == 0.05
 
 
-# ── HTTP response shaping (route maps the service result) ────────────────────────
-
-
-def test_route_maps_success_response(client, db_session, monkeypatch):
-    _make_admin(monkeypatch)
-    token = _admin_token(client)
-    cid = _create_character(client, token)
-    monkeypatch.setattr(fg, "SUMMER_CHARACTER_ID", cid)
-
-    fake_result = {
-        "final_image_url": "https://fake.local/final.png",
-        "intermediate_artifact_urls": ["https://fake.local/base.png", "https://fake.local/a.png"],
-        "cost": 0.018, "runtime": 19.4,
-        "routes_executed": [{"route": "ip_adapter", "status": "prepared"}],
-        "manual_review_required": True, "success": True,
-        "blocking_reasons": [], "orphaned_workers": [],
-    }
-    import app.api.routes.adult_studio_admin as route_mod
-    monkeypatch.setattr(route_mod, "run_founder_generate", lambda *a, **k: fake_result)
-
-    resp = client.post(_url(cid), json={"prompt": "summer poolside"}, headers=_headers(token))
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["final_image_url"] == "https://fake.local/final.png"
-    assert body["cost"] == 0.018
-    assert body["manual_review_required"] is True
-    assert body["intermediate_artifact_urls"] == fake_result["intermediate_artifact_urls"]
-
-
-def test_route_maps_failure_response(client, db_session, monkeypatch):
-    _make_admin(monkeypatch)
-    token = _admin_token(client)
-    cid = _create_character(client, token)
-    monkeypatch.setattr(fg, "SUMMER_CHARACTER_ID", cid)
-
-    fake_result = {
-        "final_image_url": None, "intermediate_artifact_urls": [],
-        "cost": 0.0, "runtime": 0.2, "routes_executed": [],
-        "manual_review_required": True, "success": False,
-        "blocking_reasons": ["base image generation did not succeed (status=failed)"],
-        "orphaned_workers": [],
-    }
-    import app.api.routes.adult_studio_admin as route_mod
-    monkeypatch.setattr(route_mod, "run_founder_generate", lambda *a, **k: fake_result)
-
-    resp = client.post(_url(cid), json={"prompt": "summer poolside"}, headers=_headers(token))
-    assert resp.status_code == 502, resp.text
-    detail = resp.json()["detail"]
-    assert detail["success"] is False
-    assert "base image generation did not succeed (status=failed)" in detail["blocking_reasons"]
+# NOTE: The live founder route is now ASYNC (Sprint 13). The synchronous montage path
+# tested above via run_founder_generate() is retained for rollback but is no longer wired
+# to the HTTP route. Async route + job-service behaviour (202, singleton, state machine,
+# reconcile, cancel) is covered in test_adult_studio_founder_async.py.

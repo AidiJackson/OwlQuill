@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderGenerateResult } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -830,15 +830,12 @@ class ApiClient {
   }
 
   /**
-   * Founder/admin-only Generate via the VALIDATED Adult Studio pipeline (active LoRA +
-   * enforcement plan + tattoo-enforcement executor + both Summer routes). Summer only.
-   * On failure the backend returns the full report as `detail` — surfaced via the thrown
-   * error's `.meta` so the UI can explain why it failed (no silent fallback).
+   * Founder Async Lite (Sprint 13). Launch ONE Summer-only generation job via the
+   * VALIDATED RunPod masked-diffusion pipeline (active LoRA + enforcement plan + both
+   * tattoo routes) — NOT the OpenAI gpt-image path. Returns the queued/running job
+   * snapshot (HTTP 202). 409 if a founder job is already active.
    */
-  async founderGenerateAdultStudio(
-    characterId: number,
-    prompt: string,
-  ): Promise<AdultStudioFounderGenerateResult> {
+  async startFounderJob(characterId: number, prompt: string): Promise<AdultStudioFounderJob> {
     const token = this.getToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -847,21 +844,48 @@ class ApiClient {
       `${API_BASE_URL}/admin/adult-studio/characters/${characterId}/founder-generate`,
       { method: 'POST', headers, credentials: 'include', body: JSON.stringify({ prompt }) },
     );
-
     const payload = await response.json().catch(() => ({} as Record<string, unknown>));
     if (!response.ok) {
       const detail = (payload as { detail?: unknown }).detail;
-      const meta = detail && typeof detail === 'object'
-        ? (detail as AdultStudioFounderGenerateResult)
-        : undefined;
-      const message =
-        (meta?.blocking_reasons && meta.blocking_reasons[0]) ||
-        (typeof detail === 'string' ? detail : `Generation failed (HTTP ${response.status})`);
-      const err = new Error(message) as Error & { meta?: AdultStudioFounderGenerateResult };
-      if (meta) err.meta = meta;
-      throw err;
+      throw new Error(typeof detail === 'string' ? detail : `Launch failed (HTTP ${response.status})`);
     }
-    return payload as AdultStudioFounderGenerateResult;
+    return payload as AdultStudioFounderJob;
+  }
+
+  /** Poll the latest founder job (reconciles running→terminal). Null if none started. */
+  async getFounderJob(characterId: number): Promise<AdultStudioFounderJob | null> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(
+      `${API_BASE_URL}/admin/adult-studio/characters/${characterId}/founder-job`,
+      { method: 'GET', headers, credentials: 'include' },
+    );
+    const payload = await response.json().catch(() => ({} as Record<string, unknown>));
+    if (!response.ok) {
+      const detail = (payload as { detail?: unknown }).detail;
+      throw new Error(typeof detail === 'string' ? detail : `Poll failed (HTTP ${response.status})`);
+    }
+    return ((payload as { job?: AdultStudioFounderJob | null }).job) ?? null;
+  }
+
+  /** Cancel the active founder job (terminate pod + mark failed). */
+  async cancelFounderJob(characterId: number): Promise<AdultStudioFounderJob> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(
+      `${API_BASE_URL}/admin/adult-studio/characters/${characterId}/founder-job/cancel`,
+      { method: 'POST', headers, credentials: 'include' },
+    );
+    const payload = await response.json().catch(() => ({} as Record<string, unknown>));
+    if (!response.ok) {
+      const detail = (payload as { detail?: unknown }).detail;
+      throw new Error(typeof detail === 'string' ? detail : `Cancel failed (HTTP ${response.status})`);
+    }
+    return payload as AdultStudioFounderJob;
   }
 
   /**

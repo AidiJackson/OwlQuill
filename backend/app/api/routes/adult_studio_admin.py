@@ -11,7 +11,7 @@ no Canon Studio writes. SEPARATE from the Canon Studio admin surface.
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -25,9 +25,14 @@ from app.models.adult_identity import (
 from app.models.character import Character as CharacterModel
 from app.models.user import User
 from app.services.adult_identity_diagnostics import build_diagnostics
+from app.services.adult_founder_job_service import (
+    cancel_job,
+    get_latest_job,
+    start_founder_job,
+)
 from app.services.adult_identity_founder_generate import (
+    SUMMER_CHARACTER_ID,
     FounderGenerateBlocked,
-    run_founder_generate,
 )
 from app.services.adult_identity_provider import get_training_provider
 from app.services.adult_identity_readiness import build_readiness
@@ -332,56 +337,128 @@ def poll_adult_studio_training_job(
     return _job_status_payload(job, db)
 
 
-# ── Founder generate (Phase 3, Sprint 8) — Summer-only, validated pipeline ─────
+# ── Founder Async Lite generate (Phase 3, Sprint 13) — Summer-only ─────────────
 #
-# The smallest founder-only Generate path. It runs the VALIDATED Adult Studio
-# pipeline (active LoRA + DB enforcement plan + masked-diffusion / tattoo-enforcement
-# executor + both Summer tattoo routes) — explicitly NOT the old OpenAI gpt-image
-# Adult Studio generate endpoint. Admin-only (require_admin), Summer-only (id=60),
-# hard $0.05 spend cap, worker always terminated, manual_review_required always true.
+# Fire-and-poll. POST launches ONE detached RunPod masked-diffusion job (active LoRA +
+# DB enforcement plan + both Summer tattoo routes) and returns 202 {job_id, state}; the
+# real final image is the RunPod 99_final — NOT the diagnostic montage, NOT the OpenAI
+# gpt-image path. GET reconciles/polls the job. One active founder job at a time.
+# Admin-only (require_admin), Summer-only (id=60), hard $0.05 spend cap (driver carries
+# the proof_lib profile), manual_review_required always true.
 
 
 class FounderGenerateRequest(BaseModel):
     prompt: str
 
 
-class FounderGenerateResponse(BaseModel):
+class FounderJobResponse(BaseModel):
+    """A founder async job snapshot (state machine: queued|running|completed|failed)."""
+    job_id: int
+    character_id: int
+    state: str
+    run_id: str
     final_image_url: Optional[str] = None
     intermediate_artifact_urls: list[str] = []
     cost: float = 0.0
     runtime: float = 0.0
     routes_executed: list[dict] = []
     manual_review_required: bool = True
-    success: bool = False
     blocking_reasons: list[str] = []
     orphaned_workers: list[str] = []
+    error: Optional[str] = None
+
+
+class FounderJobEnvelope(BaseModel):
+    """GET wrapper — ``job`` is null when no founder job has ever been started."""
+    job: Optional[FounderJobResponse] = None
+
+
+def _job_payload(job) -> FounderJobResponse:
+    result = job.result_json or {}
+    return FounderJobResponse(
+        job_id=job.id,
+        character_id=job.character_id,
+        state=job.state,
+        run_id=job.run_id,
+        final_image_url=job.final_image_url,
+        intermediate_artifact_urls=result.get("intermediate_artifact_urls", []),
+        cost=result.get("cost", 0.0),
+        runtime=result.get("runtime", 0.0),
+        routes_executed=result.get("routes_executed", []),
+        manual_review_required=result.get("manual_review_required", True),
+        blocking_reasons=result.get("blocking_reasons", []),
+        orphaned_workers=result.get("orphaned_workers", []),
+        error=job.error,
+    )
 
 
 @router.post(
     "/characters/{character_id}/founder-generate",
-    response_model=FounderGenerateResponse,
-    summary="Admin/founder: Summer-only Generate via the validated Adult Studio pipeline",
+    response_model=FounderJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Admin/founder: launch a Summer-only async Generate job (returns 202)",
 )
 def founder_generate_adult_studio(
     character_id: int,
     body: FounderGenerateRequest,
+    response: Response,
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Run one founder generation through the validated enforcement pipeline.
+    """Launch ONE detached founder generation job and return 202 {job_id, state}.
 
-    Gates (in order, all BEFORE any generator is constructed → no spend on refusal):
-    admin (dependency) → Summer-only (id=60) → prompt required → identity 'ready' with
-    an active version → prompt safety (minors/illegal blocked). On a completed run the
-    worker lifecycle is always terminated and verified for orphans.
+    Gates (all BEFORE any pod is launched → no spend on refusal): admin (dependency) →
+    Summer-only (id=60) → prompt required → identity 'ready' with an active version →
+    prompt safety (minors/illegal blocked) → singleton (409 if a job is already active).
     """
     _ = admin  # admin identity already enforced by the dependency
     try:
-        result = run_founder_generate(db, character_id, body.prompt)
+        job = start_founder_job(db, character_id, body.prompt)
     except FounderGenerateBlocked as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    # A failed launch is reported in-band (state=failed) but still a created job.
+    response.status_code = status.HTTP_202_ACCEPTED
+    return _job_payload(job)
 
-    if not result["success"]:
-        # Surface the full report so the founder UI can explain the failure.
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=result)
-    return result
+
+@router.get(
+    "/characters/{character_id}/founder-job",
+    response_model=FounderJobEnvelope,
+    summary="Admin/founder: poll the latest Summer founder job (reconciles running→terminal)",
+)
+def get_founder_job(
+    character_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Return the latest founder job (or null). Reconciles a running job from its report."""
+    _ = admin
+    if character_id != SUMMER_CHARACTER_ID:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Founder generate is Summer-only (character_id={SUMMER_CHARACTER_ID}).")
+    job = get_latest_job(db, character_id)
+    return FounderJobEnvelope(job=_job_payload(job) if job else None)
+
+
+@router.post(
+    "/characters/{character_id}/founder-job/cancel",
+    response_model=FounderJobResponse,
+    summary="Admin/founder: cancel the active Summer founder job (terminate pod + fail)",
+)
+def cancel_founder_job(
+    character_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Cancel the active founder job: best-effort terminate its pod and mark it failed."""
+    _ = admin
+    if character_id != SUMMER_CHARACTER_ID:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Founder generate is Summer-only (character_id={SUMMER_CHARACTER_ID}).")
+    try:
+        job = cancel_job(db, character_id)
+    except FounderGenerateBlocked as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    return _job_payload(job)

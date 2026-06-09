@@ -184,21 +184,17 @@ def _default_executor_factory(
 # ── Orchestration ──────────────────────────────────────────────────────────────
 
 
-def run_founder_generate(
-    db: "Session",
-    character_id: int,
-    prompt: str,
-    *,
-    spend_cap: float = FOUNDER_SPEND_CAP_USD,
-    make_base_generator: Callable[..., Callable[[float], dict]] = _default_make_base_generator,
-    executor_factory: Callable[..., AdultIdentityEnforcementExecutor] = _default_executor_factory,
-    worker_lifecycle: Optional[WorkerLifecycle] = None,
-) -> dict[str, Any]:
-    """Run a Summer-only founder generation through the validated enforcement pipeline.
+def validate_founder_preconditions(
+    db: "Session", character_id: int, prompt: str
+) -> AdultIdentityModel:
+    """Run the founder gates in order; return the Summer identity model if all pass.
 
-    Raises :class:`FounderGenerateBlocked` for gate failures (mapped to HTTP codes).
-    Returns the founder-generate response dict on a completed run (which may still carry
-    ``success=False`` + ``blocking_reasons`` if the executor could not finish).
+    Shared by BOTH the (legacy) synchronous path and the async-job path so the gates —
+    and their HTTP codes — are identical. Raises :class:`FounderGenerateBlocked` on the
+    first failure. No generator/pod/spend is touched here.
+
+    Order: Summer-only (409) → prompt required (422) → identity 'ready' with an active
+    version (409) → prompt safety / minors-illegal (400).
     """
     # ── Gate 1: Summer only (before anything else) ───────────────────────────────
     if character_id != SUMMER_CHARACTER_ID:
@@ -229,6 +225,27 @@ def run_founder_generate(
     block_reason = check_prompt_safety(prompt)
     if block_reason:
         raise FounderGenerateBlocked(400, block_reason)
+
+    return model
+
+
+def run_founder_generate(
+    db: "Session",
+    character_id: int,
+    prompt: str,
+    *,
+    spend_cap: float = FOUNDER_SPEND_CAP_USD,
+    make_base_generator: Callable[..., Callable[[float], dict]] = _default_make_base_generator,
+    executor_factory: Callable[..., AdultIdentityEnforcementExecutor] = _default_executor_factory,
+    worker_lifecycle: Optional[WorkerLifecycle] = None,
+) -> dict[str, Any]:
+    """Run a Summer-only founder generation through the validated enforcement pipeline.
+
+    LEGACY synchronous path (Replicate base + conditioning-preview montage). Retained for
+    rollback; the live founder route uses the async-job path. Raises
+    :class:`FounderGenerateBlocked` for gate failures (mapped to HTTP codes).
+    """
+    model = validate_founder_preconditions(db, character_id, prompt)
 
     # ── Construct generator ONLY now (all gates passed → no spend before here) ────
     lifecycle: WorkerLifecycle = worker_lifecycle or ReplicateWorkerLifecycle()

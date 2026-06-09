@@ -3,11 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon, Download, RefreshCw, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
-import type { Character, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderGenerateResult } from '@/lib/types';
+import type { Character, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob } from '@/lib/types';
 import {
   canFounderGenerate,
   canSubmitFounderPrompt,
-  formatFounderResult,
+  isJobActive,
+  formatFounderJob,
 } from '@/features/adultStudio/founderGenerate';
 
 /**
@@ -81,10 +82,10 @@ export default function Studio18Plus() {
   const [genError, setGenError] = useState('');
   const [genMeta, setGenMeta] = useState<AdultStudioGenerateResult | null>(null);
 
-  // Founder/admin-only Generate (validated pipeline: active LoRA + tattoo enforcement).
+  // Founder/admin-only async Generate (Sprint 13: fire-and-poll RunPod masked diffusion).
   const [founderPrompt, setFounderPrompt] = useState('');
-  const [founderGenerating, setFounderGenerating] = useState(false);
-  const [founderResult, setFounderResult] = useState<AdultStudioFounderGenerateResult | null>(null);
+  const [founderSubmitting, setFounderSubmitting] = useState(false);
+  const [founderJob, setFounderJob] = useState<AdultStudioFounderJob | null>(null);
   const [founderError, setFounderError] = useState('');
 
   const mountedRef = useRef(true);
@@ -125,7 +126,7 @@ export default function Studio18Plus() {
     setPrompt('');
     setExportError('');
     setFounderPrompt('');
-    setFounderResult(null);
+    setFounderJob(null);
     setFounderError('');
     if (selectedId == null || statusByChar[selectedId]) return;
     apiClient
@@ -200,24 +201,6 @@ export default function Studio18Plus() {
     }
   };
 
-  const handleFounderGenerate = async () => {
-    if (!selected || !canSubmitFounderPrompt(founderPrompt, founderGenerating)) return;
-    setFounderGenerating(true);
-    setFounderError('');
-    setFounderResult(null);
-    try {
-      const res = await apiClient.founderGenerateAdultStudio(selected.id, founderPrompt.trim());
-      if (mountedRef.current) setFounderResult(res);
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setFounderError(err instanceof Error ? err.message : 'Founder generation failed');
-      const meta = (err as { meta?: AdultStudioFounderGenerateResult }).meta;
-      if (meta) setFounderResult(meta);
-    } finally {
-      if (mountedRef.current) setFounderGenerating(false);
-    }
-  };
-
   // Founder/admin-only Generate path — Summer only, validated pipeline.
   const showFounderPanel = canFounderGenerate({
     isAdmin,
@@ -225,7 +208,54 @@ export default function Studio18Plus() {
     status: studio?.status,
     activeVersionId: studio?.active_version_id,
   });
-  const founderView = founderResult ? formatFounderResult(founderResult) : null;
+  const founderView = founderJob ? formatFounderJob(founderJob) : null;
+  const founderActive = isJobActive(founderJob?.state);
+
+  const handleFounderGenerate = async () => {
+    if (!selected || !canSubmitFounderPrompt(founderPrompt, founderSubmitting, founderJob?.state)) return;
+    setFounderSubmitting(true);
+    setFounderError('');
+    try {
+      const job = await apiClient.startFounderJob(selected.id, founderPrompt.trim());
+      if (mountedRef.current) { setFounderJob(job); setFounderPrompt(''); }
+    } catch (err) {
+      if (mountedRef.current) setFounderError(err instanceof Error ? err.message : 'Failed to start job');
+    } finally {
+      if (mountedRef.current) setFounderSubmitting(false);
+    }
+  };
+
+  const handleFounderCancel = async () => {
+    if (!selected) return;
+    try {
+      const job = await apiClient.cancelFounderJob(selected.id);
+      if (mountedRef.current) setFounderJob(job);
+    } catch (err) {
+      if (mountedRef.current) setFounderError(err instanceof Error ? err.message : 'Cancel failed');
+    }
+  };
+
+  // Resume any in-flight/last founder job when the Summer panel becomes visible
+  // (refresh-safe — the job lives in the DB, not React state).
+  useEffect(() => {
+    if (!showFounderPanel || selectedId == null) return;
+    let cancelled = false;
+    apiClient.getFounderJob(selectedId)
+      .then((j) => { if (!cancelled && mountedRef.current) setFounderJob(j); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [showFounderPanel, selectedId]);
+
+  // Poll while a founder job is active; the effect tears down once it goes terminal.
+  useEffect(() => {
+    if (!showFounderPanel || selectedId == null || !founderActive) return;
+    const t = setInterval(() => {
+      apiClient.getFounderJob(selectedId)
+        .then((j) => { if (mountedRef.current && j) setFounderJob(j); })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(t);
+  }, [showFounderPanel, selectedId, founderActive]);
 
   return (
     <div className="min-h-screen">
@@ -489,10 +519,10 @@ export default function Studio18Plus() {
           </section>
         )}
 
-        {/* ── Founder/admin-only Generate (validated pipeline) ──────────
-            Summer only, status 'ready', active version present. Uses the active
-            LoRA + enforcement plan + tattoo-enforcement executor (both routes) —
-            NOT the OpenAI gpt-image path. $0.05 hard cap; manual review required. */}
+        {/* ── Founder/admin-only async Generate (RunPod masked diffusion) ──
+            Summer only, status 'ready', active version present. Fire-and-poll: the
+            real final image is the RunPod 99_final — NOT the OpenAI gpt-image path,
+            NOT a montage. $0.05 hard cap; one job at a time; manual review required. */}
         {showFounderPanel && (
           <section className="space-y-3">
             <div className="flex items-center gap-2">
@@ -501,7 +531,7 @@ export default function Studio18Plus() {
             </div>
             <p className="text-xs text-gray-500">
               Summer only · active LoRA + tattoo enforcement · $0.05 cap · admin only.
-              Output requires manual review.
+              Runs on RunPod (a few minutes). Output requires manual review.
             </p>
 
             <textarea
@@ -511,20 +541,39 @@ export default function Studio18Plus() {
               placeholder="Describe the scene for Summer (e.g. relaxing poolside at sunset)…"
               value={founderPrompt}
               onChange={(e) => setFounderPrompt(e.target.value)}
-              disabled={founderGenerating}
+              disabled={founderSubmitting || founderActive}
             />
-            <button
-              type="button"
-              onClick={handleFounderGenerate}
-              disabled={!canSubmitFounderPrompt(founderPrompt, founderGenerating)}
-              className="btn btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
-            >
-              {founderGenerating ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
-              ) : (
-                <><Sparkles className="w-3.5 h-3.5" /> Generate</>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleFounderGenerate}
+                disabled={!canSubmitFounderPrompt(founderPrompt, founderSubmitting, founderJob?.state)}
+                className="btn btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                {founderSubmitting ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Starting…</>
+                ) : (
+                  <><Sparkles className="w-3.5 h-3.5" /> Generate</>
+                )}
+              </button>
+              {founderActive && (
+                <button
+                  type="button"
+                  onClick={handleFounderCancel}
+                  className="btn btn-secondary text-sm flex items-center gap-2"
+                >
+                  <XCircle className="w-3.5 h-3.5" /> Cancel
+                </button>
               )}
-            </button>
+            </div>
+
+            {/* Live job status (queued / running). */}
+            {founderView?.isActive && (
+              <p className="text-sm text-amber-200 bg-amber-950/30 border border-amber-800/40 rounded-lg px-4 py-2 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                {founderView.statusLabel}
+              </p>
+            )}
 
             {founderError && (
               <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
@@ -532,19 +581,18 @@ export default function Studio18Plus() {
               </p>
             )}
 
-            {/* Failure detail (blocking reasons) — always explainable. */}
-            {founderError && founderResult && founderResult.blocking_reasons?.length > 0 && (
+            {/* Failed job — always explainable. */}
+            {founderView?.state === 'failed' && (
               <div className="rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-xs text-red-200/80 space-y-0.5">
                 <p className="font-medium uppercase tracking-wide text-red-300/70 mb-1 flex items-center gap-1.5">
-                  <XCircle className="w-3.5 h-3.5" /> Generation blocked
+                  <XCircle className="w-3.5 h-3.5" /> Generation failed
                 </p>
-                {founderResult.blocking_reasons.map((r, i) => (
-                  <p key={i}>{r}</p>
-                ))}
+                <p>{founderView.errorText}</p>
               </div>
             )}
 
-            {founderView?.finalImageUrl && (
+            {/* Completed — the single real RunPod 99_final image (no montage). */}
+            {founderView?.state === 'completed' && founderView.finalImageUrl && (
               <div className="space-y-2">
                 <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 max-w-md">
                   <img src={founderView.finalImageUrl} alt="Founder Generate result" className="w-full object-cover" />

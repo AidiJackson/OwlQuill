@@ -651,3 +651,23 @@ export interface AdultStudioFounderGenerateResult {
   blocking_reasons: string[];
   orphaned_workers: string[];
 }
+
+// Founder Async Lite (Sprint 13): fire-and-poll job snapshot. POST returns this with
+// state=queued|running; GET reconciles it to completed (real RunPod 99_final) or failed.
+export type AdultStudioFounderJobState = 'queued' | 'running' | 'completed' | 'failed';
+
+export interface AdultStudioFounderJob {
+  job_id: number;
+  character_id: number;
+  state: AdultStudioFounderJobState;
+  run_id: string;
+  final_image_url: string | null;
+  intermediate_artifact_urls: string[];
+  cost: number;
+  runtime: number;
+  routes_executed: AdultStudioFounderRoute[];
+  manual_review_required: boolean;
+  blocking_reasons: string[];
+  orphaned_workers: string[];
+  error?: string | null;
+}
