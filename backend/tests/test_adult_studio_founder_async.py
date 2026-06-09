@@ -357,6 +357,101 @@ def test_map_report_orphan_forces_failure():
     assert any("orphaned workers" in b for b in out["blocking_reasons"])
 
 
+# ── Sprint 13.1: _is_terminal fires ONLY on genuine end signals ────────────────
+
+
+def _inprogress_report():
+    """A still-loading pod report: the driver writes failed/false while in progress."""
+    return {
+        "diffusion_pass": "failed", "success": False, "final_image_url": None,
+        "image_urls": {"base": None, "final": None, "artifacts": []},
+        "routes_executed": [], "spend_usd": 0.0063, "runtime_s": 125.0,
+        "no_orphaned_pods": True, "pod_id": "pod-x", "pod_errors": [],
+        "pod_status_final": "load_pipeline", "manual_review_required": True,
+    }
+
+
+def test_is_terminal_inprogress_is_not_terminal():
+    # diffusion_pass="failed" + success=False while pod_status_final="load_pipeline".
+    assert svc._is_terminal(_inprogress_report()) is False
+
+
+def test_is_terminal_completed():
+    assert svc._is_terminal(_completed_report()) is True
+
+
+def test_is_terminal_pod_errors_is_terminal():
+    assert svc._is_terminal({"diffusion_pass": "failed", "pod_errors": ["fatal: x"],
+                             "pod_status_final": "inpaint_ballerina"}) is True
+
+
+def test_is_terminal_end_stages_are_terminal():
+    for stage in ("done", "aborted_no_gpu", "rate_guard"):
+        assert svc._is_terminal({"diffusion_pass": "failed", "pod_errors": [],
+                                 "pod_status_final": stage}) is True
+
+
+def test_reconcile_inprogress_report_stays_running(client, db_session, monkeypatch):
+    """The original bug: a loading pod must NOT be marked failed and must NOT be killed."""
+    cid = _create_character(client, _register_and_login(client, "ip@test.com", "ipuser"))
+    _build_summer(db_session, cid)
+    _point_summer_at(monkeypatch, cid)
+    job = AdultFounderJob(character_id=cid, prompt="x", state="running",
+                          run_id="run-inprogress", pod_id="pod-x")
+    db_session.add(job); db_session.commit()
+
+    killed = []
+    out = svc.get_latest_job(db_session, cid, report_reader=lambda r: _inprogress_report(),
+                             terminator=lambda pid: killed.append(pid))
+    assert out.state == "running"   # still loading — not failed
+    assert out.final_image_url is None
+    assert killed == []             # no premature pod termination
+
+
+def test_reconcile_completed_report_marks_completed(client, db_session, monkeypatch):
+    cid = _create_character(client, _register_and_login(client, "cp@test.com", "cpuser"))
+    _build_summer(db_session, cid)
+    _point_summer_at(monkeypatch, cid)
+    job = AdultFounderJob(character_id=cid, prompt="x", state="running",
+                          run_id="run-complete", pod_id="pod-c")
+    db_session.add(job); db_session.commit()
+
+    out = svc.get_latest_job(db_session, cid, report_reader=lambda r: _completed_report())
+    assert out.state == "completed"
+    assert out.final_image_url == _FINAL
+
+
+def test_reconcile_pod_error_report_marks_failed(client, db_session, monkeypatch):
+    cid = _create_character(client, _register_and_login(client, "pe@test.com", "peuser"))
+    _build_summer(db_session, cid)
+    _point_summer_at(monkeypatch, cid)
+    job = AdultFounderJob(character_id=cid, prompt="x", state="running",
+                          run_id="run-err", pod_id="pod-e")
+    db_session.add(job); db_session.commit()
+
+    out = svc.get_latest_job(db_session, cid, report_reader=lambda r: _failed_report())
+    assert out.state == "failed"
+    assert "ballerina" in (out.error or "")
+
+
+def test_reconcile_aborted_no_gpu_marks_failed(client, db_session, monkeypatch):
+    cid = _create_character(client, _register_and_login(client, "ng@test.com", "nguser"))
+    _build_summer(db_session, cid)
+    _point_summer_at(monkeypatch, cid)
+    job = AdultFounderJob(character_id=cid, prompt="x", state="running",
+                          run_id="run-nogpu", pod_id=None)
+    db_session.add(job); db_session.commit()
+
+    report = {"diffusion_pass": "failed", "success": False, "final_image_url": None,
+              "image_urls": {"base": None, "final": None, "artifacts": []},
+              "routes_executed": [], "spend_usd": 0.0, "runtime_s": 0.0,
+              "no_orphaned_pods": True, "pod_id": None,
+              "pod_errors": ["fatal: no community GPU available"],
+              "pod_status_final": "aborted_no_gpu", "manual_review_required": True}
+    out = svc.get_latest_job(db_session, cid, report_reader=lambda r: report)
+    assert out.state == "failed"
+
+
 # ── Driver carries the $0.05 proof_lib safety profile ──────────────────────────
 
 

@@ -265,9 +265,21 @@ def _reconcile(
 
 
 def _is_terminal(report: dict[str, Any]) -> bool:
-    """A driver report is terminal once the diffusion pass has a final verdict."""
-    dp = report.get("diffusion_pass")
-    return dp in ("completed", "failed") or report.get("success") is not None
+    """A driver report is terminal ONLY on a genuine end signal.
+
+    The driver rewrites the report on every poll: it sets ``success=False`` and
+    ``diffusion_pass="failed"`` for in-progress states too (the pass only flips to
+    "completed" at the very end). So neither ``success is not None`` (always true) nor a
+    bare ``diffusion_pass="failed"`` means the run finished — using them marked a still-
+    loading pod (``pod_status_final="load_pipeline"``) as failed. Terminal is instead:
+    a completed pass, a recorded pod error, or a true end-state stage. Otherwise the job
+    stays running and is caught by the wall-clock timeout backstop in ``_reconcile``.
+    """
+    return (
+        report.get("diffusion_pass") == "completed"
+        or bool(report.get("pod_errors"))
+        or report.get("pod_status_final") in ("done", "aborted_no_gpu", "rate_guard")
+    )
 
 
 def _map_report_to_result(report: dict[str, Any]) -> dict[str, Any]:
