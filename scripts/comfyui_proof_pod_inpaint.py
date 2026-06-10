@@ -193,7 +193,12 @@ def main():
             ymid = (ymin + ymax) // 2
             out = b.copy()
             if which == "upper":
-                out[ymid:, :] = False
+                # The anatomical elbow sits at ~38-40% of the shoulder->fingertip
+                # span, not the midpoint: a 50% cut leaks ~100px below the elbow
+                # onto the forearm (Sprint 14 butterfly drift). Cut at 40% so the
+                # upper-arm mask stops at the elbow.
+                cut = ymin + int(0.40 * (ymax - ymin))
+                out[cut:, :] = False
             else:  # lower (forearm) — keep the forearm band, DROP the wrist + hand
                 out[:ymid, :] = False
                 if drop_bottom_frac > 0:
@@ -205,7 +210,11 @@ def main():
             return out
 
         if right_arm.sum() > 400:
-            masks["right_upper_arm"] = mask_from_bool(half(right_arm, "upper"))
+            ub = half(right_arm, "upper")
+            uys, uxs = np.where(ub)
+            log(f"right_upper_arm cut bbox: x={int(uxs.min())}-{int(uxs.max())} "
+                f"y={int(uys.min())}-{int(uys.max())}")
+            masks["right_upper_arm"] = mask_from_bool(ub)
             upload_img("02_mask_right_upper_arm", masks["right_upper_arm"].convert("RGB"))
         if left_arm.sum() > 400:
             # Exclude the bottom ~38% of the lower arm (wrist + hand + fingers).
@@ -252,10 +261,37 @@ def main():
     if "left_forearm" in masks:
         push_status("inpaint_ballerina")
         try:
-            m = np.array(masks["left_forearm"]) > 127
+            mask_l = masks["left_forearm"]
+            m = np.array(mask_l) > 127
             ys, xs = np.where(m)
-            x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
-            bw, bh = max(8, x1 - x0), max(8, y1 - y0)
+            x0, x1, y0, y1 = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
+
+            # Region-zoom (Sprint 15A): the forearm bbox is ~107x249px — ~13x31 SDXL
+            # latents, far too small to render a recognisable figure, which is why the
+            # whole-frame pass produced faint generic linework. Inpaint a 3x-upscaled
+            # crop around the bbox instead, then downscale + paste back. The final
+            # feathered composite is unchanged, so pixels outside the tattoo mask still
+            # come from `current` bit-for-bit (Sprint 14 quality guarantee).
+            PAD, ZOOM = 48, 3
+            cx0, cy0 = max(0, x0 - PAD), max(0, y0 - PAD)
+            cw = min(W - cx0, ((x1 + 1 + PAD - cx0 + 7) // 8) * 8)
+            ch = min(H - cy0, ((y1 + 1 + PAD - cy0 + 7) // 8) * 8)
+            cw -= cw % 8
+            ch -= ch % 8
+            cx1, cy1 = cx0 + cw, cy0 + ch
+            zw, zh = cw * ZOOM, ch * ZOOM
+            log(f"ballerina zoom: mask bbox=({x0},{y0})-({x1},{y1}) "
+                f"crop=({cx0},{cy0})+{cw}x{ch} -> {zw}x{zh}")
+
+            crop_img = current.crop((cx0, cy0, cx1, cy1)).resize((zw, zh), Image.LANCZOS)
+            crop_mask = mask_l.crop((cx0, cy0, cx1, cy1)).resize((zw, zh), Image.LANCZOS)
+
+            # Fit the reference edges inside the ZOOMED mask bbox (3x the pixels the
+            # whole-frame pass offered the figure).
+            mz = np.array(crop_mask) > 127
+            zys, zxs = np.where(mz)
+            zx0, zx1, zy0, zy1 = int(zxs.min()), int(zxs.max()), int(zys.min()), int(zys.max())
+            bw, bh = max(8, zx1 - zx0), max(8, zy1 - zy0)
             edges = cv2.Canny(np.array(ballerina), 80, 180)
             ep = Image.fromarray(edges).convert("RGB")
             cr = ballerina.width / ballerina.height
@@ -263,22 +299,28 @@ def main():
                 nh, nw = bh, max(8, int(bh * cr))
             else:
                 nw, nh = bw, max(8, int(bw / cr))
-            ep = ep.resize((nw, nh))
-            ctrl = Image.new("RGB", (W, H), (0, 0, 0))
-            ctrl.paste(ep, (x0 + (bw - nw) // 2, y0 + (bh - nh) // 2))
+            # Re-binarize after resize: resampling averages the 0/255 edge map toward
+            # grey (max ~112/255 in Sprint 14), halving the ControlNet signal.
+            ep = ep.resize((nw, nh)).point(lambda v: 255 if v > 40 else 0)
+            ctrl = Image.new("RGB", (zw, zh), (0, 0, 0))
+            ctrl.paste(ep, (zx0 + (bw - nw) // 2, zy0 + (bh - nh) // 2))
             upload_img("03b_ballerina_canny_control", ctrl)
 
             pipe.set_ip_adapter_scale(0.0)
             raw = pipe(
                 prompt="a photo of TOK, blonde woman, blue bikini, detailed black-and-white "
                        "ballerina dancer tattoo on the left forearm, fine black linework, photorealistic skin",
-                negative_prompt=neg, image=current, mask_image=masks["left_forearm"],
+                negative_prompt=neg, image=crop_img, mask_image=crop_mask,
                 control_image=ctrl, controlnet_conditioning_scale=0.85,
                 ip_adapter_image=ballerina, strength=0.6, num_inference_steps=34,
-                guidance_scale=7.5, width=W, height=H,
+                guidance_scale=7.5, width=zw, height=zh,
                 generator=torch.Generator("cuda").manual_seed(33)).images[0]
-            # Keep ONLY the forearm tattoo zone; preserve the hand + everything else.
-            current = paste_back(raw, current, masks["left_forearm"])
+            # Downscale the inpainted crop into place, then composite through the
+            # feathered mask: only the forearm tattoo zone changes; the hand and
+            # everything else stay base pixels.
+            full_new = current.copy()
+            full_new.paste(raw.resize((cw, ch), Image.LANCZOS), (cx0, cy0))
+            current = paste_back(full_new, current, mask_l)
             upload_img("04_after_ballerina", current)
         except Exception as e:  # noqa: BLE001
             status["errors"].append(f"ballerina: {e!r}")
