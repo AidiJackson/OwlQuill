@@ -1,0 +1,165 @@
+[
+  {
+    "idx": 1,
+    "prompt": "Summer on the beach in a black bikini instead of the black dress.",
+    "job_id": 9,
+    "run_id": "editor_job_20260612_222520_585528c3",
+    "state": "completed",
+    "quality_status": "needs_review",
+    "quality_reasons": [
+      "dress remnants suspected (1736px unchanged from source)"
+    ],
+    "spend_usd": 0.0,
+    "runtime_s": 101.1,
+    "image_id": 1798,
+    "error": null,
+    "stage_images": {
+      "00_source": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/00_source.png",
+      "01_mask_dress": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/01_mask_dress.png",
+      "03_mask_protect": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/03_mask_protect.png",
+      "02_mask_bg": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/02_mask_bg.png",
+      "04_after_outfit": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/04_after_outfit.png",
+      "05_mask_remnant": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/05_mask_remnant.png",
+      "06_after_remnant_cleanup": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/06_after_remnant_cleanup.png",
+      "07_after_scene": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/07_after_scene.png",
+      "08_after_harmonize": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/08_after_harmonize.png",
+      "99_final": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/99_final.png"
+    },
+    "r2_final_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222520_585528c3/99_final.png",
+    "wallclock_s": 120.1,
+    "quality_metrics": {
+      "remnant_px_final": 1736,
+      "seam_ratio": 2.141,
+      "seam_ring_px": 14463
+    },
+    "no_orphaned_pods": true
+  },
+  {
+    "idx": 2,
+    "prompt": "Summer on the beach in a blue bikini instead of the black dress.",
+    "job_id": 10,
+    "run_id": "editor_job_20260612_222720_cd20240d",
+    "state": "completed",
+    "quality_status": "pass",
+    "quality_reasons": [],
+    "spend_usd": 0.0,
+    "runtime_s": 84.5,
+    "image_id": 1799,
+    "error": null,
+    "stage_images": {
+      "00_source": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222720_cd20240d/00_source.png",
+      "01_mask_dress": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222720_cd20240d/01_mask_dress.png",
+      "03_mask_protect": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222720_cd20240d/03_mask_protect.png",
+      "02_mask_bg": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222720_cd20240d/02_mask_bg.png",
+      "04_after_outfit": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222720_cd20240d/04_after_outfit.png",
+      "07_after_scene": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222720_cd20240d/07_after_scene.png",
+      "08_after_harmonize": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222720_cd20240d/08_after_harmonize.png",
+      "99_final": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222720_cd20240d/99_final.png"
+    },
+    "r2_final_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222720_cd20240d/99_final.png",
+    "wallclock_s": 90.1,
+    "quality_metrics": {
+      "remnant_px_final": 253,
+      "seam_ratio": 2.081,
+      "seam_ring_px": 14463
+    },
+    "no_orphaned_pods": true
+  },
+  {
+    "idx": 3,
+    "prompt": "Summer beside a luxury hotel pool in a red bikini instead of the black dress.",
+    "job_id": 11,
+    "run_id": "editor_job_20260612_222850_67d49d41",
+    "state": "completed",
+    "quality_status": "pass",
+    "quality_reasons": [],
+    "spend_usd": 0.0,
+    "runtime_s": 84.5,
+    "image_id": 1800,
+    "error": null,
+    "stage_images": {
+      "00_source": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222850_67d49d41/00_source.png",
+      "01_mask_dress": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222850_67d49d41/01_mask_dress.png",
+      "03_mask_protect": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222850_67d49d41/03_mask_protect.png",
+      "02_mask_bg": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222850_67d49d41/02_mask_bg.png",
+      "04_after_outfit": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222850_67d49d41/04_after_outfit.png",
+      "07_after_scene": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222850_67d49d41/07_after_scene.png",
+      "08_after_harmonize": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222850_67d49d41/08_after_harmonize.png",
+      "99_final": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222850_67d49d41/99_final.png"
+    },
+    "r2_final_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_222850_67d49d41/99_final.png",
+    "wallclock_s": 90.0,
+    "quality_metrics": {
+      "remnant_px_final": 171,
+      "seam_ratio": 1.953,
+      "seam_ring_px": 14463
+    },
+    "no_orphaned_pods": true
+  },
+  {
+    "idx": 4,
+    "prompt": "Summer sitting on a bed in black lace lingerie instead of the black dress.",
+    "job_id": 12,
+    "run_id": "editor_job_20260612_223021_8fccc61e",
+    "state": "completed",
+    "quality_status": "needs_review",
+    "quality_reasons": [
+      "harsh person/background seam (ratio 2.541)"
+    ],
+    "spend_usd": 0.0,
+    "runtime_s": 85.7,
+    "image_id": 1801,
+    "error": null,
+    "stage_images": {
+      "00_source": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/00_source.png",
+      "01_mask_dress": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/01_mask_dress.png",
+      "03_mask_protect": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/03_mask_protect.png",
+      "02_mask_bg": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/02_mask_bg.png",
+      "04_after_outfit": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/04_after_outfit.png",
+      "05_mask_remnant": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/05_mask_remnant.png",
+      "06_after_remnant_cleanup": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/06_after_remnant_cleanup.png",
+      "07_after_scene": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/07_after_scene.png",
+      "08_after_harmonize": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/08_after_harmonize.png",
+      "99_final": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/99_final.png"
+    },
+    "r2_final_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223021_8fccc61e/99_final.png",
+    "wallclock_s": 105.0,
+    "quality_metrics": {
+      "remnant_px_final": 1240,
+      "seam_ratio": 2.541,
+      "seam_ring_px": 14463
+    },
+    "no_orphaned_pods": true
+  },
+  {
+    "idx": 5,
+    "prompt": "Summer walking along a sunny beach boardwalk wearing a white summer dress instead of the black dress.",
+    "job_id": 13,
+    "run_id": "editor_job_20260612_223206_4f34cdb4",
+    "state": "completed",
+    "quality_status": "pass",
+    "quality_reasons": [],
+    "spend_usd": 0.0,
+    "runtime_s": 84.6,
+    "image_id": 1802,
+    "error": null,
+    "stage_images": {
+      "00_source": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223206_4f34cdb4/00_source.png",
+      "01_mask_dress": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223206_4f34cdb4/01_mask_dress.png",
+      "03_mask_protect": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223206_4f34cdb4/03_mask_protect.png",
+      "02_mask_bg": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223206_4f34cdb4/02_mask_bg.png",
+      "04_after_outfit": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223206_4f34cdb4/04_after_outfit.png",
+      "07_after_scene": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223206_4f34cdb4/07_after_scene.png",
+      "08_after_harmonize": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223206_4f34cdb4/08_after_harmonize.png",
+      "99_final": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223206_4f34cdb4/99_final.png"
+    },
+    "r2_final_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/proof/editor_job_20260612_223206_4f34cdb4/99_final.png",
+    "wallclock_s": 90.0,
+    "quality_metrics": {
+      "remnant_px_final": 101,
+      "seam_ratio": 1.677,
+      "seam_ring_px": 14463
+    },
+    "no_orphaned_pods": true
+  }
+]

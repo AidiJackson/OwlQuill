@@ -15,6 +15,18 @@ E5 quality work:
         protect region (face/hair/arms/tattoos/bag) from the SOURCE pixels
   E5.3  quality metrics in status.json (remnant_px_final, seam_ratio) so the
         backend quality gate can mark pass | needs_review | failed
+  E7.1  neckline carve-out: SegFormer labels exposed neck/chest skin as class
+        11 ("face"), so the protect mask used to reach down to the exact dress
+        top edge — the inpaint mask was clipped at the original neckline and
+        the composite feather blended the dark dress edge back in as a band.
+        The repaint zone now climbs CHEST_EXTEND_PX into chest skin above the
+        dress top so the mask boundary (and its feather) lands on skin.
+  E7.2  the carved chest pixels leave the protect mask everywhere (dress/bg
+        subtraction AND the harmonize restore) — face, hair, arms/tattoos and
+        bag keep their own classes and remain fully protected.
+  E7.3  boundary-aware remnant scan: pixels inside the composite feather band
+        (paste-back alpha < 1) blend source back in by construction and are
+        no longer counted as remnants — only the solid repaint core counts.
 
 Architecture: the SOURCE IMAGE IS STRUCTURAL TRUTH. Face, hair, arms
 (tattoos), and bag are never inside any inpaint mask; every pass composites
@@ -62,6 +74,47 @@ HARMONIZE_STRENGTH = 0.18   # full-image fuse pass — low, identity-safe
 PROTECT_RESTORE_BLUR = 5    # feather on the final source-truth protect restore
 SEAM_RING_PX = 7            # boundary band width for the seam-harshness metric
 
+# E7 neckline geometry
+CHEST_EXTEND_PX = 56        # repaint zone may climb this far above the dress top
+CHEST_OVERLAP_PX = 8        # …and this far down past it, to bridge the seam
+SKIN_CLASS = 11             # SegFormer "face" class — includes neck/chest skin
+REMNANT_SOLID_ALPHA = 235   # paste-back alpha >= this counts as solid repaint core
+
+
+def chest_carve(seg, dress_b, extend_px=CHEST_EXTEND_PX):
+    """E7.1: boolean zone of repaintable chest SKIN above the dress top edge.
+
+    Restricted to SKIN_CLASS pixels inside a band extend_px above the dress
+    top, spanning the dress-top columns. Hair, sunglasses, arms (tattoos) and
+    bag are other SegFormer classes, so they can never enter the zone; the
+    real face sits far above a realistic extend_px.
+    """
+    import numpy as np
+
+    chest = np.zeros_like(dress_b)
+    if not dress_b.any():
+        return chest
+    dress_top = int(np.where(dress_b.any(axis=1))[0].min())
+    top_cols = np.where(dress_b[dress_top:dress_top + 24].any(axis=0))[0]
+    y0 = max(0, dress_top - extend_px)
+    chest[y0:dress_top + CHEST_OVERLAP_PX, top_cols.min():top_cols.max() + 1] = True
+    chest &= seg == SKIN_CLASS
+    return chest
+
+
+def solid_repaint_core(dress_mask, feather=COMPOSITE_FEATHER,
+                       min_alpha=REMNANT_SOLID_ALPHA):
+    """E7.3: bool array of pixels whose paste-back alpha is effectively 1.
+
+    Inside the composite feather band the source blends back in by design, so
+    an "unchanged" pixel there is the compositor working, not a remnant.
+    """
+    import numpy as np
+    from PIL import ImageFilter
+
+    alpha = np.array(dress_mask.filter(ImageFilter.GaussianBlur(feather)))
+    return alpha >= min_alpha
+
 import boto3  # noqa: E402
 
 s3 = boto3.client(
@@ -76,7 +129,7 @@ BUCKET = os.environ["R2_BUCKET_NAME"]
 status = {"run_id": RUN_ID, "stage": "start", "images": {}, "errors": [],
           "done": False, "base_model": BASE_MODEL_ID, "lora_loaded": None,
           "mask_px": {}, "remnant_px": None, "quality": {},
-          "editor_version": "e5"}
+          "editor_version": "e7"}
 
 
 def push_status(stage):
@@ -189,9 +242,17 @@ def main():
     dress_b = np.isin(seg, [4, 5, 7, 8])
     protect_b = np.isin(seg, [2, 3, 11, 14, 15, 16])
     bg_b = seg == 0
+
+    # E7.1/E7.2: class 11 covers neck/chest skin, so unmodified protect would
+    # reach down to the exact dress top edge and clip the inpaint mask at the
+    # original neckline (the E6 band artifact). Carve the chest zone out of
+    # protect and hand it to the dress mask instead.
+    chest_b = chest_carve(seg, dress_b)
+    protect_b = protect_b & ~chest_b
     status["mask_px"] = {"dress": int(dress_b.sum()),
                          "protect": int(protect_b.sum()),
-                         "background": int(bg_b.sum())}
+                         "background": int(bg_b.sum()),
+                         "chest_carve": int(chest_b.sum())}
     log(f"mask px: {status['mask_px']}")
     if dress_b.sum() < 2000:
         status["errors"].append("fatal: dress mask too small — segmentation failed")
@@ -206,12 +267,18 @@ def main():
 
     # E4.1/E4.2: WIDE dress mask, TIGHT protect — dress slivers near the arms
     # now fall inside the repaint zone instead of being shielded.
-    dress_mask = bool_to_mask(dress_b, grow=DRESS_GROW, blur=4)
+    # E7.1: the mask also climbs through the chest carve so its top boundary
+    # (and the paste-back feather) lands on skin, not on the old neckline.
+    dress_mask = bool_to_mask(dress_b | chest_b, grow=DRESS_GROW, blur=4)
     protect_grown = Image.fromarray((protect_b.astype("uint8") * 255), "L").filter(
         ImageFilter.MaxFilter(PROTECT_GROW))
     dress_mask = ImageChops.subtract(dress_mask, protect_grown)
     upload_img("01_mask_dress", dress_mask)
     upload_img("03_mask_protect", protect_grown)
+
+    # E7.3: remnant scans only count the solid repaint core — inside the
+    # composite feather band the source survives by design.
+    solid_b = solid_repaint_core(dress_mask)
 
     bg_mask = bool_to_mask(bg_b, grow=7, blur=5)
     bg_mask = ImageChops.subtract(bg_mask, protect_grown)
@@ -252,7 +319,7 @@ def main():
         arr = np.asarray(current).astype(np.int16)
         unchanged = np.abs(arr - src_arr).mean(axis=2) < REMNANT_DIFF_MAX
         prot = np.array(protect_grown) > 127
-        remnant_b = unchanged & dress_b & ~prot
+        remnant_b = unchanged & dress_b & ~prot & solid_b
         status["remnant_px"] = int(remnant_b.sum())
         log(f"remnant px: {status['remnant_px']}")
         if remnant_b.sum() >= REMNANT_MIN_PX:
@@ -314,9 +381,10 @@ def main():
         fluma = (farr[..., 0] * 299 + farr[..., 1] * 587 + farr[..., 2] * 114) // 1000
 
         # Remnants surviving to the FINAL image: source dress pixels unchanged.
+        # E7.3: feather-band pixels excluded — only the solid core counts.
         prot = np.array(protect_grown) > 127
         unchanged_f = np.abs(farr - src_arr).mean(axis=2) < REMNANT_DIFF_MAX
-        remnant_final = int((unchanged_f & dress_b & ~prot).sum())
+        remnant_final = int((unchanged_f & dress_b & ~prot & solid_b).sum())
 
         # Seam harshness: gradient energy in a thin band around the person
         # silhouette vs. the whole frame. A hard cut-out spikes this ratio.
