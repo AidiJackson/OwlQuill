@@ -1,12 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import {
+  EDITOR_DEFAULT_PROVIDER,
   EDITOR_DEFAULT_STRENGTH,
   EDITOR_MAX_SOURCE_IMAGES,
+  EDITOR_PROVIDERS,
+  EDITOR_PROVIDER_HINTS,
+  EDITOR_PROVIDER_LABELS,
+  type KeyValueStorage,
   acceptSourceFiles,
   buildEditorFormData,
   clampStrength,
+  type EditorGenerateResult,
+  type EditorJob,
+  describeEditorJob,
+  isEditorJobActive,
+  isEditorProvider,
+  loadEditorProvider,
+  resolveEditorImageUrl,
+  saveEditorProvider,
   validateEditorForm,
 } from '../editorGenerate';
+
+function fakeStorage(initial: Record<string, string> = {}): KeyValueStorage & { data: Record<string, string> } {
+  const data = { ...initial };
+  return {
+    data,
+    getItem: (k) => (k in data ? data[k] : null),
+    setItem: (k, v) => {
+      data[k] = v;
+    },
+  };
+}
 
 function fakeFile(name: string, type = 'image/png'): File {
   return new File(['x'], name, { type });
@@ -60,6 +84,153 @@ describe('acceptSourceFiles', () => {
     const existing = [fakeFile('1.png'), fakeFile('2.png'), fakeFile('3.png')];
     const out = acceptSourceFiles(existing, [fakeFile('4.png')]);
     expect(out).toHaveLength(EDITOR_MAX_SOURCE_IMAGES);
+  });
+});
+
+describe('editor providers (E2)', () => {
+  it('includes grok in the provider list', () => {
+    expect(EDITOR_PROVIDERS).toContain('grok');
+  });
+  it('keeps gpt-image as the default', () => {
+    expect(EDITOR_DEFAULT_PROVIDER).toBe('gpt-image');
+  });
+  it('validates provider names', () => {
+    expect(isEditorProvider('grok')).toBe(true);
+    expect(isEditorProvider('gpt-image')).toBe(true);
+    expect(isEditorProvider('dall-e-1')).toBe(false);
+    expect(isEditorProvider(null)).toBe(false);
+  });
+  it('persists and reloads a grok selection', () => {
+    const storage = fakeStorage();
+    saveEditorProvider(storage, 'grok');
+    expect(loadEditorProvider(storage)).toBe('grok');
+  });
+  it('falls back to the default for missing or unknown stored values', () => {
+    expect(loadEditorProvider(fakeStorage())).toBe(EDITOR_DEFAULT_PROVIDER);
+    const storage = fakeStorage();
+    saveEditorProvider(storage, 'not-a-provider');
+    expect(loadEditorProvider(storage)).toBe(EDITOR_DEFAULT_PROVIDER);
+  });
+});
+
+describe('self_hosted provider (E4)', () => {
+  it('includes self_hosted in the provider list with its premium label', () => {
+    expect(EDITOR_PROVIDERS).toContain('self_hosted');
+    expect(isEditorProvider('self_hosted')).toBe(true);
+    expect(EDITOR_PROVIDER_LABELS.self_hosted).toBe('Self Hosted Premium');
+    expect(EDITOR_PROVIDER_HINTS.self_hosted).toMatch(/unrestricted/i);
+  });
+  it('persists and reloads a self_hosted selection', () => {
+    const storage = fakeStorage();
+    saveEditorProvider(storage, 'self_hosted');
+    expect(loadEditorProvider(storage)).toBe('self_hosted');
+  });
+  it('requires exactly one source image for self_hosted', () => {
+    const base = { characterId: 60, prompt: 'Blue bikini at a beach resort', provider: 'self_hosted' };
+    expect(validateEditorForm({ ...base, fileCount: 1 })).toBeNull();
+    expect(validateEditorForm({ ...base, fileCount: 2 })).toMatch(/exactly 1/i);
+  });
+  it('does not apply the single-image rule to other providers', () => {
+    expect(
+      validateEditorForm({ characterId: 60, prompt: 'x', fileCount: 2, provider: 'grok' }),
+    ).toBeNull();
+  });
+});
+
+describe('async editor jobs (E5)', () => {
+  const baseJob: EditorJob = {
+    id: 7,
+    character_id: 60,
+    provider: 'self_hosted',
+    prompt: 'Black bikini on the beach',
+    state: 'running',
+    run_id: 'editor_job_x',
+  };
+
+  it('classifies active states', () => {
+    expect(isEditorJobActive('queued')).toBe(true);
+    expect(isEditorJobActive('running')).toBe(true);
+    expect(isEditorJobActive('completed')).toBe(false);
+    expect(isEditorJobActive('failed')).toBe(false);
+    expect(isEditorJobActive(null)).toBe(false);
+  });
+
+  it('returns null for no job', () => {
+    expect(describeEditorJob(null)).toBeNull();
+  });
+
+  it('describes a running job', () => {
+    const out = describeEditorJob(baseJob)!;
+    expect(out.kind).toBe('running');
+    expect(out.imageUrl).toBeNull();
+  });
+
+  it('describes a clean completed job as success with its image', () => {
+    const out = describeEditorJob({
+      ...baseJob,
+      state: 'completed',
+      quality_status: 'pass',
+      final_image_url: '/static/final.png',
+    })!;
+    expect(out.kind).toBe('success');
+    expect(out.imageUrl).toBe('/static/final.png');
+  });
+
+  it('does NOT call a needs_review result a success', () => {
+    const out = describeEditorJob({
+      ...baseJob,
+      state: 'completed',
+      quality_status: 'needs_review',
+      final_image_url: '/static/final.png',
+      result: { quality_reasons: ['harsh person/background seam (ratio 3.1)'] },
+    })!;
+    expect(out.kind).toBe('needs_review');
+    expect(out.message).toMatch(/seam/);
+    expect(out.imageUrl).toBe('/static/final.png');
+  });
+
+  it('describes a failed job with its error', () => {
+    const out = describeEditorJob({ ...baseJob, state: 'failed', error: 'spend cap hit' })!;
+    expect(out.kind).toBe('failed');
+    expect(out.message).toBe('spend cap hit');
+    expect(out.imageUrl).toBeNull();
+  });
+
+  it('falls back to the nested image url for completed jobs', () => {
+    const out = describeEditorJob({
+      ...baseJob,
+      state: 'completed',
+      quality_status: 'pass',
+      image: { id: 9, file_path: 'x', url: '/static/nested.png' },
+    })!;
+    expect(out.imageUrl).toBe('/static/nested.png');
+  });
+});
+
+describe('resolveEditorImageUrl (E4.1)', () => {
+  const base: EditorGenerateResult = {
+    success: true,
+    image_url: null,
+    character_id: 60,
+    provider: 'self_hosted',
+    prompt: 'x',
+    strength: 0.25,
+    image: null,
+  };
+
+  it('prefers the top-level image_url', () => {
+    expect(
+      resolveEditorImageUrl({ ...base, image_url: '/static/a.png', image: { id: 1, file_path: 'a', url: '/static/b.png' } }),
+    ).toBe('/static/a.png');
+  });
+  it('falls back to the nested image.url', () => {
+    expect(
+      resolveEditorImageUrl({ ...base, image: { id: 1, file_path: 'a', url: '/static/b.png' } }),
+    ).toBe('/static/b.png');
+  });
+  it('returns null when no URL is present', () => {
+    expect(resolveEditorImageUrl(base)).toBeNull();
+    expect(resolveEditorImageUrl(null)).toBeNull();
   });
 });
 

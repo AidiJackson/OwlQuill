@@ -39,10 +39,12 @@ from app.models.adult_identity import (
     AdultIdentityMarkRender,
 )
 from app.models.adult_founder_job import AdultFounderJob
+from app.models.editor_job import EditorJob
 
 __all__ = [
     "AdultStudioIdentity",
     "AdultFounderJob",
+    "EditorJob",
     "AdultIdentityModel",
     "AdultIdentityModelVersion",
     "AdultIdentityTrainingJob",

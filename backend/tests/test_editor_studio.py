@@ -63,6 +63,8 @@ def _form(character_id: int, prompt: str = "Same character on a beach", **overri
 
 def _mock_editor(captured: dict | None = None) -> MagicMock:
     editor = MagicMock()
+    editor.provider_name = "gpt-image"
+    editor.editor_version = "e1"
 
     def _edit(*, prompt, source_images, strength, **kwargs):
         if captured is not None:
@@ -199,7 +201,7 @@ def test_provider_validation(client):
     cid = _create_character(client, token)
     resp = client.post(
         ENDPOINT,
-        data=_form(cid, provider="grok"),
+        data=_form(cid, provider="dall-e-1"),
         files=[_png_file()],
         headers=auth_headers(token),
     )
@@ -284,6 +286,165 @@ def test_library_image_id_source(client, db_session):
     assert resp.status_code == 200, resp.text
     assert len(captured["source_images"]) == 1
     assert resp.json()["image"]["metadata_json"]["source_image_ids"] == [src.id]
+
+
+# ── E2: grok provider ─────────────────────────────────────────────────
+
+
+def test_grok_provider_accepted(client, db_session):
+    """provider=grok dispatches and persists provider/editor_version=e2 metadata."""
+    token = get_auth_token(client)
+    cid = _create_character(client, token)
+    grok_editor = _mock_editor()
+    grok_editor.provider_name = "grok"
+    grok_editor.editor_version = "e2"
+    with patch(
+        "app.api.routes.editor_studio.get_editor", return_value=grok_editor
+    ) as mock_get:
+        resp = client.post(
+            ENDPOINT,
+            data=_form(cid, provider="grok"),
+            files=[_png_file()],
+            headers=auth_headers(token),
+        )
+    assert resp.status_code == 200, resp.text
+    mock_get.assert_called_once_with("grok")
+    body = resp.json()
+    assert body["provider"] == "grok"
+    meta = body["image"]["metadata_json"]
+    assert meta["provider"] == "grok"
+    assert meta["editor_version"] == "e2"
+    assert meta["input_fidelity"] is None  # grok has no API-level fidelity control
+    assert meta["strength"] == pytest.approx(0.25)
+
+
+def test_self_hosted_provider_accepted(client, db_session):
+    """provider=self_hosted dispatches and persists transform-mode e4 metadata."""
+    token = get_auth_token(client)
+    cid = _create_character(client, token)
+    sh_editor = _mock_editor()
+    sh_editor.provider_name = "self_hosted"
+    sh_editor.editor_version = "e4"
+    with patch(
+        "app.api.routes.editor_studio.get_editor", return_value=sh_editor
+    ) as mock_get:
+        resp = client.post(
+            ENDPOINT,
+            data=_form(cid, provider="self_hosted"),
+            files=[_png_file()],
+            headers=auth_headers(token),
+        )
+    assert resp.status_code == 200, resp.text
+    mock_get.assert_called_once_with("self_hosted")
+    meta = resp.json()["image"]["metadata_json"]
+    assert meta["editor_provider"] == "self_hosted"
+    assert meta["editor_mode"] == "transform"
+    assert meta["editor_version"] == "e4"
+    assert meta["input_fidelity"] is None
+
+
+def test_self_hosted_requires_exactly_one_source(client):
+    """self_hosted is a single-image transform — 2 sources is a 422, no editor call."""
+    token = get_auth_token(client)
+    cid = _create_character(client, token)
+    with patch("app.api.routes.editor_studio.get_editor") as mock_get:
+        resp = client.post(
+            ENDPOINT,
+            data=_form(cid, provider="self_hosted"),
+            files=[_png_file("a.png"), _png_file("b.png")],
+            headers=auth_headers(token),
+        )
+    assert resp.status_code == 422
+    assert "exactly 1" in resp.json()["detail"]
+    mock_get.assert_not_called()
+
+
+def test_self_hosted_editor_dispatch():
+    """get_editor('self_hosted') returns the RunPod backend when env is configured."""
+    import os
+    from unittest.mock import patch as _patch
+
+    from app.services.editor_self_hosted import SelfHostedImageEditor
+    from app.services.editor_studio import get_editor
+
+    env = {
+        "RUNPOD_API_KEY": "k", "R2_ACCOUNT_ID": "a", "R2_ACCESS_KEY_ID": "ak",
+        "R2_SECRET_ACCESS_KEY": "s", "R2_BUCKET_NAME": "b", "R2_PUBLIC_URL": "u",
+    }
+    with _patch.dict(os.environ, env):
+        sh = get_editor("self_hosted")
+    assert isinstance(sh, SelfHostedImageEditor)
+    assert sh.provider_name == "self_hosted"
+    assert sh.editor_version == "e4"
+
+
+def test_get_editor_dispatch():
+    """get_editor returns the right backend class per provider name."""
+    from unittest.mock import patch as _patch
+
+    from app.core.config import settings
+    from app.services.editor_studio import GptImageEditor, GrokImageEditor, get_editor
+
+    with _patch.object(settings, "OPENAI_API_KEY", "test-key"), _patch.object(
+        settings, "OPENROUTER_API_KEY", "test-key"
+    ):
+        assert isinstance(get_editor("gpt-image"), GptImageEditor)
+        grok = get_editor("grok")
+        assert isinstance(grok, GrokImageEditor)
+        assert grok.editor_version == "e2"
+    with pytest.raises(ValueError):
+        get_editor("not-a-provider")
+
+
+def test_grok_editor_payload_and_parse():
+    """GrokImageEditor builds the OpenRouter multimodal payload and decodes the data-URL reply."""
+    import base64
+    from unittest.mock import patch as _patch
+
+    from app.core.config import settings
+    from app.services.editor_studio import GrokImageEditor
+
+    with _patch.object(settings, "OPENROUTER_API_KEY", "test-key"):
+        editor = GrokImageEditor()
+
+    payload = editor._build_payload(prompt="Beach scene", source_images=[_PNG_BYTES, _PNG_BYTES])
+    assert payload["model"] == settings.OPENROUTER_GROK_IMAGE_MODEL
+    assert payload["modalities"] == ["image"]  # grok endpoints are image-output-only
+    content = payload["messages"][0]["content"]
+    assert [part["type"] for part in content] == ["image_url", "image_url", "text"]
+    assert content[0]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert "Beach scene" in content[-1]["text"]
+    # Identity-preservation wrapper is applied.
+    assert "SAME person" in content[-1]["text"]
+
+    encoded = base64.b64encode(_PNG_BYTES).decode("ascii")
+    body = {
+        "choices": [
+            {"message": {"images": [{"image_url": {"url": f"data:image/png;base64,{encoded}"}}]}}
+        ]
+    }
+    assert editor._parse_image_bytes(body) == _PNG_BYTES
+
+    with pytest.raises(RuntimeError, match="missing expected image structure"):
+        editor._parse_image_bytes({"choices": [{"message": {}}]})
+
+
+def test_grok_editor_failure_returns_502(client):
+    """A provider-side grok failure surfaces as 502 with detail, nothing saved."""
+    token = get_auth_token(client)
+    cid = _create_character(client, token)
+    failing = MagicMock()
+    failing.editor_version = "e2"
+    failing.edit = MagicMock(side_effect=RuntimeError("grok edit failed (HTTP 400): blocked"))
+    with patch("app.api.routes.editor_studio.get_editor", return_value=failing):
+        resp = client.post(
+            ENDPOINT,
+            data=_form(cid, provider="grok"),
+            files=[_png_file()],
+            headers=auth_headers(token),
+        )
+    assert resp.status_code == 502
+    assert "grok" in resp.json()["detail"]
 
 
 def test_library_image_id_wrong_character(client, db_session):

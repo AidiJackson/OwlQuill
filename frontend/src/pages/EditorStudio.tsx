@@ -5,14 +5,23 @@ import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Character } from '@/lib/types';
 import {
-  EDITOR_DEFAULT_PROVIDER,
   EDITOR_DEFAULT_STRENGTH,
   EDITOR_MAX_SOURCE_IMAGES,
   EDITOR_MAX_STRENGTH,
   EDITOR_MIN_STRENGTH,
+  EDITOR_JOB_POLL_MS,
+  EDITOR_PROVIDERS,
+  EDITOR_PROVIDER_HINTS,
+  EDITOR_PROVIDER_LABELS,
   type EditorGenerateResult,
+  type EditorJob,
   acceptSourceFiles,
   buildEditorFormData,
+  describeEditorJob,
+  isEditorJobActive,
+  loadEditorProvider,
+  resolveEditorImageUrl,
+  saveEditorProvider,
   validateEditorForm,
 } from '@/features/editorStudio/editorGenerate';
 
@@ -34,12 +43,38 @@ export default function EditorStudio() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
   const [strength, setStrength] = useState(EDITOR_DEFAULT_STRENGTH);
-  const [provider, setProvider] = useState(EDITOR_DEFAULT_PROVIDER);
+  const [provider, setProvider] = useState(() => loadEditorProvider(localStorage));
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<EditorGenerateResult | null>(null);
+  const [job, setJob] = useState<EditorJob | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Poll an active self-hosted job until it reaches a terminal state (E5).
+  useEffect(() => {
+    if (!job || !isEditorJobActive(job.state)) return;
+    const timer = setInterval(async () => {
+      try {
+        const next = await apiClient.editorJobGet(job.id);
+        setJob(next);
+      } catch (e) {
+        console.error('EDITOR_JOB_POLL_ERROR', e);
+      }
+    }, EDITOR_JOB_POLL_MS);
+    return () => clearInterval(timer);
+  }, [job]);
+
+  // Resume the latest self-hosted job on mount/refresh (admin only).
+  useEffect(() => {
+    if (!isAdmin || !characterId) return;
+    apiClient
+      .editorJobLatest(characterId)
+      .then((latest) => {
+        if (latest) setJob(latest);
+      })
+      .catch(() => undefined);
+  }, [isAdmin, characterId]);
 
   useEffect(() => {
     apiClient
@@ -71,7 +106,12 @@ export default function EditorStudio() {
   }
 
   async function handleGenerate() {
-    const validationError = validateEditorForm({ characterId, prompt, fileCount: files.length });
+    const validationError = validateEditorForm({
+      characterId,
+      prompt,
+      fileCount: files.length,
+      provider: isAdmin ? provider : 'gpt-image',
+    });
     if (validationError) {
       setError(validationError);
       return;
@@ -80,21 +120,39 @@ export default function EditorStudio() {
     setError(null);
     setResult(null);
     try {
+      const effectiveProvider = isAdmin ? provider : 'gpt-image';
       const form = buildEditorFormData({
         characterId: characterId!,
         prompt,
-        provider,
+        provider: effectiveProvider,
         strength,
         files,
       });
-      const res = await apiClient.editorGenerate(form);
-      setResult(res);
+      if (effectiveProvider === 'self_hosted') {
+        // Async fire-and-poll (E5): the request returns immediately with a
+        // job; polling renders the result. No multi-minute blocking request.
+        setJob(await apiClient.editorJobStart(form));
+      } else {
+        const res = await apiClient.editorGenerate(form);
+        setResult(res);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Editor generation failed.');
     } finally {
       setLoading(false);
     }
   }
+
+  async function handleCancelJob() {
+    if (!job || !isEditorJobActive(job.state)) return;
+    try {
+      setJob(await apiClient.editorJobCancel(job.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Cancel failed.');
+    }
+  }
+
+  const jobOutcome = describeEditorJob(job);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
@@ -228,11 +286,23 @@ export default function EditorStudio() {
             </label>
             <select
               value={provider}
-              onChange={(e) => setProvider(e.target.value)}
+              onChange={(e) => {
+                setProvider(e.target.value as typeof provider);
+                saveEditorProvider(localStorage, e.target.value);
+              }}
               className="w-full mb-6 bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-600"
             >
-              <option value="gpt-image">gpt-image</option>
+              {EDITOR_PROVIDERS.map((p) => (
+                <option key={p} value={p}>
+                  {EDITOR_PROVIDER_LABELS[p]}
+                </option>
+              ))}
             </select>
+            {EDITOR_PROVIDER_HINTS[provider as keyof typeof EDITOR_PROVIDER_HINTS] && (
+              <p className="-mt-4 mb-6 text-xs text-violet-300/80">
+                {EDITOR_PROVIDER_HINTS[provider as keyof typeof EDITOR_PROVIDER_HINTS]}
+              </p>
+            )}
           </>
         )}
 
@@ -240,7 +310,7 @@ export default function EditorStudio() {
         <button
           type="button"
           onClick={handleGenerate}
-          disabled={loading}
+          disabled={loading || isEditorJobActive(job?.state)}
           className="w-full inline-flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors"
         >
           {loading ? (
@@ -262,30 +332,99 @@ export default function EditorStudio() {
           </div>
         )}
 
-        {/* Output preview */}
-        {result?.image_url && (
+        {/* Async self-hosted job (E5): running / needs_review / success / failed */}
+        {jobOutcome && (
+          <div className="mt-6">
+            {jobOutcome.kind === 'running' && (
+              <div className="flex items-center justify-between text-sm border border-violet-900/60 bg-violet-950/30 rounded-lg px-3 py-2.5">
+                <span className="flex items-center gap-2 text-violet-200">
+                  <Loader2 className="w-4 h-4 animate-spin" /> {jobOutcome.message}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCancelJob}
+                  className="text-red-300 hover:text-red-200 font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {jobOutcome.kind === 'failed' && (
+              <div className="flex items-start gap-2 text-sm text-red-300 border border-red-900/60 bg-red-950/40 rounded-lg px-3 py-2.5">
+                <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>{jobOutcome.message}</span>
+              </div>
+            )}
+            {(jobOutcome.kind === 'success' || jobOutcome.kind === 'needs_review') && (
+              <div>
+                <h2 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-violet-400" /> Result
+                  {jobOutcome.kind === 'needs_review' && (
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-300 border border-amber-800/60 bg-amber-900/30 rounded-full px-2 py-0.5">
+                      Needs review
+                    </span>
+                  )}
+                </h2>
+                {jobOutcome.kind === 'needs_review' && (
+                  <p className="text-xs text-amber-300/90 mb-3">{jobOutcome.message}</p>
+                )}
+                {jobOutcome.imageUrl && (
+                  <img
+                    src={jobOutcome.imageUrl}
+                    alt={job?.prompt ?? 'Editor result'}
+                    className="w-full rounded-xl border border-gray-800"
+                  />
+                )}
+                <div className="mt-3 flex items-center justify-between text-sm">
+                  <span className="text-gray-500">
+                    Saved to the character's image library
+                    {job?.image_id ? ` (image #${job.image_id})` : ''}.
+                  </span>
+                  {jobOutcome.imageUrl && (
+                    <a
+                      href={jobOutcome.imageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-violet-400 hover:text-violet-300"
+                    >
+                      Open saved image
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Output preview — render on success even if the URL key is absent,
+            so a saved image never shows as a silent/false failure. */}
+        {result?.success && (
           <div className="mt-8">
             <h2 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
               <ImageIcon className="w-4 h-4 text-violet-400" /> Result
             </h2>
-            <img
-              src={result.image_url}
-              alt={result.prompt}
-              className="w-full rounded-xl border border-gray-800"
-            />
+            {resolveEditorImageUrl(result) && (
+              <img
+                src={resolveEditorImageUrl(result)!}
+                alt={result.prompt}
+                className="w-full rounded-xl border border-gray-800"
+              />
+            )}
             <div className="mt-3 flex items-center justify-between text-sm">
               <span className="text-gray-500">
                 Saved to the character's image library
                 {result.image ? ` (image #${result.image.id})` : ''}.
               </span>
-              <a
-                href={result.image_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-violet-400 hover:text-violet-300"
-              >
-                Open saved image
-              </a>
+              {resolveEditorImageUrl(result) && (
+                <a
+                  href={resolveEditorImageUrl(result)!}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-violet-400 hover:text-violet-300"
+                >
+                  Open saved image
+                </a>
+              )}
             </div>
           </div>
         )}

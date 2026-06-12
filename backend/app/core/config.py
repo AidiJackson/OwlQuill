@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     # OPENROUTER_IMAGE_MODEL selects the image-generation model on OpenRouter.
     OPENROUTER_IMAGE_MODEL: str = "openai/gpt-image-1"
 
+    # Grok Imagine via OpenRouter — Editor Studio (E2) image-to-image editing.
+    # Uses the shared OPENROUTER_API_KEY; admin-only in the editor provider selector.
+    OPENROUTER_GROK_IMAGE_MODEL: str = "x-ai/grok-imagine-image-quality"
+
     # FLUX via OpenRouter — admin/internal testing only (option3 / option4).
     # FLUX does NOT support multi-reference image conditioning; generation is
     # text-to-image only.  Set these to the exact OpenRouter model slugs.

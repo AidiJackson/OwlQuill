@@ -666,10 +666,56 @@ class ApiClient {
       credentials: 'include',
     });
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Editor generation failed' }));
+      const error = await response
+        .json()
+        .catch(() => ({ detail: `Editor generation failed (HTTP ${response.status})` }));
+      console.error('EDITOR_RESPONSE_ERROR', response.status, error);
       throw new Error(typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail));
     }
-    return response.json();
+    const result = await response.json();
+    console.log('EDITOR_RESPONSE', result);
+    return result;
+  }
+
+  // ── Editor Studio async jobs (Sprint E5, self_hosted only) ────────────────
+
+  /** Start an async self-hosted editor transform; returns the queued job. */
+  async editorJobStart(form: FormData): Promise<import('../features/editorStudio/editorGenerate').EditorJob> {
+    const token = this.getToken();
+    const response = await fetch(`${API_BASE_URL}/editor/jobs`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ detail: `Editor job start failed (HTTP ${response.status})` }));
+      console.error('EDITOR_JOB_ERROR', response.status, error);
+      throw new Error(typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail));
+    }
+    const job = await response.json();
+    console.log('EDITOR_JOB_STARTED', job);
+    return job;
+  }
+
+  /** Poll one editor job by id (reconciles running jobs server-side). */
+  async editorJobGet(jobId: number): Promise<import('../features/editorStudio/editorGenerate').EditorJob> {
+    return this.request(`/editor/jobs/${jobId}`);
+  }
+
+  /** Latest editor job for a character, or null if none was ever started. */
+  async editorJobLatest(characterId: number): Promise<import('../features/editorStudio/editorGenerate').EditorJob | null> {
+    const envelope = await this.request<{ job: import('../features/editorStudio/editorGenerate').EditorJob | null }>(
+      `/editor/jobs/latest?character_id=${characterId}`,
+    );
+    return envelope.job;
+  }
+
+  /** Cancel an active editor job (terminates its pod best-effort). */
+  async editorJobCancel(jobId: number): Promise<import('../features/editorStudio/editorGenerate').EditorJob> {
+    return this.request(`/editor/jobs/${jobId}/cancel`, { method: 'POST' });
   }
 
   // ── RP Story Threads ──────────────────────────────────────────────────────
