@@ -14,7 +14,7 @@ from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
 from app.core.starter_seed import ensure_starter_realms_and_posts
 from app.core.invite_seed import seed_invite_codes
 from app.core.style_shop_seed import seed_style_presets
-from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory, identity_evolution, candidate_slot, notifications, style_shops, body_canon, body_identity, canon_api, adult_studio, adult_studio_admin
+from app.api.routes import auth, users, characters, realms, posts, comments, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory, identity_evolution, candidate_slot, notifications, style_shops, body_canon, body_identity, canon_api, adult_studio, adult_studio_admin, editor_studio
 from app.api.routes.story_spaces import published_router
 from app.api.routes import rp_stories
 
@@ -123,6 +123,7 @@ app.include_router(canon_api.router, prefix="/characters", tags=["identity-canon
 app.include_router(rp_stories.router, prefix="/rp-stories", tags=["rp-stories"])
 app.include_router(adult_studio.router, prefix="/adult-studio", tags=["adult-studio"])
 app.include_router(adult_studio_admin.router, prefix="/admin/adult-studio", tags=["adult-studio-admin"])
+app.include_router(editor_studio.router, prefix="/editor", tags=["editor-studio"])
 
 # Mirror all routes under /api/* prefix
 api_router = APIRouter(prefix="/api")
@@ -159,6 +160,7 @@ api_router.include_router(canon_api.router, prefix="/characters", tags=["identit
 api_router.include_router(rp_stories.router, prefix="/rp-stories", tags=["rp-stories"])
 api_router.include_router(adult_studio.router, prefix="/adult-studio", tags=["adult-studio"])
 api_router.include_router(adult_studio_admin.router, prefix="/admin/adult-studio", tags=["adult-studio-admin"])
+api_router.include_router(editor_studio.router, prefix="/editor", tags=["editor-studio"])
 app.include_router(api_router)
 
 

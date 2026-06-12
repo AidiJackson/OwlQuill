@@ -32,6 +32,7 @@ import StorySpacePublish from '@/pages/StorySpacePublish';
 import PublishedStoryReader from '@/pages/PublishedStoryReader';
 import Notifications from '@/pages/Notifications';
 import Studio18Plus from '@/pages/Studio18Plus';
+import EditorStudio from '@/pages/EditorStudio';
 
 function RouteLogger() {
   const location = useLocation();
@@ -139,6 +140,15 @@ function App() {
           element={
             <ProtectedRoute>
               <Studio18Plus />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/editor-studio"
+          element={
+            <ProtectedRoute>
+              <EditorStudio />
             </ProtectedRoute>
           }
         />

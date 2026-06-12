@@ -654,6 +654,24 @@ class ApiClient {
     return resp.json();
   }
 
+  // ── Editor Studio (Sprint E1) ─────────────────────────────────────────────
+
+  /** Edit/transform 1-3 existing character images via POST /editor/generate. */
+  async editorGenerate(form: FormData): Promise<import('../features/editorStudio/editorGenerate').EditorGenerateResult> {
+    const token = this.getToken();
+    const response = await fetch(`${API_BASE_URL}/editor/generate`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Editor generation failed' }));
+      throw new Error(typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail));
+    }
+    return response.json();
+  }
+
   // ── RP Story Threads ──────────────────────────────────────────────────────
 
   async createRPStory(data: CreateRPStoryRequest): Promise<RPStoryThreadDetail> {

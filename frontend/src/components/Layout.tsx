@@ -53,6 +53,7 @@ export default function Layout() {
   const isStoryLab      = p.startsWith('/storylab');
   const isRPStories     = p.startsWith('/rp-stories');
   const isImages        = p.startsWith('/images');
+  const isEditorStudio  = p.startsWith('/editor-studio');
   const isMessages      = p.startsWith('/messages');
   const isNotifications = p.startsWith('/notifications');
   const isProfile       = p.startsWith('/u/') || p === '/profile';
@@ -122,6 +123,13 @@ export default function Layout() {
           onClick={closeSidebar}
         >
           Images
+        </Link>
+        <Link
+          to="/editor-studio"
+          className={navCls(isEditorStudio)}
+          onClick={closeSidebar}
+        >
+          Editor Studio
         </Link>
         <Link
           to="/messages"
