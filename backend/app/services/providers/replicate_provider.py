@@ -199,11 +199,20 @@ class ReplicateImg2ImgProvider:
             raise ReplicateImg2ImgError(f"GET {url} -> {status_code}")
         return resp.content
 
-    def _run_model(self, model_ref: str, payload: dict, source_url: str, prompt: str) -> bytes:
+    @staticmethod
+    def _strength_field(model_ref: str) -> str:
+        """Input field for denoise strength: asiryan/* models use ``strength``; others ``prompt_strength``."""
+        return "strength" if model_ref.startswith("asiryan/") else "prompt_strength"
+
+    def _run_model(
+        self, model_ref: str, base_payload: dict, strength_value: float, source_url: str, prompt: str
+    ) -> bytes:
         """Create → await → download for one model. Raises on any failure."""
+        field = self._strength_field(model_ref)
+        payload = {**base_payload, field: strength_value}  # send exactly ONE strength field
         logger.info(
-            "REPLICATE_TEST model=%s strength=%s source=%s prompt=%s",
-            model_ref, payload["prompt_strength"], source_url, prompt,
+            "REPLICATE_TEST model=%s %s=%s source=%s prompt=%s",
+            model_ref, field, strength_value, source_url, prompt,
         )
         prediction = self._create_prediction(model_ref, payload)
         prediction = self._await_prediction(prediction)
@@ -235,12 +244,14 @@ class ReplicateImg2ImgProvider:
             raise ReplicateImg2ImgError("img2img requires a non-empty prompt")
 
         source_url = self._upload_source(source_image_bytes)
-        payload = {
+        # The strength field name is model-specific (added per-model in _run_model), so the
+        # base payload carries everything EXCEPT strength — never both keys at once.
+        base_payload = {
             "image": source_url,
             "prompt": prompt.strip(),
             "negative_prompt": negative_prompt,
-            "prompt_strength": float(self._strength if strength is None else strength),
         }
+        strength_value = float(self._strength if strength is None else strength)
 
         candidates = [self._model_ref]
         if self._fallback_model_ref and self._fallback_model_ref != self._model_ref:
@@ -249,7 +260,7 @@ class ReplicateImg2ImgProvider:
         last_error: Optional[Exception] = None
         for model_ref in candidates:
             try:
-                png = self._run_model(model_ref, payload, source_url, prompt.strip())
+                png = self._run_model(model_ref, base_payload, strength_value, source_url, prompt.strip())
                 return png, model_ref
             except Exception as exc:  # noqa: BLE001 - try fallback, then re-raise
                 last_error = exc

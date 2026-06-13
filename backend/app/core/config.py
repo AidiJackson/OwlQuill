@@ -202,11 +202,12 @@ class Settings(BaseSettings):
     #   ADULT_STUDIO_REPLICATE_IMG2IMG_MODEL: primary "owner/name" (or "owner/name:version").
     #   ADULT_STUDIO_REPLICATE_IMG2IMG_MODEL_FALLBACK: model tried if the primary fails.
     #   ADULT_STUDIO_REPLICATE_IMG2IMG_STRENGTH: prompt_strength for img2img (0..1).
-    # NOTE: lucataco/realvisxl-v3-img2img (from the spec) does not exist on Replicate;
-    # lucataco/realvisxl-v2.0 is the live RealVisXL img2img model (image + prompt_strength).
-    ADULT_STUDIO_REPLICATE_IMG2IMG_MODEL: str = "lucataco/realvisxl-v2.0"
+    # Primary: asiryan/realistic-vision-v6.0-b1 (photoreal, NSFW-tolerant; uses the
+    # ``strength`` input). Fallback stability-ai/sdxl uses ``prompt_strength`` — the
+    # provider sends exactly one of the two based on the model slug.
+    ADULT_STUDIO_REPLICATE_IMG2IMG_MODEL: str = "asiryan/realistic-vision-v6.0-b1"
     ADULT_STUDIO_REPLICATE_IMG2IMG_MODEL_FALLBACK: str = "stability-ai/sdxl"
-    ADULT_STUDIO_REPLICATE_IMG2IMG_STRENGTH: float = 0.42
+    ADULT_STUDIO_REPLICATE_IMG2IMG_STRENGTH: float = 0.58
 
     model_config = SettingsConfigDict(
         env_file=".env",

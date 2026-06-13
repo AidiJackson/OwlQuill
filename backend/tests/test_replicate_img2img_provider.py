@@ -92,7 +92,26 @@ def test_img2img_happy_path_resolves_version_creates_polls_downloads():
     payload = create_body["input"]
     assert payload["image"] == "https://files/src.png"
     assert payload["prompt"] == "a beach scene"
+    # Non-asiryan model → prompt_strength, and NOT strength.
     assert payload["prompt_strength"] == 0.65  # default unless overridden
+    assert "strength" not in payload
+
+
+def test_asiryan_uses_strength_field_not_prompt_strength():
+    session = _FakeSession([
+        _Resp(json_body={"urls": {"get": "https://files/src.png"}}),
+        _model_info("verA"),
+        _Resp(json_body={"status": "succeeded", "output": ["https://out/r.png"]}),
+        _Resp(content=b"a" * 2048),
+    ])
+    p = ReplicateImg2ImgProvider(
+        api_token="tok", model_ref="asiryan/realistic-vision-v6.0-b1",
+        strength=0.58, session=session, poll_interval=0,
+    )
+    p.img2img(source_image_bytes=b"src", prompt="scene")
+    payload = session.calls[2][2]["json"]["input"]
+    assert payload["strength"] == 0.58
+    assert "prompt_strength" not in payload
 
 
 def test_strength_override():
