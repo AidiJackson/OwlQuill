@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon, Download, RefreshCw, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
-import type { Character, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob } from '@/lib/types';
+import type { Character, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult } from '@/lib/types';
 import {
   canFounderGenerate,
   canSubmitFounderPrompt,
@@ -82,6 +82,11 @@ export default function Studio18Plus() {
   const [genError, setGenError] = useState('');
   const [genMeta, setGenMeta] = useState<AdultStudioGenerateResult | null>(null);
 
+  // Sprint E9 — experimental Replicate img2img test (admin only).
+  const [replicateTesting, setReplicateTesting] = useState(false);
+  const [replicateResult, setReplicateResult] = useState<ReplicateTestResult | null>(null);
+  const [replicateError, setReplicateError] = useState('');
+
   // Founder/admin-only async Generate (Sprint 13: fire-and-poll RunPod masked diffusion).
   const [founderPrompt, setFounderPrompt] = useState('');
   const [founderSubmitting, setFounderSubmitting] = useState(false);
@@ -128,6 +133,8 @@ export default function Studio18Plus() {
     setFounderPrompt('');
     setFounderJob(null);
     setFounderError('');
+    setReplicateResult(null);
+    setReplicateError('');
     if (selectedId == null || statusByChar[selectedId]) return;
     apiClient
       .getAdultStudioStatus(selectedId)
@@ -232,6 +239,23 @@ export default function Studio18Plus() {
       if (mountedRef.current) setFounderJob(job);
     } catch (err) {
       if (mountedRef.current) setFounderError(err instanceof Error ? err.message : 'Cancel failed');
+    }
+  };
+
+  // Sprint E9 — experimental Replicate img2img test (admin only). Pure image-to-image
+  // from a canon source image; the result is saved to the image library.
+  const handleReplicateTest = async () => {
+    if (!selected) return;
+    setReplicateTesting(true);
+    setReplicateError('');
+    setReplicateResult(null);
+    try {
+      const res = await apiClient.replicateTestAdultStudio(selected.id);
+      if (mountedRef.current) setReplicateResult(res);
+    } catch (err) {
+      if (mountedRef.current) setReplicateError(err instanceof Error ? err.message : 'Replicate test failed');
+    } finally {
+      if (mountedRef.current) setReplicateTesting(false);
     }
   };
 
@@ -609,6 +633,57 @@ export default function Studio18Plus() {
                 </div>
               </div>
             )}
+          </section>
+        )}
+
+        {/* ── Admin-only experimental Replicate img2img test (Sprint E9) ──
+            Additive fourth provider. Takes a canon source image and runs PURE
+            image-to-image through Replicate, saving the result to the library.
+            Does NOT affect the OpenAI/Gemini/Grok paths. Requires a prepared identity. */}
+        {isAdmin && selected && isPrepared && (
+          <section className="space-y-3">
+            <div className="rounded-lg border border-fuchsia-900/40 bg-fuchsia-950/20 px-4 py-3 space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-fuchsia-300/80 flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5" />
+                Admin · Replicate (Experimental Adult)
+              </p>
+              <p className="text-xs text-gray-400">
+                Pure image-to-image from a canon source image via Replicate. Experimental,
+                additive provider — result is saved to the image library.
+              </p>
+              <button
+                type="button"
+                onClick={handleReplicateTest}
+                disabled={replicateTesting}
+                className="btn btn-secondary text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                {replicateTesting ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running…</>
+                ) : (
+                  <><Sparkles className="w-3.5 h-3.5" /> Replicate Test</>
+                )}
+              </button>
+
+              {replicateError && (
+                <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
+                  {replicateError}
+                </p>
+              )}
+
+              {replicateResult && (
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 max-w-xs">
+                    <img src={replicateResult.image_url} alt="Replicate test result" className="w-full object-cover" />
+                  </div>
+                  <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-xs text-gray-400 space-y-0.5">
+                    <p>provider: <span className="text-gray-300">{replicateResult.provider}</span></p>
+                    <p>model_ref: <span className="text-gray-300">{replicateResult.model_ref}</span></p>
+                    <p>source_role: <span className="text-gray-300">{replicateResult.source_role}</span></p>
+                    <p>strength: <span className="text-gray-300">{replicateResult.strength}</span></p>
+                  </div>
+                </div>
+              )}
+            </div>
           </section>
         )}
 

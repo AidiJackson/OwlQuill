@@ -9,6 +9,7 @@ check (locked-canon preconditions + prepared state + per-mark references).
 Strictly read-only: no writes, no provider construction, no training, no generation,
 no Canon Studio writes. SEPARATE from the Canon Studio admin surface.
 """
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -18,12 +19,20 @@ from sqlalchemy.orm import Session
 from app.api.routes.admin import require_admin
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.storage import file_path_to_url, load_image_bytes, save_image
 from app.models.adult_identity import (
     AdultIdentityModel,
     AdultIdentityTrainingJob,
 )
 from app.models.character import Character as CharacterModel
+from app.models.character_image import ImageKindEnum, ImageStatusEnum
 from app.models.user import User
+from app.schemas.character_image import CharacterImageCreate
+from app.services.character_visual import create_character_image
+from app.services.providers.replicate_provider import (
+    ReplicateImg2ImgError,
+    get_replicate_img2img_provider,
+)
 from app.services.adult_identity_diagnostics import build_diagnostics
 from app.services.adult_founder_job_service import (
     cancel_job,
@@ -42,6 +51,8 @@ from app.services.adult_identity_training import (
 )
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
@@ -389,6 +400,188 @@ def _job_payload(job) -> FounderJobResponse:
         blocking_reasons=result.get("blocking_reasons", []),
         orphaned_workers=result.get("orphaned_workers", []),
         error=job.error,
+    )
+
+
+# ── Replicate experimental img2img provider — admin-only test (Sprint E9) ──────
+#
+# An EXPERIMENTAL fourth Adult Studio provider. Takes an existing canon source image
+# and runs PURE image-to-image through Replicate (no mask, no compositing, no editor
+# job, no LoRA). It does NOT replace the OpenAI/Gemini/Grok paths. Admin-only and
+# constructed ONLY after the admin gate + a configured REPLICATE_API_TOKEN — an
+# unconfigured environment never reaches a network call.
+
+# The fixed acceptance prompt from the spike spec (used when the request omits one).
+_REPLICATE_TEST_PROMPT = (
+    "Summer sunbathing topless on a private beach, same face, same tattoos, "
+    "same body, photorealistic."
+)
+
+
+class ReplicateTestRequest(BaseModel):
+    """Optional overrides for the admin Replicate test (sensible defaults otherwise)."""
+    prompt: Optional[str] = None
+    strength: Optional[float] = None
+
+
+class ReplicateTestResponse(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    image_url: str
+    provider: str
+    model_ref: str
+    source_role: str
+    prompt: str
+    strength: float
+    library_image_id: Optional[int] = None
+
+
+def _pick_source_ref(manifest: dict) -> tuple[str, str]:
+    """Choose the best canon source image (role, url) for img2img.
+
+    Prefers a front body view (best for a full-figure scene), then any body ref, then
+    a face ref, then the first available ref. Raises if the manifest has no refs.
+    """
+    refs = manifest.get("refs") or []
+    by_role = {r.get("role"): r.get("url") for r in refs if r.get("url")}
+    if "body_front" in by_role:
+        return "body_front", by_role["body_front"]
+    for r in refs:
+        role, url = r.get("role", ""), r.get("url")
+        if url and role.startswith("body"):
+            return role, url
+    for r in refs:
+        role, url = r.get("role", ""), r.get("url")
+        if url and role.startswith("face"):
+            return role, url
+    for r in refs:
+        if r.get("url"):
+            return r.get("role", "ref"), r["url"]
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="No canon source image is available for the Replicate test.",
+    )
+
+
+@router.post(
+    "/characters/{character_id}/replicate-test",
+    response_model=ReplicateTestResponse,
+    summary="Admin: experimental Replicate img2img test (source image → provider → library)",
+)
+def replicate_test_adult_studio(
+    character_id: int,
+    body: ReplicateTestRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Run the experimental Replicate img2img provider on a canon source image.
+
+    Gates, in order, BEFORE any provider/network call: admin (dependency) →
+    character exists → identity prepared (manifest present) → prompt safety →
+    REPLICATE_API_TOKEN configured. Then: pick a canon source image → img2img →
+    save the result to the image library. Pure image-to-image; no mask/compositing.
+    """
+    _ = admin  # admin identity already enforced by the dependency
+    character = db.get(CharacterModel, character_id)
+    if character is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Character not found."
+        )
+
+    model = (
+        db.query(AdultIdentityModel)
+        .filter(AdultIdentityModel.character_id == character_id)
+        .first()
+    )
+    if model is None or model.status not in ("prepared", "ready", "stale"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Prepare the 18+ Studio identity for this character first.",
+        )
+
+    manifest = model.prepared_manifest_json or {}
+    prompt = (body.prompt or _REPLICATE_TEST_PROMPT).strip()
+
+    # Safety gate — block minors/illegal even for the admin test path.
+    from app.services import adult_studio as svc
+    block_reason = svc.check_prompt_safety(prompt)
+    if block_reason:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=block_reason)
+
+    source_role, source_url = _pick_source_ref(manifest)
+    try:
+        source_bytes = load_image_bytes(source_url)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not load canon source image: {exc}",
+        )
+
+    # Construct the provider ONLY now (requires REPLICATE_API_TOKEN).
+    try:
+        provider = get_replicate_img2img_provider(settings)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Replicate provider not configured: {exc}",
+        )
+
+    try:
+        png, model_ref = provider.img2img(
+            source_image_bytes=source_bytes, prompt=prompt, strength=body.strength,
+        )
+    except ReplicateImg2ImgError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Replicate img2img failed: {exc}",
+        )
+
+    if not png or len(png) < 1000:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Replicate returned an empty image.",
+        )
+
+    # Save to the image library (same path as other library images).
+    file_path = save_image(png)
+    image = create_character_image(
+        db, character_id,
+        CharacterImageCreate(
+            kind=ImageKindEnum.GENERATED,
+            status=ImageStatusEnum.ACTIVE,
+            file_path=file_path,
+            provider="replicate_nsfw",
+            prompt_summary=prompt[:80],
+            metadata_json={
+                "library": True,
+                "prompt": prompt,
+                "adult_studio": True,
+                "provider": "replicate_nsfw",
+                "model_ref": model_ref,
+                "source_role": source_role,
+                "experimental": True,
+            },
+        ),
+    )
+    image.user_id = character.owner_id
+    db.commit()
+    db.refresh(image)
+
+    strength_used = float(
+        settings.ADULT_STUDIO_REPLICATE_STRENGTH if body.strength is None else body.strength
+    )
+    logger.info(
+        "adult_studio replicate-test character_id=%s model=%s source=%s bytes=%d image_id=%s",
+        character_id, model_ref, source_role, len(png), image.id,
+    )
+    return ReplicateTestResponse(
+        image_url=file_path_to_url(file_path),
+        provider="replicate_nsfw",
+        model_ref=model_ref,
+        source_role=source_role,
+        prompt=prompt,
+        strength=strength_used,
+        library_image_id=image.id,
     )
 
 

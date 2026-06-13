@@ -629,6 +629,18 @@ export interface AdultStudioGenerateResult {
   failure_reason?: string | null;
 }
 
+// Sprint E9 — experimental Replicate img2img test (admin only). Pure image-to-image
+// from a canon source image through Replicate; result is saved to the image library.
+export interface ReplicateTestResult {
+  image_url: string;
+  provider: string;
+  model_ref: string;
+  source_role: string;
+  prompt: string;
+  strength: number;
+  library_image_id?: number | null;
+}
+
 // Founder/admin-only Generate via the VALIDATED pipeline (active LoRA + enforcement
 // plan + tattoo-enforcement executor) — NOT the OpenAI gpt-image path. Summer only.
 export interface AdultStudioFounderRoute {

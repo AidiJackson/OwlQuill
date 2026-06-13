@@ -193,6 +193,19 @@ class Settings(BaseSettings):
     REPLICATE_API_TOKEN: str = ""
     ADULT_STUDIO_REPLICATE_OWNER: str = ""
 
+    # ── Adult Studio (18+) — Replicate experimental img2img provider (Sprint E9) ─
+    # A SEPARATE, experimental fourth provider that takes an existing canon source
+    # image and runs pure image-to-image through Replicate. Does NOT replace the
+    # OpenAI/Gemini/Grok generation paths and shares no mask/compositing/editor-job
+    # logic. Reachable ONLY from the admin-only "Replicate Test" endpoint, and only
+    # when REPLICATE_API_TOKEN is set — empty token → provider refuses to construct.
+    #   ADULT_STUDIO_REPLICATE_IMG2IMG_MODEL: primary "owner/name" (or "owner/name:version").
+    #   ADULT_STUDIO_REPLICATE_IMG2IMG_FALLBACK: model tried if the primary fails.
+    #   ADULT_STUDIO_REPLICATE_STRENGTH: prompt_strength for img2img (0..1).
+    ADULT_STUDIO_REPLICATE_IMG2IMG_MODEL: str = "lucataco/realvisxl-v3-img2img"
+    ADULT_STUDIO_REPLICATE_IMG2IMG_FALLBACK: str = "RunDiffusion/Juggernaut-XL-v9"
+    ADULT_STUDIO_REPLICATE_STRENGTH: float = 0.65
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

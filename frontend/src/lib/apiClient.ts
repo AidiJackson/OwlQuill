@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -950,6 +950,31 @@ class ApiClient {
       throw new Error(typeof detail === 'string' ? detail : `Cancel failed (HTTP ${response.status})`);
     }
     return payload as AdultStudioFounderJob;
+  }
+
+  /**
+   * Sprint E9 — experimental Replicate img2img test (admin only). Takes an existing
+   * canon source image and runs PURE image-to-image through Replicate, then saves the
+   * result to the image library. Additive fourth provider; does not affect the others.
+   */
+  async replicateTestAdultStudio(
+    characterId: number,
+    prompt?: string,
+  ): Promise<ReplicateTestResult> {
+    const token = this.getToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(
+      `${API_BASE_URL}/admin/adult-studio/characters/${characterId}/replicate-test`,
+      { method: 'POST', headers, credentials: 'include', body: JSON.stringify(prompt ? { prompt } : {}) },
+    );
+    const payload = await response.json().catch(() => ({} as Record<string, unknown>));
+    if (!response.ok) {
+      const detail = (payload as { detail?: unknown }).detail;
+      throw new Error(typeof detail === 'string' ? detail : `Replicate test failed (HTTP ${response.status})`);
+    }
+    return payload as ReplicateTestResult;
   }
 
   /**
