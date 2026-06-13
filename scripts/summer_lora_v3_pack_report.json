@@ -1,0 +1,68 @@
+{
+  "sprint": "S24C",
+  "character_id": 60,
+  "trigger_token": "smmr_v3",
+  "identity_traits": "blonde hair, blue eyes",
+  "zip_path": "scripts/summer_lora_v3_pack.zip",
+  "total_image_count": 12,
+  "packed_roles": [
+    "face_front",
+    "face_left_3q",
+    "face_right_3q",
+    "expression",
+    "body_front",
+    "body_left",
+    "body_right",
+    "body_back",
+    "body_map",
+    "final_card",
+    "mark:Right upper arm",
+    "mark:Left forearm"
+  ],
+  "mark_roles": [
+    "mark:Right upper arm",
+    "mark:Left forearm"
+  ],
+  "missing_required_roles": [],
+  "skipped_refs": [],
+  "filenames": [
+    "body_back.png",
+    "body_front.png",
+    "body_left.png",
+    "body_map.png",
+    "body_right.png",
+    "expression.png",
+    "face_front.png",
+    "face_left_3q.png",
+    "face_right_3q.png",
+    "final_card.png",
+    "mark_left_forearm.png",
+    "mark_right_upper_arm.png"
+  ],
+  "captions": {
+    "face_front.png": "smmr_v3 adult woman, blonde hair, blue eyes, front face portrait",
+    "face_left_3q.png": "smmr_v3 adult woman, blonde hair, blue eyes, left three-quarter face view",
+    "face_right_3q.png": "smmr_v3 adult woman, blonde hair, blue eyes, right three-quarter face view",
+    "expression.png": "smmr_v3 adult woman, blonde hair, blue eyes, expression portrait",
+    "body_front.png": "smmr_v3 adult woman, full body front view, slim body, butterfly floral sleeve tattoo on right upper arm, black-and-white ballerina tattoo on left forearm",
+    "body_left.png": "smmr_v3 adult woman, full body left side view, slim body",
+    "body_right.png": "smmr_v3 adult woman, full body right side view, slim body",
+    "body_back.png": "smmr_v3 adult woman, full body back view, slim body",
+    "body_map.png": "smmr_v3 adult woman, full anatomy body map, body proportions, tattoo placement",
+    "final_card.png": "smmr_v3 adult woman, identity reference card, slim body, blonde hair, blue eyes",
+    "mark_right_upper_arm.png": "smmr_v3 adult woman, butterfly floral sleeve tattoo right upper arm closeup",
+    "mark_left_forearm.png": "smmr_v3 adult woman, black-and-white ballerina tattoo left forearm closeup"
+  },
+  "marks_truth": [
+    {
+      "label": "Butterfly floral sleeve",
+      "region": "Right upper arm",
+      "side": "right"
+    },
+    {
+      "label": "Black-and-white ballerina tattoo",
+      "region": "Left forearm",
+      "side": "left"
+    }
+  ]
+}

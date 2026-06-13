@@ -103,6 +103,8 @@ def build_manifest(canon: CharacterIdentityCanon) -> dict:
         _add("face_front", face.face_front_image_url)
         _add("face_left_3q", face.face_left_3q_image_url)
         _add("face_right_3q", face.face_right_3q_image_url)
+        # S24C: face expression is now a first-class canon role (was missing in v1/v2).
+        _add("expression", face.face_expression_image_url)
 
     marks: list[dict] = []
     if body:
@@ -110,6 +112,9 @@ def build_manifest(canon: CharacterIdentityCanon) -> dict:
         _add("body_left", body.body_left_image_url)
         _add("body_right", body.body_right_image_url)
         _add("body_back", body.body_back_image_url)
+        # S24C: body map + final identity card are now first-class roles (missing in v1/v2).
+        _add("body_map", body.body_map_image_url)
+        _add("final_card", body.final_character_card_image_url)
         for m in body.permanent_body_marks:
             marks.append(
                 {
@@ -270,54 +275,78 @@ def _ref_filename(role: str) -> str:
     return f"{_slug(role) or 'ref'}.png"
 
 
-def _marks_phrase(marks: list[dict]) -> str:
-    """Compose a short markings descriptor for body captions."""
+def _join_caption(*parts: str) -> str:
+    """Join non-empty caption fragments with ', '."""
+    return ", ".join(p.strip() for p in parts if p and p.strip())
+
+
+def _mark_name(m: Optional[dict]) -> str:
+    """Short factual tattoo name from a mark, e.g. 'butterfly floral sleeve tattoo'."""
+    if not m:
+        return "tattoo"
+    name = (m.get("label") or m.get("type") or "tattoo").lower().strip()
+    mtype = (m.get("type") or "tattoo").lower().strip()
+    if mtype and mtype not in name:
+        name = f"{name} {mtype}"
+    return name
+
+
+def _marks_body_phrase(marks: list[dict]) -> str:
+    """Body-caption markings descriptor using CANON sides, e.g.
+    'butterfly floral sleeve tattoo on right upper arm, ballerina tattoo on left forearm'."""
     bits: list[str] = []
     for m in marks:
-        region = (m.get("body_region") or "").lower().strip()
-        detail = (m.get("description") or m.get("label") or m.get("type") or "tattoo").lower().strip()
-        loc = region or (m.get("side") or "").lower().strip()
-        phrase = f"{loc} {detail}".strip()
-        if phrase:
-            bits.append(phrase)
+        region = (m.get("body_region") or "").lower().strip().replace("_", " ")
+        name = _mark_name(m)
+        bits.append(f"{name} on {region}" if region else name)
     return ", ".join(bits)
 
 
-def _caption_for(role: str, manifest: dict, trigger: str, subject: str) -> str:
-    """Build a LoRA-style caption for a single reference image."""
-    marks = manifest.get("marks") or []
-    face_desc = (manifest.get("face_description") or "").strip()
-    build = (manifest.get("build") or "").strip()
+# Factual per-image caption views (S24C — kohya-style, one unique trigger token).
+_FACE_VIEW_CAPTION = {
+    "face_front": "front face portrait",
+    "face_left_3q": "left three-quarter face view",
+    "face_right_3q": "right three-quarter face view",
+    "expression": "expression portrait",
+}
+_BODY_VIEW_CAPTION = {
+    "body_front": "full body front view",
+    "body_left": "full body left side view",
+    "body_right": "full body right side view",
+    "body_back": "full body back view",
+}
 
-    if role in _FACE_VIEW:
-        parts = [trigger, subject]
-        if face_desc:
-            parts.append(face_desc)
-        parts += ["face reference", _FACE_VIEW[role]]
-        return ", ".join(parts)
-    if role == "expression":
-        return ", ".join([trigger, subject, "face reference", "expression"])
-    if role in _BODY_VIEW:
-        parts = [trigger, subject, "full body reference", _BODY_VIEW[role]]
-        if build:
-            parts.append(f"{build} build")
-        mp = _marks_phrase(marks)
-        if mp:
-            parts.append(mp)
-        return ", ".join(parts)
+
+def _caption_for(
+    role: str, manifest: dict, trigger: str, subject: str, identity_traits: str = ""
+) -> str:
+    """Build a simple, factual per-image caption.
+
+    ``trigger`` is the unique LoRA token (e.g. 'smmr_v3'); ``subject`` is the noun
+    (e.g. 'woman'); ``identity_traits`` is an optional caller-supplied descriptor such
+    as 'blonde hair, blue eyes'. Markings use CANON side/region (the locked truth).
+    """
+    base = f"{trigger} {subject}".strip()
+    marks = manifest.get("marks") or []
+    build = (manifest.get("build") or "").strip()
+    build_phrase = f"{build} body" if build else ""
+
+    if role in _FACE_VIEW_CAPTION:
+        return _join_caption(base, identity_traits, _FACE_VIEW_CAPTION[role])
+    if role == "body_front":
+        return _join_caption(base, _BODY_VIEW_CAPTION[role], build_phrase, _marks_body_phrase(marks))
+    if role in _BODY_VIEW_CAPTION:
+        return _join_caption(base, _BODY_VIEW_CAPTION[role], build_phrase)
     if role == "body_map":
-        return ", ".join([trigger, subject, "body map reference"])
+        return _join_caption(base, "full anatomy body map", "body proportions", "tattoo placement")
     if role == "final_card":
-        return ", ".join([trigger, subject, "identity reference card"])
+        return _join_caption(base, "identity reference card", build_phrase, identity_traits)
     if role.startswith("mark:"):
         region_raw = role.split(":", 1)[1]
         m = next((x for x in marks if (x.get("body_region") or "") == region_raw), None)
-        region = region_raw.lower().strip()
-        detail = (m.get("description") or m.get("label")) if m else None
-        detail = detail.lower().strip() if detail else None
-        tail = f"{region} {detail}".strip() if detail else region
-        return ", ".join([trigger, "permanent tattoo reference", tail])
-    return ", ".join([trigger, subject, role.replace("_", " ")])
+        region = (region_raw or "").lower().strip().replace("_", " ")
+        return _join_caption(base, f"{_mark_name(m)} {region} closeup".strip())
+    return _join_caption(base, role.replace("_", " "))
 
 
 def _training_readme(character_name: str, trigger: str, image_count: int) -> str:
@@ -351,14 +380,19 @@ def build_training_pack(
     *,
     character_id: int,
     character_name: str,
+    trigger: Optional[str] = None,
+    identity_traits: str = "",
 ) -> tuple[bytes, dict]:
     """Package the manifest's canon references into a LoRA training ZIP.
 
     Returns (zip_bytes, summary). Loads ALL manifest refs (not capped like the
     provider path) and gives each a stable filename + caption. Unreadable refs
     are skipped and reported in the summary — never silently dropped.
+
+    ``trigger`` overrides the unique LoRA token (defaults to the derived ``trigger_token``);
+    ``identity_traits`` is an optional factual descriptor woven into face/identity captions.
     """
-    trigger = trigger_token(character_name)
+    trigger = (trigger or trigger_token(character_name)).strip()
     subject = (manifest.get("subject") or _DEFAULT_SUBJECT).strip() or _DEFAULT_SUBJECT
     refs = manifest.get("refs") or []
 
@@ -382,7 +416,7 @@ def build_training_pack(
             skipped.append({"role": role, "error": str(exc)})
             continue
         images[fname] = data
-        captions[fname] = _caption_for(role, manifest, trigger, subject)
+        captions[fname] = _caption_for(role, manifest, trigger, subject, identity_traits)
 
     training_notes = {
         "character_id": character_id,

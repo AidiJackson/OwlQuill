@@ -306,10 +306,14 @@ def test_training_pack_exports_zip_with_captions_and_trigger(client, db_session)
     captions = json.loads(zf.read("captions.json"))
     assert captions, "captions.json empty"
     assert all(c.startswith("ficsummerfielding") for c in captions.values())
-    # Captions reflect the corrected permanent-mark truth metadata.
+    # Captions reflect canon permanent-mark truth (S24C factual style): the butterfly
+    # sleeve is on the RIGHT upper arm and the ballerina is on the LEFT forearm.
     caption_blob = " ".join(captions.values()).lower()
-    assert "right upper arm butterfly and floral sleeve tattoo" in caption_blob
-    assert "left forearm black-and-white ballerina tattoo" in caption_blob
+    assert "butterfly floral sleeve tattoo on right upper arm" in caption_blob
+    assert "black-and-white ballerina tattoo on left forearm" in caption_blob
+    # Per-mark closeup captions exist with region + "closeup".
+    assert "butterfly floral sleeve tattoo right upper arm closeup" in caption_blob
+    assert "black-and-white ballerina tattoo left forearm closeup" in caption_blob
 
     notes = json.loads(zf.read("training_notes.json"))
     assert notes["character_id"] == cid
