@@ -437,24 +437,22 @@ class ReplicateTestResponse(BaseModel):
     library_image_id: Optional[int] = None
 
 
-def _pick_source_ref(manifest: dict) -> tuple[str, str]:
-    """Choose the best canon source image (role, url) for img2img.
+# Deterministic source-image priority (Sprint E9.2). NO random selection: an exact,
+# fixed order so the same canon image is always used as the img2img seed.
+_SOURCE_PRIORITY = ("body_front", "body_final", "face_front")
 
-    Prefers a front body view (best for a full-figure scene), then any body ref, then
-    a face ref, then the first available ref. Raises if the manifest has no refs.
+
+def _pick_source_ref(manifest: dict) -> tuple[str, str]:
+    """Choose the canon source image (role, url) for img2img — deterministically.
+
+    Priority: body_front → body_final → face_front → first available ref. Raises if
+    the manifest has no usable refs.
     """
     refs = manifest.get("refs") or []
     by_role = {r.get("role"): r.get("url") for r in refs if r.get("url")}
-    if "body_front" in by_role:
-        return "body_front", by_role["body_front"]
-    for r in refs:
-        role, url = r.get("role", ""), r.get("url")
-        if url and role.startswith("body"):
-            return role, url
-    for r in refs:
-        role, url = r.get("role", ""), r.get("url")
-        if url and role.startswith("face"):
-            return role, url
+    for role in _SOURCE_PRIORITY:
+        if by_role.get(role):
+            return role, by_role[role]
     for r in refs:
         if r.get("url"):
             return r.get("role", "ref"), r["url"]
@@ -569,7 +567,7 @@ def replicate_test_adult_studio(
     db.refresh(image)
 
     strength_used = float(
-        settings.ADULT_STUDIO_REPLICATE_STRENGTH if body.strength is None else body.strength
+        settings.ADULT_STUDIO_REPLICATE_IMG2IMG_STRENGTH if body.strength is None else body.strength
     )
     logger.info(
         "adult_studio replicate-test character_id=%s model=%s source=%s bytes=%d image_id=%s",

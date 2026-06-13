@@ -113,20 +113,55 @@ class ReplicateImg2ImgProvider:
             raise ReplicateImg2ImgError(f"file upload returned no url: {out}")
         return url
 
-    def _create_prediction(self, model_ref: str, payload: dict) -> dict:
-        """Create a prediction for ``owner/name`` or ``owner/name:version``."""
+    @staticmethod
+    def _retry_after(resp: Any) -> Optional[float]:
+        """Read a Retry-After header (seconds) from a 429 response, if present."""
+        headers = getattr(resp, "headers", None) or {}
+        raw = headers.get("Retry-After") or headers.get("retry-after")
+        try:
+            return float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _resolve_version(self, model_ref: str) -> str:
+        """Resolve a model_ref to a concrete version hash.
+
+        ``owner/name:version`` is used as-is. ``owner/name`` is resolved to its
+        ``latest_version`` via ``GET /v1/models/{owner}/{name}`` — the reliable path for
+        community models (the model-level predictions endpoint is not available for them).
+        """
         if ":" in model_ref:
-            owner_name, version = model_ref.split(":", 1)
-            return self._request(
-                "POST", f"{API_BASE}/predictions",
-                json={"version": version, "input": payload},
-                headers={"Content-Type": "application/json"},
-            )
-        return self._request(
-            "POST", f"{API_BASE}/models/{model_ref}/predictions",
-            json={"input": payload},
-            headers={"Content-Type": "application/json"},
-        )
+            return model_ref.split(":", 1)[1]
+        info = self._request("GET", f"{API_BASE}/models/{model_ref}")
+        version = (info.get("latest_version") or {}).get("id")
+        if not version:
+            raise ReplicateImg2ImgError(f"model {model_ref} has no latest_version")
+        return version
+
+    def _create_prediction(self, model_ref: str, payload: dict) -> dict:
+        """Create a prediction via ``POST /v1/predictions`` against the resolved version.
+
+        Throttle handling: on a 429 we honor Retry-After (default 10s), sleep that
+        many seconds + 1, and retry the prediction exactly ONCE before failing. Only
+        429 is retried — all other non-2xx responses raise immediately.
+        """
+        version = self._resolve_version(model_ref)
+        url = f"{API_BASE}/predictions"
+        json_body = {"version": version, "input": payload}
+        headers = {**self._headers, "Content-Type": "application/json"}
+
+        resp = self._session.request("POST", url, headers=headers, json=json_body, timeout=self._timeout)
+
+        if getattr(resp, "status_code", None) == 429:
+            wait = self._retry_after(resp) or 10
+            logger.warning("REPLICATE_THROTTLE 429 model=%s retry_after=%ss", model_ref, wait)
+            time.sleep(wait + 1)
+            resp = self._session.request("POST", url, headers=headers, json=json_body, timeout=self._timeout)
+
+        status_code = getattr(resp, "status_code", None)
+        if status_code is None or status_code >= 400:
+            raise ReplicateImg2ImgError(f"POST {url} -> {status_code}: {getattr(resp, 'text', '')}")
+        return resp.json()
 
     def _await_prediction(self, prediction: dict) -> dict:
         """Poll the prediction until it reaches a terminal status."""
@@ -164,15 +199,21 @@ class ReplicateImg2ImgProvider:
             raise ReplicateImg2ImgError(f"GET {url} -> {status_code}")
         return resp.content
 
-    def _run_model(self, model_ref: str, payload: dict) -> bytes:
+    def _run_model(self, model_ref: str, payload: dict, source_url: str, prompt: str) -> bytes:
         """Create → await → download for one model. Raises on any failure."""
+        logger.info(
+            "REPLICATE_TEST model=%s strength=%s source=%s prompt=%s",
+            model_ref, payload["prompt_strength"], source_url, prompt,
+        )
         prediction = self._create_prediction(model_ref, payload)
         prediction = self._await_prediction(prediction)
         if prediction.get("status") != "succeeded":
             raise ReplicateImg2ImgError(
                 f"model {model_ref} run {prediction.get('status')}: {prediction.get('error')}"
             )
-        return self._download(self._output_url(prediction))
+        output_url = self._output_url(prediction)
+        logger.info("REPLICATE_SUCCESS output=%s", output_url)
+        return self._download(output_url)
 
     # ── public API ───────────────────────────────────────────────────────────────
     def img2img(
@@ -208,15 +249,11 @@ class ReplicateImg2ImgProvider:
         last_error: Optional[Exception] = None
         for model_ref in candidates:
             try:
-                png = self._run_model(model_ref, payload)
-                logger.info(
-                    "replicate_img2img: ok model=%s strength=%s bytes=%d",
-                    model_ref, payload["prompt_strength"], len(png),
-                )
+                png = self._run_model(model_ref, payload, source_url, prompt.strip())
                 return png, model_ref
             except Exception as exc:  # noqa: BLE001 - try fallback, then re-raise
                 last_error = exc
-                logger.warning("replicate_img2img: model=%s failed err=%r", model_ref, str(exc))
+                logger.error("REPLICATE_FAIL %s", exc)
 
         raise ReplicateImg2ImgError(f"all replicate models failed: {last_error}")
 
@@ -230,6 +267,6 @@ def get_replicate_img2img_provider(settings) -> ReplicateImg2ImgProvider:
     return ReplicateImg2ImgProvider(
         api_token=settings.REPLICATE_API_TOKEN,
         model_ref=settings.ADULT_STUDIO_REPLICATE_IMG2IMG_MODEL,
-        fallback_model_ref=settings.ADULT_STUDIO_REPLICATE_IMG2IMG_FALLBACK,
-        strength=settings.ADULT_STUDIO_REPLICATE_STRENGTH,
+        fallback_model_ref=settings.ADULT_STUDIO_REPLICATE_IMG2IMG_MODEL_FALLBACK,
+        strength=settings.ADULT_STUDIO_REPLICATE_IMG2IMG_STRENGTH,
     )
