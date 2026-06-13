@@ -636,6 +636,7 @@ export interface ReplicateTestResult {
   provider: string;
   model_ref: string;
   source_role: string;
+  source_image_url: string;
   prompt: string;
   strength: number;
   library_image_id?: number | null;

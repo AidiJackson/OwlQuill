@@ -431,6 +431,7 @@ class ReplicateTestResponse(BaseModel):
     provider: str
     model_ref: str
     source_role: str
+    source_image_url: str
     prompt: str
     strength: float
     library_image_id: Optional[int] = None
@@ -579,6 +580,7 @@ def replicate_test_adult_studio(
         provider="replicate_nsfw",
         model_ref=model_ref,
         source_role=source_role,
+        source_image_url=file_path_to_url(source_url),
         prompt=prompt,
         strength=strength_used,
         library_image_id=image.id,

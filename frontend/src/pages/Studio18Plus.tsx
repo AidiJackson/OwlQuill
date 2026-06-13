@@ -42,6 +42,11 @@ const STATUS_GRID: StudioStatus[] = ['not_trained', 'prepared', 'training', 'rea
 // Statuses for which an identity manifest exists (training-pack + downstream UI).
 const PREPARED_STATES: StudioStatus[] = ['prepared', 'training', 'ready', 'stale'];
 
+// Default prompt for the experimental Replicate img2img test (Sprint E9.1). The
+// textarea is seeded with this and editable; whatever the admin types is sent.
+const REPLICATE_DEFAULT_PROMPT =
+  'Summer sunbathing topless on a private beach, same face, same tattoos, same body, photorealistic.';
+
 /** Short human-readable identity status derived from canon state. */
 function identityStatus(c: Character): string {
   if (c.visual_locked) {
@@ -82,7 +87,9 @@ export default function Studio18Plus() {
   const [genError, setGenError] = useState('');
   const [genMeta, setGenMeta] = useState<AdultStudioGenerateResult | null>(null);
 
-  // Sprint E9 — experimental Replicate img2img test (admin only).
+  // Sprint E9 / E9.1 — experimental Replicate img2img test (admin only). Owns its
+  // OWN prompt + result state — never shared with Founder Generate.
+  const [replicatePrompt, setReplicatePrompt] = useState(REPLICATE_DEFAULT_PROMPT);
   const [replicateTesting, setReplicateTesting] = useState(false);
   const [replicateResult, setReplicateResult] = useState<ReplicateTestResult | null>(null);
   const [replicateError, setReplicateError] = useState('');
@@ -133,6 +140,7 @@ export default function Studio18Plus() {
     setFounderPrompt('');
     setFounderJob(null);
     setFounderError('');
+    setReplicatePrompt(REPLICATE_DEFAULT_PROMPT);
     setReplicateResult(null);
     setReplicateError('');
     if (selectedId == null || statusByChar[selectedId]) return;
@@ -245,12 +253,13 @@ export default function Studio18Plus() {
   // Sprint E9 — experimental Replicate img2img test (admin only). Pure image-to-image
   // from a canon source image; the result is saved to the image library.
   const handleReplicateTest = async () => {
-    if (!selected) return;
+    if (!selected || !replicatePrompt.trim()) return;
     setReplicateTesting(true);
     setReplicateError('');
+    // Clear any prior result so a failure never leaves a stale image on screen.
     setReplicateResult(null);
     try {
-      const res = await apiClient.replicateTestAdultStudio(selected.id);
+      const res = await apiClient.replicateTestAdultStudio(selected.id, replicatePrompt.trim());
       if (mountedRef.current) setReplicateResult(res);
     } catch (err) {
       if (mountedRef.current) setReplicateError(err instanceof Error ? err.message : 'Replicate test failed');
@@ -651,10 +660,22 @@ export default function Studio18Plus() {
                 Pure image-to-image from a canon source image via Replicate. Experimental,
                 additive provider — result is saved to the image library.
               </p>
+
+              {/* Replicate's OWN prompt input — separate from Founder Generate. */}
+              <textarea
+                className="textarea w-full"
+                rows={3}
+                maxLength={800}
+                placeholder="Describe the Replicate img2img scene…"
+                value={replicatePrompt}
+                onChange={(e) => setReplicatePrompt(e.target.value)}
+                disabled={replicateTesting}
+              />
+
               <button
                 type="button"
                 onClick={handleReplicateTest}
-                disabled={replicateTesting}
+                disabled={replicateTesting || !replicatePrompt.trim()}
                 className="btn btn-secondary text-sm flex items-center gap-2 disabled:opacity-50"
               >
                 {replicateTesting ? (
@@ -670,16 +691,28 @@ export default function Studio18Plus() {
                 </p>
               )}
 
+              {/* Dedicated Replicate result card — never reuses the Founder preview. */}
               {replicateResult && (
-                <div className="space-y-2">
-                  <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 max-w-xs">
-                    <img src={replicateResult.image_url} alt="Replicate test result" className="w-full object-cover" />
+                <div className="rounded-lg border border-fuchsia-900/40 bg-gray-900/60 px-4 py-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <p className="text-[11px] uppercase tracking-wide text-gray-500">Source image</p>
+                      <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900">
+                        <img src={replicateResult.source_image_url} alt="Replicate source" className="w-full object-cover" />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[11px] uppercase tracking-wide text-gray-500">Final output</p>
+                      <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900">
+                        <img src={replicateResult.image_url} alt="Replicate test result" className="w-full object-cover" />
+                      </div>
+                    </div>
                   </div>
-                  <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-xs text-gray-400 space-y-0.5">
+                  <div className="text-xs text-gray-400 space-y-0.5">
                     <p>provider: <span className="text-gray-300">{replicateResult.provider}</span></p>
-                    <p>model_ref: <span className="text-gray-300">{replicateResult.model_ref}</span></p>
-                    <p>source_role: <span className="text-gray-300">{replicateResult.source_role}</span></p>
+                    <p>model: <span className="text-gray-300">{replicateResult.model_ref}</span></p>
                     <p>strength: <span className="text-gray-300">{replicateResult.strength}</span></p>
+                    <p>source image used: <span className="text-gray-300">{replicateResult.source_role}</span></p>
                   </div>
                 </div>
               )}
