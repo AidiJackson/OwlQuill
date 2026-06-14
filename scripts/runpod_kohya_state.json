@@ -1,0 +1,53 @@
+{
+  "run_id": "s24o_sdscripts_requirements",
+  "mode": "dry-run",
+  "dataset_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24o_sdscripts_requirements/summer_lora_v3_pack.zip",
+  "caps": {
+    "watchdog_s": 3600,
+    "wallclock_cap_s": 3600,
+    "spend_cap": 0.1
+  },
+  "r2_status_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24o_sdscripts_requirements/status.json",
+  "last_update": "2026-06-14T16:05:54Z",
+  "state": "launched",
+  "phase": "boot",
+  "error_type": "SupplyExhausted",
+  "error_message": "no GPU supply across ['NVIDIA RTX A5000', 'NVIDIA A40', 'NVIDIA GeForce RTX 3090'] (SECURE) after 1 cycle(s): [{\"message\": \"Something went wrong. Please try again later or contact support.\", \"path\": [\"podFindAndDeployOnDemand\"], \"extensions\": {\"code\": \"INTERNAL_SERVER_ERROR\"}}]",
+  "gpu_attempts": [
+    {
+      "gpu": "NVIDIA RTX A5000",
+      "cycle": 1,
+      "ts": "2026-06-14T16:05:53Z",
+      "result": "secured"
+    }
+  ],
+  "supply_cycles": 1,
+  "timestamp": "2026-06-14T08:17:14Z",
+  "cloud_type": "COMMUNITY",
+  "eligible_gpus": [
+    {
+      "gpu": "NVIDIA RTX A5000",
+      "price": 0.27,
+      "stock": "Low",
+      "projected": 0.045,
+      "in_budget": true
+    },
+    {
+      "gpu": "NVIDIA A40",
+      "price": 0.44,
+      "stock": "Low",
+      "projected": 0.0733,
+      "in_budget": true
+    },
+    {
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "price": 0.46,
+      "stock": "Medium",
+      "projected": 0.0767,
+      "in_budget": true
+    }
+  ],
+  "pod_id": "ilc0f7rlrbceuh",
+  "cost_per_hr": 0.16,
+  "gpu_type": "NVIDIA RTX A5000"
+}
