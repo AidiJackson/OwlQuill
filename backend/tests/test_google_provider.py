@@ -46,7 +46,7 @@ def _make_png() -> bytes:
 def _mock_settings(timeout: int = 180) -> MagicMock:
     s = MagicMock()
     s.GOOGLE_AI_API_KEY = "fake-key"
-    s.GOOGLE_IMAGE_MODEL = "imagen-3.0-generate-001"
+    s.GOOGLE_IMAGE_MODEL = "gemini-3.1-flash-image"
     s.GOOGLE_IMAGE_TIMEOUT_S = timeout
     return s
 
