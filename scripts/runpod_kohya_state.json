@@ -1,14 +1,14 @@
 {
-  "run_id": "s24o_sdscripts_requirements",
+  "run_id": "s24r_drycache_ranged2",
   "mode": "dry-run",
-  "dataset_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24o_sdscripts_requirements/summer_lora_v3_pack.zip",
+  "dataset_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24r_drycache_ranged2/summer_lora_v3_pack.zip",
   "caps": {
     "watchdog_s": 3600,
     "wallclock_cap_s": 3600,
     "spend_cap": 0.1
   },
-  "r2_status_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24o_sdscripts_requirements/status.json",
-  "last_update": "2026-06-14T16:05:54Z",
+  "r2_status_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24r_drycache_ranged2/status.json",
+  "last_update": "2026-06-15T16:19:25Z",
   "state": "launched",
   "phase": "boot",
   "error_type": "SupplyExhausted",
@@ -17,7 +17,15 @@
     {
       "gpu": "NVIDIA RTX A5000",
       "cycle": 1,
-      "ts": "2026-06-14T16:05:53Z",
+      "ts": "2026-06-15T16:19:23Z",
+      "result": "supply_fail",
+      "error_type": "HTTP5xx",
+      "reason": "{\"error\":\"create pod: There are no instances currently available\",\"status\":500}\n"
+    },
+    {
+      "gpu": "NVIDIA RTX A4500",
+      "cycle": 1,
+      "ts": "2026-06-15T16:19:24Z",
       "result": "secured"
     }
   ],
@@ -47,7 +55,7 @@
       "in_budget": true
     }
   ],
-  "pod_id": "ilc0f7rlrbceuh",
-  "cost_per_hr": 0.16,
-  "gpu_type": "NVIDIA RTX A5000"
+  "pod_id": "bxrq700pr2o6bp",
+  "cost_per_hr": 0.19,
+  "gpu_type": "NVIDIA RTX A4500"
 }

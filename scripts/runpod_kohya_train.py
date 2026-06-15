@@ -39,8 +39,12 @@ API = "https://api.runpod.io/graphql"
 REST_API = "https://rest.runpod.io/v1/pods"  # S24H: REST replaces broken SECURE GraphQL
 STATE = HERE / "runpod_kohya_state.json"
 
-# RealVisXL V4.0 — SDXL photoreal base (verified reachable, ~6.94 GB).
+# RealVisXL V4.0 — SDXL photoreal base (~6.94 GB).
+# S24R: the pod now pulls this from the authenticated R2 cache (BASE_MODEL_R2_KEY) via
+# boto3 instead of the slow HF resolve that exhausted S24Q's wallclock inside download_base.
+# The HF URL is kept ONLY as a fallback / manual diagnostic (see fetch_base in the body).
 BASE_MODEL_URL = "https://huggingface.co/SG161222/RealVisXL_V4.0/resolve/main/RealVisXL_V4.0.safetensors"
+BASE_MODEL_R2_KEY = "lora_training/base_models/RealVisXL_V4.0.safetensors"
 
 IMAGE = "runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04"
 # Broadened 20GB+ COMMUNITY fallback pool (S24E.1). Tried sequentially until one has
@@ -68,7 +72,7 @@ CYCLE_BACKOFF_S = [0, 20, 45]     # cycle 1 immediate, cycle 2 +20s, cycle 3 +45
 # Dry-run absolute hard spend cap = $0.10.
 CAPS = {
     "dry-run": {"watchdog_s": 3600, "wallclock_cap_s": 3600, "spend_cap": 0.10},
-    "train":   {"watchdog_s": 4500, "wallclock_cap_s": 4500, "spend_cap": 2.00},
+    "train":   {"watchdog_s": 9000, "wallclock_cap_s": 9000, "spend_cap": 1.00},  # S24P/S24Q: $1.00 hard cap; watchdog 9000s (poller is the real spend guard)
 }
 
 
@@ -95,7 +99,8 @@ import json, os, subprocess, sys, time, urllib.request, zipfile, glob, shutil
 
 R2_PUB = os.environ["R2_PUBLIC_URL"].rstrip("/")
 RUN_ID = os.environ["RUN_ID"]
-BASE_URL = os.environ["BASE_MODEL_URL"]
+BASE_URL = os.environ["BASE_MODEL_URL"]            # S24R: HF fallback / manual diagnostic only
+BASE_R2_KEY = os.environ["BASE_MODEL_R2_KEY"]      # S24R: authenticated R2 cache (primary)
 DATASET_URL = os.environ["DATASET_URL"]
 SD = "/workspace/sd-scripts"
 DATASET_DIR = "/workspace/dataset/img"
@@ -157,6 +162,20 @@ def sh(cmd, **kw):
     print("+", cmd, flush=True)
     return subprocess.run(cmd, shell=True, check=True, **kw)
 
+def fetch_base():
+    """S24R: download the RealVisXL base checkpoint into BASE_PATH from the authenticated
+    R2 cache (BASE_R2_KEY) via boto3. Falls back to the HF URL only if the R2 object is
+    missing/unreadable. Returns (source, bytes, secs)."""
+    os.makedirs(os.path.dirname(BASE_PATH), exist_ok=True)
+    t0 = time.time()
+    try:
+        _boto().download_file(os.environ["R2_BUCKET_NAME"], BASE_R2_KEY, BASE_PATH)
+        return "r2", os.path.getsize(BASE_PATH), round(time.time() - t0, 1)
+    except Exception as e:
+        print("[base] R2 fetch failed; falling back to HF resolve:", str(e)[:300], flush=True)
+        sh(f"curl -L --fail --retry 3 -o {BASE_PATH} '{BASE_URL}'")
+        return "hf_fallback", os.path.getsize(BASE_PATH), round(time.time() - t0, 1)
+
 try:
     # S24N boot-guard: community-cloud containers can restart after self-terminate and
     # re-run this bootstrap. If a prior pass already finished (done=true), do NOT overwrite
@@ -176,19 +195,18 @@ try:
     # self-consistent dependency set (diffusers/huggingface_hub/accelerate/transformers all
     # mutually compatible). torch stays from the base image (requirements.txt does not pin
     # torch). The trailing "." line installs the sd-scripts library, so run pip from {SD}.
-    # Dry-run policy: strip bitsandbytes from the list — it's not needed for the --help
-    # import check and is kept skipped (the slow install, separate stage below).
+    # S24Q: strip bitsandbytes in BOTH dry-run and train. In S24P's first real train the full
+    # kohya requirements (incl. bitsandbytes' heavy CUDA wheel) consumed the entire watchdog
+    # inside install_python. This first training run uses the standard AdamW optimizer, which
+    # needs no bitsandbytes, so the proven fast dry-run dependency set is used for train too.
+    sh(f"cd {SD} && grep -vi bitsandbytes requirements.txt > /workspace/reqs.txt && "
+       f"pip install -q --no-cache-dir -r /workspace/reqs.txt 2>&1 | tail -3")
     if DRY_RUN:
-        sh(f"cd {SD} && grep -vi bitsandbytes requirements.txt > /workspace/reqs_dryrun.txt && "
-           f"pip install -q --no-cache-dir -r /workspace/reqs_dryrun.txt 2>&1 | tail -3")
-    else:
-        sh(f"cd {SD} && pip install -q --no-cache-dir -r requirements.txt 2>&1 | tail -3")
-    if not DRY_RUN:
-        put_status("install_bitsandbytes", note="installing bitsandbytes")
-        sh("pip install -q --no-cache-dir bitsandbytes 2>&1 | tail -1 || true")
-    else:
         put_status("install_bitsandbytes_skipped", note="dry-run skips bitsandbytes")
-    put_status("install_complete", note="all dry-run deps installed")
+    else:
+        put_status("install_bitsandbytes_skipped",
+                   note="first train skips bitsandbytes; using standard optimizer")
+    put_status("install_complete", note="deps installed (bitsandbytes skipped)")
 
     # 2) dataset (always — small/fast; done before the heavy base download so the
     #    dry-run reaches "dataset extracted" + "config built" well under the cost cap)
@@ -214,16 +232,29 @@ try:
 
     os.makedirs("/workspace/base", exist_ok=True)
     if DRY_RUN:
-        # 4) DRY-RUN: prove the RealVisXL base download STARTS — time-bounded partial
-        #    fetch (no full 6.94GB pull, no training). Keeps dry-run cost tiny.
-        put_status("download_base", note="DRY-RUN: starting RealVisXL download (partial, 25s cap)")
-        rc = subprocess.run(f"curl -L --max-time 25 -o {BASE_PATH}.partial '{BASE_URL}'",
-                            shell=True).returncode
-        part = f"{BASE_PATH}.partial"
-        base_partial = os.path.getsize(part) if os.path.exists(part) else 0
-        base_started = base_partial > 0
-        put_status("download_base", base_download_started=base_started,
-                   base_partial_bytes=base_partial, curl_rc=rc)
+        # 4) DRY-RUN (S24R): prove the base checkpoint is fetchable from the authenticated R2
+        #    cache (BASE_R2_KEY) FROM THE POD — a TINY ranged GET (first 64 MiB via boto3
+        #    get_object Range), not the full 6.94GB. This proves R2 auth + correct key +
+        #    pod->R2 connectivity within the tight dry-run spend cap (the full pull belongs to
+        #    the real train path). NO HF fallback here: if R2 fails the verdict must be
+        #    unambiguous, not silently slow.
+        PROBE = 64 << 20  # 64 MiB
+        put_status("download_base", base_source="r2",
+                   note=f"DRY-RUN: ranged R2 fetch (first {PROBE} bytes of {BASE_R2_KEY}) via boto3")
+        t0 = time.time(); base_started = False; base_partial = 0; r2_err = None
+        try:
+            obj = _boto().get_object(Bucket=os.environ["R2_BUCKET_NAME"], Key=BASE_R2_KEY,
+                                     Range=f"bytes=0-{PROBE - 1}")
+            data = obj["Body"].read()
+            base_partial = len(data)
+            base_started = base_partial > 0
+            with open(f"{BASE_PATH}.partial", "wb") as fh:
+                fh.write(data)
+        except Exception as e:
+            r2_err = str(e)[:400]
+        put_status("download_base", base_source="r2", base_download_started=base_started,
+                   base_partial_bytes=base_partial, base_secs=round(time.time() - t0, 1),
+                   base_r2_error=r2_err)
         # 5) prove sd-scripts + deps import without training
         r = subprocess.run(f"cd {SD} && python sdxl_train_network.py --help",
                            shell=True, capture_output=True, text=True)
@@ -234,16 +265,19 @@ try:
         put_status("dry_run_verify", help_ok=help_ok,
                    help_tail=(r.stderr or r.stdout)[-400:])
         put_status("done", done=True, dry_run=True,
-                   summary={"base_download_started": base_started,
-                            "base_partial_bytes": base_partial, "config_built": True,
+                   summary={"base_source": "r2", "base_download_started": base_started,
+                            "base_partial_bytes": base_partial, "base_r2_error": r2_err,
+                            "config_built": True,
                             "images": n_png, "captions": n_txt, "dataset_extracted": True,
                             "sd_scripts_help_ok": help_ok})
     else:
-        # TRAIN: full base checkpoint download, then train.
-        put_status("download_base", note="downloading RealVisXL V4.0 (~6.94GB)")
-        sh(f"curl -L --fail --retry 3 -o {BASE_PATH} '{BASE_URL}'")
-        base_bytes = os.path.getsize(BASE_PATH)
-        put_status("download_base", base_bytes=base_bytes)
+        # TRAIN (S24R): pull the base checkpoint from the R2 cache via boto3 (HF fallback
+        # inside fetch_base only if the R2 object is missing), then train.
+        put_status("download_base", base_source="r2",
+                   note=f"downloading RealVisXL V4.0 (~6.94GB) from R2 ({BASE_R2_KEY})")
+        base_source, base_bytes, base_secs = fetch_base()
+        put_status("download_base", base_source=base_source, base_bytes=base_bytes,
+                   base_secs=base_secs)
         os.makedirs("/workspace/output", exist_ok=True)
         put_status("train", note="accelerate launch sdxl_train_network.py")
         cmd = ("cd %s && accelerate launch --num_processes=1 --mixed_precision=bf16 "
@@ -319,6 +353,7 @@ def compose(mode: str, run_id: str, dataset_url: str):
         "R2_PUBLIC_URL": os.environ["R2_PUBLIC_URL"],
         "RUN_ID": run_id,
         "BASE_MODEL_URL": BASE_MODEL_URL,
+        "BASE_MODEL_R2_KEY": BASE_MODEL_R2_KEY,
         "DATASET_URL": dataset_url,
     }
     # Return wrapper_b64 directly; launch() constructs dockerStartCmd for the REST API.
