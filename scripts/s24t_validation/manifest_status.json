@@ -1,0 +1,107 @@
+{
+  "run_id": "s24t_summer_lora_v3_validation_v3",
+  "stage": "done",
+  "done": true,
+  "errors": [],
+  "settings": {
+    "base_model": "RealVisXL_V4.0",
+    "lora": "summer_lora_v3.safetensors",
+    "trigger": "smmr_v3",
+    "scheduler": "DPMSolverMultistepScheduler (Karras, sde-dpmsolver++)",
+    "steps": 30,
+    "guidance_scale": 5.0,
+    "lora_scale": 0.85,
+    "width": 1024,
+    "height": 1024,
+    "base_seed": 1234,
+    "dtype": "float16"
+  },
+  "images": [
+    {
+      "index": 1,
+      "label": "01_studio_white_tank",
+      "prompt": "smmr_v3 woman standing naturally in a softly lit studio, blonde hair, blue eyes, wearing a simple white tank top and denim shorts",
+      "seed": 1234,
+      "key": "lora_training/s24t_summer_lora_v3_validation_v3/val/01_studio_white_tank.png",
+      "url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/val/01_studio_white_tank.png",
+      "bytes": 1094434
+    },
+    {
+      "index": 2,
+      "label": "02_black_top_tattoos",
+      "prompt": "smmr_v3 woman in a black sleeveless top, right upper arm butterfly tattoo visible, left forearm ballerina tattoo visible",
+      "seed": 1235,
+      "key": "lora_training/s24t_summer_lora_v3_validation_v3/val/02_black_top_tattoos.png",
+      "url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/val/02_black_top_tattoos.png",
+      "bytes": 1215040
+    },
+    {
+      "index": 3,
+      "label": "03_coffee_shop_beige",
+      "prompt": "smmr_v3 woman sitting in a coffee shop wearing a beige sweater and jeans",
+      "seed": 1236,
+      "key": "lora_training/s24t_summer_lora_v3_validation_v3/val/03_coffee_shop_beige.png",
+      "url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/val/03_coffee_shop_beige.png",
+      "bytes": 1427449
+    },
+    {
+      "index": 4,
+      "label": "04_close_portrait",
+      "prompt": "close portrait of smmr_v3 woman, soft smile, warm lighting, blonde hair framing her face",
+      "seed": 1237,
+      "key": "lora_training/s24t_summer_lora_v3_validation_v3/val/04_close_portrait.png",
+      "url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/val/04_close_portrait.png",
+      "bytes": 1563681
+    },
+    {
+      "index": 5,
+      "label": "05_rain_nyc_night",
+      "prompt": "smmr_v3 woman walking through rain in New York at night, wet hair, leather jacket",
+      "seed": 1238,
+      "key": "lora_training/s24t_summer_lora_v3_validation_v3/val/05_rain_nyc_night.png",
+      "url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/val/05_rain_nyc_night.png",
+      "bytes": 1473087
+    },
+    {
+      "index": 6,
+      "label": "06_black_evening_dress",
+      "prompt": "smmr_v3 woman wearing an elegant black evening dress in a luxury ballroom",
+      "seed": 1239,
+      "key": "lora_training/s24t_summer_lora_v3_validation_v3/val/06_black_evening_dress.png",
+      "url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/val/06_black_evening_dress.png",
+      "bytes": 1288909
+    },
+    {
+      "index": 7,
+      "label": "07_beach_sunset_bikini",
+      "prompt": "smmr_v3 woman standing on a beach at sunset in a white bikini, tattoos visible",
+      "seed": 1240,
+      "key": "lora_training/s24t_summer_lora_v3_validation_v3/val/07_beach_sunset_bikini.png",
+      "url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/val/07_beach_sunset_bikini.png",
+      "bytes": 1155542
+    },
+    {
+      "index": 8,
+      "label": "08_bed_oversized_shirt",
+      "prompt": "smmr_v3 woman lying in bed wearing an oversized shirt, messy blonde hair, morning light",
+      "seed": 1241,
+      "key": "lora_training/s24t_summer_lora_v3_validation_v3/val/08_bed_oversized_shirt.png",
+      "url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/val/08_bed_oversized_shirt.png",
+      "bytes": 1411258
+    }
+  ],
+  "ts": "2026-06-15T19:25:04Z",
+  "torch": "2.2.0+cu121",
+  "diffusers": "0.27.2",
+  "transformers": "4.39.3",
+  "huggingface_hub": "0.22.2",
+  "peft": "0.10.0",
+  "note": "R2 lora_training/s24s_summer_lora_v3_train_r2base/out/summer_lora_v3.safetensors",
+  "base_bytes": 6938040706,
+  "base_secs": 108.5,
+  "lora_bytes": 85427708,
+  "n": 8,
+  "done_count": 8,
+  "last": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/val/08_bed_oversized_shirt.png",
+  "generated": 8
+}

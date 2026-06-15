@@ -1,0 +1,46 @@
+{
+  "run_id": "s24t_summer_lora_v3_validation_v3",
+  "caps": {
+    "watchdog_s": 2400,
+    "wallclock_cap_s": 2400,
+    "spend_cap": 0.5
+  },
+  "state": "launched",
+  "phase": "boot",
+  "settings": {
+    "base_model": "RealVisXL_V4.0",
+    "lora": "summer_lora_v3.safetensors",
+    "trigger": "smmr_v3",
+    "scheduler": "DPMSolverMultistepScheduler (Karras, sde-dpmsolver++)",
+    "steps": 30,
+    "guidance_scale": 5.0,
+    "lora_scale": 0.85,
+    "width": 1024,
+    "height": 1024,
+    "base_seed": 1234,
+    "dtype": "float16"
+  },
+  "r2_status_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24t_summer_lora_v3_validation_v3/status.json",
+  "last_update": "2026-06-15T19:21:11Z",
+  "pod_id": "f7wzxwddnkiu4n",
+  "cloud_type": "COMMUNITY",
+  "cost_per_hr": 0.19,
+  "gpu_type": "NVIDIA RTX A4500",
+  "gpu_attempts": [
+    {
+      "gpu": "NVIDIA RTX A5000",
+      "cycle": 1,
+      "ts": "2026-06-15T19:21:09Z",
+      "result": "supply_fail",
+      "error_type": "HTTP5xx",
+      "reason": "{\"error\":\"create pod: There are no instances currently available\",\"status\":500}\n"
+    },
+    {
+      "gpu": "NVIDIA RTX A4500",
+      "cycle": 1,
+      "ts": "2026-06-15T19:21:10Z",
+      "result": "secured"
+    }
+  ],
+  "supply_cycles": 1
+}
