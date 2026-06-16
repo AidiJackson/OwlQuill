@@ -684,3 +684,22 @@ export interface AdultStudioFounderJob {
   orphaned_workers: string[];
   error?: string | null;
 }
+
+// ── Training Pack Review (S24W) — v4 LoRA candidate review (Summer-only) ──────
+export type TrainingCandidateStatus = 'pending_review' | 'approved' | 'rejected' | 'failed';
+
+export interface TrainingCandidate {
+  role: string;
+  group?: string | null;
+  caption?: string | null;
+  status: TrainingCandidateStatus;
+  image?: string | null;
+  error?: string | null;
+}
+
+export interface TrainingPackReview {
+  character_id: number;
+  review_state: string;
+  counts: Record<string, number>;
+  candidates: TrainingCandidate[];
+}

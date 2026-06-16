@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -975,6 +975,44 @@ class ApiClient {
       throw new Error(typeof detail === 'string' ? detail : `Replicate test failed (HTTP ${response.status})`);
     }
     return payload as ReplicateTestResult;
+  }
+
+  // ── Training Pack Review (S24W) — v4 LoRA candidates, Summer-only, admin ──────
+
+  /** List staged v4 training-pack candidates + their review status. */
+  async getTrainingCandidates(characterId: number): Promise<TrainingPackReview> {
+    return this.request<TrainingPackReview>(
+      `/admin/adult-studio/characters/${characterId}/training-candidates`,
+    );
+  }
+
+  /** Approve / reject / reset one candidate; returns the updated entry. */
+  async reviewTrainingCandidate(
+    characterId: number,
+    role: string,
+    status: TrainingCandidateStatus,
+  ): Promise<TrainingCandidate> {
+    return this.request<TrainingCandidate>(
+      `/admin/adult-studio/characters/${characterId}/training-candidates/${encodeURIComponent(role)}/review`,
+      { method: 'POST', body: JSON.stringify({ status }) },
+    );
+  }
+
+  /**
+   * Fetch one candidate image as an object URL. The image endpoint is admin-gated
+   * (bearer auth), so a plain <img src> can't load it — we blob-load with the token
+   * and hand back an object URL the caller is responsible for revoking.
+   */
+  async getTrainingCandidateImageUrl(characterId: number, role: string): Promise<string> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await fetch(
+      `${API_BASE_URL}/admin/adult-studio/characters/${characterId}/training-candidates/${encodeURIComponent(role)}/image`,
+      { method: 'GET', headers, credentials: 'include' },
+    );
+    if (!response.ok) throw new Error(`Failed to load candidate image (HTTP ${response.status})`);
+    return URL.createObjectURL(await response.blob());
   }
 
   /**

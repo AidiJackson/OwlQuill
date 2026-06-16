@@ -9,7 +9,9 @@ import {
   canSubmitFounderPrompt,
   isJobActive,
   formatFounderJob,
+  SUMMER_CHARACTER_ID,
 } from '@/features/adultStudio/founderGenerate';
+import TrainingPackReview from '@/features/adultStudio/TrainingPackReview';
 
 /**
  * 18+ Studio — first working pipeline path.
@@ -469,6 +471,23 @@ export default function Studio18Plus() {
                 )}
               </div>
             )}
+          </section>
+        )}
+
+        {/* ── Training Pack Review (S24W) — admin + Summer only ────────
+            Review the staged v4 LoRA training candidates and approve/reject each.
+            Persists to the candidate manifest; no training, no final-pack export. */}
+        {isAdmin && selectedId === SUMMER_CHARACTER_ID && (
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-fuchsia-300" />
+              <h2 className="text-sm font-medium text-gray-200">Training Pack Review</h2>
+            </div>
+            <p className="text-xs text-gray-500">
+              Summer v4 LoRA training candidates · admin only. Approve or reject each
+              image — decisions are saved and survive a refresh.
+            </p>
+            <TrainingPackReview characterId={selectedId} />
           </section>
         )}
 

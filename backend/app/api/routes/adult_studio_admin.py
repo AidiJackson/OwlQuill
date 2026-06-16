@@ -45,6 +45,7 @@ from app.services.adult_identity_founder_generate import (
 )
 from app.services.adult_identity_provider import get_training_provider
 from app.services.adult_identity_readiness import build_readiness
+from app.services import adult_training_pack_review as pack_review
 from app.services.adult_identity_training import (
     AdultIdentityTrainingService,
     NotFoundError,
@@ -655,3 +656,148 @@ def cancel_founder_job(
     except FounderGenerateBlocked as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     return _job_payload(job)
+
+
+# ── Training Pack Review (S24W) — Summer-only, file-backed, no DB ──────────────
+#
+# Review surface for the v4 LoRA training candidates staged on disk by
+# scripts/s24v_adult_pack_builder.py. Admin-only + Summer-only. Approve/reject is
+# persisted into the candidate manifest.json (no schema this sprint). This NEVER
+# trains, regenerates, or exports a final pack — it only flips per-image status.
+
+
+class TrainingCandidate(BaseModel):
+    role: str
+    group: Optional[str] = None
+    caption: Optional[str] = None
+    status: str
+    image: Optional[str] = None
+    error: Optional[str] = None
+
+
+class TrainingPackReviewResponse(BaseModel):
+    character_id: int
+    review_state: str
+    counts: dict
+    candidates: list[TrainingCandidate]
+
+
+class ReviewDecisionRequest(BaseModel):
+    status: str  # approved | rejected | pending_review
+
+
+def _require_summer(character_id: int) -> None:
+    if character_id != pack_review.SUMMER_CHARACTER_ID:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Training pack review is Summer-only this sprint "
+                f"(character_id={pack_review.SUMMER_CHARACTER_ID})."
+            ),
+        )
+
+
+def _candidates_payload(character_id: int, manifest: dict) -> TrainingPackReviewResponse:
+    return TrainingPackReviewResponse(
+        character_id=character_id,
+        review_state=manifest.get("review_state", "candidates_pending_review"),
+        counts=manifest.get("counts", {}),
+        candidates=[
+            TrainingCandidate(
+                role=e.get("role", ""),
+                group=e.get("group"),
+                caption=e.get("caption"),
+                status=e.get("status", "pending_review"),
+                image=e.get("image"),
+                error=e.get("error"),
+            )
+            for e in manifest.get("images", [])
+        ],
+    )
+
+
+@router.get(
+    "/characters/{character_id}/training-candidates",
+    response_model=TrainingPackReviewResponse,
+    summary="Admin: list staged v4 training-pack candidates + review status (Summer-only)",
+)
+def list_training_candidates(
+    character_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Return all staged candidates with their current review status."""
+    _ = admin
+    _require_summer(character_id)
+    try:
+        manifest = pack_review.load_review_state()
+    except pack_review.PackNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No training-pack candidates have been staged for review.",
+        )
+    return _candidates_payload(character_id, manifest)
+
+
+@router.get(
+    "/characters/{character_id}/training-candidates/{role}/image",
+    summary="Admin: fetch one candidate image as PNG (Summer-only)",
+)
+def get_training_candidate_image(
+    character_id: int,
+    role: str,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Stream a candidate PNG. Admin-gated so the bearer-auth client can blob-load it."""
+    _ = admin
+    _require_summer(character_id)
+    path = pack_review.image_path_for_role(role)
+    if path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No candidate image for role '{role}'.",
+        )
+    return Response(content=path.read_bytes(), media_type="image/png")
+
+
+@router.post(
+    "/characters/{character_id}/training-candidates/{role}/review",
+    response_model=TrainingCandidate,
+    summary="Admin: approve / reject / reset a training candidate (Summer-only)",
+)
+def review_training_candidate(
+    character_id: int,
+    role: str,
+    body: ReviewDecisionRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Persist a review decision into the candidate manifest. No training, no export."""
+    _ = admin
+    _require_summer(character_id)
+    try:
+        entry = pack_review.set_review_status(role, body.status)
+    except pack_review.PackNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No training-pack candidates have been staged for review.",
+        )
+    except pack_review.CandidateNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No candidate with role '{role}'.",
+        )
+    except pack_review.InvalidStatus as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid review status: {exc}",
+        )
+    return TrainingCandidate(
+        role=entry.get("role", ""),
+        group=entry.get("group"),
+        caption=entry.get("caption"),
+        status=entry.get("status", "pending_review"),
+        image=entry.get("image"),
+        error=entry.get("error"),
+    )
