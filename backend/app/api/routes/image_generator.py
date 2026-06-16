@@ -84,6 +84,7 @@ _OPTION_PROVIDER_NAMES: dict[str, str] = {
     "option3": "flux_pro",
     "option4": "flux_max",
     "option5": "together_flux",
+    "option6": "grok",
 }
 
 # ── B18/B19 strict identity prompt constants ──────────────────────────
@@ -155,7 +156,7 @@ class ImageGenerateRequest(BaseModel):
     # admin-only and fall back to Google for non-admins (enforced server-side).
     # FLUX options generate text-to-image only — refs are not forwarded.
     # Together (option5) supports URL-based refs when public HTTPS URLs are available.
-    provider_option: Literal["option1", "option2", "option3", "option4", "option5"] = "option2"
+    provider_option: Literal["option1", "option2", "option3", "option4", "option5", "option6"] = "option2"
     is_cover: bool = False  # When True, saves with kind=COVER for use as a character cover banner
 
 

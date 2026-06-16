@@ -28,14 +28,16 @@ class OpenRouterImageProvider(ImageProviderBase):
 
     name = "openrouter"
 
-    def __init__(self) -> None:
+    def __init__(self, model: str | None = None) -> None:
         if not settings.OPENROUTER_API_KEY:
             raise RuntimeError(
                 "OPENROUTER_API_KEY is not configured. "
                 "Set it in your environment or .env file to use the OpenRouter image provider."
             )
         self._api_key = settings.OPENROUTER_API_KEY
-        self._model = settings.OPENROUTER_IMAGE_MODEL
+        # Defaults to the generic OpenRouter image model; callers may pass a
+        # specific slug (e.g. the Grok image model) for an admin provider option.
+        self._model = model or settings.OPENROUTER_IMAGE_MODEL
 
     # ── Public API ────────────────────────────────────────────────────
 

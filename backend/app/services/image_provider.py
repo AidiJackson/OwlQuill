@@ -427,6 +427,7 @@ def get_provider_for_option(option: str) -> ImageProvider:
       option3 -> flux_pro      (admin/internal testing only — text-to-image, no refs)
       option4 -> flux_max      (admin/internal testing only — text-to-image, no refs)
       option5 -> together_flux (admin/internal testing only — URL-based refs)
+      option6 -> grok          (admin-only — Grok Imagine via OpenRouter)
 
     When IMAGE_GENERATOR_PROVIDER_TOGGLE is False, always returns the openai
     provider regardless of the option value (easy rollback path).
@@ -441,13 +442,14 @@ def get_provider_for_option(option: str) -> ImageProvider:
         "option3": "flux_pro",
         "option4": "flux_max",
         "option5": "together_flux",
+        "option6": "grok",
     }
     effective = option.lower() if settings.IMAGE_GENERATOR_PROVIDER_TOGGLE else "option1"
     provider_name = _OPTION_MAP.get(effective)
     if provider_name is None:
         raise ValueError(
             f"Unknown provider option: {option!r}. "
-            f"Expected 'option1' through 'option5'."
+            f"Expected 'option1' through 'option6'."
         )
     if provider_name == "openai":
         return _OpenAIImageProvider()
@@ -465,6 +467,8 @@ def get_provider_for_option(option: str) -> ImageProvider:
         )
     if provider_name == "together_flux":
         return _TogetherFluxAdapter(model=settings.TOGETHER_FLUX_MODEL)
+    if provider_name == "grok":
+        return _OpenRouterImageProviderAdapter(model=settings.OPENROUTER_GROK_IMAGE_MODEL)
     raise ValueError(f"No provider implementation for resolved name: {provider_name!r}")
 
 
@@ -488,7 +492,7 @@ def get_provider_for_option(option: str) -> ImageProvider:
 #   so admins can see whether multi-URL conditioning was attempted and whether
 #   public URLs were available.
 
-_ADMIN_ONLY_PROVIDER_OPTIONS = frozenset({"option1", "option3", "option4", "option5"})
+_ADMIN_ONLY_PROVIDER_OPTIONS = frozenset({"option1", "option3", "option4", "option5", "option6"})
 CANON_DEFAULT_PROVIDER_OPTION = "option2"              # option2 == google
 _PROVIDER_OPTION_NAMES = {
     "option1": "openai",
@@ -496,6 +500,7 @@ _PROVIDER_OPTION_NAMES = {
     "option3": "flux_pro",
     "option4": "flux_max",
     "option5": "together_flux",
+    "option6": "grok",
 }
 
 # Per-option fallback reason logged in audit metadata when a non-admin requests
@@ -505,6 +510,7 @@ _ADMIN_GATE_REASONS: dict[str, str] = {
     "option3": "flux_pro_admin_only",
     "option4": "flux_max_admin_only",
     "option5": "together_flux_admin_only",
+    "option6": "grok_admin_only",
 }
 
 
@@ -562,11 +568,11 @@ class _OpenRouterImageProviderAdapter(ImageProvider):
 
     supports_image_guidance = True
 
-    def __init__(self) -> None:
+    def __init__(self, model: str | None = None) -> None:
         from app.services.image_providers.openrouter_provider import (
             OpenRouterImageProvider,
         )
-        self._openrouter = OpenRouterImageProvider()
+        self._openrouter = OpenRouterImageProvider(model=model)
 
     def _generate(
         self,

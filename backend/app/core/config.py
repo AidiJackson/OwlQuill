@@ -60,7 +60,9 @@ class Settings(BaseSettings):
     ADMIN_EMAILS: str = ""
 
     # Image generation
-    IMAGE_PROVIDER: str = "openai"
+    # Canon Studio production default is Google (Gemini). OpenAI stays fully
+    # wired as an admin-only fallback (option1 + IMAGE_PROVIDER_FALLBACK paths).
+    IMAGE_PROVIDER: str = "google"
     IMAGE_MODEL: str = "gpt-image-1.5"
     OPENAI_API_KEY: Optional[str] = None
     BACKEND_PUBLIC_URL: str = "http://localhost:8000"
@@ -83,7 +85,7 @@ class Settings(BaseSettings):
     # IDENTITY_SEED_PROVIDER: provider used to generate the front anchor (seed) image.
     # IDENTITY_ANGLES_PROVIDER: provider used to generate the 3 grounded angle shots.
     # Both are ignored when IDENTITY_IMAGE_PROVIDER is set (legacy override takes precedence).
-    IDENTITY_SEED_PROVIDER: str = "openai"
+    IDENTITY_SEED_PROVIDER: str = "google"
     IDENTITY_ANGLES_PROVIDER: str = "google"
 
     # OpenRouter image provider (optional — for identity pack A/B testing)

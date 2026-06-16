@@ -16,7 +16,7 @@ const MAX_PROMPT_LENGTH = 800;
 // consistency and only cluttered the UI. Do not re-expose without a decision.
 const SHOW_PROVIDER_TOGGLE = true;
 
-type ProviderOption = 'option1' | 'option2' | 'option3' | 'option4' | 'option5';
+type ProviderOption = 'option1' | 'option2' | 'option3' | 'option4' | 'option5' | 'option6';
 
 interface Props {
   characters: Character[];
@@ -55,7 +55,7 @@ export default function SceneGeneratorPanel({
 
   // Guard: if a non-admin ends up on any admin-only option, snap back to Canon.
   useEffect(() => {
-    const adminOnly: ProviderOption[] = ['option1', 'option3', 'option4', 'option5'];
+    const adminOnly: ProviderOption[] = ['option1', 'option3', 'option4', 'option5', 'option6'];
     if (!isAdmin && adminOnly.includes(providerOption)) setProviderOption('option2');
   }, [isAdmin, providerOption]);
 
@@ -224,6 +224,21 @@ export default function SceneGeneratorPanel({
                 }`}
               >
                 OpenAI · Admin
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setProviderOption('option6')}
+                disabled={loading}
+                title="Grok Imagine (via OpenRouter) — experimental, admin-only"
+                className={`px-3 py-1 transition-colors ${
+                  providerOption === 'option6'
+                    ? 'bg-sky-700 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-sky-900/40 hover:text-sky-300'
+                }`}
+              >
+                Grok · Admin
               </button>
             )}
           </div>
