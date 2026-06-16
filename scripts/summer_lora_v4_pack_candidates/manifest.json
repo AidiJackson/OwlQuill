@@ -1,0 +1,341 @@
+{
+  "sprint": "S24V",
+  "kind": "adult_lora_v4_candidate_pack",
+  "character_id": 60,
+  "character_name": "Summer Fielding",
+  "trigger_token": "smmr_v4",
+  "identity_traits": "blonde hair, blue eyes",
+  "build": "slim",
+  "generator": "google_gemini_multi_reference",
+  "source": "locked canon identity pack (read-only)",
+  "safety": "adult-safe only — swimwear/underwear/reference-body; no explicit NSFW",
+  "review_state": "review_complete",
+  "export_note": "FINAL pack export is a separate, user-approved step. Only images with status=='approved' (set during review) should be exported; rejected/failed images MUST be excluded. This builder never exports the final pack.",
+  "counts": {
+    "total_roles": 19,
+    "pending_review": 0,
+    "approved": 18,
+    "rejected": 1,
+    "failed": 0
+  },
+  "marks_truth": [
+    {
+      "label": "Butterfly floral sleeve",
+      "region": "Right upper arm",
+      "side": "right"
+    },
+    {
+      "label": "Black-and-white ballerina tattoo",
+      "region": "Left forearm",
+      "side": "left"
+    }
+  ],
+  "images": [
+    {
+      "role": "face_front",
+      "group": "face",
+      "image": "images/face_front.png",
+      "caption_file": "captions/face_front.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, front face portrait, neutral expression",
+      "anchor_roles": [
+        "face_left_3q",
+        "face_right_3q",
+        "expression",
+        "final_card"
+      ],
+      "status": "approved",
+      "bytes": 719674
+    },
+    {
+      "role": "face_left_3q",
+      "group": "face",
+      "image": "images/face_left_3q.png",
+      "caption_file": "captions/face_left_3q.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, left three-quarter face view",
+      "anchor_roles": [
+        "face_front",
+        "expression",
+        "body_front"
+      ],
+      "status": "approved",
+      "bytes": 691481
+    },
+    {
+      "role": "face_right_3q",
+      "group": "face",
+      "image": "images/face_right_3q.png",
+      "caption_file": "captions/face_right_3q.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, right three-quarter face view",
+      "anchor_roles": [
+        "face_front",
+        "face_left_3q",
+        "expression",
+        "final_card"
+      ],
+      "status": "approved",
+      "bytes": 906539
+    },
+    {
+      "role": "face_soft_smile",
+      "group": "face",
+      "image": "images/face_soft_smile.png",
+      "caption_file": "captions/face_soft_smile.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, soft smiling face portrait",
+      "anchor_roles": [
+        "face_front",
+        "face_left_3q",
+        "face_right_3q",
+        "expression",
+        "final_card"
+      ],
+      "status": "approved",
+      "bytes": 778865
+    },
+    {
+      "role": "face_profile",
+      "group": "face",
+      "image": "images/face_profile.png",
+      "caption_file": "captions/face_profile.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, side profile face view",
+      "anchor_roles": [
+        "face_front",
+        "face_left_3q",
+        "face_right_3q",
+        "expression",
+        "final_card"
+      ],
+      "status": "approved",
+      "bytes": 806127
+    },
+    {
+      "role": "body_front",
+      "group": "body",
+      "image": "images/body_front.png",
+      "caption_file": "captions/body_front.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, full body front view, slim body, fitted swimwear, butterfly floral sleeve tattoo on right upper arm, black-and-white ballerina tattoo on left forearm",
+      "anchor_roles": [
+        "body_left",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 694858
+    },
+    {
+      "role": "body_left",
+      "group": "body",
+      "image": "images/body_left.png",
+      "caption_file": "captions/body_left.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, full body left side view, slim body, fitted swimwear",
+      "anchor_roles": [
+        "body_front",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 693648
+    },
+    {
+      "role": "body_right",
+      "group": "body",
+      "image": "images/body_right.png",
+      "caption_file": "captions/body_right.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, full body right side view, slim body, fitted swimwear",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 685738
+    },
+    {
+      "role": "body_back",
+      "group": "body",
+      "image": "images/body_back.png",
+      "caption_file": "captions/body_back.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, full body back view, slim body, fitted swimwear",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_right",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 705642
+    },
+    {
+      "role": "torso_front",
+      "group": "body",
+      "image": "images/torso_front.png",
+      "caption_file": "captions/torso_front.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, torso front view, slim body, fitted swimwear",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 776431
+    },
+    {
+      "role": "torso_side",
+      "group": "body",
+      "image": "images/torso_side.png",
+      "caption_file": "captions/torso_side.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, torso side view, slim body, fitted swimwear",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 720902
+    },
+    {
+      "role": "standing_casual",
+      "group": "scene",
+      "image": "images/standing_casual.png",
+      "caption_file": "captions/standing_casual.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, standing, casual outfit",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "rejected",
+      "bytes": 895609
+    },
+    {
+      "role": "seated_casual",
+      "group": "scene",
+      "image": "images/seated_casual.png",
+      "caption_file": "captions/seated_casual.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, seated, casual outfit",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 732419
+    },
+    {
+      "role": "beach_full_body",
+      "group": "scene",
+      "image": "images/beach_full_body.png",
+      "caption_file": "captions/beach_full_body.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, full body on beach, swimwear",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 799268
+    },
+    {
+      "role": "bedroom_oversized_shirt",
+      "group": "scene",
+      "image": "images/bedroom_oversized_shirt.png",
+      "caption_file": "captions/bedroom_oversized_shirt.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, bedroom, oversized shirt",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 853229
+    },
+    {
+      "role": "formal_full_body",
+      "group": "scene",
+      "image": "images/formal_full_body.png",
+      "caption_file": "captions/formal_full_body.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, formal full body, evening dress",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 732812
+    },
+    {
+      "role": "cinematic_rain",
+      "group": "scene",
+      "image": "images/cinematic_rain.png",
+      "caption_file": "captions/cinematic_rain.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, cinematic rain, full body, jacket",
+      "anchor_roles": [
+        "body_front",
+        "body_left",
+        "body_right",
+        "body_back",
+        "final_card",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 1022492
+    },
+    {
+      "role": "tattoo_right_upper_arm_detail",
+      "group": "tat",
+      "image": "images/tattoo_right_upper_arm_detail.png",
+      "caption_file": "captions/tattoo_right_upper_arm_detail.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, butterfly floral sleeve tattoo right upper arm closeup",
+      "anchor_roles": [
+        "mark:Right upper arm",
+        "body_front",
+        "body_right",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 802933
+    },
+    {
+      "role": "tattoo_left_forearm_detail",
+      "group": "tat",
+      "image": "images/tattoo_left_forearm_detail.png",
+      "caption_file": "captions/tattoo_left_forearm_detail.txt",
+      "caption": "smmr_v4 adult woman, blonde hair, blue eyes, black-and-white ballerina tattoo left forearm closeup",
+      "anchor_roles": [
+        "mark:Left forearm",
+        "body_front",
+        "body_left",
+        "face_front"
+      ],
+      "status": "approved",
+      "bytes": 659629
+    }
+  ]
+}

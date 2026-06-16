@@ -1,0 +1,29 @@
+{
+  "trigger_token": "smmr_v4",
+  "identity_traits": "blonde hair, blue eyes",
+  "build": "slim",
+  "image_count": 18,
+  "marks_truth": [
+    {
+      "label": "Butterfly floral sleeve",
+      "region": "Right upper arm",
+      "side": "right"
+    },
+    {
+      "label": "Black-and-white ballerina tattoo",
+      "region": "Left forearm",
+      "side": "left"
+    }
+  ],
+  "recommended": {
+    "base_model": "SDXL (RealVisXL) — matches prior Summer v2/v3 runs",
+    "caption_style": "kohya sidecar .txt per image; trigger token leads each caption",
+    "notes": [
+      "Train OUTSIDE Ficshon (offline). This pack does NOT train anything.",
+      "Captions are factual; preserve tattoo placement language verbatim.",
+      "Rejected/failed candidates are intentionally excluded."
+    ]
+  },
+  "source_pack": "summer_lora_v4_pack_candidates",
+  "exported_at": "2026-06-16T18:40:29.437041+00:00"
+}
