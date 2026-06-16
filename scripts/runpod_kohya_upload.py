@@ -15,7 +15,8 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_PACK = HERE / "summer_lora_v3_pack.zip"
+# S24Y: train from the approved-only v4 pack (S24X export).
+DEFAULT_PACK = HERE / "summer_lora_v4_approved_pack" / "summer_lora_v4_approved_pack.zip"
 
 
 def _r2_client():
@@ -46,7 +47,7 @@ def upload_file(local_path: str | Path, key: str, content_type: str = "applicati
 
 
 def upload_pack(pack: str | Path = DEFAULT_PACK, run_id: str = "manual") -> str:
-    key = f"lora_training/{run_id}/summer_lora_v3_pack.zip"
+    key = f"lora_training/{run_id}/summer_lora_v4_approved_pack.zip"
     url = upload_file(pack, key)
     return url
 

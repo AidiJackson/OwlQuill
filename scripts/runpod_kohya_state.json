@@ -1,23 +1,23 @@
 {
-  "run_id": "s24s_summer_lora_v3_train_r2base",
+  "run_id": "s24y_v4_1781635780",
   "mode": "train",
-  "dataset_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24s_summer_lora_v3_train_r2base/summer_lora_v3_pack.zip",
+  "dataset_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24y_v4_1781635780/summer_lora_v4_approved_pack.zip",
   "caps": {
     "watchdog_s": 9000,
     "wallclock_cap_s": 9000,
     "spend_cap": 1.0
   },
-  "r2_status_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24s_summer_lora_v3_train_r2base/status.json",
-  "last_update": "2026-06-15T16:26:28Z",
-  "state": "launched",
-  "phase": "boot",
+  "r2_status_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24y_v4_1781635780/status.json",
+  "last_update": "2026-06-16T19:55:30Z",
+  "state": "done",
+  "phase": "done",
   "error_type": "SupplyExhausted",
   "error_message": "no GPU supply across ['NVIDIA RTX A5000', 'NVIDIA A40', 'NVIDIA GeForce RTX 3090'] (SECURE) after 1 cycle(s): [{\"message\": \"Something went wrong. Please try again later or contact support.\", \"path\": [\"podFindAndDeployOnDemand\"], \"extensions\": {\"code\": \"INTERNAL_SERVER_ERROR\"}}]",
   "gpu_attempts": [
     {
       "gpu": "NVIDIA RTX A5000",
       "cycle": 1,
-      "ts": "2026-06-15T16:26:26Z",
+      "ts": "2026-06-16T18:49:42Z",
       "result": "supply_fail",
       "error_type": "HTTP5xx",
       "reason": "{\"error\":\"create pod: There are no instances currently available\",\"status\":500}\n"
@@ -25,7 +25,7 @@
     {
       "gpu": "NVIDIA RTX A4500",
       "cycle": 1,
-      "ts": "2026-06-15T16:26:27Z",
+      "ts": "2026-06-16T18:49:43Z",
       "result": "secured"
     }
   ],
@@ -55,7 +55,20 @@
       "in_budget": true
     }
   ],
-  "pod_id": "npp1zi50l6bgf0",
+  "pod_id": "tytpevnq2l4cxs",
   "cost_per_hr": 0.19,
-  "gpu_type": "NVIDIA RTX A4500"
+  "gpu_type": "NVIDIA RTX A4500",
+  "done": true,
+  "final_stage": "done",
+  "errors": [],
+  "final_step": "2600/2600",
+  "avr_loss": 0.0872,
+  "artifact": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24y_v4_1781635780/out/summer_lora_v4.safetensors",
+  "artifact_bytes": 178848000,
+  "artifact_name": "summer_lora_v4.safetensors",
+  "train_log": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24y_v4_1781635780/out/train.log",
+  "spend_usd": 0.2009,
+  "spend_cap_usd": 1.0,
+  "watchdog_s": 9000,
+  "orphan": false
 }

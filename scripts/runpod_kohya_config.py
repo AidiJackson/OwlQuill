@@ -13,14 +13,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-# Trigger/identity for the Summer v3 dataset (matches the exported kohya pack).
-TRIGGER_TOKEN = "smmr_v3"
+# Trigger/identity for the Summer v4 dataset (matches the approved kohya pack).
+TRIGGER_TOKEN = "smmr_v4"
 
 # In-pod canonical paths (the RunPod harness lays the dataset/base out here).
 POD_DATASET_DIR = "/workspace/dataset/img"          # contains the .png + .txt pairs
 POD_BASE_MODEL = "/workspace/base/realvisxl.safetensors"
 POD_OUTPUT_DIR = "/workspace/output"
-OUTPUT_NAME = "summer_lora_v3"
+OUTPUT_NAME = "summer_lora_v4"
 
 # ── Default training hyperparameters (S24E) ──────────────────────────────────
 DEFAULTS = {
@@ -32,20 +32,20 @@ DEFAULTS = {
     "bucket_reso_steps": 64,
     "bucket_no_upscale": True,
     "caption_extension": ".txt",
-    "num_repeats": 10,                 # 12 imgs * 10 = 120 imgs/epoch
+    "num_repeats": 10,                 # 18 imgs * 10 = 180 imgs/epoch
     # network
     "network_module": "networks.lora",
-    "network_dim": 16,                 # rank
-    "network_alpha": 16,               # alpha == rank
+    "network_dim": 32,                 # rank (S24Y v4: 32)
+    "network_alpha": 32,               # alpha == rank (S24Y v4: 32)
     # optimisation — conservative
     "train_batch_size": 2,
-    "max_train_steps": 1800,
+    "max_train_steps": 2600,           # S24Y v4
     "learning_rate": 1e-4,
     "unet_lr": 1e-4,
     "text_encoder_lr": 5e-5,
     "optimizer_type": "AdamW",         # S24Q: standard AdamW (no bitsandbytes); LoRA optimizer states are tiny
     "lr_scheduler": "cosine",
-    "lr_warmup_steps": 100,
+    "lr_warmup_steps": 150,            # S24Y v4
     # precision / perf
     "mixed_precision": "bf16",
     "save_precision": "bf16",

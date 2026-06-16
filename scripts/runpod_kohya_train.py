@@ -213,15 +213,19 @@ try:
     os.makedirs(DATASET_DIR, exist_ok=True)
     put_status("fetch_dataset", note="fetching dataset zip")
     _boto().download_file(os.environ["R2_BUCKET_NAME"],
-                          f"lora_training/{RUN_ID}/summer_lora_v3_pack.zip",
+                          f"lora_training/{RUN_ID}/summer_lora_v4_approved_pack.zip",
                           "/workspace/pack.zip")
     with zipfile.ZipFile("/workspace/pack.zip") as z:
         z.extractall("/workspace/pack")
-    # pack layout: images/<name>.png + images/<name>.txt -> flatten into DATASET_DIR
+    # v4 pack layout: images/<name>.png + captions/<name>.txt (separate dirs).
+    # kohya wants png + matching .txt co-located in image_dir, so flatten both into
+    # DATASET_DIR. (Back-compat: a v3-style pack with .txt inside images/ also works.)
     n_png = 0
     for f in glob.glob("/workspace/pack/images/*"):
         shutil.copy(f, DATASET_DIR)
         if f.endswith(".png"): n_png += 1
+    for f in glob.glob("/workspace/pack/captions/*.txt"):
+        shutil.copy(f, DATASET_DIR)
     n_txt = len(glob.glob(f"{DATASET_DIR}/*.txt"))
     put_status("fetch_dataset", images=n_png, captions=n_txt, extracted=True)
 
@@ -287,12 +291,12 @@ try:
         if rc == 0 and outs:
             cli = _boto(); B = os.environ["R2_BUCKET_NAME"]
             with open(outs[0], "rb") as fh:
-                cli.put_object(Bucket=B, Key=f"lora_training/{RUN_ID}/out/summer_lora_v3.safetensors",
+                cli.put_object(Bucket=B, Key=f"lora_training/{RUN_ID}/out/summer_lora_v4.safetensors",
                                Body=fh.read(), ContentType="application/octet-stream")
             with open("/workspace/train.log", "rb") as fh:
                 cli.put_object(Bucket=B, Key=f"lora_training/{RUN_ID}/out/train.log", Body=fh.read())
             put_status("done", done=True,
-                       artifact=f"{R2_PUB}/lora_training/{RUN_ID}/out/summer_lora_v3.safetensors",
+                       artifact=f"{R2_PUB}/lora_training/{RUN_ID}/out/summer_lora_v4.safetensors",
                        log=f"{R2_PUB}/lora_training/{RUN_ID}/out/train.log")
         else:
             put_status("done", done=True, errors=[f"train rc={rc} outputs={outs}"])
