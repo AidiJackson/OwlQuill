@@ -1,0 +1,61 @@
+{
+  "run_id": "s24ac_v5_1781720367",
+  "sprint": "S24AC",
+  "mode": "train",
+  "caps": {
+    "watchdog_s": 9000,
+    "wallclock_cap_s": 9000,
+    "spend_cap": 1.0
+  },
+  "state": "launched",
+  "phase": "boot",
+  "dataset_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24ac_v5_1781720367/summer_lora_v4_approved_pack.zip",
+  "config": {
+    "trigger": "smmr_v5",
+    "output_name": "summer_lora_v5",
+    "rank": 16,
+    "alpha": 16,
+    "steps": 1800,
+    "warmup": 100
+  },
+  "artifact_key": "lora_training/s24ac_v5_1781720367/out/summer_lora_v5.safetensors",
+  "r2_status_url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24ac_v5_1781720367/status.json",
+  "last_update": "2026-06-17T18:19:32Z",
+  "pod_id": "kns7k9u8j10wcv",
+  "cloud_type": "COMMUNITY",
+  "cost_per_hr": 0.22,
+  "gpu_type": "NVIDIA GeForce RTX 3090",
+  "gpu_attempts": [
+    {
+      "gpu": "NVIDIA RTX A5000",
+      "cycle": 1,
+      "ts": "2026-06-17T18:19:29Z",
+      "result": "supply_fail",
+      "error_type": "HTTP5xx",
+      "reason": "{\"error\":\"create pod: There are no instances currently available\",\"status\":500}\n"
+    },
+    {
+      "gpu": "NVIDIA RTX A4500",
+      "cycle": 1,
+      "ts": "2026-06-17T18:19:30Z",
+      "result": "supply_fail",
+      "error_type": "HTTP5xx",
+      "reason": "{\"error\":\"create pod: There are no instances currently available\",\"status\":500}\n"
+    },
+    {
+      "gpu": "NVIDIA GeForce RTX 4090",
+      "cycle": 1,
+      "ts": "2026-06-17T18:19:31Z",
+      "result": "supply_fail",
+      "error_type": "HTTP5xx",
+      "reason": "{\"error\":\"create pod: This machine does not have the resources to deploy your pod. Please try a different machine\",\"status\":500}\n"
+    },
+    {
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "cycle": 1,
+      "ts": "2026-06-17T18:19:31Z",
+      "result": "secured"
+    }
+  ],
+  "supply_cycles": 1
+}

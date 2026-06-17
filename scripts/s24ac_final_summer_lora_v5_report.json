@@ -1,0 +1,75 @@
+{
+  "sprint": "S24AC",
+  "title": "Final Summer Adult LoRA v5 — controlled retrain (v4 approved pack, lower-capacity v3-style settings)",
+  "date": "2026-06-17",
+  "rollback_tag": "rollback-pre-s24ac-final-summer-lora-2026-06-16",
+  "rules_honored": {
+    "rollback_tag_first": true,
+    "no_new_pack": true,
+    "no_generation_before_training": true,
+    "no_app_wiring": true,
+    "no_ui_changes": true,
+    "one_training_run_only": true,
+    "spend_cap_usd": 1.00,
+    "trigger_handling": "S24AC option 1 — in-pod retoken smmr_v4->smmr_v5 on COPIED captions + class_tokens=smmr_v5; source pack on disk and in R2 NEVER modified"
+  },
+  "training": {
+    "run_id": "s24ac_v5_1781720367",
+    "pod_id": "kns7k9u8j10wcv",
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "cost_per_hr_usd": 0.22,
+    "base_model": "RealVisXL_V4.0 (R2 cache)",
+    "pack": "scripts/summer_lora_v4_approved_pack/summer_lora_v4_approved_pack.zip (18 images, unmodified)",
+    "trigger": "smmr_v5",
+    "config": {
+      "rank": 16,
+      "alpha": 16,
+      "steps": 1800,
+      "resolution": "1024,1024",
+      "buckets": true,
+      "optimizer": "AdamW",
+      "scheduler": "cosine",
+      "warmup": 100,
+      "unet_only": true,
+      "precision": "bf16",
+      "bitsandbytes": false
+    },
+    "retoken": {"captions_retokened": 18, "leftover_smmr_v4": 0},
+    "duration": "38:20 (1800/1800 steps)",
+    "train_rc": 0,
+    "training_loss_avr": 0.0915,
+    "training_loss_last_step": 0.0915,
+    "cost_usd": 0.15,
+    "orphan_pod": false
+  },
+  "artifact": {
+    "path_r2_key": "lora_training/s24ac_v5_1781720367/out/summer_lora_v5.safetensors",
+    "url": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24ac_v5_1781720367/out/summer_lora_v5.safetensors",
+    "bytes": 85428164,
+    "train_log": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/lora_training/s24ac_v5_1781720367/out/train.log"
+  },
+  "validation": {
+    "run_id": "s24ac_summer_lora_v5_validation",
+    "pod_id": "weia6msofxz3a7",
+    "trigger": "smmr_v5",
+    "lora_scale": 0.85,
+    "prompts": "exactly the 6 S24AA validation prompts, retokened to smmr_v5",
+    "generated": 6,
+    "errors": [],
+    "library_import": {
+      "source": "summer_lora_v5_final_validation",
+      "character_id": 60,
+      "provider": "runpod_realvisxl_summer_lora_v5",
+      "image_ids": [1894, 1895, 1896, 1897, 1898, 1899]
+    }
+  },
+  "success_criteria": {
+    "train_completes": true,
+    "artifact_uploaded": true,
+    "no_orphan": true,
+    "cost_within_cap": true,
+    "all_6_validation_generated": true,
+    "all_6_imported": true
+  },
+  "v5_vs_v4_assessment": "On par, NOT visibly better. Identity likeness (face, hair, build) is equivalent to v4 across all 6 prompts; portrait and full-body are near-indistinguishable with clean anatomy. v4 (rank 32 / 2600 steps) renders the arm tattoo sleeve marginally denser/more coherent. v5 (rank 16 / 1800 steps) achieves comparable identity fidelity at lower capacity and lower cost (~$0.15 vs v4 ~$0.20), but does not surpass v4 visually."
+}
