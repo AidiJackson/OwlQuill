@@ -1427,6 +1427,10 @@ def generate_image(
 
     # ── Generate: multi-image → grounded → text-only → fal → stub ──
     provider_supports_multi = bool(getattr(provider, "supports_multi_image_input", False))
+    # S24AD: remember why the reference-bearing calls (multi-image / grounded)
+    # failed so a canon generation can fail loudly instead of silently dropping
+    # to a ref-less path. None until a ref-bearing attempt raises.
+    ref_failure_reason: str | None = None
     if provider is not None and ref_bytes and provider_supports_multi:
         try:
             png_bytes = provider.generate_with_anchors(
@@ -1436,8 +1440,10 @@ def generate_image(
             actual_provider_name = resolved_provider_name
             multi_image_used = True
             logger.info("IMAGE_GEN_MULTI_IMAGE_SUCCESS character_id=%s", character_id)
-        except (ValueError, RuntimeError, NotImplementedError, AttributeError):
-            logger.info("IMAGE_GEN_MULTI_IMAGE_FAILED character_id=%s fallback=grounded", character_id)
+        except (ValueError, RuntimeError, NotImplementedError, AttributeError) as exc:
+            ref_failure_reason = str(exc)
+            logger.info("IMAGE_GEN_MULTI_IMAGE_FAILED character_id=%s fallback=grounded reason=%r",
+                        character_id, str(exc)[:200])
 
     if png_bytes is None and provider is not None and ref_bytes:
         try:
@@ -1448,8 +1454,35 @@ def generate_image(
             actual_provider_name = resolved_provider_name
             used_ref = True
             logger.info("IMAGE_GEN_GROUNDED_SUCCESS character_id=%s", character_id)
-        except (ValueError, RuntimeError, NotImplementedError, AttributeError):
-            logger.info("IMAGE_GEN_GROUNDED_FAILED character_id=%s fallback=text", character_id)
+        except (ValueError, RuntimeError, NotImplementedError, AttributeError) as exc:
+            ref_failure_reason = str(exc)
+            logger.info("IMAGE_GEN_GROUNDED_FAILED character_id=%s fallback=text reason=%r",
+                        character_id, str(exc)[:200])
+
+    # ── S24AD: block the ref-less fallback for canon generations ──────
+    # When this is a canon generation (using_canon) with reference images
+    # loaded, and a real provider's reference-bearing calls (multi-image AND
+    # grounded) have all failed or been REFUSED (e.g. Gemini "google_refused_
+    # image" on adult-adjacent prompts), DO NOT silently degrade to text-only /
+    # FAL / stub. Those drop every identity reference and return a generic
+    # person, not the character (the S24AC2 Summer-bikini failure). Fail loudly
+    # so the caller can reword or route to Adult Studio. The ref-less fallbacks
+    # below stay intact for genuine non-ref flows (include_character=False, no
+    # refs available, or no provider configured → offline/stub path).
+    if png_bytes is None and using_canon and ref_bytes and provider is not None:
+        refused = bool(ref_failure_reason and "google_refused_image" in ref_failure_reason)
+        logger.warning(
+            "IMAGE_GEN_CANON_REFUSED_BLOCKED character_id=%s provider=%s model=%s "
+            "refused=%s fallback_blocked=true reason=%r",
+            character_id, resolved_provider_name,
+            getattr(provider, "_model", getattr(provider, "model", "?")),
+            refused, (ref_failure_reason or "")[:200],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Canon provider declined this scene. "
+                   "Try Adult Studio or reduce adult/explicit wording.",
+        )
 
     if png_bytes is None and provider is not None:
         try:

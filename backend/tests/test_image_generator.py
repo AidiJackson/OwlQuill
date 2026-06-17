@@ -667,3 +667,108 @@ def test_other_user_cannot_generate(client: TestClient, db_session):
         "provider_option": "option1",
     })
     assert resp.status_code == 403
+
+
+# ── S24AD: block ref-less fallback for canon generations ──────────────
+
+def test_canon_provider_refusal_blocks_refless_fallback(client: TestClient, db_session):
+    """Canon gen + provider REFUSES both ref-bearing calls → controlled 422,
+    and the route NEVER degrades to the ref-less text-only path (the S24AC2
+    Summer-bikini failure)."""
+    token = _register_and_login(client, "imggen_refuse@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid)  # with_images=True → refs load (ref_bytes non-empty)
+
+    text_only = MagicMock(return_value=_stub_png_bytes())
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = MagicMock(
+        side_effect=RuntimeError("google_refused_image: IMAGE_RECITATION"))
+    mock.generate_grounded_image = MagicMock(
+        side_effect=RuntimeError("google_refused_image: IMAGE_RECITATION"))
+    mock.generate_image = text_only
+    mock._model = "gemini-test"
+
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+        resp = _post(client, token, cid, {
+            "prompt": "Standing on a beach in a white bikini",
+            "include_character": True,
+            "provider_option": "option2",
+        })
+
+    assert resp.status_code == 422, resp.text
+    assert "declined this scene" in resp.json()["detail"].lower()
+    # The ref-less text-only fallback must NOT have run.
+    text_only.assert_not_called()
+
+
+def test_canon_transient_multi_failure_still_tries_grounded(client: TestClient, db_session):
+    """Canon gen + transient multi-image failure → still falls back to the
+    ref-BEARING grounded call (not blocked, not text-only)."""
+    token = _register_and_login(client, "imggen_transient@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid)
+
+    text_only = MagicMock(return_value=_stub_png_bytes())
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = MagicMock(side_effect=RuntimeError("temporary upstream 503"))
+    mock.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    mock.generate_image = text_only
+
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+        resp = _post(client, token, cid, {
+            "prompt": "In a quiet library",
+            "include_character": True,
+            "provider_option": "option2",
+        })
+
+    assert resp.status_code == 200, resp.text
+    mock.generate_grounded_image.assert_called_once()
+    text_only.assert_not_called()
+    assert resp.json()["metadata_json"]["used_ref"] is True
+
+
+def test_noncanon_text_only_fallback_still_works(client: TestClient):
+    """include_character=False (no refs) still uses the text-only path — the
+    S24AD block only applies to canon generations with refs."""
+    token = _register_and_login(client, "imggen_noncanon@example.com")
+    cid = _create_character(client, token)
+
+    text_only = MagicMock(return_value=_stub_png_bytes())
+    mock = MagicMock()
+    mock.supports_multi_image_input = False
+    mock.generate_grounded_image = MagicMock(side_effect=NotImplementedError())
+    mock.generate_image = text_only
+
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+        resp = _post(client, token, cid, {
+            "prompt": "A neon city street in the rain",
+            "include_character": False,
+            "provider_option": "option2",
+        })
+
+    assert resp.status_code == 200, resp.text
+    text_only.assert_called()
+    assert resp.json()["metadata_json"]["canon_used"] is False
+
+
+def test_canon_success_path_unaffected(client: TestClient, db_session):
+    """Non-adult canon gen where the multi-image call succeeds is unaffected:
+    200, refs used, text-only never touched (Pan normal-generation analogue)."""
+    token = _register_and_login(client, "imggen_panok@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid)
+
+    mock = _mock_provider_succeeds()
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+        resp = _post(client, token, cid, {
+            "prompt": "Pan in a black shirt with sleeves rolled to the elbows, in a forest",
+            "include_character": True,
+            "provider_option": "option2",
+        })
+
+    assert resp.status_code == 200, resp.text
+    mock.generate_with_anchors.assert_called_once()
+    mock.generate_image.assert_not_called()
+    assert resp.json()["metadata_json"]["multi_image_used"] is True
