@@ -64,6 +64,18 @@ _IDENTITY_PRIORITY = (
 # skin-bound marking applied to the correct anatomy.
 _MARKING_HEADER = "Permanent markings are immutable skin-bound anatomy:"
 
+# ── S24AB: mandatory exposed-marking directive ────────────────────────
+# When the scene exposes a marked body region, visible permanent markings are
+# REQUIRED identity features — not optional/relevance-only. Closes the passive-
+# enforcement gap where exposed sleeves/tattoos were silently omitted unless the
+# user explicitly wrote "ensure tattoos are visible". Emitted ONLY for marks the
+# scene actually exposes; covered marks still fall under _CLOTHING_TRUTH_DIRECTIVE.
+_MANDATORY_EXPOSED_DIRECTIVE = (
+    "Visible permanent markings/tattoos are mandatory identity features. "
+    "Preserve their canonical side, placement, scale, and design. "
+    "Do not omit, mirror, simplify, or relocate them."
+)
+
 _PERMANENCE_DIRECTIVE = (
     "Do not redesign, relocate, mirror, enlarge, detach, float, duplicate, or "
     "reinterpret markings as symbols, graphics, accessories, or background elements. "
@@ -264,6 +276,7 @@ def _permanent_marks_clause(
         parts.append(
             _MARKING_HEADER + "\n"
             + "\n".join(lines)
+            + "\n" + _MANDATORY_EXPOSED_DIRECTIVE
             + "\n" + _PERMANENCE_DIRECTIVE
         )
 

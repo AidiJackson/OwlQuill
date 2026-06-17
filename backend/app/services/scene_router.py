@@ -106,6 +106,34 @@ _COAT_EXPOSURE = frozenset({
     "coat", "overcoat", "trenchcoat", "trench coat",
 })
 
+# ── S24AB: tattoo-exposure-hardening cues ─────────────────────────────
+# Additional exposure signals the router previously lacked. "tattoos visible"
+# et al. are an explicit instruction to reveal tattooed skin — it must DRIVE
+# routing (force the marked region exposed) rather than relying on the user's
+# literal prose reaching the provider by chance. The others describe scenes
+# that bare the arms/torso. These are folded into the per-region _CROP_* sets
+# below so the existing _mark_region_exposed gate picks them up unchanged.
+_TATTOOS_VISIBLE_EXPOSURE = frozenset({
+    "tattoos visible", "tattoo visible", "visible tattoos", "visible tattoo",
+    "tattoos showing", "tattoo showing", "tattoos shown", "tattoo shown",
+    "show tattoos", "show the tattoos", "showing tattoos", "tattoos exposed",
+    "tattoos on display", "ensure tattoos are visible", "make tattoos visible",
+})
+_UNDERWEAR_EXPOSURE = frozenset({
+    "underwear", "in underwear", "in his underwear", "in her underwear",
+    "boxers", "briefs",
+})
+_GYM_EXPOSURE = frozenset({
+    "gym", "at the gym", "in the gym", "gym workout", "workout", "working out",
+})
+_TOWEL_EXPOSURE = frozenset({
+    "towel", "in a towel", "wrapped in a towel", "towel wrapped",
+    "wearing a towel",
+})
+_WET_SHIRT_EXPOSURE = frozenset({
+    "wet shirt", "wet t-shirt", "wet tshirt", "wet tee", "wet t shirt",
+})
+
 
 # ── Provider reference cap ────────────────────────────────────────────
 # Maximum references the provider consumes. The routed slot lists below may
@@ -133,7 +161,7 @@ _CROP_FULL_ARM = frozenset({
     "arm exposed", "exposed arms", "arms uncovered", "arms shown",
     "swimwear", "swimsuit", "swimming", "swimming pool", "poolside",
     "pool party", "at the pool", "in the pool", "beach", "bikini",
-})
+}) | _TATTOOS_VISIBLE_EXPOSURE | _UNDERWEAR_EXPOSURE | _GYM_EXPOSURE | _TOWEL_EXPOSURE
 _CROP_FOREARM_ONLY = frozenset({
     "t-shirt", "tshirt", "tee shirt", "tee-shirt",
     "short sleeve", "short-sleeve", "short sleeved", "short-sleeved",
@@ -150,7 +178,7 @@ _CROP_NECK_EXPOSE = frozenset({
     "scoop neck", "low neckline", "deep neckline", "bare neck", "neck visible",
     "shirtless", "bare chest", "tank top", "sleeveless", "swimming",
     "swimming pool", "poolside",
-})
+}) | _TATTOOS_VISIBLE_EXPOSURE | _UNDERWEAR_EXPOSURE
 _CROP_NECK_COVER = frozenset({
     "turtleneck", "high collar", "scarf", "buttoned-up", "buttoned up",
     "closed collar", "hood up", "balaclava",
@@ -159,7 +187,7 @@ _CROP_TORSO_EXPOSE = frozenset({
     "shirtless", "bare-chested", "bare chested", "bare chest", "no shirt",
     "topless", "bare torso", "open shirt", "shirt open", "unbuttoned",
     "swimming", "swimming pool", "poolside", "swimwear", "bikini",
-})
+}) | _TATTOOS_VISIBLE_EXPOSURE | _UNDERWEAR_EXPOSURE | _TOWEL_EXPOSURE | _WET_SHIRT_EXPOSURE
 _CROP_BACK_EXPOSE = frozenset({
     "shirtless", "bare back", "back visible", "from behind", "back view", "topless",
 })
@@ -568,6 +596,11 @@ def _detect_exposure(prompt_lower: str) -> list[str]:
         ("long_sleeves",  _LONG_SLEEVE_EXPOSURE),
         ("jacket",        _JACKET_EXPOSURE),
         ("coat",          _COAT_EXPOSURE),
+        ("tattoos_visible", _TATTOOS_VISIBLE_EXPOSURE),
+        ("underwear",     _UNDERWEAR_EXPOSURE),
+        ("gym",           _GYM_EXPOSURE),
+        ("towel",         _TOWEL_EXPOSURE),
+        ("wet_shirt",     _WET_SHIRT_EXPOSURE),
     )
     for name, signals in checks:
         if any(s in prompt_lower for s in signals):
@@ -585,6 +618,44 @@ def _resolve_route(camera: str, slot_urls: dict[str, str]) -> tuple[list[str], l
     slots_hit = [s for s in route_slots if s in slot_urls][:MAX_PROVIDER_REFS]
     urls = [slot_urls[s] for s in slots_hit]
     return urls, slots_hit
+
+
+# ── S24AB: exposed/hidden mark partition (audit logging) ──────────────
+
+def _mark_ref_label(mark: object) -> str:
+    """Compact human label for a permanent mark in audit logs."""
+    label = (getattr(mark, "label", "") or "").strip()
+    region = (getattr(mark, "body_region", "") or "").strip()
+    side = (getattr(mark, "side", "") or "").strip()
+    base = label or str(getattr(mark, "id", "") or "") or "mark"
+    return f"{base}@{region}" + (f"/{side}" if side else "")
+
+
+def _partition_marks(
+    canon: "CharacterIdentityCanon", prompt_lower: str, camera: str,
+) -> tuple[list, list]:
+    """Split permanent marks into (exposed, hidden) for THIS scene.
+
+    Uses the identical per-mark gate the router/compiler apply to crop routing
+    (single source of truth). Portrait close-ups carry no body region → every
+    mark is treated as hidden (not in frame).
+    """
+    body = load_body_canon(canon)
+    marks = getattr(body, "permanent_body_marks", None) if body else None
+    if not marks:
+        return [], []
+    if camera == "portrait_closeup":
+        return [], list(marks)
+    exposed: list = []
+    hidden: list = []
+    for m in marks:
+        if _mark_region_exposed(
+            getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower
+        ):
+            exposed.append(m)
+        else:
+            hidden.append(m)
+    return exposed, hidden
 
 
 # ── Public API ────────────────────────────────────────────────────────
@@ -626,6 +697,12 @@ def route_canon_refs(
     ):
         camera = "front"
 
+    # S24AB: partition marks by this scene's exposure for required-anchor audit.
+    exposed_marks, hidden_marks = _partition_marks(canon, prompt_lower, camera or "")
+    exposed_regions = [getattr(m, "body_region", "") or "" for m in exposed_marks]
+    required_mark_refs = [_mark_ref_label(m) for m in exposed_marks]
+    hidden_mark_refs = [_mark_ref_label(m) for m in hidden_marks]
+
     if camera is None:
         fallback_urls = collect_canon_reference_urls(canon)
         meta = SceneMeta(
@@ -637,6 +714,11 @@ def route_canon_refs(
         logger.info(
             "SCENE_ROUTER char=%s camera=unknown fallback=true exposure=%s refs=%d",
             char_id, exposure, len(fallback_urls),
+        )
+        logger.info(
+            "CANON_EXPOSURE char=%s camera=unknown exposed_regions=%s "
+            "required_mark_refs=%s hidden_mark_refs=%s final_anchor_order=%s",
+            char_id, exposed_regions, required_mark_refs, hidden_mark_refs, [],
         )
         return fallback_urls, meta
 
@@ -668,5 +750,10 @@ def route_canon_refs(
     logger.info(
         "SCENE_ROUTER char=%s camera=%s routed=true exposure=%s slots=%s refs=%d crops=%d",
         char_id, camera, exposure, slots_hit, len(urls), crop_count,
+    )
+    logger.info(
+        "CANON_EXPOSURE char=%s camera=%s exposed_regions=%s required_mark_refs=%s "
+        "hidden_mark_refs=%s final_anchor_order=%s",
+        char_id, camera, exposed_regions, required_mark_refs, hidden_mark_refs, slots_hit,
     )
     return urls, meta
