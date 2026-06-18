@@ -610,13 +610,13 @@ class TestClothingTruthOverTattooVisibility:
         prompt = compile_canon_prompt(_make_canon_with_marks(_arm_marks()), self._KITCHEN).lower()
         assert "permanent markings obey scene clothing" in prompt
         assert "hidden markings remain hidden" in prompt
-        # S24AB: the rolled-sleeve forearm is exposed, so the mandatory exposed-
-        # marking directive must be present (closes the passive-enforcement gap).
-        assert "visible permanent markings/tattoos are mandatory identity features" in prompt
-        # Compact, not a return to pre-P12 multi-paragraph prose bloat. The one
-        # extra mandatory sentence keeps it well under the legacy-essay range.
+        # S24AH.1: the S24AB mandatory-exposed directive is reverted. Naturally
+        # visible marks are preserved (not force-exposed); the directive that made
+        # exposed tattoos "mandatory identity features" must be gone.
+        assert "mandatory identity features" not in prompt
+        # Compact, not a return to pre-P12 multi-paragraph prose bloat.
         assert "for visual balance or composition" not in prompt
-        assert len(prompt) < 1400
+        assert len(prompt) < 1200
 
     def test_2_sleeveless_routes_both_arm_crops(self):
         """2. Sleeveless: full arms exposed → both arm crops route."""

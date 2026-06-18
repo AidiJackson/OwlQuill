@@ -1039,7 +1039,10 @@ class TestLeonardoPromptScenario:
         return canon
 
     def test_beach_no_mask_prompt(self):
-        """P13 (A+C): scene preserved, mask untriggered, marks as compact clause."""
+        """S24AH.1: scene preserved, mask untriggered, and a bare "beach" scene
+        (no explicit skin/clothing cue) does NOT force the arm marks visible —
+        "beach" is no longer a vague exposure trigger. Clothing truth governs:
+        covered marks stay hidden, not surfaced/reproduced."""
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_leonardo_canon()
@@ -1048,10 +1051,12 @@ class TestLeonardoPromptScenario:
 
         assert scene in prompt
         assert "Venetian" not in prompt          # mask not triggered
-        # Marks ARE surfaced as a compact immutable clause + design text.
-        assert "skin-bound anatomy" in prompt.lower()
-        assert "gothic script inscription sleeve" in prompt
-        assert "tribal wolf" in prompt
+        # Marks are NOT surfaced/reproduced — no explicit exposure cue present.
+        assert "skin-bound anatomy" not in prompt.lower()
+        assert "gothic script inscription sleeve" not in prompt
+        assert "tribal wolf" not in prompt
+        # Clothing-truth guard still asserted so covered marks stay hidden.
+        assert "permanent markings obey scene clothing" in prompt.lower()
         # No bloated canon essays / pre-P12 side-lock prose.
         assert "FACE CANON" not in prompt
         assert "BODY CANON" not in prompt
