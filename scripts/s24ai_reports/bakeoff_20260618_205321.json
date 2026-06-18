@@ -1,0 +1,52 @@
+{
+  "sprint": "S24AI",
+  "character_id": 60,
+  "results": [
+    {
+      "provider_option": "option2",
+      "provider_label": "google_gemini",
+      "prompt_index": 2,
+      "prompt": "Summer on a beach at sunset wearing a white tank top and denim shorts, cinematic natural light",
+      "status": "ok",
+      "image_id": 1911,
+      "actual_provider": "google",
+      "model": "gemini-3.1-flash-image",
+      "multi_image_used": true,
+      "used_ref": false,
+      "refs_count": 6,
+      "refs_not_used_reason": null,
+      "visibility": "private",
+      "kind": "scene_only",
+      "file_path": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/generated/01a917c1d5a34d79bbc306f35ac85e50.png",
+      "elapsed_s": 59.0
+    },
+    {
+      "provider_option": "option2",
+      "provider_label": "google_gemini",
+      "prompt_index": 3,
+      "prompt": "Summer on a beach at sunset wearing a white bikini, cinematic natural light",
+      "status": "refused",
+      "http_status": 422,
+      "detail": "Canon provider declined this scene. Try Adult Studio or reduce adult/explicit wording.",
+      "elapsed_s": 27.5
+    },
+    {
+      "provider_option": "option2",
+      "provider_label": "google_gemini",
+      "prompt_index": 4,
+      "prompt": "Summer in a fashion editorial shoot on a sunny coastal street, elegant summer outfit, natural light",
+      "status": "ok",
+      "image_id": 1912,
+      "actual_provider": "google",
+      "model": "gemini-3.1-flash-image",
+      "multi_image_used": true,
+      "used_ref": false,
+      "refs_count": 6,
+      "refs_not_used_reason": null,
+      "visibility": "private",
+      "kind": "scene_only",
+      "file_path": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/generated/f11d7afe4d3d4a1f8623942caa6fe9b3.png",
+      "elapsed_s": 21.0
+    }
+  ]
+}

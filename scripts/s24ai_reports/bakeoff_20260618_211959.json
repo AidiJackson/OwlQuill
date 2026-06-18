@@ -1,0 +1,46 @@
+{
+  "sprint": "S24AI",
+  "character_id": 60,
+  "results": [
+    {
+      "provider_option": "option6",
+      "provider_label": "grok",
+      "prompt_index": 1,
+      "prompt": "Summer on a beach at sunset wearing a flowing gold summer gown, cinematic natural light",
+      "status": "refused",
+      "http_status": 422,
+      "detail": "Canon provider declined this scene. Try Adult Studio or reduce adult/explicit wording.",
+      "elapsed_s": 4.9
+    },
+    {
+      "provider_option": "option6",
+      "provider_label": "grok",
+      "prompt_index": 2,
+      "prompt": "Summer on a beach at sunset wearing a white tank top and denim shorts, cinematic natural light",
+      "status": "refused",
+      "http_status": 422,
+      "detail": "Canon provider declined this scene. Try Adult Studio or reduce adult/explicit wording.",
+      "elapsed_s": 2.0
+    },
+    {
+      "provider_option": "option6",
+      "provider_label": "grok",
+      "prompt_index": 3,
+      "prompt": "Summer on a beach at sunset wearing a white bikini, cinematic natural light",
+      "status": "refused",
+      "http_status": 422,
+      "detail": "Canon provider declined this scene. Try Adult Studio or reduce adult/explicit wording.",
+      "elapsed_s": 2.0
+    },
+    {
+      "provider_option": "option6",
+      "provider_label": "grok",
+      "prompt_index": 4,
+      "prompt": "Summer in a fashion editorial shoot on a sunny coastal street, elegant summer outfit, natural light",
+      "status": "refused",
+      "http_status": 422,
+      "detail": "Canon provider declined this scene. Try Adult Studio or reduce adult/explicit wording.",
+      "elapsed_s": 2.0
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "sprint": "S24AI",
+  "character_id": 60,
+  "results": [
+    {
+      "provider_option": "option2",
+      "provider_label": "google_gemini",
+      "prompt_index": 1,
+      "prompt": "Summer on a beach at sunset wearing a flowing gold summer gown, cinematic natural light",
+      "status": "ok",
+      "image_id": 1910,
+      "actual_provider": "google",
+      "model": "gemini-3.1-flash-image",
+      "multi_image_used": true,
+      "used_ref": false,
+      "refs_count": 6,
+      "refs_not_used_reason": null,
+      "visibility": "private",
+      "kind": "scene_only",
+      "file_path": "https://pub-2cb664acb0474ef1b96cb149469a11bc.r2.dev/generated/4074d0391313454dbb2f78ff29c00013.png",
+      "elapsed_s": 20.2
+    }
+  ]
+}
