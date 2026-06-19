@@ -21,6 +21,22 @@ const ROLE_LABELS: Record<string, string> = {
   anchor_three_quarter: '¾ View',
   anchor_torso: 'Torso',
   anchor_full_body: 'Full Body',
+  // v2 (S24AK) canon-card roles — friendly labels so any v2 card surfaced in
+  // the pack grid renders with a readable name. Card images themselves are
+  // managed/uploaded through CanonManager (the v2 canon source of truth).
+  face_front: 'Front Face',
+  face_left_3q: 'Left ¾',
+  face_right_3q: 'Right ¾',
+  face_profile: 'Profile',
+  face_expression: 'Expression',
+  body_front: 'Body Front',
+  body_left: 'Body Left',
+  body_right: 'Body Right',
+  body_back: 'Body Back',
+  torso_front: 'Torso Front',
+  torso_side: 'Torso Side',
+  standing_relaxed: 'Standing Relaxed',
+  seated_relaxed: 'Seated Relaxed',
 };
 
 export default function StepGeneratePack({

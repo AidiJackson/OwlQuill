@@ -136,6 +136,11 @@ class BodyCanonRefImages(BaseModel):
     body_back: Optional[str] = None
     body_map: Optional[str] = None
     final_character_card: Optional[str] = None
+    # v2 (S24AK): stronger body-truth cards — additive, all optional.
+    torso_front: Optional[str] = None
+    torso_side: Optional[str] = None
+    standing_relaxed: Optional[str] = None
+    seated_relaxed: Optional[str] = None
 
 
 class BodyCanon(BaseModel):
@@ -160,6 +165,8 @@ class FaceCanonRefImages(BaseModel):
     face_front: Optional[str] = None
     face_three_quarter_left: Optional[str] = None
     face_three_quarter_right: Optional[str] = None
+    # v2 (S24AK): dedicated side-profile face card — additive, optional.
+    face_profile: Optional[str] = None
 
 
 class FaceCanon(BaseModel):

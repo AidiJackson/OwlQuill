@@ -102,23 +102,36 @@ def collect_canon_reference_urls(
 ) -> list[str]:
     """Collect reference image URLs in provider-priority order.
 
-    Priority (positions 0–5 are always sent under the 6-image provider cap):
+    S24AK note: this is the ambiguous-prompt FALLBACK ordering (the scene
+    router weights cards per-camera when an orientation is detectable). The v2
+    cards are woven in by priority — NOT blindly appended — so the strongest
+    six still win under the 6-image provider cap. A fully-populated v2 canon
+    sends face_front, face_left_3q, face_right_3q, face_profile, body_front,
+    body_map (4 face angles + body truth + marking placement).
+
+    Priority (positions 0–5 are the ones most likely sent under the 6-cap):
       0. face_front            — primary face identity seed
       1. face_left_3q          — face geometry supplement
       2. face_right_3q         — face geometry supplement
-      3. body_front            — body morphology + tattoo placement truth
-      4. body_map              — canonical marking placement sheet
-      5. final_character_card  — holistic identity grounding
+      3. face_profile          — v2: side-profile face geometry
+      4. body_front            — body morphology + tattoo placement truth
+      5. body_map              — canonical marking placement sheet
 
-    May drop under provider cap (positions 6–9):
-      6. body_left             — side detail (optional)
-      7. body_right            — side detail (optional)
-      8. body_back             — back detail (optional)
-      9. face_expression       — lowest-value face variant; always last
+    May drop under provider cap (positions 6+):
+      6.  final_character_card — holistic identity grounding
+      7.  body_left            — side detail (optional)
+      8.  body_right           — side detail (optional)
+      9.  body_back            — back detail (optional)
+      10. face_expression      — lowest-value face variant
+      11. torso_front          — v2: upper-body truth (optional)
+      12. torso_side           — v2: upper-body side truth (optional)
+      13. standing_relaxed     — v2: relaxed full-body pose (optional)
+      14. seated_relaxed       — v2: relaxed seated pose (optional)
 
-    Rationale: face_expression is a 4th face angle with marginal identity
-    value. body_map and final_character_card carry canonical marking truth
-    and must always reach the provider. Optional side/back refs may drop.
+    Rationale: face angles + body truth + marking placement carry the most
+    identity signal and lead. The v2 relaxed/torso cards are supporting body
+    truth and sit behind the legacy core so they only surface when room remains
+    or higher-priority slots are absent (sparse canons stay compact).
     """
     face = load_face_canon(canon)
     body = load_body_canon(canon)
@@ -129,16 +142,21 @@ def collect_canon_reference_urls(
     # Build in strict priority order — each entry is (url_or_None,).
     # Skip None entries so sparse canons produce a compact list.
     ordered = [
-        _f(face, "face_front_image_url"),           # 0 — always first
+        _f(face, "face_front_image_url"),            # 0 — always first
         _f(face, "face_left_3q_image_url"),          # 1
         _f(face, "face_right_3q_image_url"),         # 2
-        _f(body, "body_front_image_url"),            # 3 — body truth
-        _f(body, "body_map_image_url"),              # 4 — marking placement
-        _f(body, "final_character_card_image_url"),  # 5 — holistic grounding
-        _f(body, "body_left_image_url"),             # 6 — may drop
-        _f(body, "body_right_image_url"),            # 7 — may drop
-        _f(body, "body_back_image_url"),             # 8 — may drop
-        _f(face, "face_expression_image_url"),       # 9 — always last
+        _f(face, "face_profile_image_url"),          # 3 — v2 profile face
+        _f(body, "body_front_image_url"),            # 4 — body truth
+        _f(body, "body_map_image_url"),              # 5 — marking placement
+        _f(body, "final_character_card_image_url"),  # 6 — holistic grounding
+        _f(body, "body_left_image_url"),             # 7 — may drop
+        _f(body, "body_right_image_url"),            # 8 — may drop
+        _f(body, "body_back_image_url"),             # 9 — may drop
+        _f(face, "face_expression_image_url"),       # 10 — low-value face variant
+        _f(body, "torso_front_image_url"),           # 11 — v2 torso truth
+        _f(body, "torso_side_image_url"),            # 12 — v2 torso side
+        _f(body, "standing_relaxed_image_url"),      # 13 — v2 relaxed pose
+        _f(body, "seated_relaxed_image_url"),        # 14 — v2 seated pose
     ]
     return [url for url in ordered if url]
 

@@ -254,7 +254,7 @@ _BODY_ANCHOR_SLOTS = frozenset({
 # Face identity slots — used to identify the camera's primary face anchor so it
 # leads the routed list (P14 Phase 3: body/crop refs must not overpower face).
 _FACE_SLOTS = frozenset({
-    "face_front", "face_left_3q", "face_right_3q", "face_expression",
+    "face_front", "face_left_3q", "face_right_3q", "face_profile", "face_expression",
 })
 
 # P14 Phase 1/2 — Body-truth dominance ordering.
@@ -440,40 +440,53 @@ def _merge_crops(
 #   left/right      — that side's anatomy + matching 3q face dominate
 #   portrait        — facial identity dominates (face-only stack)
 
+# S24AK — v2 cards are spliced in by priority, NOT appended blindly. They sit
+# behind the proven legacy core in each route so a populated legacy canon keeps
+# its exact pre-v2 top-6 ordering; the v2 cards only reach the provider when a
+# slot is sparse or room remains under MAX_PROVIDER_REFS. face_profile is the
+# exception: it ranks high in profile cameras (its matching face angle).
 _ROUTES: dict[str, list[str]] = {
     "front": [
         "body_front", "face_front", "final_character_card",
-        "body_map", "face_left_3q", "face_right_3q", "face_expression",
+        "body_map", "face_left_3q", "face_right_3q", "face_profile", "face_expression",
+        "torso_front", "standing_relaxed", "seated_relaxed", "torso_side",
     ],
     "full_body": [
         "body_front", "face_front", "final_character_card",
-        "body_map", "face_left_3q", "face_right_3q", "face_expression",
+        "body_map", "face_left_3q", "face_right_3q", "face_profile", "face_expression",
+        "standing_relaxed", "torso_front", "seated_relaxed", "torso_side",
     ],
     "back": [
         "body_back", "final_character_card", "body_map",
-        "face_front", "face_left_3q", "face_right_3q",
+        "face_front", "face_left_3q", "face_right_3q", "face_profile",
+        "standing_relaxed", "seated_relaxed",
     ],
     "left_profile": [
-        "body_left", "face_left_3q", "final_character_card",
+        "body_left", "face_left_3q", "face_profile", "final_character_card",
         "body_map", "face_front", "face_right_3q",
+        "torso_side", "standing_relaxed",
     ],
     "right_profile": [
-        "body_right", "face_right_3q", "final_character_card",
+        "body_right", "face_right_3q", "face_profile", "final_character_card",
         "body_map", "face_front", "face_left_3q",
+        "torso_side", "standing_relaxed",
     ],
     "left_3q": [
         "body_left", "face_left_3q", "final_character_card",
         "body_map", "face_front", "face_right_3q",
+        "face_profile", "torso_side", "standing_relaxed",
     ],
     "right_3q": [
         "body_right", "face_right_3q", "final_character_card",
         "body_map", "face_front", "face_left_3q",
+        "face_profile", "torso_side", "standing_relaxed",
     ],
     # P14 Phase 3 — face dominance hardening. A close-up is pure facial identity:
     # lead with face_front, reinforce with both 3/4 geometry refs (matching face),
-    # then the optional expression card, then the holistic card. No body routing.
+    # then the v2 profile card, the optional expression card, then the holistic
+    # card. No body routing.
     "portrait_closeup": [
-        "face_front", "face_left_3q", "face_right_3q",
+        "face_front", "face_left_3q", "face_right_3q", "face_profile",
         "face_expression", "final_character_card",
     ],
 }
@@ -508,6 +521,7 @@ def _get_canon_slot_urls(canon: "CharacterIdentityCanon") -> dict[str, str]:
             ("face_front",      "face_front_image_url"),
             ("face_left_3q",    "face_left_3q_image_url"),
             ("face_right_3q",   "face_right_3q_image_url"),
+            ("face_profile",    "face_profile_image_url"),       # v2 (S24AK)
             ("face_expression", "face_expression_image_url"),
         ):
             url = getattr(face, attr, None)
@@ -522,6 +536,10 @@ def _get_canon_slot_urls(canon: "CharacterIdentityCanon") -> dict[str, str]:
             ("body_back",            "body_back_image_url"),
             ("body_map",             "body_map_image_url"),
             ("final_character_card", "final_character_card_image_url"),
+            ("torso_front",          "torso_front_image_url"),       # v2 (S24AK)
+            ("torso_side",           "torso_side_image_url"),        # v2 (S24AK)
+            ("standing_relaxed",     "standing_relaxed_image_url"),  # v2 (S24AK)
+            ("seated_relaxed",       "seated_relaxed_image_url"),    # v2 (S24AK)
         ):
             url = getattr(body, attr, None)
             if url:

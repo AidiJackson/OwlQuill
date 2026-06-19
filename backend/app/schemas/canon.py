@@ -58,6 +58,9 @@ class FaceCanonData(BaseModel):
     face_front_image_url: Optional[str] = None
     face_left_3q_image_url: Optional[str] = None
     face_right_3q_image_url: Optional[str] = None
+    # v2 (S24AK): dedicated side-profile face card. Optional — older canons that
+    # never set it deserialize fine and lock unchanged (front face only required).
+    face_profile_image_url: Optional[str] = None
     face_expression_image_url: Optional[str] = None
     face_description: Optional[str] = Field(
         default=None, max_length=500,
@@ -83,6 +86,12 @@ class BodyCanonData(BaseModel):
     body_back_image_url: Optional[str] = None
     body_map_image_url: Optional[str] = None
     final_character_card_image_url: Optional[str] = None
+    # v2 (S24AK): stronger body-truth cards. Optional and additive — existing
+    # canons leave these None and lock unchanged (body_front only required).
+    torso_front_image_url: Optional[str] = None
+    torso_side_image_url: Optional[str] = None
+    standing_relaxed_image_url: Optional[str] = None
+    seated_relaxed_image_url: Optional[str] = None
 
     height: Optional[str] = None            # short | medium | tall
     build: Optional[str] = None             # slim | athletic | muscular | stocky | heavy
@@ -148,6 +157,7 @@ class FaceCanonUpdate(BaseModel):
     face_front_image_url: Optional[str] = None
     face_left_3q_image_url: Optional[str] = None
     face_right_3q_image_url: Optional[str] = None
+    face_profile_image_url: Optional[str] = None
     face_expression_image_url: Optional[str] = None
     face_description: Optional[str] = Field(default=None, max_length=500)
 
@@ -160,6 +170,10 @@ class BodyCanonUpdate(BaseModel):
     body_back_image_url: Optional[str] = None
     body_map_image_url: Optional[str] = None
     final_character_card_image_url: Optional[str] = None
+    torso_front_image_url: Optional[str] = None
+    torso_side_image_url: Optional[str] = None
+    standing_relaxed_image_url: Optional[str] = None
+    seated_relaxed_image_url: Optional[str] = None
     height: Optional[str] = None
     build: Optional[str] = None
     proportions: Optional[str] = Field(default=None, max_length=200)
@@ -195,6 +209,7 @@ CANON_UPLOAD_SLOTS = frozenset({
     "face_front",
     "face_left_3q",
     "face_right_3q",
+    "face_profile",          # v2 (S24AK)
     "face_expression",
     # Body canon
     "body_front",
@@ -203,6 +218,10 @@ CANON_UPLOAD_SLOTS = frozenset({
     "body_back",
     "body_map",
     "final_character_card",
+    "torso_front",           # v2 (S24AK)
+    "torso_side",            # v2 (S24AK)
+    "standing_relaxed",      # v2 (S24AK)
+    "seated_relaxed",        # v2 (S24AK)
     # Per-mark reference (uses mark_id param separately)
     "mark_reference",
     # Accessory
@@ -215,6 +234,7 @@ SLOT_FIELD_MAP: dict[str, tuple[str, str]] = {
     "face_front":             ("face", "face_front_image_url"),
     "face_left_3q":           ("face", "face_left_3q_image_url"),
     "face_right_3q":          ("face", "face_right_3q_image_url"),
+    "face_profile":           ("face", "face_profile_image_url"),
     "face_expression":        ("face", "face_expression_image_url"),
     "body_front":             ("body", "body_front_image_url"),
     "body_left":              ("body", "body_left_image_url"),
@@ -222,4 +242,8 @@ SLOT_FIELD_MAP: dict[str, tuple[str, str]] = {
     "body_back":              ("body", "body_back_image_url"),
     "body_map":               ("body", "body_map_image_url"),
     "final_character_card":   ("body", "final_character_card_image_url"),
+    "torso_front":            ("body", "torso_front_image_url"),
+    "torso_side":             ("body", "torso_side_image_url"),
+    "standing_relaxed":       ("body", "standing_relaxed_image_url"),
+    "seated_relaxed":         ("body", "seated_relaxed_image_url"),
 }

@@ -36,6 +36,7 @@ interface FaceCanon {
   face_front_image_url: string | null;
   face_left_3q_image_url: string | null;
   face_right_3q_image_url: string | null;
+  face_profile_image_url: string | null;   // v2 (S24AK)
   face_expression_image_url: string | null;
   face_description: string | null;
   locked: boolean;
@@ -48,6 +49,10 @@ interface BodyCanon {
   body_back_image_url: string | null;
   body_map_image_url: string | null;
   final_character_card_image_url: string | null;
+  torso_front_image_url: string | null;        // v2 (S24AK)
+  torso_side_image_url: string | null;         // v2 (S24AK)
+  standing_relaxed_image_url: string | null;   // v2 (S24AK)
+  seated_relaxed_image_url: string | null;     // v2 (S24AK)
   height: string | null;
   build: string | null;
   skin_tone: string | null;
@@ -312,6 +317,7 @@ function FaceCanonSection({
           { label: 'Front Face', slot: 'face_front', url: face?.face_front_image_url ?? null },
           { label: 'Left ¾', slot: 'face_left_3q', url: face?.face_left_3q_image_url ?? null },
           { label: 'Right ¾', slot: 'face_right_3q', url: face?.face_right_3q_image_url ?? null },
+          { label: 'Profile', slot: 'face_profile', url: face?.face_profile_image_url ?? null },
           { label: 'Expression (optional)', slot: 'face_expression', url: face?.face_expression_image_url ?? null },
         ].map(({ label, slot, url }) => (
           <CanonImageSlot
@@ -503,6 +509,10 @@ function BodyCanonSection({
           { label: 'Body Back', slot: 'body_back', url: body?.body_back_image_url ?? null },
           { label: 'Body Map', slot: 'body_map', url: body?.body_map_image_url ?? null },
           { label: 'Final Card (opt.)', slot: 'final_character_card', url: body?.final_character_card_image_url ?? null },
+          { label: 'Torso Front', slot: 'torso_front', url: body?.torso_front_image_url ?? null },
+          { label: 'Torso Side', slot: 'torso_side', url: body?.torso_side_image_url ?? null },
+          { label: 'Standing Relaxed', slot: 'standing_relaxed', url: body?.standing_relaxed_image_url ?? null },
+          { label: 'Seated Relaxed', slot: 'seated_relaxed', url: body?.seated_relaxed_image_url ?? null },
         ].map(({ label, slot, url }) => (
           <CanonImageSlot
             key={slot}
