@@ -164,6 +164,72 @@ def test_lock_succeeds_after_v2_pack(authed_client, db_session, _mock_providers)
     assert r2.json()["status"] == "locked"
 
 
+def _generate_v2_char(authed_client, db_session, name):
+    """Create a character and populate its 13 v2 canon slots (mocked provider)."""
+    cid = _create_character(authed_client, db_session, name=name)
+    authed_client.post(
+        f"/characters/{cid}/identity-canon/generate-v2-pack",
+        json={"dry_run": False, "max_spend": 8},
+    )
+    return cid
+
+
+def _reload_char(db_session, cid):
+    db_session.expire_all()
+    return db_session.query(Character).get(cid)
+
+
+def test_lock_face_only_does_not_set_visual_locked(authed_client, db_session, _mock_providers):
+    cid = _generate_v2_char(authed_client, db_session, "FaceOnlyLock")
+    r = authed_client.post(f"/characters/{cid}/identity-canon/face/lock")
+    assert r.status_code == 200, r.text
+    # Only the canon face is locked; the character compat flag must stay False.
+    assert _reload_char(db_session, cid).visual_locked is False
+
+
+def test_lock_body_only_does_not_set_visual_locked(authed_client, db_session, _mock_providers):
+    cid = _generate_v2_char(authed_client, db_session, "BodyOnlyLock")
+    r = authed_client.post(f"/characters/{cid}/identity-canon/body/lock")
+    assert r.status_code == 200, r.text
+    assert _reload_char(db_session, cid).visual_locked is False
+
+
+def test_lock_both_sets_visual_locked(authed_client, db_session, _mock_providers):
+    cid = _generate_v2_char(authed_client, db_session, "BothLock")
+    authed_client.post(f"/characters/{cid}/identity-canon/face/lock")
+    r = authed_client.post(f"/characters/{cid}/identity-canon/body/lock")
+    assert r.status_code == 200, r.text
+    # Full canon lock mirrors onto the character compat flag.
+    assert _reload_char(db_session, cid).visual_locked is True
+    canon = db_session.query(CharacterIdentityCanon).filter(
+        CharacterIdentityCanon.character_id == cid).first()
+    assert canon.status == "locked"
+
+
+def test_scene_guard_permits_v2_locked_character(authed_client, db_session, _mock_providers):
+    cid = _generate_v2_char(authed_client, db_session, "SceneGuard")
+    scene_body = {"prompt": "standing in a quiet forest clearing", "style": "realistic"}
+
+    # Before locking, the visual_locked guard blocks scene generation.
+    pre = authed_client.post(f"/characters/{cid}/scene-images/generate", json=scene_body)
+    assert pre.status_code == 409, pre.text
+    assert "lock your character" in pre.json()["detail"].lower()
+
+    # Lock the v2 canon (face + body) — sets visual_locked via _maybe_lock_full_canon.
+    authed_client.post(f"/characters/{cid}/identity-canon/face/lock")
+    authed_client.post(f"/characters/{cid}/identity-canon/body/lock")
+    assert _reload_char(db_session, cid).visual_locked is True
+
+    # The visual_locked guard no longer fires — the request advances past it
+    # (any later 409 is for a different precondition, never the lock guard).
+    post = authed_client.post(f"/characters/{cid}/scene-images/generate", json=scene_body)
+    blocked_by_lock = (
+        post.status_code == 409
+        and "lock your character" in post.json().get("detail", "").lower()
+    )
+    assert not blocked_by_lock, post.text
+
+
 def test_legacy_locked_canon_still_loads(authed_client, db_session):
     """A pre-existing legacy-style canon (front anchors only) must still load."""
     cid = _create_character(authed_client, db_session, name="LegacyChar")

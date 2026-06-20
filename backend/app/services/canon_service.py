@@ -306,4 +306,11 @@ def _maybe_lock_full_canon(canon: CharacterIdentityCanon) -> None:
     if canon.face_locked and canon.body_locked:
         canon.status = "locked"
         canon.locked_at = datetime.utcnow()
+        # Compatibility flag (S24AU.2): scene/image generation guards gate on
+        # Character.visual_locked, but the v2 canon lock only writes the canon
+        # *_locked fields. Mirror the fully-locked canon onto the character so a
+        # v2-locked character can generate scenes. Single source of truth: this
+        # runs from both lock_face_canon and lock_body_canon.
+        if canon.character is not None:
+            canon.character.visual_locked = True
         logger.info("canon_fully_locked character_id=%s", canon.character_id)
