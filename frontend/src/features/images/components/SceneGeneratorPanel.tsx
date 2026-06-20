@@ -6,6 +6,7 @@ import type { CharacterImageRead } from '@/features/characterCreation/shared/typ
 import type { Character } from '@/lib/types';
 import { useAuthStore } from '@/lib/store';
 import { isAdultAdjacent } from '@/features/images/adultContent';
+import { computeGeneratorGuards } from '@/features/images/generatorReadiness';
 
 const MAX_PROMPT_LENGTH = 800;
 
@@ -79,26 +80,15 @@ export default function SceneGeneratorPanel({
     return () => { mountedRef.current = false; };
   }, []);
 
-  // Derive lock/anchor state from the currently selected character
+  // Derive readiness guards from the currently selected character.
+  // A v2 canon character (visual_locked + has_identity_canon, S24AR/S24AU.2) is
+  // accepted by the backend scene route directly and is never blocked by the
+  // legacy identity-anchor guard. See computeGeneratorGuards for the full rule.
   const selectedChar = characters.find((c) => c.id === selectedCharacterId) ?? null;
-  const isCharacterLocked = selectedChar?.visual_locked ?? false;
-
-  // Mirrors _parse_anchor_json on the backend: needs anchors.front.url to be non-empty.
-  // Returns true/false/undefined — undefined means JSON absent (legacy; let backend try DB fallback).
-  const hasIdentityAnchor: boolean | undefined = (() => {
-    const raw = selectedChar?.identity_anchor_json;
-    if (!raw) return undefined;
-    try {
-      const data = JSON.parse(raw);
-      return !!(data?.anchors?.front?.url);
-    } catch {
-      return false;
-    }
-  })();
-
-  // Guards only apply when a character is selected
-  const lockedGuardActive = selectedCharacterId !== null && !isCharacterLocked;
-  const anchorGuardActive = selectedCharacterId !== null && isCharacterLocked && hasIdentityAnchor === false;
+  const { lockedGuardActive, anchorGuardActive } = computeGeneratorGuards(
+    selectedCharacterId,
+    selectedChar,
+  );
   const canGenerate = prompt.trim().length > 0 && !loading && !lockedGuardActive && !anchorGuardActive;
 
   const handleGenerate = async (skipAdultCheck = false) => {
@@ -248,8 +238,7 @@ export default function SceneGeneratorPanel({
       {/* Locked-character guard message */}
       {lockedGuardActive && (
         <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
-          Your character's visual identity must be locked before including them in an image.
-          Complete the identity pack to unlock this option.
+          Complete and lock your identity pack before generating character images.
         </p>
       )}
 
