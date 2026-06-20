@@ -45,6 +45,8 @@ export interface Character {
   tags?: string;
   visibility: 'public' | 'friends' | 'private';
   visual_locked?: boolean;
+  /** True when a generated identity canon exists (even if not yet locked). */
+  has_identity_canon?: boolean;
   identity_anchor_json?: string | null;
   identity_health?: IdentityHealth | null;
   created_at: string;

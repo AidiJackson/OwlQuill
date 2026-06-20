@@ -63,6 +63,11 @@ class Character(CharacterBase):
     owner_id: int
     owner_username: Optional[str] = None
     visual_locked: bool = False
+    # True when the character has a generated identity canon (a face_front image
+    # exists), even if it has not been locked yet. Used by the character list to
+    # route existing characters to their detail page instead of the creation flow
+    # (S24AR). Populated by the route layer; defaults False elsewhere.
+    has_identity_canon: bool = False
     identity_anchor_json: Optional[str] = None
     identity_health: Optional[dict] = None
     created_at: datetime

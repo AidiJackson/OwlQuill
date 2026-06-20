@@ -1,5 +1,6 @@
 """Character routes."""
 import io
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta
@@ -18,6 +19,7 @@ from app.core.storage import save_image, file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
+from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.user_image import UserImage
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult
 from app.services.pack_version import compute_identity_health
@@ -165,6 +167,38 @@ def create_character(
     return db_character
 
 
+def _canon_generated_ids(db: Session, character_ids: List[int]) -> set:
+    """Return the subset of character_ids whose identity canon has a generated
+    face (a non-empty face_front_image_url).
+
+    This distinguishes a real, generated canon from an empty draft canon row,
+    which the creation flow creates early (before any image exists). Only the
+    former should count as an existing character for routing purposes (S24AR).
+    """
+    if not character_ids:
+        return set()
+    rows = (
+        db.query(
+            CharacterIdentityCanon.character_id,
+            CharacterIdentityCanon.face_canon_json,
+        )
+        .filter(CharacterIdentityCanon.character_id.in_(character_ids))
+        .all()
+    )
+    ready = set()
+    for cid, face_json in rows:
+        if not face_json:
+            continue
+        try:
+            face = json.loads(face_json)
+        except (ValueError, TypeError):
+            continue
+        url = (face or {}).get("face_front_image_url")
+        if isinstance(url, str) and url.strip():
+            ready.add(cid)
+    return ready
+
+
 @router.get("/", response_model=List[Character])
 def list_my_characters(
     current_user: User = Depends(get_current_user),
@@ -174,6 +208,9 @@ def list_my_characters(
     characters = db.query(CharacterModel).filter(
         CharacterModel.owner_id == current_user.id
     ).all()
+    canon_ids = _canon_generated_ids(db, [c.id for c in characters])
+    for c in characters:
+        c.has_identity_canon = c.id in canon_ids
     return characters
 
 
@@ -224,6 +261,7 @@ def get_character(
         )
     character.owner_username = character.owner.username if character.owner else None
     character.identity_health = compute_identity_health(character)
+    character.has_identity_canon = character.id in _canon_generated_ids(db, [character.id])
     return character
 
 

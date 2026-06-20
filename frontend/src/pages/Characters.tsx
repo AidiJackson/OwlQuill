@@ -81,12 +81,18 @@ export default function Characters() {
     }
   };
 
+  // An existing character is one that's locked OR already has a generated
+  // identity canon. Both open the character detail page; only true drafts
+  // (no canon yet) resume the creation flow (S24AR).
+  const isExistingCharacter = (c: Character) =>
+    c.visual_locked === true || c.has_identity_canon === true;
+
   const activeCharacters = useMemo(
-    () => characters.filter((c) => c.visual_locked === true),
+    () => characters.filter(isExistingCharacter),
     [characters],
   );
   const draftCharacters = useMemo(
-    () => characters.filter((c) => !c.visual_locked),
+    () => characters.filter((c) => !isExistingCharacter(c)),
     [characters],
   );
   const draftIds = useMemo(
