@@ -10,6 +10,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, StoryRecord } from '@/lib/types';
+import { extractApiErrorMessage } from './errorMessage';
 import { isUuidLike, deriveReadableTitle } from '@/lib/storyTitleUtils';
 
 // ── Authenticated fetch helper ────────────────────────────────────────────────
@@ -418,7 +419,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
       if (!resp.ok) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const err = await resp.json().catch(() => ({})) as any;
-        throw new Error(err?.detail?.message || err?.detail || `HTTP ${resp.status}`);
+        throw new Error(extractApiErrorMessage(err, resp.status));
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = await resp.json() as any;
@@ -511,7 +512,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
       if (!resp.ok) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const err = await resp.json().catch(() => ({})) as any;
-        throw new Error(err?.detail?.message || err?.detail || `HTTP ${resp.status}`);
+        throw new Error(extractApiErrorMessage(err, resp.status));
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = await resp.json() as any;

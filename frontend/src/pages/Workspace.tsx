@@ -520,9 +520,12 @@ export default function Workspace() {
         ? `/realms/${selectedRealmId}`
         : '/';
 
+      // characterId === 0 is the "Yourself (OOC)" sentinel; a real character → IC + attribution.
+      const isOOC = characterId === 0;
       await apiClient.createPost(realmId, {
         content: body.trim(),
-        content_type: 'ic',
+        content_type: isOOC ? 'ooc' : 'ic',
+        ...(isOOC ? {} : { character_id: characterId }),
         ...(title.trim() ? { title: title.trim() } : {}),
       });
 
@@ -834,7 +837,7 @@ export default function Workspace() {
           )}
         </div>
         {checks.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-emerald-300">\u2705 No issues detected</div>
+          <div className="px-3 py-2 text-xs text-emerald-300">{'\u2705'} No issues detected</div>
         ) : (
           <ul className="divide-y divide-gray-800">
             {checks.map((s) => {
