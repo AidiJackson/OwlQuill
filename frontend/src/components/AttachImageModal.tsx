@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage } from '@/lib/types';
 import { ficDebug } from '@/lib/ficDebug';
+import { isAttachableImage } from './attachImageKinds';
 
 interface Props {
   open: boolean;
@@ -30,7 +31,7 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
     setError('');
     apiClient
       .listMyCharacterImages()
-      .then((imgs) => setImages(imgs.filter((img) => img.kind === 'generated')))
+      .then((imgs) => setImages(imgs.filter(isAttachableImage)))
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false));
   }, [open, selectedId]);
@@ -55,7 +56,9 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
             <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2 mb-3">{error}</p>
           ) : images.length === 0 ? (
             <>
-              <p className="text-sm text-gray-400 mb-4">No saved images yet.</p>
+              <p className="text-sm text-gray-400 mb-4">
+                No generated images saved yet. Generate an image first, then attach it here.
+              </p>
               <div className="flex items-center gap-3">
                 <Link to="/images/new" className="btn btn-primary text-sm">
                   Generate an image
