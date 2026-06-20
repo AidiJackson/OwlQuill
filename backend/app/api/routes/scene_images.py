@@ -60,6 +60,34 @@ def _is_moderation_block(exc: BaseException) -> bool:
     return any(kw in msg for kw in ("moderation_blocked", "safety system", "safety_violation"))
 
 
+def _v2_canon_front_url(character_id: int, db: Session) -> str | None:
+    """Front identity reference from a fully-locked v2 canon, or None.
+
+    v2 characters carry no legacy identity_anchor_json — their identity truth is
+    the CharacterIdentityCanon. Returns the face-front reference URL only when the
+    canon is fully locked AND has both a face_front and body_front image (a valid
+    v2 identity), so scene generation can ground on it (S24AU.3). Returns None for
+    legacy/unlocked/incomplete canons, letting the caller fall back to anchors.
+    """
+    from app.models.character_identity_canon import CharacterIdentityCanon
+    from app.services import canon_service as cs
+
+    canon = (
+        db.query(CharacterIdentityCanon)
+        .filter(CharacterIdentityCanon.character_id == character_id)
+        .first()
+    )
+    if canon is None or not (canon.face_locked and canon.body_locked):
+        return None
+    face = cs.load_face_canon(canon)
+    body = cs.load_body_canon(canon)
+    face_url = face.face_front_image_url if face else None
+    body_url = body.body_front_image_url if body else None
+    if not (face_url and body_url):
+        return None
+    return face_url
+
+
 # ── Endpoint ─────────────────────────────────────────────────────────
 
 @router.post(
@@ -92,15 +120,23 @@ def generate_scene_image(
             detail="Lock your character's identity before generating scene images.",
         )
 
+    # Identity reference may come from either source: legacy identity_anchor_json
+    # OR a fully-locked v2 canon (S24AU.3). Require at least one.
     anchor_data = _parse_anchor_json(character.identity_anchor_json)
-    if anchor_data is None:
+    v2_front_url = _v2_canon_front_url(character_id, db)
+    if anchor_data is None and v2_front_url is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="We couldn't find your character's identity anchor. Please regenerate and accept the identity pack.",
+            detail="We couldn't find your character's identity reference. Please complete and lock the character's identity.",
         )
+    # Normalise so the legacy-shaped .get() calls below stay safe on the v2 path.
+    anchor_data = anchor_data or {}
 
-    front_anchor = anchor_data.get("anchors", {}).get("front")
-    front_url: str | None = front_anchor.get("url") if front_anchor else None
+    # Generation source: prefer the v2 canon reference when present; the legacy
+    # front anchor is the fallback (Task 4).
+    legacy_front = anchor_data.get("anchors", {}).get("front")
+    legacy_front_url = legacy_front.get("url") if legacy_front else None
+    front_url: str | None = v2_front_url or legacy_front_url
 
     # ── Build prompt ──────────────────────────────────────────────
     identity_lock = anchor_data.get("identity_lock_string") or ""
@@ -161,6 +197,16 @@ def generate_scene_image(
         except Exception:
             logger.warning(
                 "scene_image face_ref_load_failed character_id=%s", character_id
+            )
+
+    # v2 fallback (S24AU.3): v2 characters have no IDENTITY_FACE_REF row — ground
+    # Tier A on the locked v2 canon front reference instead so identity holds.
+    if face_ref_bytes is None and v2_front_url:
+        try:
+            face_ref_bytes = load_image_bytes(v2_front_url)
+        except Exception:
+            logger.warning(
+                "scene_image v2_face_ref_load_failed character_id=%s", character_id
             )
 
     # ── Generate image (tiered fallback) ──────────────────────────

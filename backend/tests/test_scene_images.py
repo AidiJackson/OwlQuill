@@ -105,8 +105,10 @@ def test_scene_image_missing_anchor(client: TestClient, db_session):
         json={"prompt": "Walking through a garden"},
         headers={"Authorization": f"Bearer {token}"},
     )
+    # Locked but with neither a legacy anchor nor a v2 canon → still rejected
+    # (now with a source-agnostic message, S24AU.3).
     assert resp.status_code == 409
-    assert "identity anchor" in resp.json()["detail"].lower()
+    assert "identity reference" in resp.json()["detail"].lower()
 
 
 # ── D) Edit unsupported → falls back to text-to-image ───────────────
@@ -252,6 +254,92 @@ def test_scene_image_face_ref_metadata(client: TestClient):
     assert resp.status_code == 200
     meta = resp.json()["metadata_json"]
     assert "used_face_ref" in meta, "used_face_ref key must always be in metadata"
+
+
+# ── S24AU.3: v2 canon characters generate scenes without legacy anchors ──
+
+def _lock_v2_canon(client: TestClient, token: str, cid: int, db_session) -> None:
+    """Populate a v2 canon (face_front + body_front) and lock it via the lock
+    endpoints — which also sets Character.visual_locked (S24AU.2). No legacy
+    identity_anchor_json is ever written."""
+    from tests.canon_test_utils import setup_canon
+    setup_canon(db_session, cid, lock=False, with_images=True)
+    r1 = client.post(f"/characters/{cid}/identity-canon/face/lock",
+                     headers={"Authorization": f"Bearer {token}"})
+    r2 = client.post(f"/characters/{cid}/identity-canon/body/lock",
+                     headers={"Authorization": f"Bearer {token}"})
+    assert r1.status_code == 200, r1.text
+    assert r2.status_code == 200, r2.text
+
+
+def test_scene_v2_locked_character_generates(client: TestClient, db_session):
+    """A fully-locked v2 canon character (no identity_anchor_json) can generate
+    scenes — the legacy-anchor requirement no longer blocks it."""
+    token = _register_and_login(client, email="scene_v2_ok@example.com")
+    cid = _create_character(client, token)
+    _lock_v2_canon(client, token, cid, db_session)
+
+    # Sanity: no legacy anchor json — this is a pure v2 character.
+    from app.models.character import Character as CharacterModel
+    db_session.expire_all()
+    char = db_session.query(CharacterModel).filter(CharacterModel.id == cid).first()
+    assert char.identity_anchor_json is None
+    assert char.visual_locked is True
+
+    resp = client.post(
+        f"/characters/{cid}/scene-images/generate",
+        json={"prompt": "Standing on a windswept cliff at dusk"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["character_id"] == cid
+
+
+def test_scene_legacy_character_still_generates(client: TestClient, db_session):
+    """Regression: a legacy character (identity_anchor_json, no v2 canon) still
+    generates scenes unchanged. State is injected directly so the test does not
+    depend on the provider-backed legacy pack generation."""
+    token = _register_and_login(client, email="scene_legacy_ok@example.com")
+    cid = _create_character(client, token)
+
+    from app.models.character import Character as CharacterModel
+    from tests.canon_test_utils import stub_image_url
+    char = db_session.query(CharacterModel).filter(CharacterModel.id == cid).first()
+    char.visual_locked = True
+    char.identity_anchor_json = json.dumps({
+        "version": 1,
+        "anchors": {"front": {"url": stub_image_url("legacy_front")}},
+        "identity_lock_string": "auburn hair, green eyes",
+        "identity_prompt_hash": "legacyhash123",
+    })
+    db_session.commit()
+
+    resp = client.post(
+        f"/characters/{cid}/scene-images/generate",
+        json={"prompt": "Reading a book by candlelight"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["character_id"] == cid
+
+
+def test_scene_unlocked_v2_character_still_blocked(client: TestClient, db_session):
+    """An unlocked v2 character (canon populated but not locked) is still blocked
+    by the visual_locked guard."""
+    token = _register_and_login(client, email="scene_v2_unlocked@example.com")
+    cid = _create_character(client, token)
+
+    # Populate a v2 canon but do NOT lock it.
+    from tests.canon_test_utils import setup_canon
+    setup_canon(db_session, cid, lock=False, with_images=True)
+
+    resp = client.post(
+        f"/characters/{cid}/scene-images/generate",
+        json={"prompt": "Walking down a quiet alley"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 409
+    assert "lock your character" in resp.json()["detail"].lower()
 
 
 # ── B12: Face signature injected into Tier A prompt ──────────────────
