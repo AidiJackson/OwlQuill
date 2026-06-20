@@ -6,6 +6,7 @@ import type {
   IdentityPackAcceptResponse,
   IdentitySpec,
   SketchResponse,
+  V2PackResponse,
 } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -118,6 +119,47 @@ export async function acceptIdentityPack(
     method: 'POST',
     body: JSON.stringify({ pack_id: packId }),
   });
+}
+
+// ── V2 canon pack (S24AN) — default self-serve generation path ───────
+
+export async function generateV2Pack(
+  characterId: number,
+  opts?: {
+    dryRun?: boolean;
+    maxSpend?: number;
+    adminFallback?: boolean;
+    providerOption?: 'option1' | 'option2';
+  },
+): Promise<V2PackResponse> {
+  return request(`/characters/${characterId}/identity-canon/generate-v2-pack`, {
+    method: 'POST',
+    body: JSON.stringify({
+      dry_run: opts?.dryRun ?? false,
+      max_spend: opts?.maxSpend ?? 8,
+      admin_fallback: opts?.adminFallback ?? false,
+      provider_option: opts?.providerOption ?? 'option2',
+    }),
+  });
+}
+
+/** Persist body morphology onto the canon before v2 generation reads it. */
+export async function patchBodyCanon(
+  characterId: number,
+  data: { height?: string; build?: string },
+): Promise<unknown> {
+  return request(`/characters/${characterId}/identity-canon/body`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function lockFaceCanon(characterId: number): Promise<unknown> {
+  return request(`/characters/${characterId}/identity-canon/face/lock`, { method: 'POST' });
+}
+
+export async function lockBodyCanon(characterId: number): Promise<unknown> {
+  return request(`/characters/${characterId}/identity-canon/body/lock`, { method: 'POST' });
 }
 
 export async function generateMomentImage(

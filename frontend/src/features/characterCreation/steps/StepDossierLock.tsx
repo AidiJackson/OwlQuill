@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, Loader2 } from 'lucide-react';
-import type { IdentityPackResponse, CreationBasics } from '../shared/types';
-import { acceptIdentityPack, resolveImageUrl } from '../shared/api';
+import type { V2PackResponse, CreationBasics } from '../shared/types';
+import { lockFaceCanon, lockBodyCanon, resolveImageUrl } from '../shared/api';
 
 interface Props {
   characterId: number;
-  pack: IdentityPackResponse;
+  pack: V2PackResponse;
   selectedIndex: number;
   basics: CreationBasics;
 }
@@ -18,26 +18,26 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
 
   useEffect(() => {
     let cancelled = false;
-    acceptIdentityPack(characterId, pack.pack_id)
-      .catch((err) => {
+    // Lock the v2 canon directly — face first, then body. No legacy accept/bridge.
+    (async () => {
+      try {
+        await lockFaceCanon(characterId);
+        await lockBodyCanon(characterId);
+      } catch (err) {
         if (!cancelled) {
           const msg = err instanceof Error ? err.message : 'Lock failed';
-          setError(msg.toLowerCase().includes('pack') ? 'Please generate your identity pack again.' : msg);
+          setError(msg);
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLocking(false);
-      });
+      }
+    })();
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const frontImg =
-    pack.images.find((img) => (img.metadata_json?.pack_role as string) === 'anchor_front') ??
-    pack.images[selectedIndex] ??
-    pack.images[0];
-  const torsoImg = pack.images.find(
-    (img) => (img.metadata_json?.pack_role as string) === 'anchor_torso',
-  );
+  const cardUrl = (slot: string) => pack.cards.find((c) => c.slot === slot)?.url || null;
+  const frontImg = pack.cards[selectedIndex]?.url || cardUrl('face_front') || pack.cards[0]?.url || null;
+  const bodyImg = cardUrl('body_front') || cardUrl('standing_relaxed');
 
   const preloadedPrompt = basics.name
     ? `A cinematic portrait of ${basics.name}, detailed face, atmospheric lighting, neutral background`
@@ -65,7 +65,6 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="text-center space-y-2">
         <div className="mx-auto w-14 h-14 rounded-full bg-emerald-500/20 flex items-center justify-center">
           <ShieldCheck className="w-7 h-7 text-emerald-400" />
@@ -76,47 +75,30 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
         </p>
       </div>
 
-      {/* Dossier card */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
         <div className="flex items-start gap-4">
-          {/* Front portrait */}
           {frontImg ? (
             <div className="w-24 rounded-lg overflow-hidden border border-gray-700 flex-shrink-0">
-              <img
-                src={resolveImageUrl(frontImg.url)}
-                alt="Front portrait"
-                className="w-full aspect-[2/3] object-cover"
-              />
+              <img src={resolveImageUrl(frontImg)} alt="Front portrait" className="w-full aspect-[2/3] object-cover" />
             </div>
           ) : (
             <div className="w-24 rounded-lg border border-gray-700 bg-gray-800 aspect-[2/3] flex-shrink-0" />
           )}
 
-          {/* Info */}
           <div className="flex-1 min-w-0 space-y-1.5 pt-1">
-            {basics.name && (
-              <p className="text-sm font-semibold text-gray-100 truncate">{basics.name}</p>
-            )}
-            {basics.species && (
-              <p className="text-xs text-gray-400 capitalize">{basics.species}</p>
-            )}
+            {basics.name && <p className="text-sm font-semibold text-gray-100 truncate">{basics.name}</p>}
+            {basics.species && <p className="text-xs text-gray-400 capitalize">{basics.species}</p>}
             <p className="text-xs text-emerald-400 font-medium">Visual identity confirmed</p>
           </div>
 
-          {/* Torso / full body */}
-          {torsoImg && (
+          {bodyImg && (
             <div className="w-16 rounded-lg overflow-hidden border border-gray-700 flex-shrink-0">
-              <img
-                src={resolveImageUrl(torsoImg.url)}
-                alt="Full body"
-                className="w-full aspect-[2/3] object-cover"
-              />
+              <img src={resolveImageUrl(bodyImg)} alt="Full body" className="w-full aspect-[2/3] object-cover" />
             </div>
           )}
         </div>
       </div>
 
-      {/* Actions */}
       <div className="flex flex-col gap-3 pt-2">
         <button
           className="btn btn-primary w-full"

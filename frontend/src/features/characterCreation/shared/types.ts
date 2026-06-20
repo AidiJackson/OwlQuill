@@ -46,6 +46,64 @@ export interface IdentityPackAcceptResponse {
   dna: CharacterDNARead | null;
 }
 
+// ── V2 canon pack (S24AN) ───────────────────────────────────────────
+// The self-serve path now generates all 13 v2 canon cards directly instead of
+// the legacy 4 anchors. A card maps 1:1 to a canon slot.
+
+export interface V2PackCard {
+  slot: string;
+  section: 'face' | 'body';
+  role: string;
+  url?: string | null;
+  status: string;          // planned | generated | skipped | gate_failed | error
+  provider?: string | null;
+  similarity?: number | null;
+  estimated_cost?: number | null;
+  prompt?: string | null;
+  grounds_on?: string[] | null;
+}
+
+export interface V2PackMark {
+  label: string;
+  mark_id: string;
+  detail_crop_url?: string | null;
+  skipped?: boolean | null;
+  estimated_cost?: number | null;
+}
+
+export interface V2PackResponse {
+  pack_id: string;
+  dry_run: boolean;
+  cards: V2PackCard[];
+  marks: V2PackMark[];
+  total_spend: number;
+  image_count: number;
+  estimated_cost?: number | null;
+  regenerations: string[];
+  openai_fallback: string[];
+  gate_failed: string[];
+  errors: string[];
+  clean_pass: boolean;
+  stopped?: string | null;
+}
+
+// Friendly labels for v2 canon slots, shared across creation steps.
+export const V2_SLOT_LABELS: Record<string, string> = {
+  face_front: 'Front Face',
+  face_left_3q: 'Left ¾',
+  face_right_3q: 'Right ¾',
+  face_profile: 'Profile',
+  face_expression: 'Expression',
+  body_front: 'Body Front',
+  body_left: 'Body Left',
+  body_right: 'Body Right',
+  body_back: 'Body Back',
+  torso_front: 'Torso Front',
+  torso_side: 'Torso Side',
+  standing_relaxed: 'Standing',
+  seated_relaxed: 'Seated',
+};
+
 // ── Identity Spec types ─────────────────────────────────────────────
 
 export interface IdentityCore {

@@ -1,8 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
-import { ImageIcon, ChevronDown, ChevronUp, RefreshCw, ZoomIn, X, Info } from 'lucide-react';
-import type { IdentityPackResponse, IdentitySpec, BodyMorphology } from '../shared/types';
-import { TWEAK_CATEGORIES, BODY_HEIGHT_OPTIONS, BODY_BUILD_OPTIONS } from '../shared/types';
-import { generateIdentityPack, resolveImageUrl } from '../shared/api';
+import { useState } from 'react';
+import { ImageIcon, RefreshCw, ZoomIn, X } from 'lucide-react';
+import type {
+  V2PackResponse,
+  V2PackCard,
+  IdentityPackResponse,
+  IdentitySpec,
+  BodyMorphology,
+} from '../shared/types';
+import { V2_SLOT_LABELS, BODY_HEIGHT_OPTIONS, BODY_BUILD_OPTIONS } from '../shared/types';
+import {
+  generateV2Pack,
+  patchBodyCanon,
+  generateIdentityPack,
+  resolveImageUrl,
+} from '../shared/api';
 
 interface Props {
   characterId: number;
@@ -10,34 +21,38 @@ interface Props {
   identitySpec?: IdentitySpec | null;
   bodyMorphology: BodyMorphology;
   onBodyMorphologyChange: (m: BodyMorphology) => void;
-  pack: IdentityPackResponse | null;
-  onPackGenerated: (pack: IdentityPackResponse) => void;
+  pack: V2PackResponse | null;
+  onPackGenerated: (pack: V2PackResponse) => void;
   onNext: () => void;
   onBack: () => void;
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  anchor_front: 'Front',
-  anchor_three_quarter: '¾ View',
-  anchor_torso: 'Torso',
-  anchor_full_body: 'Full Body',
-  // v2 (S24AK) canon-card roles — friendly labels so any v2 card surfaced in
-  // the pack grid renders with a readable name. Card images themselves are
-  // managed/uploaded through CanonManager (the v2 canon source of truth).
-  face_front: 'Front Face',
-  face_left_3q: 'Left ¾',
-  face_right_3q: 'Right ¾',
-  face_profile: 'Profile',
-  face_expression: 'Expression',
-  body_front: 'Body Front',
-  body_left: 'Body Left',
-  body_right: 'Body Right',
-  body_back: 'Body Back',
-  torso_front: 'Torso Front',
-  torso_side: 'Torso Side',
-  standing_relaxed: 'Standing Relaxed',
-  seated_relaxed: 'Seated Relaxed',
-};
+// Section ordering for the grouped review grid.
+const FACE_ORDER = ['face_front', 'face_left_3q', 'face_right_3q', 'face_profile', 'face_expression'];
+const BODY_ORDER = [
+  'body_front', 'body_left', 'body_right', 'body_back',
+  'torso_front', 'torso_side', 'standing_relaxed', 'seated_relaxed',
+];
+
+/** DEV-only escape hatch: map a legacy 4-anchor pack into the v2 shape. */
+function legacyToV2(p: IdentityPackResponse): V2PackResponse {
+  return {
+    pack_id: p.pack_id,
+    dry_run: false,
+    cards: p.images.map((im) => {
+      const role = (im.metadata_json?.pack_role as string) || '';
+      return { slot: role, section: 'face', role, url: im.url, status: 'generated' };
+    }),
+    marks: [],
+    total_spend: 0,
+    image_count: p.images.length,
+    regenerations: [],
+    openai_fallback: [],
+    gate_failed: [],
+    errors: [],
+    clean_pass: true,
+  };
+}
 
 export default function StepGeneratePack({
   characterId,
@@ -50,96 +65,37 @@ export default function StepGeneratePack({
   onNext,
   onBack,
 }: Props) {
-  const [tweaks, setTweaks] = useState<Record<string, string>>({});
-  const [tweaksOpen, setTweaksOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [enlargedIndex, setEnlargedIndex] = useState<number | null>(null);
-  const [lbVisible, setLbVisible] = useState(false);
-  const lbCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Drives the opacity-0 → opacity-100 CSS transition for the real image grid.
-  // Starts false so the grid is transparent; a RAF tick after pack arrives sets it true.
-  const [gridOpaque, setGridOpaque] = useState(false);
+  const [enlarged, setEnlarged] = useState<string | null>(null);
 
-  // Close the enlarged modal whenever the pack changes (e.g. regeneration returns a
-  // different number of images) to prevent an out-of-bounds index crash.
-  useEffect(() => {
-    if (import.meta.env.DEV && enlargedIndex !== null && pack && !pack.images[enlargedIndex]) {
-      console.warn(
-        '[StepGeneratePack] enlargedIndex', enlargedIndex,
-        'would be out of bounds for new pack with', pack.images.length, 'images — closing modal',
-      );
-    }
-    setEnlargedIndex(null);
-  }, [pack]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Enter/exit transitions for the enlarged image overlay.
-  // Safety closes (pack-change effect above) call setEnlargedIndex(null) directly — no animation,
-  // which is correct since those are crash-prevention closes, not user-initiated ones.
-  useEffect(() => {
-    if (enlargedIndex === null) { setLbVisible(false); return; }
-    // Cancel any pending close timer so a quick re-open doesn't get cut short.
-    if (lbCloseTimer.current) { clearTimeout(lbCloseTimer.current); lbCloseTimer.current = null; }
-    const id = requestAnimationFrame(() => setLbVisible(true));
-    return () => cancelAnimationFrame(id);
-  }, [enlargedIndex]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Clean up the close timer if the stepper unmounts mid-animation.
-  useEffect(() => () => { if (lbCloseTimer.current) clearTimeout(lbCloseTimer.current); }, []);
-
-  const closeEnlarged = () => {
-    setLbVisible(false);
-    lbCloseTimer.current = setTimeout(() => setEnlargedIndex(null), 200);
-  };
-
-  // Fade-in: pack.pack_id is a per-generation UUID — it uniquely identifies the current pack.
-  // When loading ends and a new pack arrives, briefly render at opacity-0 then RAF to opacity-100
-  // so the CSS transition plays. Resets to transparent whenever loading starts or pack clears.
-  useEffect(() => {
-    if (loading || !pack) {
-      setGridOpaque(false);
-      return;
-    }
-    setGridOpaque(false);
-    const rafId = requestAnimationFrame(() => setGridOpaque(true));
-    return () => cancelAnimationFrame(rafId);
-  }, [loading, pack?.pack_id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const activeTweakCount = Object.keys(tweaks).length;
-
-  const toggleTweak = (key: string, value: string) => {
-    setTweaks((prev) => {
-      const next = { ...prev };
-      if (next[key] === value) {
-        delete next[key];
-        return next;
-      }
-      if (!(key in next) && activeTweakCount >= 2) return prev;
-      next[key] = value;
-      return next;
-    });
-  };
-
-  // True while a pack is generating OR during the single-frame opacity-0 swap after
-  // regeneration completes. Blocks the Next button in both windows to prevent accepting
-  // a stale or mid-transition pack.
-  const packActionsDisabled = loading || (!!pack && !gridOpaque);
-
-  const handleNext = () => {
-    if (!pack || packActionsDisabled) return;
-    onNext();
-  };
+  // Debug fallback: legacy 4-anchor path stays reachable only via this DEV flag,
+  // never as the default. Production users always get the v2 canon pack.
+  const legacyDebug =
+    import.meta.env.DEV && localStorage.getItem('useLegacyPack') === '1';
 
   const handleGenerate = async () => {
-    if (loading) return; // double-click / re-entrant protection
+    if (loading) return;
     setLoading(true);
     setError('');
     try {
-      // Merge body morphology into identity spec so the backend includes it in the prompt.
-      const specWithBody: IdentitySpec | null = identitySpec
-        ? { ...identitySpec, body_height: bodyMorphology.height, body_build: bodyMorphology.build }
-        : null;
-      const result = await generateIdentityPack(characterId, tweaks, vibeText, specWithBody);
+      if (legacyDebug) {
+        const spec: IdentitySpec | null = identitySpec
+          ? { ...identitySpec, body_height: bodyMorphology.height, body_build: bodyMorphology.build }
+          : null;
+        const legacy = await generateIdentityPack(characterId, undefined, vibeText, spec);
+        onPackGenerated(legacyToV2(legacy));
+        return;
+      }
+      // Persist body morphology so v2 generation grounds on it, then generate.
+      await patchBodyCanon(characterId, {
+        height: bodyMorphology.height,
+        build: bodyMorphology.build,
+      });
+      const result = await generateV2Pack(characterId, { maxSpend: 8 });
+      if (result.stopped) {
+        setError('Generation stopped early. Please try again.');
+      }
       onPackGenerated(result);
     } catch {
       setError("We couldn't generate the images right now. Please try again.");
@@ -148,12 +104,43 @@ export default function StepGeneratePack({
     }
   };
 
-  // Derive helper flags from pack metadata (safe for older responses)
-  const rewriteApplied = pack?.rewrite_applied === true;
-  const tierUsed = pack?.tier_used;
-  const blockedRoles = pack?.blocked_roles ?? [];
-  const hadBlockedRoles = blockedRoles.length > 0;
-  const tierEscalated = tierUsed === 'B' || tierUsed === 'C';
+  const cardBySlot = new Map<string, V2PackCard>();
+  (pack?.cards ?? []).forEach((c) => cardBySlot.set(c.slot, c));
+
+  const renderSection = (title: string, slots: string[]) => (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium text-gray-300">{title}</h3>
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+        {slots.map((slot) => {
+          const card = cardBySlot.get(slot);
+          const url = card?.url ? resolveImageUrl(card.url) : null;
+          return (
+            <div key={slot} className="rounded-lg overflow-hidden border border-gray-800">
+              {url ? (
+                <button
+                  type="button"
+                  onClick={() => setEnlarged(url)}
+                  className="block w-full relative group"
+                >
+                  <img src={url} alt={V2_SLOT_LABELS[slot] || slot} className="w-full aspect-[2/3] object-cover" />
+                  <div className="absolute top-1.5 right-1.5 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    <ZoomIn className="w-3 h-3" />
+                  </div>
+                </button>
+              ) : (
+                <div className="w-full aspect-[2/3] bg-gray-800 flex items-center justify-center">
+                  <span className="text-[10px] text-gray-600">—</span>
+                </div>
+              )}
+              <div className="px-1.5 py-1 text-center bg-gray-900">
+                <span className="text-[11px] text-gray-400">{V2_SLOT_LABELS[slot] || slot}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -163,236 +150,13 @@ export default function StepGeneratePack({
         </div>
         <h2 className="text-xl font-semibold text-gray-100">Generate Identity Pack</h2>
         <p className="text-sm text-gray-400">
-          These are interpretations — not final. Choose the set that feels closest.
+          We'll create your character's full visual canon — face, body, and details.
         </p>
       </div>
 
-      {/* Tweak panel */}
-      <div className="border border-gray-800 rounded-lg overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setTweaksOpen(!tweaksOpen)}
-          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-300 hover:bg-gray-800/50 transition-colors"
-        >
-          <span>Adjust appearance {activeTweakCount > 0 && `(${activeTweakCount}/2)`}</span>
-          {tweaksOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
-
-        {tweaksOpen && (
-          <div className="px-4 pb-4 space-y-3 border-t border-gray-800 pt-3">
-            <p className="text-xs text-gray-500">Select up to 2 categories to tweak per generation.</p>
-            {TWEAK_CATEGORIES.map((cat) => {
-              const isActive = cat.key in tweaks;
-              const isDisabled = !isActive && activeTweakCount >= 2;
-              return (
-                <div key={cat.key} className="space-y-1.5">
-                  <span className={`text-xs font-medium ${isDisabled ? 'text-gray-600' : 'text-gray-400'}`}>
-                    {cat.label}
-                  </span>
-                  <div className="flex gap-2">
-                    {cat.options.map((opt) => {
-                      const selected = tweaks[cat.key] === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          disabled={isDisabled && !selected}
-                          onClick={() => toggleTweak(cat.key, opt.value)}
-                          className={`px-3 py-1 rounded text-xs font-medium transition-colors border ${
-                            selected
-                              ? 'bg-emerald-600 border-emerald-500 text-white'
-                              : isDisabled
-                                ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
-                                : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Facial identity lock messaging */}
-      <div className="text-center space-y-1">
-        <p className="text-sm font-medium text-gray-300">
-          Locking facial identity first — outfits come next.
-        </p>
-        <p className="text-xs text-gray-500">
-          This pack creates your character's visual canon. You'll create outfits and alternate
-          looks after identity lock.
-        </p>
-      </div>
-
-      {/* Generate / Regenerate */}
-      <div className="flex justify-center">
-        <button
-          className="btn btn-primary flex items-center gap-2"
-          onClick={handleGenerate}
-          disabled={loading}
-        >
-          {loading ? (
-            <>
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              Generating…
-            </>
-          ) : pack ? (
-            <>
-              <RefreshCw className="w-4 h-4" />
-              Regenerate Pack
-            </>
-          ) : (
-            'Generate Identity Pack'
-          )}
-        </button>
-      </div>
-
-      {/* Network / system error — friendly, no policy language */}
-      {error && (
-        <div className="text-center space-y-2">
-          <p className="text-sm text-gray-400 bg-gray-800/60 rounded-lg px-4 py-2">
-            {error}
-          </p>
-          <button
-            type="button"
-            className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
-            onClick={handleGenerate}
-            disabled={loading}
-          >
-            Try again
-          </button>
-        </div>
-      )}
-
-      {/* Skeleton grid — shown while generating; static, no transition needed */}
-      {loading && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
-              <div className="w-full aspect-[2/3] bg-gray-800 animate-pulse" />
-              <div className="px-2 py-1.5 bg-gray-900 flex justify-center">
-                <div className="h-3 w-12 bg-gray-800 animate-pulse rounded" />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Real image grid — fades in after pack arrives; opacity-0→100 via RAF tick */}
-      {!loading && pack && (
-        <div
-          className={`grid grid-cols-2 md:grid-cols-4 gap-3 transition-opacity duration-300 ${
-            gridOpaque ? 'opacity-100' : 'opacity-0'
-          }`}
-        >
-          {pack.images.map((img, i) => {
-            const role = (img.metadata_json?.pack_role as string) || '';
-            return (
-              <button
-                key={img.id}
-                type="button"
-                onClick={() => setEnlargedIndex(i)}
-                className="rounded-lg overflow-hidden border border-gray-800 hover:border-gray-600 transition-all relative group cursor-pointer text-left"
-              >
-                <img
-                  src={resolveImageUrl(img.url)}
-                  alt={ROLE_LABELS[role] || 'Pack image'}
-                  className="w-full aspect-[2/3] object-cover"
-                />
-                {/* Enlarge icon */}
-                <div className="absolute top-2 right-2 p-1.5 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </div>
-                <div className="px-2 py-1.5 text-center bg-gray-900">
-                  <span className="text-xs text-gray-400">{ROLE_LABELS[role] || role}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Subtle metadata-driven helpers — hidden while regenerating to avoid stale info */}
-      {!loading && pack && (rewriteApplied || tierEscalated || hadBlockedRoles) && (
-        <div className="space-y-2">
-          {/* Rewrite helper */}
-          {rewriteApplied && !tierEscalated && !hadBlockedRoles && (
-            <p className="text-center text-xs text-gray-500">
-              We refined the visual description slightly to keep results consistent.
-            </p>
-          )}
-
-          {/* Tier escalation helper (B or C used, but no individual blocked roles to call out) */}
-          {tierEscalated && !hadBlockedRoles && (
-            <p className="text-center text-xs text-gray-500">
-              We generated a safer variant to keep your character consistent.
-            </p>
-          )}
-
-          {/* Blocked roles info box */}
-          {hadBlockedRoles && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-gray-800 bg-gray-800/40 px-4 py-3">
-              <Info className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
-              <div className="space-y-1.5">
-                <p className="text-xs font-medium text-gray-300">One angle didn't land</p>
-                <p className="text-xs text-gray-500">
-                  We kept your character consistent and filled the missing angle safely.
-                  You can try again for a different take.
-                </p>
-                <button
-                  type="button"
-                  className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1"
-                  onClick={handleGenerate}
-                  disabled={loading}
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  Regenerate pack
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Enlarged preview overlay */}
-      {pack && enlargedIndex !== null && pack.images[enlargedIndex] && (
-        <div
-          className={`fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
-          onClick={closeEnlarged}
-        >
-          <div
-            className={`relative max-w-md w-full transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <img
-              src={resolveImageUrl(pack.images[enlargedIndex].url)}
-              alt="Enlarged preview"
-              className="w-full rounded-lg"
-            />
-            <button
-              type="button"
-              onClick={closeEnlarged}
-              className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Body Identity */}
+      {/* Body Identity (applied to the whole pack) */}
       <div className="border border-gray-800 rounded-lg px-4 py-4 space-y-4">
         <p className="text-sm font-medium text-gray-300">Body Identity</p>
-        <p className="text-xs text-gray-500">
-          Set body proportions — applied to every shot in the pack.
-        </p>
-
-        {/* Height */}
         <div className="space-y-1.5">
           <span className="text-xs font-medium text-gray-400">Height</span>
           <div className="flex gap-2">
@@ -412,8 +176,6 @@ export default function StepGeneratePack({
             ))}
           </div>
         </div>
-
-        {/* Build */}
         <div className="space-y-1.5">
           <span className="text-xs font-medium text-gray-400">Build</span>
           <div className="flex flex-wrap gap-2">
@@ -435,11 +197,111 @@ export default function StepGeneratePack({
         </div>
       </div>
 
+      <div className="text-center space-y-1">
+        <p className="text-sm font-medium text-gray-300">
+          Locking facial identity first — outfits come next.
+        </p>
+        <p className="text-xs text-gray-500">
+          This pack creates your character's visual canon (13 reference cards).
+        </p>
+      </div>
+
+      <div className="flex justify-center">
+        <button className="btn btn-primary flex items-center gap-2" onClick={handleGenerate} disabled={loading}>
+          {loading ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              Generating your canon pack…
+            </>
+          ) : pack ? (
+            <>
+              <RefreshCw className="w-4 h-4" />
+              Regenerate Pack
+            </>
+          ) : (
+            'Generate Identity Pack'
+          )}
+        </button>
+      </div>
+
+      {error && (
+        <div className="text-center space-y-2">
+          <p className="text-sm text-gray-400 bg-gray-800/60 rounded-lg px-4 py-2">{error}</p>
+          <button
+            type="button"
+            className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+            onClick={handleGenerate}
+            disabled={loading}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {loading && (
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          {Array.from({ length: 13 }).map((_, i) => (
+            <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
+              <div className="w-full aspect-[2/3] bg-gray-800 animate-pulse" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && pack && (
+        <div className="space-y-5">
+          {renderSection('Face', FACE_ORDER)}
+          {renderSection('Body', BODY_ORDER)}
+          {pack.marks.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-gray-300">Details</h3>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {pack.marks.map((m) => {
+                  const url = m.detail_crop_url ? resolveImageUrl(m.detail_crop_url) : null;
+                  return (
+                    <div key={m.mark_id} className="rounded-lg overflow-hidden border border-gray-800">
+                      {url ? (
+                        <button type="button" onClick={() => setEnlarged(url)} className="block w-full">
+                          <img src={url} alt={m.label} className="w-full aspect-[2/3] object-cover" />
+                        </button>
+                      ) : (
+                        <div className="w-full aspect-[2/3] bg-gray-800" />
+                      )}
+                      <div className="px-1.5 py-1 text-center bg-gray-900">
+                        <span className="text-[11px] text-gray-400 truncate block">{m.label}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {enlarged && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setEnlarged(null)}
+        >
+          <div className="relative max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <img src={enlarged} alt="Enlarged preview" className="w-full rounded-lg" />
+            <button
+              type="button"
+              onClick={() => setEnlarged(null)}
+              className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between pt-2">
         <button className="btn btn-secondary" onClick={onBack}>
           Back
         </button>
-        <button className="btn btn-primary" disabled={!pack || packActionsDisabled} onClick={handleNext}>
+        <button className="btn btn-primary" disabled={!pack || loading} onClick={onNext}>
           Next
         </button>
       </div>

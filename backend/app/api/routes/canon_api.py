@@ -625,3 +625,120 @@ def generate_scene_from_canon(
 
     from app.schemas.character_image import CharacterImageRead as _CIR
     return _CIR.model_validate(img)
+
+
+# ── V2 canon pack generation (S24AN) ──────────────────────────────────
+# Self-serve replacement for the legacy 4-anchor identity-pack path: generates
+# all 13 v2 canon cards (+ permanent-mark detail crops) directly into canon via
+# canon_card_generator. Gemini default; admin-only OpenAI fallback; dry-run +
+# hard spend cap. Does NOT lock — the creation flow locks face/body separately.
+
+_V2_PACK_SPEND_CEILING = 8.0  # hard $ ceiling; requests cannot raise above this
+
+
+class V2PackGenerateRequest(BaseModel):
+    dry_run: bool = False
+    provider_option: str = "option2"   # option2=Gemini (default), option1=OpenAI (admin)
+    admin_fallback: bool = False        # allow OpenAI retry after the gate fails twice
+    max_spend: float = _V2_PACK_SPEND_CEILING
+
+
+class V2PackCard(BaseModel):
+    slot: str
+    section: str                  # "face" | "body"
+    role: str
+    url: Optional[str] = None
+    status: str                   # planned | generated | skipped | gate_failed | error
+    provider: Optional[str] = None
+    similarity: Optional[float] = None
+    estimated_cost: Optional[float] = None
+    prompt: Optional[str] = None
+    grounds_on: Optional[list[str]] = None
+
+
+class V2PackMark(BaseModel):
+    label: str
+    mark_id: str
+    detail_crop_url: Optional[str] = None
+    skipped: Optional[bool] = None
+    estimated_cost: Optional[float] = None
+
+
+class V2PackResponse(BaseModel):
+    pack_id: str
+    dry_run: bool
+    cards: list[V2PackCard]
+    marks: list[V2PackMark]
+    total_spend: float = 0.0
+    image_count: int = 0
+    estimated_cost: Optional[float] = None
+    regenerations: list[str] = []
+    openai_fallback: list[str] = []
+    gate_failed: list[str] = []
+    errors: list[str] = []
+    clean_pass: bool = False
+    stopped: Optional[str] = None
+
+
+@router.post(
+    "/{character_id}/identity-canon/generate-v2-pack",
+    response_model=V2PackResponse,
+    summary="Generate the full v2 canon pack (13 cards + mark detail crops)",
+)
+def generate_v2_pack(
+    character_id: int,
+    req: V2PackGenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> V2PackResponse:
+    """Populate all 13 v2 canon slots (and any mark detail crops) for a character.
+
+    Gemini is the default provider. OpenAI is used only as an admin-gated retry
+    after the consistency gate fails twice. Spend is capped (hard ceiling $8).
+    The canon is left UNLOCKED — callers lock face/body explicitly afterwards.
+    """
+    char = _get_owned_character(character_id, current_user, db)
+
+    from app.services.canon_card_generator import SpendTracker
+    from app.services.canon_pack_builder import (
+        build_v2_pack,
+        founder_identity_from_character,
+    )
+
+    canon = get_or_create_canon(character_id, db)
+    identity = founder_identity_from_character(char, canon, db)
+
+    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    cap = max(0.5, min(float(req.max_spend or _V2_PACK_SPEND_CEILING), _V2_PACK_SPEND_CEILING))
+    spend = SpendTracker(cap_usd=cap)
+
+    report = build_v2_pack(
+        canon=canon, identity=identity, db=db, spend=spend,
+        provider_option=req.provider_option, is_admin=is_admin,
+        admin_fallback=bool(req.admin_fallback and is_admin),
+        dry_run=req.dry_run,
+    )
+
+    logger.info(
+        "V2_PACK_GEN character_id=%s dry_run=%s cards=%d marks=%d spend=$%.3f "
+        "clean=%s openai_fallback=%d stopped=%s",
+        character_id, req.dry_run, len(report["cards"]), len(report["marks"]),
+        report["total_spend"], report["clean_pass"], len(report["openai_fallback"]),
+        report["stopped"],
+    )
+
+    return V2PackResponse(
+        pack_id=report["pack_id"],
+        dry_run=report["dry_run"],
+        cards=[V2PackCard(**c) for c in report["cards"]],
+        marks=[V2PackMark(**m) for m in report["marks"]],
+        total_spend=report["total_spend"],
+        image_count=report["image_count"],
+        estimated_cost=report.get("estimated_cost"),
+        regenerations=report["regenerations"],
+        openai_fallback=report["openai_fallback"],
+        gate_failed=report["gate_failed"],
+        errors=report["errors"],
+        clean_pass=report["clean_pass"],
+        stopped=report["stopped"],
+    )

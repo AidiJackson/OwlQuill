@@ -16,7 +16,7 @@ import { checkCreationSession } from './shared/sessionGuard';
 import type {
   CreationBasics,
   CreationSeeds,
-  IdentityPackResponse,
+  V2PackResponse,
   BodyMorphology,
 } from './shared/types';
 import { STEP_LABELS, DEFAULT_BODY_MORPHOLOGY } from './shared/types';
@@ -47,7 +47,7 @@ export default function CharacterCreationFlow() {
   const [bodyMorphology, setBodyMorphology] = useState<BodyMorphology>(DEFAULT_BODY_MORPHOLOGY);
 
   const [_sketchImageId, setSketchImageId] = useState<number | null>(null);
-  const [generatedPack, setGeneratedPack] = useState<IdentityPackResponse | null>(null);
+  const [generatedPack, setGeneratedPack] = useState<V2PackResponse | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   // ── B15.6: bfcache / mobile restore session hardening ───────────────
