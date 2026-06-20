@@ -1,5 +1,6 @@
 /** Typed API helpers for the character visual endpoints. */
 import type {
+  CharacterCanonRead,
   CharacterDNARead,
   CharacterImageRead,
   IdentityPackResponse,
@@ -141,6 +142,20 @@ export async function generateV2Pack(
       provider_option: opts?.providerOption ?? 'option2',
     }),
   });
+}
+
+/**
+ * Read the current identity canon for a character.
+ *
+ * Used by the timeout-recovery path: a long v2 generation can complete and
+ * persist every slot server-side even when the HTTP response is severed by a
+ * proxy/edge timeout. Re-reading the canon lets the UI detect that and recover
+ * without regenerating (S24AQ).
+ */
+export async function getIdentityCanon(
+  characterId: number,
+): Promise<CharacterCanonRead> {
+  return request(`/characters/${characterId}/identity-canon`);
 }
 
 /** Persist body morphology onto the canon before v2 generation reads it. */

@@ -87,6 +87,43 @@ export interface V2PackResponse {
   stopped?: string | null;
 }
 
+// ── Identity canon read (GET /identity-canon) ───────────────────────
+// Used for timeout recovery (S24AQ): if a long v2 generation request is
+// severed by a proxy/edge timeout after the backend already persisted every
+// slot, the UI re-reads the canon and reconstructs the pack instead of showing
+// a false failure.
+
+export interface FaceCanonData {
+  face_front_image_url?: string | null;
+  face_left_3q_image_url?: string | null;
+  face_right_3q_image_url?: string | null;
+  face_profile_image_url?: string | null;
+  face_expression_image_url?: string | null;
+  [key: string]: unknown;
+}
+
+export interface BodyCanonData {
+  body_front_image_url?: string | null;
+  body_left_image_url?: string | null;
+  body_right_image_url?: string | null;
+  body_back_image_url?: string | null;
+  torso_front_image_url?: string | null;
+  torso_side_image_url?: string | null;
+  standing_relaxed_image_url?: string | null;
+  seated_relaxed_image_url?: string | null;
+  [key: string]: unknown;
+}
+
+export interface CharacterCanonRead {
+  id: number;
+  character_id: number;
+  status: string;
+  face_canon?: FaceCanonData | null;
+  body_canon?: BodyCanonData | null;
+  face_locked: boolean;
+  body_locked: boolean;
+}
+
 // Friendly labels for v2 canon slots, shared across creation steps.
 export const V2_SLOT_LABELS: Record<string, string> = {
   face_front: 'Front Face',

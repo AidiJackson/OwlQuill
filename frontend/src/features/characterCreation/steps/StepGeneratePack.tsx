@@ -12,8 +12,10 @@ import {
   generateV2Pack,
   patchBodyCanon,
   generateIdentityPack,
+  getIdentityCanon,
   resolveImageUrl,
 } from '../shared/api';
+import { buildPackFromCanon } from '../shared/canonRecovery';
 
 interface Props {
   characterId: number;
@@ -54,6 +56,13 @@ function legacyToV2(p: IdentityPackResponse): V2PackResponse {
   };
 }
 
+/** Extract a human-meaningful message from a thrown value, with a fallback. */
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'string' && err) return err;
+  return fallback;
+}
+
 export default function StepGeneratePack({
   characterId,
   vibeText,
@@ -67,6 +76,7 @@ export default function StepGeneratePack({
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [enlarged, setEnlarged] = useState<string | null>(null);
 
   // Debug fallback: legacy 4-anchor path stays reachable only via this DEV flag,
@@ -74,31 +84,74 @@ export default function StepGeneratePack({
   const legacyDebug =
     import.meta.env.DEV && localStorage.getItem('useLegacyPack') === '1';
 
+  // If a generate request fails, the backend may have already completed and
+  // persisted every slot (long request severed by a proxy/edge timeout). Re-read
+  // the canon and, if all 13 slots are present, reconstruct the pack — no
+  // regeneration, no spend (S24AQ).
+  const tryRecoverFromCanon = async (): Promise<V2PackResponse | null> => {
+    try {
+      const canon = await getIdentityCanon(characterId);
+      return buildPackFromCanon(canon);
+    } catch (recoverErr) {
+      console.error('[StepGeneratePack] canon recovery read failed', recoverErr);
+      return null;
+    }
+  };
+
   const handleGenerate = async () => {
     if (loading) return;
     setLoading(true);
     setError('');
-    try {
-      if (legacyDebug) {
+    setNotice('');
+
+    // DEV-only legacy path stays isolated from the v2 flow.
+    if (legacyDebug) {
+      try {
         const spec: IdentitySpec | null = identitySpec
           ? { ...identitySpec, body_height: bodyMorphology.height, body_build: bodyMorphology.build }
           : null;
         const legacy = await generateIdentityPack(characterId, undefined, vibeText, spec);
         onPackGenerated(legacyToV2(legacy));
-        return;
+      } catch (err) {
+        console.error('[StepGeneratePack] legacy pack generation failed', err);
+        setError(errorMessage(err, "We couldn't generate the images right now. Please try again."));
+      } finally {
+        setLoading(false);
       }
-      // Persist body morphology so v2 generation grounds on it, then generate.
+      return;
+    }
+
+    // Step 1 — persist body morphology so v2 generation grounds on it. A failure
+    // here is distinct from a generation failure and never reaches the canon.
+    try {
       await patchBodyCanon(characterId, {
         height: bodyMorphology.height,
         build: bodyMorphology.build,
       });
+    } catch (err) {
+      console.error('[StepGeneratePack] patchBodyCanon failed', err);
+      setError(errorMessage(err, "We couldn't save your body settings. Please try again."));
+      setLoading(false);
+      return;
+    }
+
+    // Step 2 — generate the v2 pack. This request can run for minutes; on a
+    // severed response, fall back to reading the canon before declaring failure.
+    try {
       const result = await generateV2Pack(characterId, { maxSpend: 8 });
       if (result.stopped) {
         setError('Generation stopped early. Please try again.');
       }
       onPackGenerated(result);
-    } catch {
-      setError("We couldn't generate the images right now. Please try again.");
+    } catch (genErr) {
+      console.error('[StepGeneratePack] generateV2Pack failed', genErr);
+      const recovered = await tryRecoverFromCanon();
+      if (recovered) {
+        setNotice('Identity pack completed. Loading your images.');
+        onPackGenerated(recovered);
+      } else {
+        setError(errorMessage(genErr, "We couldn't generate the images right now. Please try again."));
+      }
     } finally {
       setLoading(false);
     }
@@ -223,6 +276,14 @@ export default function StepGeneratePack({
           )}
         </button>
       </div>
+
+      {notice && !error && (
+        <div className="text-center">
+          <p className="text-sm text-emerald-300 bg-emerald-600/10 border border-emerald-700/40 rounded-lg px-4 py-2">
+            {notice}
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="text-center space-y-2">
