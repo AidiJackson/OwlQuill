@@ -102,6 +102,14 @@ export interface FaceCanonData {
   [key: string]: unknown;
 }
 
+export interface PermanentBodyMark {
+  id: string;
+  label: string;
+  type?: string;
+  detail_crop_url?: string | null;
+  reference_image_url?: string | null;
+}
+
 export interface BodyCanonData {
   body_front_image_url?: string | null;
   body_left_image_url?: string | null;
@@ -111,6 +119,7 @@ export interface BodyCanonData {
   torso_side_image_url?: string | null;
   standing_relaxed_image_url?: string | null;
   seated_relaxed_image_url?: string | null;
+  permanent_body_marks?: PermanentBodyMark[];
   [key: string]: unknown;
 }
 

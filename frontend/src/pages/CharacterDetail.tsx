@@ -7,6 +7,7 @@ import CanonManager from '@/components/CanonManager';
 import { listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 import ImageGrid from '@/features/images/components/ImageGrid';
+import IdentityCanonSection from '@/features/characterCreation/components/IdentityCanonSection';
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -395,6 +396,12 @@ export default function CharacterDetail() {
 
         {/* Identity truth lives only in Manage Character Canon (CanonManager).
             Legacy Style Shops, Body Canon panel, and Signature Accessory panels have been removed. */}
+
+        {/* Identity Canon — v2 canon pack cards (stored in canon JSON, not the
+            CharacterImage library), shown separately from scene/library images. */}
+        <ErrorBoundary>
+          <IdentityCanonSection characterId={character.id} />
+        </ErrorBoundary>
 
         {/* Image gallery */}
         {galleryImages.length > 0 && (
