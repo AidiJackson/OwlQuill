@@ -39,6 +39,7 @@ from app.services.canon_card_generator import (  # noqa: E402
 from app.services.canon_card_prompts import (  # noqa: E402
     CARD_PIPELINE,
     FounderIdentity,
+    MarkSpec,
     build_mark_prompt,
     validation_scene_prompts,
 )
@@ -47,8 +48,55 @@ from app.services.canon_card_prompts import (  # noqa: E402
 # Descriptions are injected here per-founder, exactly as provided by the user
 # (S24AL: "use the provided identity descriptions exactly"). It is intentionally
 # EMPTY until each founder's description arrives — the harness refuses to run a
-# founder that is absent or incomplete. Pan is added in the next step.
-FOUNDERS: dict[str, FounderIdentity] = {}
+# founder that is absent or incomplete.
+FOUNDERS: dict[str, FounderIdentity] = {
+    "Pan": FounderIdentity(
+        name="Pan",
+        # Face — supplied verbatim as a full override.
+        face_description=(
+            "Beautiful male, age 30-32. Pale skin. Medium-length tousled golden "
+            "blond hair. Piercing blue eyes. Sharp jawline. Strong cheekbones. "
+            "Symmetrical face. Soft but dangerous beauty. Youthful but masculine. "
+            "Elegant, seductive, fairy-tale prince energy with a darker edge."
+        ),
+        # Body — supplied verbatim as a full override.
+        body_description=(
+            "Lean athletic male build. Around 6ft. Broad shoulders. Narrow waist. "
+            "Toned arms. Defined torso. Graceful posture. Strong but not bulky. "
+            "Elegant physicality."
+        ),
+        marks=[
+            MarkSpec(
+                label="left_scripture_sleeve",
+                type="tattoo",
+                body_region="left_full_arm",
+                side="left",
+                description=(
+                    "dark scripture sleeve tattoo covering the full left arm from "
+                    "shoulder to wrist, elegant black ink, ancient text and occult "
+                    "script, dense but refined"
+                ),
+            ),
+            MarkSpec(
+                label="right_wolf_sleeve",
+                type="tattoo",
+                body_region="right_full_arm",
+                side="right",
+                description=(
+                    "dark wolf-themed sleeve tattoo covering the full right arm from "
+                    "shoulder to wrist, black ink, wolf motifs, moon shapes, "
+                    "claw-like ornamental patterns, gothic fantasy style"
+                ),
+            ),
+        ],
+        # Validation scene — supplied verbatim (cinematic gothic fantasy realism).
+        cinematic_scene=(
+            "Pan standing in a dark enchanted forest at twilight, black "
+            "open-collar shirt with sleeves rolled to the elbows, cinematic "
+            "gothic fantasy realism"
+        ),
+    ),
+}
 
 
 # ── Owner/admin provisioning (S24AL §6) ───────────────────────────────
