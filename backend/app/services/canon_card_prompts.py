@@ -20,8 +20,25 @@ from typing import Optional
 # canon_compiler._SAFETY_PREFIX).
 SAFETY_PREFIX = "adult, fully clothed, non-explicit, tasteful"
 
-# Neutral studio framing shared by every CANON card (not validation scenes).
-STUDIO_FRAMING = "neutral studio backdrop, even soft lighting, sharp focus"
+# Aesthetic quality clause (S24AT) — lifts cards out of clinical passport/mugshot
+# territory into appealing, characterful Ficshon references, while staying clean
+# and consistent. Applied to every card.
+QUALITY_CLAUSE = (
+    "high-quality Ficshon character reference, attractive natural features, "
+    "polished realistic character portrait, not a passport photo"
+)
+
+# Face cards may lean into facial appeal; body cards must NOT be sexualised
+# (S24AT task 5) — they get a tasteful, non-sexual clause instead.
+FACE_APPEAL_CLAUSE = "flattering, appealing, well-groomed, characterful"
+BODY_TASTEFUL_CLAUSE = (
+    "natural relaxed posture, modest and tasteful, non-sexual, "
+    "fully clothed in a neutral everyday outfit"
+)
+
+# Studio framing shared by every CANON card (not validation scenes). Soft,
+# flattering light rather than flat passport lighting — still a clean reference.
+STUDIO_FRAMING = "clean studio backdrop, soft flattering lighting, sharp focus"
 
 # Anti-drift clause — keeps anatomy/marks from being reinterpreted across the
 # pack (mirrors CharacterCanonState.LOCKED_CANON_CLAUSE intent).
@@ -65,6 +82,9 @@ class FounderIdentity:
     eye_color: str = ""
     face_features: str = ""   # distinctive features, free text
     face_description: str = ""  # optional full override for the face line
+    # Character vibe / personality aesthetic (kept non-sexual). Carries the
+    # roleplay/fantasy flavour so cards aren't generic (S24AT).
+    vibe: str = ""
     # Body
     height: str = ""
     build: str = ""
@@ -104,7 +124,8 @@ class CardSpec:
 # anything that grounds on them.
 CARD_PIPELINE: tuple[CardSpec, ...] = (
     CardSpec("face_front", "seed",
-             "tight head-and-shoulders portrait, facing camera directly, neutral expression",
+             "tight head-and-shoulders portrait, facing camera directly, "
+             "relaxed natural expression",
              (), is_gate=True),
     CardSpec("face_left_3q", "face",
              "head-and-shoulders, three-quarter view turned to their left",
@@ -190,6 +211,8 @@ def build_preamble(identity: FounderIdentity) -> str:
         parts.append(face_line)
     if body_line:
         parts.append(body_line)
+    if identity.vibe:
+        parts.append(f"overall character vibe: {identity.vibe.strip().rstrip('.')}")
     return ". ".join(parts) + "."
 
 
@@ -199,9 +222,12 @@ def build_card_prompt(identity: FounderIdentity, slot: str) -> str:
     if spec is None:
         raise KeyError(f"Unknown card slot: {slot!r}")
     preamble = build_preamble(identity)
+    # Body cards stay deliberately non-sexual; face cards may lean into appeal.
+    is_body = spec.phase in ("body_seed", "body", "pose")
+    appeal = BODY_TASTEFUL_CLAUSE if is_body else FACE_APPEAL_CLAUSE
     return (
-        f"{SAFETY_PREFIX}. {preamble} {spec.clause}. "
-        f"{STUDIO_FRAMING}. {ANTI_DRIFT}"
+        f"{SAFETY_PREFIX}. {preamble} {spec.clause}. {appeal}. "
+        f"{QUALITY_CLAUSE}. {STUDIO_FRAMING}. {ANTI_DRIFT}"
     )
 
 

@@ -70,29 +70,47 @@ class _StopBuild(RuntimeError):
 # ── Identity assembly ─────────────────────────────────────────────────
 
 def _spec_face_description(spec: dict) -> str:
-    """Compose a face description line from a CharacterIdentitySpec dict."""
+    """Compose a face description line from a CharacterIdentitySpec dict.
+
+    Age/gender are intentionally NOT included here — build_preamble already
+    leads with "name, age gender", so this returns facial features only to
+    avoid duplication.
+    """
     ident = spec.get("identity") or {}
     bits: list[str] = []
-    age = spec.get("age_band")
-    gender = spec.get("gender")
-    lead = " ".join(b for b in (age, gender) if b)
-    if lead:
-        bits.append(lead)
     if ident.get("skin_tone"):
         bits.append(f"{ident['skin_tone']} skin")
-    hair = " ".join(b for b in (ident.get("hair_length"), ident.get("hair_color")) if b)
-    if hair:
-        bits.append(f"{hair} hair")
+    # Hair: texture + length + colour + styled cut (B15). Preserves the
+    # characterful hair the user chose instead of flattening to colour only.
+    hair_core = " ".join(
+        b for b in (spec.get("hair_texture"), ident.get("hair_length"), ident.get("hair_color")) if b
+    )
+    if hair_core:
+        bits.append(f"{hair_core} hair")
+    style = spec.get("hair_style")
+    if style and style != "none":
+        bits.append(f"{str(style).replace('_', ' ')} hairstyle")
     if ident.get("eye_color"):
         bits.append(f"{ident['eye_color']} eyes")
     feats = ident.get("face_features") or []
     if isinstance(feats, list):
         bits.extend(feats)
-    # Optional facial geometry adds discriminative detail when present.
-    for key in ("face_shape", "jaw_type", "nose_type", "lip_type", "facial_hair_type"):
+    # Facial geometry — labelled so it reads as appealing detail, not a bare
+    # adjective list ("oval face, high cheekbones" not "oval, high").
+    geometry = (
+        ("face_shape", "{} face"),
+        ("jaw_type", "{} jaw"),
+        ("cheekbone_type", "{} cheekbones"),
+        ("eye_shape", "{} eyes"),
+        ("eyebrow_shape", "{} eyebrows"),
+        ("nose_type", "{} nose"),
+        ("lip_type", "{} lips"),
+        ("facial_hair_type", "{} facial hair"),
+    )
+    for key, tmpl in geometry:
         v = spec.get(key)
         if v and v != "none":
-            bits.append(str(v).replace("_", " "))
+            bits.append(tmpl.format(str(v).replace("_", " ")))
     tells = spec.get("species_tells") or []
     if isinstance(tells, list):
         bits.extend(t.replace("_", " ") for t in tells)
@@ -139,6 +157,14 @@ def founder_identity_from_character(
     except Exception:  # noqa: BLE001
         dna = None
 
+    # The self-serve creation flow stores the rich identity spec inside the DNA
+    # (visual_traits_json["identity_spec"]); character.identity_spec_json is only
+    # populated by other flows. Without this fallback the user's entire facial
+    # appearance intent (hair, eyes, geometry, vibe) is dropped and cards come
+    # out generic (S24AT root cause).
+    if not spec and dna and dna.visual_traits_json:
+        spec = (dna.visual_traits_json or {}).get("identity_spec") or {}
+
     face_desc = (face.face_description if face and face.face_description else "") or \
         _spec_face_description(spec)
     body_desc = (body.body_description if body and body.body_description else "") or \
@@ -170,12 +196,26 @@ def founder_identity_from_character(
     gender = spec.get("gender") or (dna.gender_presentation if dna else "") or ""
     age_band = spec.get("age_band") or ""
 
+    # Character vibe — personality traits + free-text vibe from the DNA. Keeps the
+    # roleplay/fantasy flavour in the prompt so cards feel characterful (S24AT).
+    vibe = ""
+    if dna and dna.visual_traits_json:
+        vt = dna.visual_traits_json or {}
+        traits = vt.get("personality_traits") or []
+        vibe_bits: list[str] = []
+        if isinstance(traits, list) and traits:
+            vibe_bits.append(", ".join(str(t) for t in traits if t))
+        if vt.get("vibe"):
+            vibe_bits.append(str(vt["vibe"]))
+        vibe = "; ".join(b for b in vibe_bits if b)
+
     return FounderIdentity(
         name=character.name,
         gender=gender,
         age_band=age_band,
         face_description=face_desc or None,
         body_description=body_desc or None,
+        vibe=vibe,
         # Marks come from the canon body (added via CanonManager / API), not the
         # spec — they are anatomical truth and own the detail-crop pipeline.
         marks=[],
