@@ -35,6 +35,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.services import storylab_telemetry
 from app.schemas.storylab import (
     Boundary,
     Direction,
@@ -2134,6 +2135,7 @@ def _call_openrouter(
     _choice = data["choices"][0]
     _finish_reason = _choice.get("finish_reason") or _choice.get("stop_reason", "unknown")
     _usage = data.get("usage") or {}
+    storylab_telemetry.record("continuation", "openrouter", _EFFECTIVE_STORYLAB_MODEL, _usage)
     logger.info(
         "[SL-DIAG] _call_openrouter raw_chars=%d has_story_tag=%s finish_reason=%s "
         "prompt_tokens=%s completion_tokens=%s generation_ms=%d",
@@ -2767,6 +2769,7 @@ def _call_openrouter_chapter(
     _choice = data["choices"][0]
     _finish_reason = _choice.get("finish_reason") or _choice.get("stop_reason", "unknown")
     _usage = data.get("usage") or {}
+    storylab_telemetry.record("chapter", "openrouter", _EFFECTIVE_STORYLAB_MODEL, _usage)
     logger.info(
         "[SL-DIAG] _call_openrouter_chapter raw_chars=%d has_story_tag=%s has_suggestions_tag=%s "
         "finish_reason=%s prompt_tokens=%s completion_tokens=%s generation_ms=%d",
@@ -3058,6 +3061,7 @@ def _call_openrouter_summary(
         resp = client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
     data = resp.json()
+    storylab_telemetry.record("summary", "openrouter", _EFFECTIVE_STORYLAB_MODEL, data.get("usage") or {})
     return data["choices"][0]["message"]["content"].strip()
 
 
@@ -3810,6 +3814,7 @@ def _call_openrouter_rp_reply(
     generation_time_ms = int((time.monotonic() - t_start) * 1000)
 
     data = resp.json()
+    storylab_telemetry.record("rp_reply", "openrouter", model_slug, data.get("usage") or {})
     raw: str = data["choices"][0]["message"]["content"]
     logger.info(
         "[SL-DIAG] _call_openrouter_rp_reply raw_chars=%d has_reply_tag=%s time_ms=%d",

@@ -28,7 +28,13 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.character import Character as CharacterModel
 from app.models.realm import Realm, RealmMembership
-from app.models.storylab import GenerationLog, Story as StoryModel, StoryChapter, StoryState
+from app.models.storylab import (
+    GenerationLog,
+    GenerationTelemetry,
+    Story as StoryModel,
+    StoryChapter,
+    StoryState,
+)
 from app.models.user import User
 from app.schemas.storylab import (
     Boundary,
@@ -49,6 +55,7 @@ from app.schemas.storylab import (
     StoryResponse,
     GeneratedText,
 )
+from app.services import storylab_telemetry
 from app.services.story_memory import (
     check_for_contradictions,
     extract_and_merge_memory,
@@ -139,6 +146,85 @@ def _seconds_until_utc_midnight() -> int:
     now = datetime.now(timezone.utc)
     tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
     return max(0, int((tomorrow - now).total_seconds()))
+
+
+# ── telemetry persistence (S24AZ) ──────────────────────────────────────────────
+
+def _persist_generation_telemetry(
+    db: Session,
+    *,
+    user_id: int | None,
+    story_id: str | None,
+    request_id: str | None,
+) -> None:
+    """Drain the thread-local telemetry sink and persist one row per generation kind.
+
+    Aggregates sub-calls of the same kind (e.g. a chapter's retries) into a single
+    row. Non-fatal: telemetry must never break a generation response.
+    """
+    try:
+        records = storylab_telemetry.drain()
+        if not records:
+            return
+        now = datetime.utcnow()
+        for kind, agg in storylab_telemetry.aggregate_by_kind(records).items():
+            db.add(
+                GenerationTelemetry(
+                    user_id=user_id,
+                    story_id=story_id,
+                    request_id=request_id,
+                    kind=kind,
+                    provider=agg.get("provider"),
+                    model=agg.get("model"),
+                    calls=agg.get("calls", 0),
+                    prompt_tokens=agg.get("prompt_tokens"),
+                    completion_tokens=agg.get("completion_tokens"),
+                    total_tokens=agg.get("total_tokens"),
+                    cost_usd=agg.get("cost_usd"),
+                    created_at=now,
+                )
+            )
+        db.commit()
+    except Exception as exc:  # noqa: BLE001 — telemetry is best-effort
+        logger.warning("[SL-TELEMETRY] persist failed story_id=%s: %s", story_id, exc)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _count_daily_telemetry_for_user(user_id: int, kind: str, db: Session) -> int:
+    """Count this user's telemetry rows of *kind* since UTC midnight today.
+
+    One row is written per request per kind, so this is a per-request daily count.
+    Used as the daily-quota counter for continuation and RP-reply requests.
+    """
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = today_start.replace(tzinfo=None)
+    return (
+        db.query(GenerationTelemetry)
+        .filter(
+            GenerationTelemetry.user_id == user_id,
+            GenerationTelemetry.kind == kind,
+            GenerationTelemetry.created_at >= cutoff,
+        )
+        .count()
+    )
+
+
+def _daily_quota_error(used: int, limit: int, label: str) -> HTTPException:
+    reset = _seconds_until_utc_midnight()
+    return HTTPException(
+        status_code=429,
+        detail={
+            "error": "quota_exceeded",
+            "detail": f"Daily {label} limit reached ({used}/{limit}).",
+            "hint": "Limit resets at midnight UTC.",
+            "reset_in_seconds": reset,
+            "limit": limit,
+            "used": used,
+        },
+    )
 
 
 def _storylab_quota_error(used: int, limit: int) -> HTTPException:
@@ -360,6 +446,14 @@ def generate(
 ) -> StoryLabGenerateResponse:
     """Generate a story continuation and persist updated state."""
     _validate_story_ownership(req.story_id, current_user, db)
+    storylab_telemetry.reset()
+
+    # ── daily quota (0 = unlimited) ───────────────────────────────────────────
+    _cont_limit = settings.STORYLAB_CONTINUATION_DAILY_LIMIT
+    if _cont_limit > 0:
+        _used = _count_daily_telemetry_for_user(current_user.id, "continuation", db)
+        if _used >= _cont_limit:
+            raise _daily_quota_error(_used, _cont_limit, "continuation")
 
     # ── input validation ──────────────────────────────────────────────────────
     text_stripped = req.text.strip()
@@ -450,6 +544,11 @@ def generate(
     db.add(log)
     db.commit()
     db.refresh(state_row)
+
+    # ── telemetry (token + cost) — best-effort, also feeds the daily counter ──
+    _persist_generation_telemetry(
+        db, user_id=current_user.id, story_id=req.story_id, request_id=request_id
+    )
 
     return StoryLabGenerateResponse(
         request_id=request_id,
@@ -1352,6 +1451,7 @@ def generate_chapter_endpoint(
 ) -> ChapterGenerateResponse:
     """Generate a new chapter and store it."""
     _validate_story_ownership(story_id, current_user, db)
+    storylab_telemetry.reset()
 
     import time as _time
     _endpoint_t0 = _time.time()
@@ -1505,13 +1605,22 @@ def generate_chapter_endpoint(
     db.refresh(ch)
 
     # Update story summary + character memory (both non-fatal; chapter already committed)
+    # S24AZ T3: summary is batched to cut per-chapter cost ~20–25%. It fires on
+    # the first chapter (so early chapters have summary context) and then only
+    # every 3rd chapter thereafter, instead of after every single chapter.
     state_row = _get_or_create_state(story_id, db)
-    _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
-    state_row = _get_or_create_state(story_id, db)  # re-fetch after summary commit
+    if chapter_number == 1 or chapter_number % 3 == 0:
+        _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
+        state_row = _get_or_create_state(story_id, db)  # re-fetch after summary commit
     _update_character_memory(story_id, user_key, state_row, db)
 
     # ── Canon memory extraction + contradiction check (non-fatal) ─────────────
     _update_canon_memory(story_id, chapter_text, chapter_number, state_row, db)
+
+    # ── telemetry: chapter gen + (optional) summary + canon_extract ───────────
+    _persist_generation_telemetry(
+        db, user_id=current_user.id, story_id=story_id, request_id=None
+    )
 
     _endpoint_ms = int((_time.time() - _endpoint_t0) * 1000)
     _using_stub = chapter_text.startswith("[DEV-STUB-FALLBACK]") or (model_deltas is None and settings.STORYLAB_PROVIDER == "stub")
@@ -1585,6 +1694,7 @@ def regenerate_chapter(
 ) -> ChapterGenerateResponse:
     """Regenerate a chapter in-place, overwriting its generated_text."""
     _validate_story_ownership(story_id, current_user, db)
+    storylab_telemetry.reset()
 
     user_key = str(current_user.id)
     ch = (
@@ -1598,6 +1708,16 @@ def regenerate_chapter(
     )
     if ch is None:
         raise HTTPException(status_code=404, detail="Chapter not found")
+
+    # ── S24AZ T2-D: regenerate counts against the same daily chapter quota ─────
+    # Counts chapter-model generations today (new chapters + regenerations both
+    # emit a kind='chapter' telemetry row), so re-rolls can no longer bypass the
+    # chapter budget. (Provider=stub writes no telemetry and is free → ungated.)
+    limit = settings.STORYLAB_DAILY_LIMIT
+    if limit > 0:
+        used = _count_daily_telemetry_for_user(current_user.id, "chapter", db)
+        if used >= limit:
+            raise _storylab_quota_error(used, limit)
 
     # Capture pre-generation canon memory and state snapshot for contradiction
     # checking and retry (mirrors the generate endpoint pattern).
@@ -1715,14 +1835,23 @@ def regenerate_chapter(
     db.commit()
 
     # Update story summary + character memory (both non-fatal; chapter already committed)
+    # S24AZ T3: summary is batched to cut per-chapter cost ~20–25%. It fires on
+    # the first chapter (so early chapters have summary context) and then only
+    # every 3rd chapter thereafter, instead of after every single chapter.
     state_row = _get_or_create_state(story_id, db)
-    _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
-    state_row = _get_or_create_state(story_id, db)  # re-fetch after summary commit
+    if chapter_number == 1 or chapter_number % 3 == 0:
+        _update_story_summary(story_id, state_row, chapter_text, chapter_number, db)
+        state_row = _get_or_create_state(story_id, db)  # re-fetch after summary commit
     _update_character_memory(story_id, user_key, state_row, db)
 
     # ── Canon memory extraction + contradiction check (non-fatal) ─────────────
     state_row = _get_or_create_state(story_id, db)  # re-fetch after character memory commit
     _update_canon_memory(story_id, chapter_text, chapter_number, state_row, db)
+
+    # ── telemetry: chapter gen + (optional) summary + canon_extract ───────────
+    _persist_generation_telemetry(
+        db, user_id=current_user.id, story_id=story_id, request_id=None
+    )
 
     return ChapterGenerateResponse(
         chapter_number=chapter_number,
@@ -1983,6 +2112,15 @@ def generate_rp_reply_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> RPReplyGenerateResponse:
     """Generate an RP reply as the user's character without controlling the partner character."""
+    storylab_telemetry.reset()
+
+    # ── S24AZ T2-B: daily RP-reply quota (0 = unlimited) ──────────────────────
+    _rp_limit = settings.RP_REPLY_DAILY_LIMIT
+    if _rp_limit > 0:
+        _rp_used = _count_daily_telemetry_for_user(current_user.id, "rp_reply", db)
+        if _rp_used >= _rp_limit:
+            raise _daily_quota_error(_rp_used, _rp_limit, "RP reply")
+
     character_context: str | None = None
     character_name: str = ""
     canon_summary: str | None = None
@@ -2108,6 +2246,11 @@ def generate_rp_reply_endpoint(
         _narr_mechanics["static_scene_risk"], _narr_mechanics["recursive_emotion_risk"],
         _narr_events["progression_event_count"], _narr_monotony["monotony_score"],
         _narr_mechanics["environment_usage_density"],
+    )
+
+    # ── telemetry (token + cost) — best-effort, also feeds the daily counter ──
+    _persist_generation_telemetry(
+        db, user_id=current_user.id, story_id=req.story_id, request_id=None
     )
 
     return RPReplyGenerateResponse(

@@ -1,7 +1,7 @@
-"""StoryLab DB models: story_state + generation_log + story_chapter + story."""
+"""StoryLab DB models: story_state + generation_log + story_chapter + story + generation_telemetry."""
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.types import JSON
 
 from app.core.database import Base
@@ -93,3 +93,33 @@ class StoryChapter(Base):
     __table_args__ = (
         UniqueConstraint("story_id", "chapter_number", name="uq_story_chapter"),
     )
+
+
+class GenerationTelemetry(Base):
+    """Per-request token + cost telemetry for StoryLab generation paths (S24AZ).
+
+    One row per (request, kind). Sub-calls of the same kind within a request
+    (e.g. a chapter's up-to-3 retries) are aggregated into a single row, with
+    ``calls`` recording how many OpenRouter calls were summed.
+
+    Token counts are read from the OpenRouter ``usage`` object (actual). ``cost_usd``
+    is derived from those actual counts using approximate per-token list rates and
+    is NULL when the model's rate is unknown (e.g. stub provider). Used both for
+    cost visibility and for the continuation / RP-reply daily quota counters.
+    """
+
+    __tablename__ = "generation_telemetry"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=True)
+    story_id = Column(String, index=True, nullable=True)
+    request_id = Column(String, index=True, nullable=True)
+    kind = Column(String, index=True, nullable=False)  # continuation|chapter|summary|rp_reply|canon_extract
+    provider = Column(String, nullable=True)
+    model = Column(String, nullable=True)
+    calls = Column(Integer, nullable=False, default=0)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+    cost_usd = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

@@ -17,6 +17,7 @@ from app.models.character import Character as CharacterModel
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
 from app.schemas.character_image import CharacterImageRead
 from app.services.image_provider import get_image_provider, get_fallback_provider
+from app.services.image_quota import check_weekly_quota
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.style_elements import apply_style_elements_to_image_prompt
 from app.services.body_canon import load_markings, build_body_canon_lock_string
@@ -112,6 +113,14 @@ def generate_scene_image(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
     if character.owner_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to modify this character.")
+
+    # ── S24AZ T2-C: weekly image allowance (admins bypass; deducted on success) ──
+    # Scene images call the paid Google Gemini API; they must consume the same
+    # rolling 7-day quota as the other image generators. Deduction happens by
+    # stamping user_id on the saved CharacterImage below (counted by image_quota).
+    quota_error = check_weekly_quota(current_user, db)
+    if quota_error is not None:
+        return quota_error
 
     # ── Preconditions ─────────────────────────────────────────────
     if not character.visual_locked:
@@ -327,6 +336,7 @@ def generate_scene_image(
     # They do not contaminate canon. Promotion is explicit via promote_to_canon.
     img = CharacterImage(
         character_id=character_id,
+        user_id=current_user.id,  # S24AZ: stamp for weekly quota deduction
         kind=ImageKindEnum.SCENE_ONLY,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

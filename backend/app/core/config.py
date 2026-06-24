@@ -155,6 +155,10 @@ class Settings(BaseSettings):
     STORYLAB_MODEL_INFERNO: str = ""
     # Per-user daily chapter generation quota (0 = unlimited)
     STORYLAB_DAILY_LIMIT: int = 20
+    # Per-user daily continuation quota for POST /storylab/generate (0 = unlimited) — S24AZ
+    STORYLAB_CONTINUATION_DAILY_LIMIT: int = 40
+    # Per-user daily RP-reply quota for POST /storylab/rp-reply/generate (0 = unlimited) — S24AZ
+    RP_REPLY_DAILY_LIMIT: int = 100
 
     # B17: Simplified image generator provider toggle.
     # When True, the frontend toggle (Option 1 / Option 2) is active and respected.

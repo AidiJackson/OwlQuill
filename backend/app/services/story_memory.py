@@ -695,6 +695,8 @@ def _call_openrouter_memory_extract(
             resp = client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
         data = resp.json()
+        from app.services import storylab_telemetry
+        storylab_telemetry.record("canon_extract", "openrouter", _effective_model(), data.get("usage") or {})
         raw = data["choices"][0]["message"]["content"].strip()
         # Strip markdown code fences if present
         raw = re.sub(r"^```(?:json)?\s*", "", raw)

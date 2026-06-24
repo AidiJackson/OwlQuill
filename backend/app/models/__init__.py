@@ -8,7 +8,7 @@ from app.models.story_space import (
     PublishedStorySegment,
     ChannelTypeEnum,
 )
-from app.models.storylab import Story, StoryState, GenerationLog, StoryChapter
+from app.models.storylab import Story, StoryState, GenerationLog, StoryChapter, GenerationTelemetry
 from app.models.report import Report, ReportTargetTypeEnum, ReportStatusEnum
 from app.models.block import Block
 from app.models.user import User
@@ -53,6 +53,7 @@ __all__ = [
     "StoryState",
     "GenerationLog",
     "StoryChapter",
+    "GenerationTelemetry",
     "Report",
     "ReportTargetTypeEnum",
     "ReportStatusEnum",
