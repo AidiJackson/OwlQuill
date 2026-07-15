@@ -11,7 +11,7 @@ packages = ["lsof"]
 
 # Deployment configuration
 [deployment]
-run = ["sh", "-c", "bash start-dev.sh"]
+run = ["sh", "-c", "bash start-prod.sh"]
 deploymentTarget = "cloudrun"
 
 [[ports]]
