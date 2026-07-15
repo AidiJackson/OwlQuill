@@ -68,7 +68,7 @@ trap cleanup EXIT INT TERM
 # --- Backend (FastAPI): production mode, NO --reload. stdout/stderr inherited
 #     → visible in Replit deployment logs. ---
 cd "$ROOT/backend"
-uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" &
+python -m uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" &
 BACKEND_PID=$!
 echo "[launcher] backend (uvicorn) started, pid=$BACKEND_PID"
 
