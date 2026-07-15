@@ -229,3 +229,57 @@ yarn.lock
 backend/static/generated/
 
 .claude/
+
+# ---------------------------------------------------------------------------
+# Experiment artefacts & state — S22–S24 image / LoRA / editor pipelines.
+# Precise on purpose: whole-directory rules below contain ONLY untracked
+# generated output (verified against `git ls-files scripts/`); mixed dirs and
+# loose files are pinned by exact path so no tracked .py/.json/.png/.txt/.zip
+# or migration is ever hidden. Driver scripts themselves are NOT ignored here —
+# they were archived out of the tree, not gitignored.
+# ---------------------------------------------------------------------------
+
+# Local checkpoint backups & pre-sprint script tarballs
+.checkpoints/
+
+# Fully-artefact output directories (no tracked files live under these)
+scripts/e3_reports/
+scripts/e3_validation/
+scripts/e4_reports/
+scripts/e5_reports/
+scripts/e6_reports/
+scripts/e8_reports/
+scripts/editor_e1_validation/
+scripts/editor_e2_validation/
+scripts/editor_job_reports/
+scripts/founder_reports/
+scripts/s24aa_validation/
+scripts/s24ac_validation/
+scripts/s24s_artifacts/
+
+# Mixed dirs — ignore only the untracked artefact subtrees; tracked
+# manifest.json / e7_batch_results.json in these trees stay committed.
+scripts/summer_lora_v4_pack_candidates/images/
+scripts/summer_lora_v4_pack_candidates/captions/
+scripts/e7_reports/*_final.png
+
+# Loose experiment state / report / pack artefacts (exact paths — sibling
+# files with similar names are already tracked and must stay visible).
+scripts/proof_result_status.json
+scripts/proof_result_urls.txt
+scripts/proof_v2_status.json
+scripts/runpod_phase0_state.json
+scripts/runpod_s24aa_state.json
+scripts/runpod_sprint8_state.json
+scripts/runpod_sprint10_state.json
+scripts/summer_adult_studio_live_train_report.json
+scripts/summer_adult_studio_masked_diffusion_report.json
+scripts/summer_founder_validation_pack_report.json
+scripts/summer_lora_report.json
+scripts/summer_lora_sweep_report.json
+scripts/summer_lora_v2_report.json
+scripts/summer_lora_v3_kohya_config.json
+scripts/summer_lora_v3_pack.zip
+scripts/summer_shadow_comparison_report.json
+scripts/tattoo_inference_test_v2_report.json
+scripts/e4_validation_final.png

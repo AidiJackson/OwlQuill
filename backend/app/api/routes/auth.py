@@ -145,7 +145,8 @@ def forgot_password(
     """Request a password reset email.
 
     Always returns 200 to avoid leaking whether the email exists.
-    In dev/admin mode, the response includes reset_url for convenience.
+    In dev mode only, the response includes reset_url for convenience; in
+    production the reset link is delivered exclusively by email.
     """
     msg = "If an account exists, a reset link has been sent."
     hint = "Check spam/junk folders. Delivery can take a few minutes."
@@ -182,9 +183,10 @@ def forgot_password(
     except Exception:
         pass  # Don't fail the request if email sending fails
 
-    # Return reset_url only in dev mode or for admin emails
-    is_admin_email = body.email.lower() in settings.get_admin_emails()
-    if settings.is_dev_mode() or is_admin_email:
+    # Return reset_url in the response ONLY in dev mode. In production the link is
+    # delivered exclusively by email — never echoed in the API response — so a reset
+    # token can never be harvested via an unauthenticated request (S24D FIX 1).
+    if settings.is_dev_mode():
         return ForgotPasswordResponse(message=msg, hint=hint, reset_url=reset_url)
 
     return ForgotPasswordResponse(message=msg, hint=hint)

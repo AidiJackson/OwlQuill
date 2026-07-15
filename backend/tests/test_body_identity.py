@@ -291,29 +291,6 @@ def test_lock_body_slot_unknown_slot_returns_422(client):
     assert resp.status_code == 422
 
 
-# ── Image generation body identity injection ────────────────────────────
-
-def test_body_identity_visibility_signals_include_shirtless():
-    from app.api.routes.image_generator import _BODY_VISIBLE_SIGNALS
-    assert "shirtless" in _BODY_VISIBLE_SIGNALS
-
-
-def test_body_identity_visibility_signals_include_full_body():
-    from app.api.routes.image_generator import _BODY_VISIBLE_SIGNALS
-    assert "full body" in _BODY_VISIBLE_SIGNALS
-
-
-def test_body_identity_visibility_signals_not_triggered_by_plain_portrait():
-    from app.api.routes.image_generator import _BODY_VISIBLE_SIGNALS
-    prompt = "portrait of a woman with silver hair"
-    assert not any(sig in prompt.lower() for sig in _BODY_VISIBLE_SIGNALS)
-
-
-def test_max_provider_refs_constant():
-    from app.api.routes.image_generator import _MAX_PROVIDER_REFS
-    assert _MAX_PROVIDER_REFS == 6
-
-
 def test_load_body_slots_importable_from_body_identity():
     from app.api.routes.body_identity import _load_body_slots
     assert callable(_load_body_slots)

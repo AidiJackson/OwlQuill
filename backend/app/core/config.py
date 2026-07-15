@@ -59,6 +59,21 @@ class Settings(BaseSettings):
     # Falls back to ADMIN_EMAIL env var for single-admin setups.
     ADMIN_EMAILS: str = ""
 
+    # Seeder accounts — comma-separated emails that are exempt from the
+    # one-character-per-account limit (so founder/seeding accounts can hold
+    # multiple characters) WITHOUT being full admins. Complements the per-user
+    # ``is_seeder`` DB flag and the ``is_admin`` exemption. See
+    # app/services/seeding.py::is_seeder_account.
+    SEEDER_EMAILS: str = ""
+
+    # Seeding mode — when True, a user's character roster is not enumerable to
+    # non-owners: GET /users/{username}/characters returns [] to non-owners and
+    # the profile roster/count/selector are hidden. Default ON for closed beta /
+    # seeding so multiple seeding accounts do not expose each other's rosters.
+    # (The character-first attribution and owner-link-to-owner-only behaviours
+    # are permanent and NOT gated by this flag.)
+    SEEDING_MODE: bool = True
+
     # Image generation
     # Canon Studio production default is Google (Gemini). OpenAI stays fully
     # wired as an admin-only fallback (option1 + IMAGE_PROVIDER_FALLBACK paths).
@@ -123,7 +138,10 @@ class Settings(BaseSettings):
     # so it never affects tests or offline runs. Disable with =false in prod.
     IDENTITY_FACE_VERIFY: bool = True
     IDENTITY_FACE_VERIFY_THRESHOLD: float = 0.6
-    IDENTITY_FACE_VERIFY_MAX_RETRIES: int = 1
+    # S24I: raised 1 → 2. A single retry left too many confident-drift images
+    # saved below threshold; a second escalated attempt materially improves the
+    # recovery rate before we fall back to the best-scoring candidate.
+    IDENTITY_FACE_VERIFY_MAX_RETRIES: int = 2
 
     # Grammar engine — LanguageTool
     # Self-host: docker run -p 8010:8010 erikvl87/languagetool
@@ -146,6 +164,13 @@ class Settings(BaseSettings):
     STORYLAB_PROVIDER: str = "stub"
     OPENROUTER_API_KEY: str = ""
     STORYLAB_MODEL: str = "qwen/qwen-2.5-72b-instruct"
+    # STORYLAB_STORY_MODEL: model slug for the STORY PATH ONLY — chapters,
+    # continuations, and summaries. Settable independently of STORYLAB_MODEL so the
+    # story generator can run on a Claude tier (and be swapped to compare models)
+    # without a code change, while RP-reply keeps its own model registry/default.
+    # Empty = fall back to STORYLAB_MODEL (legacy shared behaviour).
+    # Confirmed available on the configured OpenRouter key as of 2026-06-25.
+    STORYLAB_STORY_MODEL: str = "anthropic/claude-opus-4.8"
     # Per-boundary model overrides (empty = fall back to STORYLAB_MODEL)
     STORYLAB_MODEL_SFW: str = ""
     STORYLAB_MODEL_FADE: str = ""
@@ -242,6 +267,15 @@ class Settings(BaseSettings):
         if not raw:
             raw = os.environ.get("ADMIN_EMAIL", "")
         return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+    def get_seeder_emails(self) -> set[str]:
+        """Return the set of dedicated seeder email addresses (lowercased).
+
+        These accounts are exempt from the one-character-per-account limit but
+        are not necessarily admins. Admin emails are treated as seeders too (see
+        app/services/seeding.py), so this set need only list non-admin seeders.
+        """
+        return {e.strip().lower() for e in self.SEEDER_EMAILS.split(",") if e.strip()}
 
     def is_dev_mode(self) -> bool:
         """True when running in development / non-production context."""

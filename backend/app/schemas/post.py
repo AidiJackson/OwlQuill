@@ -44,7 +44,10 @@ class Post(PostBase):
     """Post schema."""
     id: int
     realm_id: Optional[int] = None
-    author_user_id: int
+    # Optional so the serialization layer can omit the author's identity from
+    # character-attributed posts for non-owner viewers (character-first policy —
+    # keeps a user's roster from being reconstructed by clustering on this id).
+    author_user_id: Optional[int] = None
     author_username: Optional[str] = None
     character_name: Optional[str] = None
     character_avatar_url: Optional[str] = None

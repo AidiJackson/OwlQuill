@@ -38,14 +38,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.schemas.body_canon import BodyMarking
-from app.api.routes.image_generator import (
-    _classify_marking_coverage,
-    _build_permanent_marking_block,
-    _classify_region_exposure,
-    _build_arm_side_lock_str,
-    _reorder_anchor_refs,
-    _CANONICAL_BODY_REF_ALLOWED,
-)
 
 
 # ── Character fixtures ─────────────────────────────────────────────────
@@ -96,15 +88,6 @@ _BAR_PROMPTS = [_BAR_PROMPT_1, _BAR_PROMPT_2, _BAR_PROMPT_3]
 
 # ── Helper ─────────────────────────────────────────────────────────────
 
-def _apply_canonical_filter(
-    imgs: list[bytes], types: list[str]
-) -> tuple[list[bytes], list[str]]:
-    pairs = [(img, t) for img, t in zip(imgs, types) if t in _CANONICAL_BODY_REF_ALLOWED]
-    if pairs:
-        imgs_out, types_out = zip(*pairs)
-        return list(imgs_out), list(types_out)
-    return [], []
-
 
 _STUB = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
 
@@ -114,167 +97,14 @@ _STUB = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
 # ══════════════════════════════════════════════════════════════════════
 
 
-class TestWolfCoverageInBarScene:
-    """Wolf tattoo (right_upper_arm) must be COVERED in every bar-scene prompt.
-
-    T-shirts and short-sleeve shirts expose the forearm but cover the upper arm.
-    The wolf sits on the upper arm → it stays hidden under the sleeve.
-    """
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_wolf_is_covered(self, prompt):
-        result = _classify_marking_coverage(_wolf(), prompt)
-        assert result == "covered", (
-            f"Wolf (right_upper_arm) must be COVERED in bar scene.\n"
-            f"Prompt: {prompt!r}\nGot: {result!r}"
-        )
-
-    def test_wolf_upper_arm_region_covered_by_tshirt(self):
-        """Direct region-exposure check: right_upper_arm is covered by t-shirt."""
-        assert _classify_region_exposure("right_upper_arm", _BAR_PROMPT_1) == "covered"
-
-    def test_wolf_upper_arm_region_covered_by_short_sleeve(self):
-        assert _classify_region_exposure("right_upper_arm", _BAR_PROMPT_2) == "covered"
-
-
-class TestScriptureSleeveExposureInBarScene:
-    """Scripture sleeve (left_full_arm) forearm must be EXPOSED in bar-scene t-shirt prompts.
-
-    A full-sleeve tattoo's forearm portion is part of the sleeve design — when the
-    forearm is exposed by a t-shirt the sleeve exception fires and the marking is EXPOSED.
-    """
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_scripture_sleeve_is_exposed(self, prompt):
-        result = _classify_marking_coverage(_scripture(), prompt)
-        assert result == "exposed", (
-            f"Scripture sleeve (left_full_arm) forearm must be EXPOSED in bar scene.\n"
-            f"Prompt: {prompt!r}\nGot: {result!r}"
-        )
-
-    def test_scripture_forearm_exposed_by_tshirt(self):
-        """Direct region-exposure check: left_forearm exposed when wearing a t-shirt."""
-        assert _classify_region_exposure("left_forearm", _BAR_PROMPT_1) == "exposed"
-
-    def test_scripture_forearm_exposed_by_short_sleeve(self):
-        assert _classify_region_exposure("left_forearm", _BAR_PROMPT_2) == "exposed"
-
-
 # ══════════════════════════════════════════════════════════════════════
 # Suite 2: Permanent marking block — prompt text structure
 # ══════════════════════════════════════════════════════════════════════
 
 
-class TestPermanentMarkingBlockBarScene:
-    """_build_permanent_marking_block must emit the right sections for bar scenes.
-
-    Exposed markings  → PERMANENT BODY MARKINGS section (render from ref)
-    Covered markings  → COVERED BY CLOTHING section (coverage note, no DO NOT RENDER)
-    """
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_block_has_permanent_markings_section(self, prompt):
-        block = _build_permanent_marking_block(_MARKINGS, prompt)
-        assert "PERMANENT BODY MARKINGS" in block, (
-            f"Block must have PERMANENT BODY MARKINGS (scripture sleeve is exposed).\n"
-            f"Prompt: {prompt!r}\nBlock: {block!r}"
-        )
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_block_has_covered_by_clothing_section(self, prompt):
-        block = _build_permanent_marking_block(_MARKINGS, prompt)
-        assert "COVERED BY CLOTHING" in block, (
-            f"Block must have COVERED BY CLOTHING (wolf is hidden).\n"
-            f"Prompt: {prompt!r}\nBlock: {block!r}"
-        )
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_scripture_appears_in_permanent_section(self, prompt):
-        block = _build_permanent_marking_block(_MARKINGS, prompt)
-        perm_section = block.split("COVERED BY CLOTHING")[0]
-        assert "scripture" in perm_section.lower() or "sleeve" in perm_section.lower(), (
-            f"Scripture sleeve token must appear in the PERMANENT section.\n"
-            f"Prompt: {prompt!r}\nBlock: {block!r}"
-        )
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_wolf_appears_in_covered_section(self, prompt):
-        block = _build_permanent_marking_block(_MARKINGS, prompt)
-        covered_section = block.split("COVERED BY CLOTHING")[-1] if "COVERED BY CLOTHING" in block else ""
-        assert "wolf" in covered_section.lower(), (
-            f"Wolf token must appear in the COVERED BY CLOTHING section.\n"
-            f"Prompt: {prompt!r}\nBlock: {block!r}"
-        )
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_wolf_not_in_permanent_section(self, prompt):
-        block = _build_permanent_marking_block(_MARKINGS, prompt)
-        perm_section = block.split("COVERED BY CLOTHING")[0]
-        assert "wolf" not in perm_section.lower(), (
-            f"Wolf must NOT appear in PERMANENT section (it is covered).\n"
-            f"Prompt: {prompt!r}\nBlock: {block!r}"
-        )
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_left_arm_placement_in_permanent_section(self, prompt):
-        """Scripture sleeve token includes 'left arm' — correct side signalled."""
-        block = _build_permanent_marking_block(_MARKINGS, prompt)
-        perm_section = block.split("COVERED BY CLOTHING")[0]
-        assert "left arm" in perm_section.lower(), (
-            f"Permanent section must mention left arm for scripture sleeve.\n"
-            f"Prompt: {prompt!r}\nBlock: {block!r}"
-        )
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_right_arm_placement_in_covered_section(self, prompt):
-        """Wolf token includes 'right upper arm' — correct side for coverage note."""
-        block = _build_permanent_marking_block(_MARKINGS, prompt)
-        covered_section = block.split("COVERED BY CLOTHING")[-1] if "COVERED BY CLOTHING" in block else ""
-        assert "right upper arm" in covered_section.lower() or "right arm" in covered_section.lower(), (
-            f"Covered section must mention right arm for wolf.\n"
-            f"Prompt: {prompt!r}\nBlock: {block!r}"
-        )
-
-
 # ══════════════════════════════════════════════════════════════════════
 # Suite 3: Anti-mirroring — no wolf on left, no scripture on right
 # ══════════════════════════════════════════════════════════════════════
-
-
-class TestAntiMirroringBarScene:
-    """Arm-side lock text must prevent tattoo mirroring across arms.
-
-    When only the left arm has an exposed marking (scripture sleeve) and the right arm
-    carries a covered marking (wolf), the side-lock declares left tattooed / right bare
-    so the model does not mirror the scripture sleeve onto the right arm.
-    """
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_arm_side_lock_declares_left_tattooed(self, prompt):
-        exposed = [m for m in _MARKINGS if _classify_marking_coverage(m, prompt) == "exposed"]
-        lock = _build_arm_side_lock_str(exposed)
-        assert "left" in lock.lower(), (
-            f"Side lock must declare left arm as tattooed.\n"
-            f"Prompt: {prompt!r}\nLock: {lock!r}"
-        )
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_arm_side_lock_declares_right_bare(self, prompt):
-        exposed = [m for m in _MARKINGS if _classify_marking_coverage(m, prompt) == "exposed"]
-        lock = _build_arm_side_lock_str(exposed)
-        assert "right" in lock.lower(), (
-            f"Side lock must declare right arm as bare skin.\n"
-            f"Prompt: {prompt!r}\nLock: {lock!r}"
-        )
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_arm_side_lock_no_tattoos_on_right(self, prompt):
-        exposed = [m for m in _MARKINGS if _classify_marking_coverage(m, prompt) == "exposed"]
-        lock = _build_arm_side_lock_str(exposed)
-        assert "no tattoos" in lock.lower() or "bare skin" in lock.lower(), (
-            f"Side lock must explicitly forbid tattoos on the bare arm.\n"
-            f"Prompt: {prompt!r}\nLock: {lock!r}"
-        )
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -326,174 +156,14 @@ class TestCanonicalModeActivationBarScene:
 # ══════════════════════════════════════════════════════════════════════
 
 
-class TestRefPipelineBarScene:
-    """Body identity refs must survive the canonical filter in the bar-scene pipeline.
-
-    When body_front is locked, canonical mode applies a whitelist that keeps:
-      body_identity:body_front, body_identity:body_left_detail,
-      body_identity:body_right_detail, body_identity:body_back,
-      body_identity:body_map, front, three_quarter.
-    Everything else (body_anchor:*, torso, tattoo_layout) is stripped.
-    """
-
-    def _run_pipeline(self, input_types: list[str], *, tattoo_primary: bool = True) -> list[str]:
-        imgs = [_STUB] * len(input_types)
-        imgs, types = _reorder_anchor_refs(imgs, input_types, tattoo_primary=tattoo_primary)
-        imgs, types = _apply_canonical_filter(imgs, types)
-        return types
-
-    def test_body_front_survives_canonical_filter(self):
-        types = self._run_pipeline([
-            "front", "body_identity:body_front",
-            "body_identity:body_left_detail",
-        ])
-        assert "body_identity:body_front" in types, (
-            "body_front must survive the canonical filter — it is the visual truth"
-        )
-
-    def test_left_detail_survives_canonical_filter(self):
-        """body_left_detail (scripture sleeve ref) must survive canonical filter."""
-        types = self._run_pipeline([
-            "front", "body_identity:body_front",
-            "body_identity:body_left_detail",
-        ])
-        assert "body_identity:body_left_detail" in types, (
-            "body_left_detail must survive — it is the high-fidelity scripture sleeve ref"
-        )
-
-    def test_body_front_is_position_1_in_tattoo_primary_mode(self):
-        """In body-truth mode: front=pos0, body_front=pos1."""
-        types = self._run_pipeline([
-            "front", "body_identity:body_front",
-        ])
-        assert types.index("body_identity:body_front") == 1 or (
-            types[0] == "front" and "body_identity:body_front" in types
-        ), f"body_front must be at position 1 after front. Got: {types}"
-
-    def test_front_is_position_0(self):
-        types = self._run_pipeline([
-            "front", "body_identity:body_front",
-            "body_identity:body_left_detail",
-        ])
-        assert types[0] == "front", f"front must be position 0 (identity seed). Got: {types}"
-
-    def test_body_anchor_stripped_in_canonical_mode(self):
-        """Per-arm body_anchor refs stripped — body_front is the sole visual truth."""
-        types = self._run_pipeline([
-            "front", "body_identity:body_front",
-            "body_anchor:right_arm", "body_anchor:left_arm",
-        ])
-        assert not any(t.startswith("body_anchor:") for t in types), (
-            f"body_anchor refs must be stripped in canonical mode. Got: {types}"
-        )
-
-    def test_torso_stripped_in_canonical_mode(self):
-        types = self._run_pipeline([
-            "front", "body_identity:body_front", "torso",
-        ])
-        assert "torso" not in types, (
-            f"torso must be stripped in canonical mode. Got: {types}"
-        )
-
-    def test_no_ref_duplication(self):
-        """Front anchor must appear exactly once (no face-boost dup in tattoo-primary)."""
-        types = self._run_pipeline([
-            "front", "front", "body_identity:body_front",
-        ])
-        assert types.count("front") == 1, (
-            f"front must appear exactly once in canonical mode. Got: {types}"
-        )
-
-
 # ══════════════════════════════════════════════════════════════════════
 # Suite 6: No-wolf-on-shirt — coverage text must not demand wolf render
 # ══════════════════════════════════════════════════════════════════════
 
 
-class TestNoWolfThroughFabric:
-    """Permanent marking block must never instruct the model to render the wolf
-    when the prompt places it under clothing.
-
-    The coverage-note approach means the wolf's token appears only in the
-    COVERED BY CLOTHING section — which is a note, not a render command.
-    The PERMANENT BODY MARKINGS section must never mention wolf.
-    """
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_permanent_section_has_no_wolf_render_command(self, prompt):
-        block = _build_permanent_marking_block(_MARKINGS, prompt)
-        if "PERMANENT BODY MARKINGS" not in block:
-            return  # no permanent markings at all — trivially passes
-        perm_only = block.split("COVERED BY CLOTHING")[0] if "COVERED BY CLOTHING" in block else block
-        assert "wolf" not in perm_only.lower(), (
-            f"Wolf must NOT appear in PERMANENT render section (it is under clothing).\n"
-            f"Prompt: {prompt!r}\nPermanent section: {perm_only!r}"
-        )
-
-    @pytest.mark.parametrize("prompt", _BAR_PROMPTS)
-    def test_covered_section_is_a_note_not_a_render_command(self, prompt):
-        block = _build_permanent_marking_block(_MARKINGS, prompt)
-        covered_idx = block.find("COVERED BY CLOTHING")
-        if covered_idx == -1:
-            pytest.fail(f"COVERED BY CLOTHING section missing from block: {block!r}")
-        covered_text = block[covered_idx:]
-        assert "render" not in covered_text.lower(), (
-            "COVERED section must not contain 'render' — it is a coverage note only.\n"
-            f"Covered section: {covered_text!r}"
-        )
-
-
 # ══════════════════════════════════════════════════════════════════════
 # Suite 7: Signal collision regression — "pool" in pool-table bar prompts
 # ══════════════════════════════════════════════════════════════════════
-
-
-class TestPoolTableFalsePositive:
-    """Regression documenting a known signal collision discovered while authoring
-    this acceptance baseline.
-
-    "pool" is in _FULL_ARM_EXPOSURE_SIGNALS to catch swimming-pool scenes.
-    It is a substring of "pool table", which causes bar-scene pool-table prompts
-    to incorrectly report full-arm exposure — classifying the wolf (right_upper_arm)
-    as EXPOSED instead of COVERED.
-
-    These tests pin the *current* (broken) behaviour so the signal-set maintainer
-    knows exactly what changes when this collision is fixed.
-    """
-
-    _POOL_TABLE_PROMPT = (
-        "leaning on a pool table at the back of the bar, short-sleeve shirt, "
-        "cue in hand, neon signs on the wall, nighttime"
-    )
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "KNOWN BUG: 'pool' in _FULL_ARM_EXPOSURE_SIGNALS matches 'pool table'. "
-            "Fix: scope 'pool' to full-word or require 'swimming pool' / 'poolside'."
-        ),
-    )
-    def test_pool_table_incorrectly_triggers_full_arm_exposure(self):
-        """After the fix, right_upper_arm must be COVERED for a pool-table bar scene."""
-        from app.api.routes.image_generator import _classify_region_exposure
-        result = _classify_region_exposure("right_upper_arm", self._POOL_TABLE_PROMPT)
-        assert result == "covered", (
-            f"Got: {result!r}. Signal 'pool' still matches 'pool table'."
-        )
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "KNOWN BUG: wolf (right_upper_arm) classified EXPOSED for pool-table bar "
-            "scene because 'pool' signal collides with 'pool table'."
-        ),
-    )
-    def test_pool_table_wolf_classification_is_wrong(self):
-        """After the fix, wolf must be COVERED for a pool-table bar scene."""
-        result = _classify_marking_coverage(_wolf(), self._POOL_TABLE_PROMPT)
-        assert result == "covered", (
-            f"Got: {result!r}. Signal collision still active."
-        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

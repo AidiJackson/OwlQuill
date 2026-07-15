@@ -502,7 +502,13 @@ export default function Home() {
             const realmName = getRealmName(post.realm_id);
             const realm = realms.find(r => r.id === post.realm_id);
             const isCommons = realm?.is_commons;
-            const profileHref = post.author_username ? `/u/${encodeURIComponent(post.author_username)}` : '#';
+            // Character-first attribution (permanent): a character-attributed post
+            // links to the CHARACTER page, never the owning account. Non-character
+            // posts keep the normal @username link.
+            const isCharacterPost = Boolean(post.character_name);
+            const headerHref = isCharacterPost && post.character_id != null
+              ? `/characters/${post.character_id}`
+              : (post.author_username ? `/u/${encodeURIComponent(post.author_username)}` : '#');
 
             return (
               <div key={post.id} className="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 hover:border-gray-700 hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all group">
@@ -511,7 +517,7 @@ export default function Home() {
                   <div className="flex items-start gap-2.5 min-w-0 flex-1">
                     {/* Avatar — 32px, rounded-lg */}
                     {post.character_name ? (
-                      <Link to={profileHref} className="flex-shrink-0 mt-0.5">
+                      <Link to={headerHref} className="flex-shrink-0 mt-0.5">
                         {post.character_avatar_url ? (
                           <img
                             src={post.character_avatar_url}
@@ -525,7 +531,7 @@ export default function Home() {
                         )}
                       </Link>
                     ) : post.author_username ? (
-                      <Link to={profileHref} className="flex-shrink-0 mt-0.5">
+                      <Link to={headerHref} className="flex-shrink-0 mt-0.5">
                         <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-medium text-gray-400">
                           {post.author_username.charAt(0).toUpperCase()}
                         </div>
@@ -536,11 +542,11 @@ export default function Home() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
                         {post.character_name ? (
-                          <Link to={profileHref} className="text-sm font-semibold text-gray-100 hover:text-emerald-300 transition-colors leading-tight">
+                          <Link to={headerHref} className="text-sm font-semibold text-gray-100 hover:text-emerald-300 transition-colors leading-tight">
                             {post.character_name}
                           </Link>
                         ) : post.author_username ? (
-                          <Link to={profileHref} className="text-sm font-medium text-gray-300 hover:text-emerald-300 transition-colors">
+                          <Link to={headerHref} className="text-sm font-medium text-gray-300 hover:text-emerald-300 transition-colors">
                             @{post.author_username}
                           </Link>
                         ) : null}

@@ -15,6 +15,8 @@ from app.models.character_image import CharacterImage
 from app.models.user_image import UserImage
 from app.schemas.post import Post, PostCreate
 from app.services.safety import blocked_user_ids
+from app.services.visibility import user_can_access_realm
+from app.services.seeding import serialize_post_for_viewer, serialize_posts_for_viewer
 
 router = APIRouter()
 
@@ -54,7 +56,7 @@ def get_feed(
         posts_q = posts_q.filter(PostModel.author_user_id.notin_(blocked))
 
     posts = posts_q.order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
-    return posts
+    return serialize_posts_for_viewer(posts, current_user)
 
 
 @router.post("/realms/{realm_id}/posts", response_model=Post, status_code=status.HTTP_201_CREATED)
@@ -167,24 +169,41 @@ def list_realm_posts(
     realm_id: int,
     skip: int = 0,
     limit: int = 50,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> List[Post]:
-    """List posts in a realm."""
+    """List posts in a realm.
+
+    S24F: requires authentication and enforces the realm visibility rule (is_public
+    OR caller is owner/member). A private realm the caller is not in returns 404, so
+    its posts cannot be enumerated by a non-member.
+    """
+    realm = db.query(RealmModel).filter(RealmModel.id == realm_id).first()
+    if realm is None or not user_can_access_realm(db, current_user.id, realm):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Realm not found")
+
     posts = db.query(PostModel).options(
         selectinload(PostModel.author_user),
         selectinload(PostModel.character),
     ).filter(
         PostModel.realm_id == realm_id
     ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
-    return posts
+    return serialize_posts_for_viewer(posts, current_user)
 
 
 @router.get("/{post_id}", response_model=Post)
 def get_post(
     post_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Post:
-    """Get a single post."""
+    """Get a single post.
+
+    S24E FIX A: requires authentication and enforces post visibility via realm
+    access, mirroring the realm visibility rule (is_public). A post is returned
+    only when its realm is public or the caller is a member/owner of that realm;
+    a post in a private realm the caller is not in returns 404.
+    """
     post = db.query(PostModel).options(
         selectinload(PostModel.author_user),
         selectinload(PostModel.character),
@@ -194,7 +213,18 @@ def get_post(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Post not found"
         )
-    return post
+    realm = db.query(RealmModel).filter(RealmModel.id == post.realm_id).first()
+    if realm is not None and not realm.is_public and realm.owner_id != current_user.id:
+        is_member = db.query(RealmMembershipModel).filter(
+            RealmMembershipModel.realm_id == realm.id,
+            RealmMembershipModel.user_id == current_user.id,
+        ).first() is not None
+        if not is_member:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Post not found"
+            )
+    return serialize_post_for_viewer(post, current_user)
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)

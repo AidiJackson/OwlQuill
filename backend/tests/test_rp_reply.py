@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import get_auth_token, auth_headers
+from tests.conftest import get_auth_token, auth_headers, make_admin
 
 _LENNOX_REPLY = (
     "||Lennox hadn't moved from the doorway. She stood with one shoulder against the frame, "
@@ -1268,8 +1268,12 @@ def test_content_level_standard_in_request(client: TestClient):
 
 
 def test_content_level_explicit_in_request(client: TestClient):
-    """intensity=explicit accepted and returns valid response."""
+    """intensity=explicit accepted and returns valid response.
+
+    S24D FIX 3: explicit/inferno is admin-only, so the actor is promoted to admin.
+    """
     token = get_auth_token(client)
+    make_admin("user@test.com")
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -1960,8 +1964,12 @@ class TestEndpointTask5Fields:
         assert isinstance(data["resolved_heat"], str)
 
     def test_resolved_heat_reflects_intensity_floor(self, client: TestClient):
-        """When intensity=explicit and heat_level=embers, resolved_heat must be 'inferno'."""
+        """When intensity=explicit and heat_level=embers, resolved_heat must be 'inferno'.
+
+        S24D FIX 3: inferno is admin-only, so the actor is promoted to admin.
+        """
         token = get_auth_token(client)
+        make_admin("user@test.com")
         resp = client.post(
             "/storylab/rp-reply/generate",
             headers=auth_headers(token),

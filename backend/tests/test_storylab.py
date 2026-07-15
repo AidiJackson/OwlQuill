@@ -552,6 +552,53 @@ def test_generate_direction_enum_invalid(client: TestClient):
     assert resp.status_code == 422
 
 
+# ── S24D FIX 3: explicit text is admin-only ────────────────────────────────────
+
+def test_generate_non_sfw_boundary_is_admin_only(client: TestClient):
+    """Non-SFW boundaries (sensual/fade_to_black) are rejected for non-admins on
+    /generate, while SFW still works. Admins are allowed. The gate runs before any
+    generation, so the deny cases are provider-independent."""
+    from tests.conftest import make_admin
+
+    headers = _sl_auth_headers(client, email="fix3-user@ficshon.com", username="fix3user")
+    sensual = {**_BASE_GENERATE, "story_id": "fix3-scratch", "controls": {
+        "direction": "advance_plot", "tone_intensity": "moderate",
+        "pacing": "balanced", "length": "medium", "boundary": "sensual",
+    }}
+    # non-admin + non-SFW → 403 explicit_admin_only
+    resp = client.post("/api/storylab/generate", json=sensual, headers=headers)
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"]["error"] == "explicit_admin_only"
+    # non-admin + fade_to_black → also 403
+    fade = {**sensual, "controls": {**sensual["controls"], "boundary": "fade_to_black"}}
+    assert client.post("/api/storylab/generate", json=fade, headers=headers).status_code == 403
+    # non-admin + SFW → still works (200)
+    sfw = {**sensual, "controls": {**sensual["controls"], "boundary": "sfw"}}
+    assert client.post("/api/storylab/generate", json=sfw, headers=headers).status_code == 200
+    # admin + non-SFW → allowed (gate passes)
+    admin_headers = _sl_auth_headers(client, email="fix3-admin@ficshon.com", username="fix3admin")
+    make_admin("fix3-admin@ficshon.com")
+    assert client.post("/api/storylab/generate", json=sensual, headers=admin_headers).status_code == 200
+
+
+def test_rp_reply_inferno_heat_is_admin_only(client: TestClient):
+    """Inferno RP-reply heat is admin-only; the gate runs before generation, so the
+    deny case is provider-independent."""
+    from tests.conftest import make_admin
+
+    headers = _sl_auth_headers(client, email="fix3rp@ficshon.com", username="fix3rp")
+    inferno = {"partner_reply": "She stepped closer.", "heat_level": "inferno"}
+    # non-admin + inferno → 403 explicit_admin_only (before any generation)
+    resp = client.post("/api/storylab/rp-reply/generate", json=inferno, headers=headers)
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"]["error"] == "explicit_admin_only"
+    # admin + inferno → gate passes (not 403)
+    admin_headers = _sl_auth_headers(client, email="fix3rpadmin@ficshon.com", username="fix3rpadmin")
+    make_admin("fix3rpadmin@ficshon.com")
+    resp_admin = client.post("/api/storylab/rp-reply/generate", json=inferno, headers=admin_headers)
+    assert resp_admin.status_code != 403, resp_admin.text
+
+
 # ── provider / OpenRouter tests ───────────────────────────────────────────────
 
 def _make_openrouter_mock(content: str):
@@ -597,7 +644,9 @@ def test_openrouter_provider_returns_model_text(monkeypatch):
     mock_client.post.assert_called_once()
     call_kwargs = mock_client.post.call_args
     payload = call_kwargs.kwargs.get("json") or call_kwargs.args[1]
-    assert payload["model"] == gen._EFFECTIVE_STORYLAB_MODEL
+    # Story path routes via the independent story-path model (S24B), not the
+    # RP-reply default. _EFFECTIVE_STORY_MODEL is what the continuation must send.
+    assert payload["model"] == gen._EFFECTIVE_STORY_MODEL
     assert any(m["role"] == "system" for m in payload["messages"])
     assert any(m["role"] == "user" for m in payload["messages"])
 

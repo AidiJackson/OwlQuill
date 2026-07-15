@@ -106,6 +106,15 @@ _COAT_EXPOSURE = frozenset({
     "coat", "overcoat", "trenchcoat", "trench coat",
 })
 
+# S24I — exposure signal NAMES (from _detect_exposure) that genuinely bare skin.
+# Only these promote an orientation-less scene to the body-led front route. The
+# cover signals (long_sleeves, jacket, coat) are deliberately excluded: a covered
+# scene must stay on the face-led fallback so a clothed body-truth card leads,
+# never a bare-skin body_map / whole-body card pushing garments open.
+_SKIN_EXPOSURE_NAMES = frozenset({
+    "shirtless", "sleeveless", "rolled_sleeves", "short_sleeves",
+})
+
 
 # ── Provider reference cap ────────────────────────────────────────────
 # Maximum references the provider consumes. The routed slot lists below may
@@ -334,6 +343,32 @@ def _collect_exposed_mark_crops(
     return crops
 
 
+def _has_covered_marks(
+    canon: "CharacterIdentityCanon",
+    prompt_lower: str,
+    camera: str,
+) -> bool:
+    """True when the character has permanent marks and the scene exposes NONE.
+
+    Drives S24I coverage-aware suppression of the bare-skin body_map placement
+    sheet: when every mark sits under clothing for this scene, routing a bare
+    tattoo diagram would push marks onto covered skin. The clothed body_front
+    stays (it is covered body truth); only the inherently-bare body_map is
+    dropped. Returns False for portrait_closeup (no body routed) and for
+    mark-less characters (nothing to cover).
+    """
+    if camera == "portrait_closeup":
+        return False
+    body = load_body_canon(canon)
+    marks = getattr(body, "permanent_body_marks", None) if body else None
+    if not marks:
+        return False
+    for m in marks:
+        if _mark_region_exposed(getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower):
+            return False
+    return True
+
+
 def _merge_crops(
     camera: str,
     slots_avail: list[str],
@@ -446,13 +481,16 @@ def _merge_crops(
 # slot is sparse or room remains under MAX_PROVIDER_REFS. face_profile is the
 # exception: it ranks high in profile cameras (its matching face angle).
 _ROUTES: dict[str, list[str]] = {
+    # S24I face-dominance: face_front leads, then body truth (body_front, then the
+    # marking-placement sheet), mirroring _merge_crops' face-first ordering so the
+    # whole-body card never overpowers facial identity on the plain (no-crop) route.
     "front": [
-        "body_front", "face_front", "final_character_card",
+        "face_front", "body_front", "final_character_card",
         "body_map", "face_left_3q", "face_right_3q", "face_profile", "face_expression",
         "torso_front", "standing_relaxed", "seated_relaxed", "torso_side",
     ],
     "full_body": [
-        "body_front", "face_front", "final_character_card",
+        "face_front", "body_front", "final_character_card",
         "body_map", "face_left_3q", "face_right_3q", "face_profile", "face_expression",
         "standing_relaxed", "torso_front", "seated_relaxed", "torso_side",
     ],
@@ -506,6 +544,9 @@ class SceneMeta:
     # body_region/side/label the crop must be applied to, so the preserved
     # binding survives routing and is auditable downstream.
     mark_crop_bindings: list["MarkCropBinding"] = field(default_factory=list)
+    # S24I: True when the bare-skin body_map placement sheet was dropped because
+    # the character has marks and the scene covers all of them (audit only).
+    body_map_suppressed: bool = False
 
 
 # ── Internal helpers ──────────────────────────────────────────────────
@@ -593,14 +634,19 @@ def _detect_exposure(prompt_lower: str) -> list[str]:
     return active
 
 
-def _resolve_route(camera: str, slot_urls: dict[str, str]) -> tuple[list[str], list[str]]:
+def _resolve_route(
+    camera: str,
+    slot_urls: dict[str, str],
+    drop_slots: frozenset[str] = frozenset(),
+) -> tuple[list[str], list[str]]:
     """Resolve a camera route to (urls, slot_names) for available canon slots.
 
     Slots are taken in the camera's weighted priority order; absent canon
-    slots are skipped, and the surviving list is capped at MAX_PROVIDER_REFS.
+    slots are skipped, any slot in ``drop_slots`` is suppressed (S24I coverage
+    gate), and the surviving list is capped at MAX_PROVIDER_REFS.
     """
     route_slots = _ROUTES.get(camera, _ROUTES["front"])
-    slots_hit = [s for s in route_slots if s in slot_urls][:MAX_PROVIDER_REFS]
+    slots_hit = [s for s in route_slots if s in slot_urls and s not in drop_slots][:MAX_PROVIDER_REFS]
     urls = [slot_urls[s] for s in slots_hit]
     return urls, slots_hit
 
@@ -633,28 +679,41 @@ def route_canon_refs(
     exposure = _detect_exposure(prompt_lower)
     char_id = getattr(canon, "character_id", "?")
 
-    # A clothing- or skin-described scene without an explicit orientation keyword
-    # is treated as a front-facing body shot so exposure-gated crop routing can
-    # engage. A garment description ("button-up shirt, sleeves rolled to the
-    # forearms") OR a skin-exposure cue ("open shirt, arms out at the pool")
-    # implies the body is in view even when no camera signal is present. Truly
-    # ambiguous prompts (no exposure or skin cue) still fall back.
+    # A skin-described scene without an explicit orientation keyword is treated as
+    # a front-facing body shot so exposure-gated crop routing can engage
+    # ("open shirt, arms out at the pool"). S24I: only GENUINE skin-exposure cues
+    # promote — cover signals (long_sleeves / jacket / coat) must NOT, or a
+    # covered scene would be forced onto the body-led route and push a bare card
+    # ahead of the face. Cover-only and truly ambiguous prompts fall back to the
+    # face-led canonical ordering.
+    skin_exposed = [e for e in exposure if e in _SKIN_EXPOSURE_NAMES]
     if camera is None and (
-        exposure or any(s in prompt_lower for s in _SKIN_EXPOSURE_PROMOTION)
+        skin_exposed or any(s in prompt_lower for s in _SKIN_EXPOSURE_PROMOTION)
     ):
         camera = "front"
 
+    # S24I coverage gate: when the character has marks and this scene exposes none
+    # of them, the bare-skin body_map placement sheet is suppressed on every path.
+    # The clothed body_front remains as covered body truth.
+    bmap_present = "body_map" in slot_urls
+    covered = _has_covered_marks(canon, prompt_lower, camera)
+    body_map_suppressed = covered and bmap_present
+
     if camera is None:
         fallback_urls = collect_canon_reference_urls(canon)
+        if body_map_suppressed:
+            bmap_url = slot_urls["body_map"]
+            fallback_urls = [u for u in fallback_urls if u != bmap_url]
         meta = SceneMeta(
             camera="unknown",
             exposure=exposure,
             routed=False,
             route_slots=[],
+            body_map_suppressed=body_map_suppressed,
         )
         logger.info(
-            "SCENE_ROUTER char=%s camera=unknown fallback=true exposure=%s refs=%d",
-            char_id, exposure, len(fallback_urls),
+            "SCENE_ROUTER char=%s camera=unknown fallback=true exposure=%s refs=%d body_map_suppressed=%s",
+            char_id, exposure, len(fallback_urls), body_map_suppressed,
         )
         return fallback_urls, meta
 
@@ -663,6 +722,7 @@ def route_canon_refs(
     # guaranteeing body_front + body_map survive. No exposed marks → unchanged.
     crops = _collect_exposed_mark_crops(canon, prompt_lower, camera)
     if crops:
+        # An exposed mark exists here, so coverage suppression never applies.
         route_slots = _ROUTES.get(camera, _ROUTES["front"])
         slots_avail = [s for s in route_slots if s in slot_urls]
         slots_hit, urls = _merge_crops(camera, slots_avail, slot_urls, crops)
@@ -671,7 +731,8 @@ def route_canon_refs(
         # crop_count bindings are exactly the ones that survived the cap (#1/#3).
         routed_bindings = crops[:crop_count]
     else:
-        urls, slots_hit = _resolve_route(camera, slot_urls)
+        drop = frozenset({"body_map"}) if body_map_suppressed else frozenset()
+        urls, slots_hit = _resolve_route(camera, slot_urls, drop_slots=drop)
         crop_count = 0
         routed_bindings = []
 
@@ -682,9 +743,10 @@ def route_canon_refs(
         route_slots=slots_hit,
         mark_crops=crop_count,
         mark_crop_bindings=routed_bindings,
+        body_map_suppressed=body_map_suppressed,
     )
     logger.info(
-        "SCENE_ROUTER char=%s camera=%s routed=true exposure=%s slots=%s refs=%d crops=%d",
-        char_id, camera, exposure, slots_hit, len(urls), crop_count,
+        "SCENE_ROUTER char=%s camera=%s routed=true exposure=%s slots=%s refs=%d crops=%d body_map_suppressed=%s",
+        char_id, camera, exposure, slots_hit, len(urls), crop_count, body_map_suppressed,
     )
     return urls, meta

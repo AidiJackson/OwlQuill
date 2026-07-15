@@ -24,7 +24,9 @@ class Comment(CommentBase):
     """Comment schema."""
     id: int
     post_id: int
-    author_user_id: int
+    # Optional so the serialization layer can omit the author's identity from
+    # character-attributed comments for non-owner viewers (character-first policy).
+    author_user_id: Optional[int] = None
     author_username: Optional[str] = None
     character_name: Optional[str] = None
     character_avatar_url: Optional[str] = None

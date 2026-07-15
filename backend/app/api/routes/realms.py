@@ -1,6 +1,7 @@
 """Realm routes."""
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -51,13 +52,31 @@ def create_realm(
 def list_realms(
     search: Optional[str] = Query(None),
     public_only: bool = Query(True),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> List[Realm]:
-    """List realms with optional search."""
+    """List realms with optional search.
+
+    S24F: requires authentication. ``public_only`` (default) returns only public
+    realms. With ``public_only=false`` the result is still restricted to realms the
+    caller may see — public realms plus the caller's own/member private realms — so
+    private realms can no longer be enumerated via ``public_only=false``.
+    """
     query = db.query(RealmModel)
 
     if public_only:
         query = query.filter(RealmModel.is_public == True)
+    else:
+        member_realm_ids = db.query(RealmMembershipModel.realm_id).filter(
+            RealmMembershipModel.user_id == current_user.id
+        )
+        query = query.filter(
+            or_(
+                RealmModel.is_public == True,
+                RealmModel.owner_id == current_user.id,
+                RealmModel.id.in_(member_realm_ids),
+            )
+        )
 
     if search:
         query = query.filter(RealmModel.name.ilike(f"%{search}%"))
@@ -69,15 +88,32 @@ def list_realms(
 @router.get("/{realm_id}", response_model=Realm)
 def get_realm(
     realm_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Realm:
-    """Get a realm by ID."""
+    """Get a realm by ID.
+
+    S24E FIX B: requires authentication and enforces the same visibility rule as
+    the realm list endpoint (which filters is_public==True). A realm is returned
+    only when it is public or the caller is a member/owner; a private realm the
+    caller is not in returns 404 (indistinguishable from non-existent).
+    """
     realm = db.query(RealmModel).filter(RealmModel.id == realm_id).first()
     if not realm:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Realm not found"
         )
+    if not realm.is_public and realm.owner_id != current_user.id:
+        is_member = db.query(RealmMembershipModel).filter(
+            RealmMembershipModel.realm_id == realm_id,
+            RealmMembershipModel.user_id == current_user.id,
+        ).first() is not None
+        if not is_member:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Realm not found"
+            )
     return realm
 
 
@@ -124,14 +160,37 @@ def join_realm(
 @router.get("/{realm_id}/members", response_model=List[RealmMembership])
 def list_realm_members(
     realm_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> List[RealmMembership]:
-    """List members of a realm."""
+    """List members of a realm.
+
+    S24G: MEMBERSHIP-REQUIRED for every realm, public or private — only the
+    realm's owner or a member may view the roster. A private realm the caller
+    is not in still returns 404 (hides existence); a public realm the caller
+    has not joined returns 403.
+    """
     realm = db.query(RealmModel).filter(RealmModel.id == realm_id).first()
     if not realm:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Realm not found"
+        )
+    is_owner_or_member = realm.owner_id == current_user.id or db.query(
+        RealmMembershipModel
+    ).filter(
+        RealmMembershipModel.realm_id == realm_id,
+        RealmMembershipModel.user_id == current_user.id,
+    ).first() is not None
+    if not is_owner_or_member:
+        if not realm.is_public:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Realm not found"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Join this realm to view its member list"
         )
 
     memberships = db.query(RealmMembershipModel).filter(

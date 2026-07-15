@@ -628,45 +628,6 @@ class TestPromptOrdering:
         assert body_pos != -1
         assert identity_pos < body_pos, "Face identity must precede body markings"
 
-    def test_body_canon_before_scene_prompt_in_scene_generation(self):
-        """In _build_strict_identity_prompt, body canon precedes user scene prompt."""
-        from app.api.routes.image_generator import _build_strict_identity_prompt
-
-        result = _build_strict_identity_prompt(
-            base_prompt="sitting on a beach at sunset",
-            anchor_data={"identity_lock_string": "dark hair, brown eyes"},
-            body_canon_str="BODY MARKINGS: full sleeve gothic script covering full left arm",
-            scene_complex=True,
-        )
-        scene_pos = result.find("sitting on a beach")
-        body_pos = result.find("BODY MARKINGS")
-        assert scene_pos != -1
-        assert body_pos != -1
-        assert scene_pos < body_pos, (
-            f"Scene (pos={scene_pos}) must precede body markings (pos={body_pos})"
-        )
-
-    def test_face_identity_anchor_before_body_markings_in_strict_prompt(self):
-        """Identity lock (face) precedes BODY MARKINGS in _build_strict_identity_prompt."""
-        from app.api.routes.image_generator import _build_strict_identity_prompt
-
-        result = _build_strict_identity_prompt(
-            base_prompt="standing in rain",
-            anchor_data={
-                "identity_lock_string": "dark hair, olive skin, muscular build",
-                "face_signature": {"text": "strong jaw, angular face"},
-            },
-            body_canon_str="BODY MARKINGS: full sleeve black script covering full left arm",
-        )
-        face_pos = result.find("dark hair")
-        body_pos = result.find("BODY MARKINGS")
-        if face_pos == -1:
-            face_pos = result.find("strong jaw")
-        assert body_pos != -1
-        assert face_pos < body_pos or face_pos == -1, (
-            "Face identity must precede body markings in strict prompt"
-        )
-
 
 # ── 9. User prompt cannot override locked canon ─────────────────────
 

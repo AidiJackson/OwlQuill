@@ -67,6 +67,7 @@ from app.services.storylab_generator import (
     generate_rp_reply,
     generate_story_summary,
     generate_storylab_continuation,
+    get_effective_story_model,
     _fallback_suggestions,
     _check_rp_reply_output,
     build_rp_reply_prompt,
@@ -240,6 +241,45 @@ def _storylab_quota_error(used: int, limit: int) -> HTTPException:
             "used": used,
         },
     )
+
+
+# ── explicit-content admin gate (S24D FIX 3) ───────────────────────────────────
+# For launch, non-SFW text generation is ADMIN-ONLY (no age/eligibility system
+# exists yet). SFW generation is unchanged for all users. Enforced server-side on
+# every path that honours a non-SFW boundary or elevated (inferno) RP-reply heat.
+
+# Non-SFW story boundaries — everything except Boundary.sfw.
+_EXPLICIT_BOUNDARIES = {Boundary.fade_to_black, Boundary.sensual}
+
+
+def _is_admin_user(user: User) -> bool:
+    """True when the user is an admin (DB flag or ADMIN_EMAILS config)."""
+    return bool(user.is_admin) or user.email.lower() in settings.get_admin_emails()
+
+
+def _explicit_admin_only_error(control: str, value: str) -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail={
+            "error": "explicit_admin_only",
+            "detail": (
+                f"{control} '{value}' is restricted to admin accounts during launch. "
+                "Use an SFW setting."
+            ),
+        },
+    )
+
+
+def _require_admin_for_boundary(boundary: "Boundary", user: User) -> None:
+    """Reject non-SFW boundaries for non-admin users (SFW passes for everyone)."""
+    if boundary in _EXPLICIT_BOUNDARIES and not _is_admin_user(user):
+        raise _explicit_admin_only_error("boundary", str(getattr(boundary, "value", boundary)))
+
+
+def _require_admin_for_heat(resolved_heat: str, user: User) -> None:
+    """Reject elevated (inferno) RP-reply heat for non-admin users."""
+    if resolved_heat == "inferno" and not _is_admin_user(user):
+        raise _explicit_admin_only_error("heat level", "inferno")
 
 
 # ── state mutation helpers ────────────────────────────────────────────────────
@@ -466,6 +506,8 @@ def generate(
         )
 
     # ── boundary enforcement ──────────────────────────────────────────────────
+    # S24D FIX 3: non-SFW boundaries are admin-only during launch.
+    _require_admin_for_boundary(req.controls.boundary, current_user)
     _EXPLICIT_DIRECTIONS = {Direction.intimate_scene}
     if (
         req.controls.boundary == Boundary.sfw
@@ -563,6 +605,7 @@ def generate(
             policy_flags=[],
             boundary=req.controls.boundary,
         ),
+        story_model=get_effective_story_model(),
     )
 
 
@@ -1451,6 +1494,8 @@ def generate_chapter_endpoint(
 ) -> ChapterGenerateResponse:
     """Generate a new chapter and store it."""
     _validate_story_ownership(story_id, current_user, db)
+    # S24D FIX 3: non-SFW boundaries are admin-only during launch.
+    _require_admin_for_boundary(req.controls.boundary, current_user)
     storylab_telemetry.reset()
 
     import time as _time
@@ -1494,7 +1539,7 @@ def generate_chapter_endpoint(
                 "detail": "Story generation failed. Please try again.",
                 "hint": "Check OPENROUTER_API_KEY or try again shortly.",
                 "provider": settings.STORYLAB_PROVIDER,
-                "model": settings.STORYLAB_MODEL,
+                "model": get_effective_story_model(),
             },
         ) from exc
 
@@ -1644,9 +1689,10 @@ def generate_chapter_endpoint(
         meta={
             "words": word_count,
             "delta": model_deltas,
+            "story_model": get_effective_story_model(),
             "diag": {
                 "provider": settings.STORYLAB_PROVIDER,
-                "model": settings.STORYLAB_MODEL,
+                "model": get_effective_story_model(),
                 "endpoint_ms": _endpoint_ms,
                 "length": req.controls.length,
                 "pacing": req.controls.pacing,
@@ -1694,6 +1740,8 @@ def regenerate_chapter(
 ) -> ChapterGenerateResponse:
     """Regenerate a chapter in-place, overwriting its generated_text."""
     _validate_story_ownership(story_id, current_user, db)
+    # S24D FIX 3: non-SFW boundaries are admin-only during launch.
+    _require_admin_for_boundary(req.controls.boundary, current_user)
     storylab_telemetry.reset()
 
     user_key = str(current_user.id)
@@ -1738,7 +1786,7 @@ def regenerate_chapter(
                 "detail": "Story generation failed. Please try again.",
                 "hint": "Check OPENROUTER_API_KEY or try again shortly.",
                 "provider": settings.STORYLAB_PROVIDER,
-                "model": settings.STORYLAB_MODEL,
+                "model": get_effective_story_model(),
             },
         ) from exc
 
@@ -2143,6 +2191,9 @@ def generate_rp_reply_endpoint(
 
     # Resolve effective heat level (intensity acts as a floor)
     resolved_heat = effective_heat_level(req.heat_level, req.intensity)
+    # S24D FIX 3: elevated (inferno) heat is admin-only during launch. Checked on
+    # the RESOLVED heat so an intensity floor can't smuggle inferno past the gate.
+    _require_admin_for_heat(resolved_heat, current_user)
 
     reply, model_used, generation_time_ms, pov_warnings, max_tokens_used, godmod_meta = generate_rp_reply(
         partner_reply=req.partner_reply,

@@ -31,6 +31,7 @@ from app.schemas.user import User, UserUpdate, PublicUserProfile
 from app.schemas.character import CharacterSearchResult
 from app.schemas.character_image import CharacterImageRead
 from app.services.image_provider import get_image_provider
+from app.services.seeding import roster_visible_to, serialize_post_for_viewer
 
 router = APIRouter()
 
@@ -356,7 +357,7 @@ def get_user_mentions(
         .limit(limit)
         .all()
     )
-    return posts
+    return [serialize_post_for_viewer(p, current_user) for p in posts]
 
 
 @router.get("/{username}", response_model=PublicUserProfile)
@@ -378,14 +379,27 @@ def get_user_characters(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get a user's characters. Returns only public characters unless the requester is the same user."""
+    """Get a user's character roster.
+
+    Roster privacy (seeding mode, default ON): a user's roster is only ever
+    enumerable by its owner. To a non-owner this returns an empty list — the
+    roster is not reconstructable from this endpoint, and no seeding account can
+    enumerate another account's roster. Owners always see their full roster.
+
+    With seeding mode OFF this falls back to the legacy behaviour (public
+    characters visible to everyone, full roster to the owner).
+    """
     target = db.query(UserModel).filter(UserModel.username == username).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if not roster_visible_to(current_user, target.id):
+        return []
+
     query = db.query(CharacterModel).filter(CharacterModel.owner_id == target.id)
 
-    # Only show public characters to other users
+    # Only show public characters to other users (reachable only when seeding
+    # mode is OFF; when ON, non-owners are already returned an empty list above).
     if current_user.id != target.id:
         query = query.filter(CharacterModel.visibility == VisibilityEnum.PUBLIC)
 
@@ -436,7 +450,7 @@ def get_user_timeline(
             "created_at": post.created_at,
             "realm_id": post.realm_id,
             "realm_name": realm_name,
-            "payload": Post.model_validate(post).model_dump(),
+            "payload": serialize_post_for_viewer(post, current_user).model_dump(),
         })
 
     # Scenes created by target user (only in realms viewer can see)

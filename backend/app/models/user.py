@@ -22,6 +22,10 @@ class User(Base):
     next_character_allowed_at = Column(DateTime, nullable=True)
     # Role + moderation
     is_admin = Column(Boolean, default=False, nullable=False, server_default="false")
+    # Dedicated seeder flag — exempt from the one-character-per-account limit
+    # (so founder/seeding accounts can hold multiple characters) without granting
+    # full admin powers. See app/services/seeding.py::is_seeder_account.
+    is_seeder = Column(Boolean, default=False, nullable=False, server_default="false")
     is_banned = Column(Boolean, default=False, nullable=False, server_default="false")
     banned_at = Column(DateTime, nullable=True)
     ban_reason = Column(String, nullable=True)

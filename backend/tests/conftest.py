@@ -100,6 +100,24 @@ def auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def make_admin(email: str) -> None:
+    """Promote an existing test user to admin (is_admin=True).
+
+    Used by admin-only surfaces (e.g. Adult Studio, S24D FIX 2) so tests can act
+    as an admin while still exercising the downstream ownership/logic checks.
+    """
+    from app.models.user import User
+
+    db = TestingSessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user and not user.is_admin:
+            user.is_admin = True
+            db.commit()
+    finally:
+        db.close()
+
+
 @pytest.fixture(scope="function")
 def authed_client(client):
     """TestClient wrapper that auto-injects auth headers for a default test user.

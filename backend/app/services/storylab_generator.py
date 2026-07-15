@@ -122,6 +122,27 @@ if not settings.STORYLAB_MODEL.strip():
 else:
     logger.info("[SL-DIAG] STORYLAB_MODEL=%r (effective)", _EFFECTIVE_STORYLAB_MODEL)
 
+# Story-path model (chapters, continuations, summaries) — resolved INDEPENDENTLY from
+# the RP-reply default. This is what prevents silent drift back to Qwen: the story
+# generator is routed via STORYLAB_STORY_MODEL, settable to any slug (e.g. a Claude
+# tier) WITHOUT a code change, while RP-reply keeps using _EFFECTIVE_STORYLAB_MODEL.
+# Empty STORYLAB_STORY_MODEL falls back to _EFFECTIVE_STORYLAB_MODEL (legacy behaviour).
+_EFFECTIVE_STORY_MODEL: str = settings.STORYLAB_STORY_MODEL.strip() or _EFFECTIVE_STORYLAB_MODEL
+logger.info(
+    "[SL-DIAG] STORYLAB_STORY_MODEL=%r (effective story-path model; rp-reply default=%r)",
+    _EFFECTIVE_STORY_MODEL, _EFFECTIVE_STORYLAB_MODEL,
+)
+
+
+def get_effective_story_model() -> str:
+    """Return the resolved story-path model slug (chapters / continuations / summaries).
+
+    Exposed so the API layer can surface the active story model in the generation
+    response payload — making routing drift visible instead of silent.
+    """
+    return _EFFECTIVE_STORY_MODEL
+
+
 _REQUEST_TIMEOUT = 90.0  # seconds for LLM calls
 
 # ── length → (target_words, hard_cap_words) ──────────────────────────────────
@@ -2105,7 +2126,7 @@ def _call_openrouter(
     temperature = 0.85 + (0.15 if variant == "alt" else 0.0)
 
     payload = {
-        "model": _EFFECTIVE_STORYLAB_MODEL,
+        "model": _EFFECTIVE_STORY_MODEL,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -2119,8 +2140,9 @@ def _call_openrouter(
 
     user_content_len = len(messages[1]["content"]) if len(messages) > 1 else 0
     logger.info(
-        "[SL-DIAG] _call_openrouter (continuation) | model=%s max_tokens=%d prompt_chars=%d",
-        _EFFECTIVE_STORYLAB_MODEL, max_tokens, user_content_len,
+        "[SL-DIAG] story_generation | path=continuation resolved_story_model=%s "
+        "max_tokens=%d prompt_chars=%d",
+        _EFFECTIVE_STORY_MODEL, max_tokens, user_content_len,
     )
 
     _t0 = time.time()
@@ -2135,7 +2157,7 @@ def _call_openrouter(
     _choice = data["choices"][0]
     _finish_reason = _choice.get("finish_reason") or _choice.get("stop_reason", "unknown")
     _usage = data.get("usage") or {}
-    storylab_telemetry.record("continuation", "openrouter", _EFFECTIVE_STORYLAB_MODEL, _usage)
+    storylab_telemetry.record("continuation", "openrouter", _EFFECTIVE_STORY_MODEL, _usage)
     logger.info(
         "[SL-DIAG] _call_openrouter raw_chars=%d has_story_tag=%s finish_reason=%s "
         "prompt_tokens=%s completion_tokens=%s generation_ms=%d",
@@ -2187,9 +2209,9 @@ def generate_storylab_continuation(
     cap_words = _length_cap(controls.length)
     request_max_tokens = max(400, int(cap_words * 2.0))
     logger.info(
-        "[SL-DIAG] generate_storylab_continuation called | provider=%s key_present=%s model=%s "
+        "[SL-DIAG] generate_storylab_continuation called | provider=%s key_present=%s story_model=%s "
         "story_id=%s length=%s pacing=%s intensity=%s request_max_tokens=%d",
-        provider, key_present, _EFFECTIVE_STORYLAB_MODEL, story_id,
+        provider, key_present, _EFFECTIVE_STORY_MODEL, story_id,
         controls.length, controls.pacing, controls.tone_intensity, request_max_tokens,
     )
 
@@ -2733,9 +2755,9 @@ def _call_openrouter_chapter(
         )
     ) if _protagonist else False
     logger.info(
-        "[SL-DIAG] _call_openrouter_chapter | model=%s max_tokens=%d temp=%.2f "
+        "[SL-DIAG] story_generation | path=chapter resolved_story_model=%s max_tokens=%d temp=%.2f "
         "prompt_chars=%d protagonist=%s char_identity=%s realm=%s memory=%s last_chapter=%s",
-        _EFFECTIVE_STORYLAB_MODEL, max_tokens, temperature,
+        _EFFECTIVE_STORY_MODEL, max_tokens, temperature,
         user_content_len,
         bool(_protagonist),
         _char_has_identity,
@@ -2745,7 +2767,7 @@ def _call_openrouter_chapter(
     )
 
     payload = {
-        "model": _EFFECTIVE_STORYLAB_MODEL,
+        "model": _EFFECTIVE_STORY_MODEL,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -2769,7 +2791,7 @@ def _call_openrouter_chapter(
     _choice = data["choices"][0]
     _finish_reason = _choice.get("finish_reason") or _choice.get("stop_reason", "unknown")
     _usage = data.get("usage") or {}
-    storylab_telemetry.record("chapter", "openrouter", _EFFECTIVE_STORYLAB_MODEL, _usage)
+    storylab_telemetry.record("chapter", "openrouter", _EFFECTIVE_STORY_MODEL, _usage)
     logger.info(
         "[SL-DIAG] _call_openrouter_chapter raw_chars=%d has_story_tag=%s has_suggestions_tag=%s "
         "finish_reason=%s prompt_tokens=%s completion_tokens=%s generation_ms=%d",
@@ -2827,10 +2849,10 @@ def generate_chapter(
     cap_words = _length_cap(controls.length)
     request_max_tokens = max(400, int(cap_words * 2.5))
     logger.info(
-        "[SL-DIAG] generate_chapter called | provider=%s key_present=%s model=%s "
+        "[SL-DIAG] generate_chapter called | provider=%s key_present=%s story_model=%s "
         "story_id=%s story_title=%r story_genre=%r realm=%s story_chars=%d state_chars=%d "
         "length=%s pacing=%s intensity=%s request_max_tokens=%d",
-        provider, key_present, _EFFECTIVE_STORYLAB_MODEL,
+        provider, key_present, _EFFECTIVE_STORY_MODEL,
         story_id, story_title, story_genre, bool(realm_description),
         len(story_characters or []), len(characters or []),
         controls.length, controls.pacing, controls.tone_intensity, request_max_tokens,
@@ -3045,8 +3067,12 @@ def _call_openrouter_summary(
     """Call OpenRouter to generate/update the story summary. Returns plain text."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     messages = build_story_summary_prompt(existing_summary, chapter_text, chapter_number)
+    logger.info(
+        "[SL-DIAG] story_generation | path=summary resolved_story_model=%s chapter=%d",
+        _EFFECTIVE_STORY_MODEL, chapter_number,
+    )
     payload = {
-        "model": _EFFECTIVE_STORYLAB_MODEL,
+        "model": _EFFECTIVE_STORY_MODEL,
         "messages": messages,
         "max_tokens": 600,   # ~300 words × 2 tokens/word with headroom
         "temperature": 0.4,  # lower for consistency
@@ -3061,7 +3087,7 @@ def _call_openrouter_summary(
         resp = client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
     data = resp.json()
-    storylab_telemetry.record("summary", "openrouter", _EFFECTIVE_STORYLAB_MODEL, data.get("usage") or {})
+    storylab_telemetry.record("summary", "openrouter", _EFFECTIVE_STORY_MODEL, data.get("usage") or {})
     return data["choices"][0]["message"]["content"].strip()
 
 

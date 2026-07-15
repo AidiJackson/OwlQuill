@@ -21,12 +21,15 @@ from app.services.adult_identity_backfill import (
     backfill_legacy_identity,
     map_legacy_status,
 )
-from tests.conftest import auth_headers, get_auth_token
+from tests.conftest import auth_headers, get_auth_token, make_admin
 from tests.canon_test_utils import setup_canon
 
 
 def _login(client, email="p2@test.com", username="p2user") -> str:
-    return get_auth_token(client, email=email, username=username)
+    token = get_auth_token(client, email=email, username=username)
+    # S24D FIX 2: Adult Studio is admin-only; promote the test actor to admin.
+    make_admin(email)
+    return token
 
 
 def _create_character(client, token, name="Summer") -> int:

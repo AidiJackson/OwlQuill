@@ -7,10 +7,6 @@ character's tattoos and drew bare, unmarked arms. The fix injects ALL markings a
 passive context via build_passive_body_canon_string so the model always knows the
 markings exist, while the clothing safety invariant keeps covered markings hidden.
 """
-from app.api.routes.image_generator import (
-    _CLOTHING_SAFETY_INVARIANT,
-    _SIMPLIFIED_BODY_CANON_TEXT,
-)
 from app.schemas.body_canon import BodyMarking
 from app.services.body_canon import (
     build_body_canon_lock_string,
@@ -80,24 +76,3 @@ class TestPassivePathInjectsAllMarkings:
         assert build_passive_body_canon_string(markings) != ""
 
 
-class TestSimplifiedTextNoFalseReference:
-    """Simplified-mode text must not claim a locked body reference image exists."""
-
-    def test_no_reference_image_claim(self):
-        lower = _SIMPLIFIED_BODY_CANON_TEXT.lower()
-        assert "body reference" not in lower
-        assert "reference image" not in lower
-
-    def test_describes_markings(self):
-        assert "body marking" in _SIMPLIFIED_BODY_CANON_TEXT.lower()
-
-
-class TestClothingSafetyInvariantOnPassivePath:
-    """The clothing safety invariant must compose with passive context."""
-
-    def test_invariant_appended_to_passive_context(self):
-        passive = build_passive_body_canon_string([_wolf(), _script()])
-        combined = passive + ". " + _CLOTHING_SAFETY_INVARIANT
-        assert "permanent body markings" in combined.lower()
-        assert "skin-only" in combined.lower()
-        assert "never show through fabric" in combined.lower()

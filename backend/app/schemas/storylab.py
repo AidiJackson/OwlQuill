@@ -86,6 +86,9 @@ class StoryLabGenerateResponse(BaseModel):
     generated: GeneratedText
     state: StoryLabStateSnapshot
     safety: SafetyInfo
+    # Resolved story-path model slug for this generation. Surfaced so the active
+    # story model is visible to clients and cannot silently drift unnoticed.
+    story_model: str = ""
 
 
 class StoryLabStateResponse(BaseModel):

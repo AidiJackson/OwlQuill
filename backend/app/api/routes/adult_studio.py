@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.api.routes.admin import require_admin
 from app.core.storage import save_image, file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel
@@ -38,7 +39,11 @@ from app.services.adult_identity_preparation import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# S24D FIX 2: the explicit-image Adult Studio surface is ADMIN-ONLY, enforced in
+# code at the router level so every current and future route requires an admin
+# caller (not just the ownership check). ADULT_STUDIO_GENERATION_ENABLED remains a
+# defense-in-depth kill-switch, but admin is now the primary gate.
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 _ADULT_PROVIDER_NAME = "openai"
 

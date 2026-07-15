@@ -233,8 +233,13 @@ def test_forgot_password_prod_mode_no_reset_url(client: TestClient):
         settings.DEV_MODE = original_dev_mode
 
 
-def test_forgot_password_admin_email_returns_reset_url_in_prod(client: TestClient):
-    """Admin emails always get reset_url, even in production mode."""
+def test_forgot_password_admin_email_no_reset_url_in_prod(client: TestClient):
+    """S24D FIX 1: admin emails must NOT get reset_url in production.
+
+    Previously the response echoed reset_url for admin emails even in prod, which
+    let an unauthenticated caller harvest a valid reset token in one request and
+    take over the admin account. Production now delivers the link by email only.
+    """
     _register(client, email="admin@owlquill.app")
     from app.core.config import settings
     original_debug = settings.DEBUG
@@ -246,9 +251,7 @@ def test_forgot_password_admin_email_returns_reset_url_in_prod(client: TestClien
         settings.ADMIN_EMAILS = "admin@owlquill.app"
         response = client.post("/auth/forgot-password", json={"email": "admin@owlquill.app"})
         assert response.status_code == 200
-        data = response.json()
-        assert data.get("reset_url") is not None
-        assert "/reset-password?token=" in data["reset_url"]
+        assert response.json().get("reset_url") is None
     finally:
         settings.DEBUG = original_debug
         settings.DEV_MODE = original_dev_mode

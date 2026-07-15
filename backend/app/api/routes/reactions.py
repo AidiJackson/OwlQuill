@@ -2,12 +2,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from typing import Optional
+
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.models.reaction import Reaction as ReactionModel
 from app.models.post import Post as PostModel
 from app.schemas.reaction import Reaction, ReactionCreate
+from app.services.visibility import user_can_access_post
 
 router = APIRouter()
 
@@ -15,9 +18,22 @@ router = APIRouter()
 @router.get("/posts/{post_id}/reactions", response_model=list[Reaction])
 def get_post_reactions(
     post_id: int,
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ) -> list[ReactionModel]:
-    """Return all reactions for a post."""
+    """Return all reactions for a post.
+
+    S24F: reactions inherit the post's realm visibility. Public-realm reactions
+    remain readable (including unauthenticated, matching the comments convention); a
+    post in a PRIVATE realm the caller cannot access returns 404, so its reactions
+    are not leaked to non-members.
+    """
+    post = db.query(PostModel).filter(PostModel.id == post_id).first()
+    if post is not None:
+        user_id = current_user.id if current_user is not None else None
+        if not user_can_access_post(db, user_id, post):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
     return db.query(ReactionModel).filter(ReactionModel.post_id == post_id).all()
 
 

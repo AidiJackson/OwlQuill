@@ -47,6 +47,13 @@ def _make_admin(monkeypatch, email: str) -> None:
     monkeypatch.setattr(cfg_module.settings, "ADMIN_EMAILS", email)
 
 
+def _make_seeder(monkeypatch, email: str) -> None:
+    """Grant dedicated seeder status (NOT admin) to an email via settings monkeypatch."""
+    from app.core import config as cfg_module
+    monkeypatch.setenv("SEEDER_EMAILS", email)
+    monkeypatch.setattr(cfg_module.settings, "SEEDER_EMAILS", email)
+
+
 def test_create_character(client: TestClient):
     """Test creating a character."""
     token = get_auth_token(client)
@@ -96,7 +103,7 @@ def test_list_characters(client: TestClient):
 # ── Admin bypass tests ────────────────────────────────────────────────────────
 
 def test_non_admin_limited_to_one_character(client: TestClient):
-    """Non-admin user cannot create a second character (beta 1-character limit)."""
+    """Normal user cannot create a second character (one-character-per-account limit)."""
     token = _register_and_login(client, "beta@test.com", "betauser")
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -105,7 +112,21 @@ def test_non_admin_limited_to_one_character(client: TestClient):
 
     r2 = client.post("/characters/", json={**_CHAR_PAYLOAD, "name": "Second"}, headers=headers)
     assert r2.status_code == 403
-    assert "Beta limit" in r2.json()["detail"]
+    assert "1 character per account" in r2.json()["detail"]
+
+
+def test_seeder_can_create_multiple_characters(client: TestClient, monkeypatch):
+    """A dedicated seeder account (SEEDER_EMAILS, not admin) bypasses the limit."""
+    email = "seeder@test.com"
+    _make_seeder(monkeypatch, email)
+    token = _register_and_login(client, email, "seederuser")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r1 = client.post("/characters/", json={**_CHAR_PAYLOAD, "name": "First"}, headers=headers)
+    assert r1.status_code == 201, r1.text
+
+    r2 = client.post("/characters/", json={**_CHAR_PAYLOAD, "name": "Second"}, headers=headers)
+    assert r2.status_code == 201, r2.text
 
 
 def test_admin_can_create_multiple_characters(client: TestClient, monkeypatch):
@@ -141,6 +162,45 @@ def test_non_admin_delete_sets_cooldown(client: TestClient):
     r2 = client.post("/characters/", json={**_CHAR_PAYLOAD, "name": "After Delete"}, headers=headers)
     assert r2.status_code == 403
     assert "cooldown" in r2.json()["detail"].lower()
+
+
+def test_get_character_visibility_enforced(client: TestClient):
+    """S24D FIX 4: GET /characters/{id} requires auth and enforces visibility.
+
+    - Unauthenticated request is denied outright (401/403) — no ID-iteration scrape.
+    - An authenticated non-owner gets 404 for another user's private character.
+    - Public characters and the owner's own private character return 200.
+    """
+    # Separate owners — non-admin accounts are capped at one character each.
+    owner = _register_and_login(client, "owner_vis@test.com", "ownervis")
+    owner_h = {"Authorization": f"Bearer {owner}"}
+    priv = client.post(
+        "/characters/", json={**_CHAR_PAYLOAD, "name": "Secret", "visibility": "private"},
+        headers=owner_h,
+    )
+    assert priv.status_code == 201, priv.text
+    priv_id = priv.json()["id"]
+
+    pub_owner = _register_and_login(client, "pub_vis@test.com", "pubvis")
+    pub = client.post(
+        "/characters/", json={**_CHAR_PAYLOAD, "name": "Public One", "visibility": "public"},
+        headers={"Authorization": f"Bearer {pub_owner}"},
+    )
+    assert pub.status_code == 201, pub.text
+    pub_id = pub.json()["id"]
+
+    # Unauthenticated → denied (no credentials accepted).
+    anon = client.get(f"/characters/{priv_id}")
+    assert anon.status_code in (401, 403), anon.text
+
+    # Authenticated non-owner → 404 for the private character, 200 for the public one.
+    other = _register_and_login(client, "peeper@test.com", "peeper")
+    other_h = {"Authorization": f"Bearer {other}"}
+    assert client.get(f"/characters/{priv_id}", headers=other_h).status_code == 404
+    assert client.get(f"/characters/{pub_id}", headers=other_h).status_code == 200
+
+    # Owner can still fetch their own private character.
+    assert client.get(f"/characters/{priv_id}", headers=owner_h).status_code == 200
 
 
 def test_admin_delete_does_not_set_cooldown(client: TestClient, monkeypatch):

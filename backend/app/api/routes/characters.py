@@ -14,7 +14,6 @@ from sqlalchemy import or_
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.core.config import settings
 from app.core.storage import save_image, file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
@@ -23,6 +22,7 @@ from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.user_image import UserImage
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult
 from app.services.pack_version import compute_identity_health
+from app.services.seeding import is_seeder_account
 
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
 _AVATAR_SIZE = (512, 512)
@@ -101,16 +101,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _COOLDOWN_HOURS = 24
-_BETA_CHARACTER_LIMIT = 1
-
-
-def _is_admin(user: User) -> bool:
-    """Check if user is an admin (bypasses beta restrictions).
-
-    Checks the is_admin DB flag first, then falls back to the ADMIN_EMAILS
-    config list so email-configured admins also get the bypass.
-    """
-    return bool(user.is_admin) or user.email.lower() in settings.get_admin_emails()
+# One character per (normal) account. Seeder/admin accounts are exempt via
+# is_seeder_account() so founder/seeding accounts can hold multiple characters.
+_CHARACTER_LIMIT = 1
 
 
 @router.post("/", response_model=Character, status_code=status.HTTP_201_CREATED)
@@ -119,11 +112,17 @@ def create_character(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Character:
-    """Create a new character."""
-    is_admin = _is_admin(current_user)
+    """Create a new character.
 
-    # Enforce cooldown after character deletion (admins bypass)
-    if current_user.next_character_allowed_at and not is_admin:
+    Server-side enforcement of the one-character-per-account limit: a normal
+    account may own at most ``_CHARACTER_LIMIT`` (1) character. Seeder/admin
+    accounts (is_seeder_account) are exempt so founder/seeding accounts can hold
+    multiple characters. This is the authoritative gate — the UI hint is advisory.
+    """
+    is_exempt = is_seeder_account(current_user)
+
+    # Enforce cooldown after character deletion (seeders/admins bypass)
+    if current_user.next_character_allowed_at and not is_exempt:
         now = datetime.utcnow()
         if now < current_user.next_character_allowed_at:
             remaining = current_user.next_character_allowed_at - now
@@ -138,22 +137,22 @@ def create_character(
                 ),
             )
 
-    # Enforce beta 1-character limit (admins bypass)
-    if not is_admin:
+    # Enforce one-character-per-account limit (seeders/admins bypass)
+    if not is_exempt:
         existing_count = db.query(CharacterModel).filter(
             CharacterModel.owner_id == current_user.id
         ).count()
-        if existing_count >= _BETA_CHARACTER_LIMIT:
+        if existing_count >= _CHARACTER_LIMIT:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
-                    f"Beta limit: only {_BETA_CHARACTER_LIMIT} character per account. "
+                    f"Only {_CHARACTER_LIMIT} character per account. "
                     "Delete your existing character first."
                 ),
             )
     else:
         logger.info(
-            "[admin-bypass] user=%s bypassing beta character limit (create)",
+            "[seeder-bypass] user=%s bypassing one-character limit (create)",
             current_user.email,
         )
 
@@ -250,16 +249,37 @@ def search_characters(
 @router.get("/{character_id}", response_model=Character)
 def get_character(
     character_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Character:
-    """Get a character by ID."""
+    """Get a character by ID.
+
+    S24D FIX 4: requires authentication and enforces visibility server-side — a
+    character is returned only when it is PUBLIC or owned by the caller. Private
+    characters of other users return 404 (indistinguishable from non-existent),
+    closing the unauthenticated ID-iteration scrape.
+    """
     character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not character:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Character not found"
         )
-    character.owner_username = character.owner.username if character.owner else None
+    if (
+        character.visibility != VisibilityEnum.PUBLIC
+        and character.owner_id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Character not found"
+        )
+    # Owner link is shown to the owner only (permanent, character-first policy):
+    # omit owner_username for non-owner viewers so a public character cannot be
+    # traced back to the account that owns it.
+    is_owner = character.owner_id == current_user.id
+    character.owner_username = (
+        character.owner.username if (is_owner and character.owner) else None
+    )
     character.identity_health = compute_identity_health(character)
     character.has_identity_canon = character.id in _canon_generated_ids(db, [character.id])
     return character
@@ -421,12 +441,12 @@ def delete_character(
 
     db.delete(character)
 
-    # Set 24h cooldown on the user (admins bypass)
-    if not _is_admin(current_user):
+    # Set 24h cooldown on the user (seeders/admins bypass)
+    if not is_seeder_account(current_user):
         current_user.next_character_allowed_at = datetime.utcnow() + timedelta(hours=_COOLDOWN_HOURS)
     else:
         logger.info(
-            "[admin-bypass] user=%s bypassing delete cooldown (character_id=%s)",
+            "[seeder-bypass] user=%s bypassing delete cooldown (character_id=%s)",
             current_user.email,
             character_id,
         )

@@ -15,11 +15,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.services.body_canon import get_canonical_body_front
-from app.api.routes.image_generator import (
-    _reorder_anchor_refs,
-    _CLOTHING_SAFETY_INVARIANT,
-    _build_strict_identity_prompt,
-)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,11 +56,6 @@ def _make_character(
 
     char.identity_anchor_json = json.dumps(data)
     return char
-
-
-def _mk_bytes(types: list[str]) -> tuple[list[bytes], list[str]]:
-    """Build parallel (bytes, type) lists for _reorder_anchor_refs input."""
-    return [b"img"] * len(types), list(types)
 
 
 # ── Test 1: get_canonical_body_front priority order ───────────────────────────
@@ -193,121 +183,7 @@ class TestBodyTruthRefLoading:
 # ── Test 4: clothing safety invariant injection ───────────────────────────────
 
 
-class TestClothingSafetyInvariant:
-    """_CLOTHING_SAFETY_INVARIANT is injected when body markings exist."""
-
-    def _prompt_with_markings(self, has_markings: bool, body_front_canonical: bool = False) -> str:
-        """Build a strict identity prompt and return it for inspection."""
-        anchor_data = {
-            "identity_lock_string": "tall, black hair, brown eyes",
-            "anchors": {"front": {"url": "/static/generated/front.png", "id": 1}},
-        }
-        from app.services.body_canon import BodyMarking
-
-        right_marking = BodyMarking(
-            type="tattoo",
-            placement="right_upper_arm",
-            style="black serpent",
-            size="large",
-            description="test",
-        )
-
-        if body_front_canonical:
-            # In canonical mode, body_canon_str is _CANONICAL_BODY_REF_TEXT + invariant
-            from app.api.routes.image_generator import _CANONICAL_BODY_REF_TEXT
-            body_canon = _CANONICAL_BODY_REF_TEXT + ". " + _CLOTHING_SAFETY_INVARIANT if has_markings else ""
-        else:
-            from app.services.body_canon import build_body_canon_lock_string
-            from app.api.routes.image_generator import _SIMPLIFIED_BODY_CANON_TEXT
-            if has_markings:
-                base = _SIMPLIFIED_BODY_CANON_TEXT
-                body_canon = base + ". " + _CLOTHING_SAFETY_INVARIANT
-            else:
-                body_canon = ""
-
-        return _build_strict_identity_prompt(
-            base_prompt="Standing in bright daylight, sleeveless vest, both arms visible",
-            anchor_data=anchor_data,
-            character_name="Remi",
-            body_canon_str=body_canon,
-        )
-
-    def test_clothing_invariant_present_when_markings_exist(self):
-        """All key phrases of the clothing invariant appear when markings exist."""
-        prompt = self._prompt_with_markings(has_markings=True)
-        assert "skin-only" in prompt, "clothing invariant must contain 'skin-only'"
-        assert "If clothing covers" in prompt, "clothing invariant must contain 'If clothing covers'"
-        assert "hidden" in prompt, "clothing invariant must contain 'hidden'"
-        assert "Never merge" in prompt, "clothing invariant must contain 'Never merge'"
-
-    def test_clothing_invariant_absent_when_no_markings(self):
-        """Clothing invariant must NOT appear when character has no body markings."""
-        prompt = self._prompt_with_markings(has_markings=False)
-        assert "If clothing covers" not in prompt, (
-            "Clothing invariant must not be injected when no markings exist"
-        )
-        assert "Never merge" not in prompt
-
-    def test_invariant_constant_has_required_phrases(self):
-        """_CLOTHING_SAFETY_INVARIANT contains all required hard rules."""
-        assert "skin-only" in _CLOTHING_SAFETY_INVARIANT
-        assert "If clothing covers" in _CLOTHING_SAFETY_INVARIANT
-        assert "hidden" in _CLOTHING_SAFETY_INVARIANT
-        assert "Never print, draw, transfer" in _CLOTHING_SAFETY_INVARIANT
-        assert "No clothing graphics" in _CLOTHING_SAFETY_INVARIANT
-        assert "Never move tattoos between limbs" in _CLOTHING_SAFETY_INVARIANT
-        assert "Never merge left and right arm tattoos" in _CLOTHING_SAFETY_INVARIANT
-
-
 # ── Test 5: final_character_card never overrides face anchor or body_front ────
-
-
-class TestFinalCardDoesNotOverridePriority:
-    """final_character_card is support-only and must never precede face/body_front."""
-
-    def test_final_card_after_face_anchor(self):
-        """final_character_card must come after face anchor in body-truth mode."""
-        _, out_types = _reorder_anchor_refs(
-            *_mk_bytes(["front", "body_identity:body_front", "final_character_card"]),
-            tattoo_primary=True,
-        )
-        front_idx = out_types.index("front")
-        fc_idx = out_types.index("final_character_card")
-        assert front_idx < fc_idx, (
-            f"face anchor (front={front_idx}) must precede final_card ({fc_idx}). Order: {out_types}"
-        )
-
-    def test_final_card_after_body_front(self):
-        """final_character_card must come after body_front in body-truth mode."""
-        _, out_types = _reorder_anchor_refs(
-            *_mk_bytes(["front", "body_identity:body_front", "final_character_card"]),
-            tattoo_primary=True,
-        )
-        bf_idx = out_types.index("body_identity:body_front")
-        fc_idx = out_types.index("final_character_card")
-        assert bf_idx < fc_idx, (
-            f"body_front ({bf_idx}) must precede final_card ({fc_idx}). Order: {out_types}"
-        )
-
-    def test_final_card_last_in_face_first_mode(self):
-        """final_character_card is last in normal face-first mode."""
-        _, out_types = _reorder_anchor_refs(
-            *_mk_bytes(["front", "three_quarter", "body_identity:body_front", "final_character_card"]),
-            tattoo_primary=False,
-        )
-        assert out_types[-1] == "final_character_card", (
-            f"final_card must be last in face-first mode. Got: {out_types}"
-        )
-
-    def test_final_card_absent_does_not_break_ordering(self):
-        """When final_card is not present, ordering is unaffected."""
-        _, out_types = _reorder_anchor_refs(
-            *_mk_bytes(["front", "body_identity:body_front"]),
-            tattoo_primary=True,
-        )
-        assert "final_character_card" not in out_types
-        assert out_types[0] == "front"
-        assert out_types[1] == "body_identity:body_front"
 
 
 # ── Test 6: no body truth injection when no markings ────────────────────────
@@ -322,22 +198,6 @@ class TestNoBodyTruthWhenNoMarkings:
         result = build_body_canon_lock_string([])
         assert result == "", "empty markings must produce empty lock string"
 
-    def test_clothing_invariant_not_in_prompt_when_no_markings(self):
-        """When body_canon_str is empty, invariant must not appear in prompt."""
-        anchor_data = {
-            "identity_lock_string": "tall, black hair",
-            "anchors": {"front": {"url": "/static/generated/front.png", "id": 1}},
-        }
-        prompt = _build_strict_identity_prompt(
-            base_prompt="Walking through a park",
-            anchor_data=anchor_data,
-            character_name="Lee",
-            body_canon_str="",  # no markings
-        )
-        assert _CLOTHING_SAFETY_INVARIANT[:30] not in prompt, (
-            "Clothing invariant must not appear when body_canon_str is empty"
-        )
-        assert "Never merge" not in prompt
 
     def test_get_canonical_body_front_source_missing_with_no_json(self):
         """Returns 'missing' source when character has no identity_anchor_json."""

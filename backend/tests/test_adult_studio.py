@@ -13,7 +13,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
-from tests.conftest import auth_headers, get_auth_token
+from tests.conftest import auth_headers, get_auth_token, make_admin
 from tests.canon_test_utils import setup_canon
 
 
@@ -31,7 +31,12 @@ _DUMMY_PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 2048
 
 
 def _login(client: TestClient, email="adult@test.com", username="adultuser") -> str:
-    return get_auth_token(client, email=email, username=username)
+    token = get_auth_token(client, email=email, username=username)
+    # S24D FIX 2: Adult Studio is admin-only. Promote the test actor to admin so
+    # the prepare/generate/ownership logic stays covered under the new gate; the
+    # per-character ownership check still runs after the admin gate.
+    make_admin(email)
+    return token
 
 
 def _create_character(client: TestClient, token: str, name="Summer") -> int:
@@ -127,6 +132,29 @@ def test_prepare_rejects_non_owner(client, db_session):
     other_token = _login(client, email="intruder@test.com", username="intruder1")
     resp = client.post(f"/adult-studio/characters/{cid}/prepare", headers=auth_headers(other_token))
     assert resp.status_code == 403, resp.text
+
+
+def test_adult_studio_is_admin_only(client, db_session):
+    """S24D FIX 2: a NON-admin authenticated user is denied at the router-level
+    admin gate on every /adult-studio/* route — before any owner check.
+
+    Uses get_auth_token directly (not _login) so the actor stays non-admin.
+    """
+    token = get_auth_token(client, email="plainuser@test.com", username="plainuser")
+    for method, path in [
+        ("get", "/adult-studio/characters/1"),
+        ("post", "/adult-studio/characters/1/prepare"),
+        ("post", "/adult-studio/characters/1/generate"),
+        ("post", "/adult-studio/characters/1/train"),
+        ("get", "/adult-studio/characters/1/training-pack"),
+    ]:
+        caller = getattr(client, method)
+        kwargs = {"headers": auth_headers(token)}
+        if method == "post" and path.endswith("/generate"):
+            kwargs["json"] = {"prompt": "x"}
+        resp = caller(path, **kwargs)
+        assert resp.status_code == 403, f"{method} {path} -> {resp.status_code}: {resp.text}"
+        assert "Admin access required" in resp.text, f"{method} {path}: {resp.text}"
 
 
 def test_status_reflects_prepared_after_prepare(client, db_session):

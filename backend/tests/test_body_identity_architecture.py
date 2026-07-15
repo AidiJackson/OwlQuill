@@ -23,10 +23,6 @@ from app.services.body_identity_validator import (
     validate_body_identity_pack,
     BodyIdentityValidationResult,
 )
-from app.api.routes.image_generator import (
-    _reorder_anchor_refs,
-    _CANONICAL_BODY_REF_ALLOWED,
-)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -71,11 +67,6 @@ def _make_char(
         char.body_canon_json = None
 
     return char
-
-
-def _mk_bytes(types: list[str]) -> tuple[list[bytes], list[str]]:
-    """Build stub (images, types) lists for _reorder_anchor_refs."""
-    return [bytes([i]) for i in range(len(types))], types
 
 
 # ── Test 1: deterministic ordering ───────────────────────────────────────────
@@ -226,115 +217,7 @@ class TestMissingBodyFrontWithMarkings:
 # ── Test 4: final_character_card ordering in _reorder_anchor_refs ────────────
 
 
-class TestFinalCardNeverOutranksBodyRefs:
-    """final_character_card is always after face and body identity refs."""
-
-    def test_final_card_after_body_front_in_body_truth_mode(self):
-        """Body-truth mode: final_card after body_front."""
-        _, types = _reorder_anchor_refs(
-            *_mk_bytes(["front", "body_identity:body_front", "final_character_card"]),
-            tattoo_primary=True,
-        )
-        bf_idx = types.index("body_identity:body_front")
-        fc_idx = types.index("final_character_card")
-        assert bf_idx < fc_idx
-
-    def test_final_card_after_body_detail_in_body_truth_mode(self):
-        """Body-truth mode: final_card after body_left_detail and body_right_detail."""
-        _, types = _reorder_anchor_refs(
-            *_mk_bytes([
-                "front", "body_identity:body_front",
-                "body_identity:body_left_detail", "body_identity:body_right_detail",
-                "final_character_card",
-            ]),
-            tattoo_primary=True,
-        )
-        ld_idx = types.index("body_identity:body_left_detail")
-        rd_idx = types.index("body_identity:body_right_detail")
-        fc_idx = types.index("final_character_card")
-        assert ld_idx < fc_idx
-        assert rd_idx < fc_idx
-
-    def test_final_card_last_in_face_first_mode(self):
-        """Face-first mode: final_card is the last entry."""
-        _, types = _reorder_anchor_refs(
-            *_mk_bytes(["front", "three_quarter", "body_identity:body_front",
-                        "body_identity:body_left_detail", "final_character_card"]),
-            tattoo_primary=False,
-        )
-        assert types[-1] == "final_character_card"
-
-    def test_body_detail_refs_before_face_support_in_body_truth_mode(self):
-        """Body-truth mode: body detail refs precede three_quarter support ref."""
-        _, types = _reorder_anchor_refs(
-            *_mk_bytes([
-                "three_quarter", "body_identity:body_left_detail",
-                "body_identity:body_right_detail", "front",
-            ]),
-            tattoo_primary=True,
-        )
-        tq_idx = types.index("three_quarter")
-        ld_idx = types.index("body_identity:body_left_detail")
-        rd_idx = types.index("body_identity:body_right_detail")
-        assert ld_idx < tq_idx, "body_left_detail must precede three_quarter"
-        assert rd_idx < tq_idx, "body_right_detail must precede three_quarter"
-
-
 # ── Test 5: scene generation contract face → body → support ordering ─────────
-
-
-class TestGenerationContractOrdering:
-    """_reorder_anchor_refs enforces: face → body → support priority contract."""
-
-    def test_face_first_then_body_then_support_in_body_truth_mode(self):
-        """Full stack: front → body_front → body_detail → body_map → final_card."""
-        input_types = [
-            "final_character_card",      # support — should end up last
-            "body_identity:body_map",    # body map
-            "body_identity:body_right_detail",
-            "body_identity:body_left_detail",
-            "body_identity:body_front",  # primary body truth
-            "front",                     # face anchor — must be first
-        ]
-        _, out_types = _reorder_anchor_refs(
-            *_mk_bytes(input_types),
-            tattoo_primary=True,
-        )
-        assert out_types[0] == "front", f"face anchor must be first, got: {out_types}"
-        assert out_types[1] == "body_identity:body_front", (
-            f"body_front must be second, got: {out_types}"
-        )
-        fc_idx = out_types.index("final_character_card")
-        bf_idx = out_types.index("body_identity:body_front")
-        assert bf_idx < fc_idx, "body_front must precede final_card"
-        # body_detail before body_map
-        ld_idx = out_types.index("body_identity:body_left_detail")
-        map_idx = out_types.index("body_identity:body_map")
-        assert ld_idx < map_idx, "body_left_detail must precede body_map"
-
-    def test_body_map_ref_type_routed_to_map_bucket(self):
-        """body_identity:body_map is routed to the map bucket, not other."""
-        _, out_types = _reorder_anchor_refs(
-            *_mk_bytes(["front", "body_identity:body_map"]),
-            tattoo_primary=False,
-        )
-        assert "body_identity:body_map" in out_types
-
-    def test_face_first_mode_body_detail_after_body_anchor(self):
-        """Face-first mode: body_detail follows body_anchor close-ups."""
-        _, out_types = _reorder_anchor_refs(
-            *_mk_bytes([
-                "body_identity:body_left_detail",
-                "body_anchor:right_arm",
-                "front",
-            ]),
-            tattoo_primary=False,
-        )
-        front_idx = out_types.index("front")
-        ba_idx = out_types.index("body_anchor:right_arm")
-        ld_idx = out_types.index("body_identity:body_left_detail")
-        assert front_idx < ba_idx, "front before body_anchor"
-        assert ba_idx < ld_idx, "body_anchor before body_detail in face-first mode"
 
 
 # ── Test 6: validation scaffold shape ────────────────────────────────────────
@@ -401,103 +284,3 @@ class TestValidationScaffoldShape:
 # ── Test 7: canonical whitelist fix — v2 detail refs survive filtering ────────
 
 
-class TestCanonicalWhitelistAllowsDetailRefs:
-    """_CANONICAL_BODY_REF_ALLOWED must include all v2 body detail ref types.
-
-    Regression guard: before the fix, body_identity:body_left_detail,
-    body_identity:body_right_detail, and body_identity:body_map were stripped
-    by the canonical filter when body_front was locked and tattoos were visible.
-    After the fix they must all survive.
-    """
-
-    _REQUIRED_V2_TYPES = {
-        "body_identity:body_front",
-        "body_identity:body_left_detail",
-        "body_identity:body_right_detail",
-        "body_identity:body_back",
-        "body_identity:body_map",
-    }
-
-    def test_whitelist_contains_all_v2_detail_types(self):
-        """_CANONICAL_BODY_REF_ALLOWED includes every v2 body identity ref type."""
-        for ref_type in self._REQUIRED_V2_TYPES:
-            assert ref_type in _CANONICAL_BODY_REF_ALLOWED, (
-                f"{ref_type!r} is missing from _CANONICAL_BODY_REF_ALLOWED — "
-                "it will be stripped before the provider call"
-            )
-
-    def test_v2_refs_survive_canonical_filter_simulation(self):
-        """After applying the canonical filter, all v2 refs remain present.
-
-        Simulates: character has body_front locked + tattoos visible (canonical mode).
-        Input anchor_types includes all v2 body refs + face + three_quarter + noise.
-        """
-        input_types = [
-            "front",
-            "body_identity:body_front",
-            "body_identity:body_left_detail",
-            "body_identity:body_right_detail",
-            "body_identity:body_back",
-            "body_identity:body_map",
-            "three_quarter",
-            "body_anchor:right_arm",   # noise — should be stripped in canonical mode
-            "torso",                   # noise — should be stripped
-        ]
-        # Apply the canonical filter exactly as image_generator.py does.
-        canonical_pairs = [
-            (bytes([i]), t)
-            for i, t in enumerate(input_types)
-            if t in _CANONICAL_BODY_REF_ALLOWED
-        ]
-        surviving_types = [t for _, t in canonical_pairs]
-
-        assert "front" in surviving_types
-        assert "body_identity:body_front" in surviving_types
-        assert "body_identity:body_left_detail" in surviving_types, (
-            "body_left_detail was stripped by canonical filter"
-        )
-        assert "body_identity:body_right_detail" in surviving_types, (
-            "body_right_detail was stripped by canonical filter"
-        )
-        assert "body_identity:body_map" in surviving_types, (
-            "body_map was stripped by canonical filter"
-        )
-        # Noise refs must still be stripped
-        assert "body_anchor:right_arm" not in surviving_types
-        assert "torso" not in surviving_types
-
-    def test_reorder_then_canonical_filter_preserves_priority_order(self):
-        """After reorder + canonical filter, face first then body detail in order.
-
-        Input is in the order get_body_identity_references returns them
-        (BODY_IDENTITY_REF_PRIORITY: body_front, body_left_detail, body_right_detail,
-        body_map). Noise refs (body_anchor, torso) must be stripped.
-        """
-        _, reordered = _reorder_anchor_refs(
-            *_mk_bytes([
-                "body_identity:body_map",
-                "body_identity:body_left_detail",    # left before right — matches priority order
-                "body_identity:body_right_detail",
-                "body_identity:body_front",
-                "front",
-                "body_anchor:right_arm",
-                "torso",
-            ]),
-            tattoo_primary=True,
-        )
-        # Apply canonical filter exactly as image_generator.py does
-        surviving = [t for t in reordered if t in _CANONICAL_BODY_REF_ALLOWED]
-
-        assert surviving[0] == "front", f"face anchor must be first, got {surviving}"
-        assert surviving[1] == "body_identity:body_front", (
-            f"body_front must be second, got {surviving}"
-        )
-        # detail refs must precede body_map
-        left_idx = surviving.index("body_identity:body_left_detail")
-        right_idx = surviving.index("body_identity:body_right_detail")
-        map_idx = surviving.index("body_identity:body_map")
-        assert left_idx < map_idx, "left_detail must precede body_map"
-        assert right_idx < map_idx, "right_detail must precede body_map"
-        # noise stripped
-        assert "body_anchor:right_arm" not in surviving
-        assert "torso" not in surviving

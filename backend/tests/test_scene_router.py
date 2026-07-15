@@ -68,9 +68,9 @@ class TestSpecRouting:
 
         assert meta.routed is True
         assert meta.camera == "front"
-        # P11: body truth dominates, exact face reinforced, card early.
+        # S24I: face identity leads; body truth (body_front, body_map) follows.
         assert urls == [
-            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            FACE_FRONT, BODY_FRONT, FINAL_CARD,
             BODY_MAP, FACE_LEFT_3Q, FACE_RIGHT_3Q,
         ]
         # No back/side refs leak into a front scene; face_expression capped out.
@@ -169,9 +169,9 @@ class TestOrientationDetection:
     def test_full_body_routes_front_weighted(self):
         urls, meta = route_canon_refs("full body shot in the rain", _make_full_canon())
         assert meta.camera == "full_body"
-        # full_body shares the front weighting profile.
+        # full_body shares the front weighting profile (S24I: face leads).
         assert urls == [
-            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            FACE_FRONT, BODY_FRONT, FINAL_CARD,
             BODY_MAP, FACE_LEFT_3Q, FACE_RIGHT_3Q,
         ]
 
@@ -271,8 +271,9 @@ class TestP11WeightingAcceptance:
             _make_full_canon(),
         )
         assert meta.camera == "front"
+        # S24I: face identity leads; body truth follows.
         assert urls == [
-            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            FACE_FRONT, BODY_FRONT, FINAL_CARD,
             BODY_MAP, FACE_LEFT_3Q, FACE_RIGHT_3Q,
         ]
 
@@ -342,8 +343,9 @@ class TestP11WeightingAcceptance:
         canon.accessories_json = None
 
         urls, _ = route_canon_refs("front view", canon)
+        # S24I: face identity leads; body truth follows.
         assert urls == [
-            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            FACE_FRONT, BODY_FRONT, FINAL_CARD,
             FACE_LEFT_3Q, FACE_RIGHT_3Q, FACE_EXPRESSION,
         ]
         assert len(urls) == 6
@@ -464,7 +466,11 @@ class TestExposureGatedCropRouting:
         assert LEFT_SLEEVE_CROP not in urls
         assert RIGHT_WOLF_CROP not in urls
         assert meta.mark_crops == 0
-        assert BODY_FRONT in urls and BODY_MAP in urls
+        # S24I: marks all covered → clothed body_front stays as covered body
+        # truth; the bare-skin body_map placement sheet is suppressed.
+        assert BODY_FRONT in urls
+        assert BODY_MAP not in urls
+        assert meta.body_map_suppressed is True
 
     def test_marks_without_crop_url_degrade_gracefully(self):
         """No reference_image_url → no crop routed; base routing intact."""
@@ -484,8 +490,10 @@ class TestExposureGatedCropRouting:
         """Canon with zero marks routes identically to the no-crop baseline."""
         urls, meta = route_canon_refs("facing camera, sleeveless shirt", _make_canon_with_marks([]))
         assert meta.mark_crops == 0
+        # S24I: face leads; no marks → no coverage suppression, body_map stays.
+        assert meta.body_map_suppressed is False
         assert urls == [
-            BODY_FRONT, FACE_FRONT, FINAL_CARD,
+            FACE_FRONT, BODY_FRONT, FINAL_CARD,
             BODY_MAP, FACE_LEFT_3Q, FACE_RIGHT_3Q,
         ]
 
@@ -651,8 +659,11 @@ class TestClothingTruthOverTattooVisibility:
         assert LEFT_SLEEVE_CROP not in urls
         assert RIGHT_WOLF_CROP not in urls
         assert meta.mark_crops == 0
-        # Body truth still routes — the covered marks ride the whole-body cards.
-        assert BODY_FRONT in urls and BODY_MAP in urls
+        # S24I: covered marks ride the clothed body_front; the bare body_map
+        # placement sheet is suppressed so marks are not pushed onto covered skin.
+        assert BODY_FRONT in urls
+        assert BODY_MAP not in urls
+        assert meta.body_map_suppressed is True
 
     def test_5_portrait_closeup_routes_no_arm_crops(self):
         """5. Portrait close-up: facial identity only → no arm tattoo crops."""

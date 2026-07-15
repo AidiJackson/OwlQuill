@@ -421,6 +421,13 @@ export default function UserProfile() {
     year: 'numeric',
   });
 
+  // Roster visibility (seeding mode): a user's character roster/count is only
+  // shown to its owner. In seeding mode the API returns an empty roster to
+  // non-owners, so `characters.length === 0` there and we hide the count/tab/
+  // selector entirely. With seeding mode off the API returns public characters
+  // and this naturally shows them.
+  const showRoster = isOwnProfile || characters.length > 0;
+
   const stats = {
     posts: timeline.filter((i) => i.type === 'post').length,
     characters: characters.length,
@@ -430,7 +437,7 @@ export default function UserProfile() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'timeline', label: 'Timeline' },
-    { id: 'characters', label: 'Characters' },
+    ...(showRoster ? [{ id: 'characters' as Tab, label: 'Characters' }] : []),
     { id: 'stories', label: 'Stories' },
     { id: 'media', label: 'Media' },
     { id: 'mentions', label: 'Mentions' },
@@ -642,7 +649,7 @@ export default function UserProfile() {
                 <div className="flex flex-wrap items-center gap-3 sm:gap-5 md:gap-7 mt-2 sm:mt-3">
                   {[
                     { label: 'Posts', value: stats.posts },
-                    { label: 'Characters', value: stats.characters },
+                    ...(showRoster ? [{ label: 'Characters', value: stats.characters }] : []),
                     { label: 'Realms', value: stats.realms },
                     { label: 'Collaborators', value: stats.collaborators },
                   ].map((stat) => (
@@ -917,7 +924,7 @@ export default function UserProfile() {
               </div>
             )}
 
-            {activeTab === 'characters' && (
+            {showRoster && activeTab === 'characters' && (
               <div>
                 {characters.length === 0 ? (
                   <div className="rounded-2xl p-12 sm:p-16 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">

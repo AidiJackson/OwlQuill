@@ -10,6 +10,8 @@ from app.models.comment import Comment as CommentModel
 from app.models.post import Post as PostModel
 from app.schemas.comment import Comment, CommentCreate
 from app.services.safety import blocked_user_ids
+from app.services.visibility import user_can_access_post
+from app.services.seeding import serialize_comments_for_viewer
 
 router = APIRouter()
 
@@ -47,7 +49,19 @@ def list_post_comments(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ) -> List[Comment]:
-    """List comments on a post. Excludes blocked users' comments when authenticated."""
+    """List comments on a post. Excludes blocked users' comments when authenticated.
+
+    S24F: comments inherit the post's realm visibility. Public-realm comments remain
+    readable (including unauthenticated, preserving existing behaviour); a post in a
+    PRIVATE realm the caller cannot access returns 404, so its comments are not
+    leaked to non-members.
+    """
+    post = db.query(PostModel).filter(PostModel.id == post_id).first()
+    if post is not None:
+        user_id = current_user.id if current_user is not None else None
+        if not user_can_access_post(db, user_id, post):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
     comments_q = db.query(CommentModel).filter(CommentModel.post_id == post_id)
 
     if current_user is not None:
@@ -55,7 +69,8 @@ def list_post_comments(
         if blocked:
             comments_q = comments_q.filter(CommentModel.author_user_id.notin_(blocked))
 
-    return comments_q.options(
+    comments = comments_q.options(
         selectinload(CommentModel.author_user),
         selectinload(CommentModel.character),
     ).order_by(CommentModel.created_at.asc()).all()
+    return serialize_comments_for_viewer(comments, current_user)
