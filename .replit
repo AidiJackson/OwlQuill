@@ -11,6 +11,7 @@ packages = ["lsof"]
 
 # Deployment configuration
 [deployment]
+build = ["sh", "-c", "pip install -r backend/requirements.txt"]
 run = ["sh", "-c", "bash start-prod.sh"]
 deploymentTarget = "cloudrun"
 
