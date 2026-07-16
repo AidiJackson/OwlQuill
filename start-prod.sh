@@ -40,6 +40,16 @@ BACKEND_PORT="${BACKEND_PORT:-8000}"
 # the backend's real exit reason / traceback is always visible.
 export PYTHONUNBUFFERED=1
 
+# Backend dependencies are installed into .deploy-python by the [deployment]
+# build step in .replit, and must be on the path before uvicorn is invoked.
+#
+# They are NOT installed into .pythonlibs: that directory is dev-local, is
+# excluded from the runtime image by .replitignore, and already exists at build
+# time — so pip reports every requirement "already satisfied" there, installs
+# nothing, and the runtime container ends up with no packages at all. An
+# explicit, non-ignored directory is what makes build and runtime agree.
+export PYTHONPATH="$ROOT/.deploy-python:${PYTHONPATH:-}"
+
 echo "🦉 Starting Ficshon (production): frontend :$PORT  ->  backend :$BACKEND_PORT"
 
 BACKEND_PID=""

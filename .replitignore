@@ -64,3 +64,15 @@ Thumbs.db
 # Git
 .git/
 .gitignore
+
+# Deployment Python dependencies, installed by the [deployment] build step in
+# .replit. These MUST reach the runtime image — the backend cannot import
+# uvicorn/fastapi without them.
+#
+# Re-included last, on purpose: the generic patterns above (*.so, lib/, build/,
+# __pycache__/, *.py[cod]) would otherwise strip compiled extension modules such
+# as pydantic_core, cryptography and psycopg2 out of this directory, leaving a
+# tree that looks complete but fails to import at runtime. Later patterns win,
+# so these negations must stay at the end of this file.
+!.deploy-python/
+!.deploy-python/**
