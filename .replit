@@ -126,3 +126,8 @@ outputType = "webview"
 task = "shell.exec"
 args = "bash start-dev.sh"
 waitForPort = 5000
+
+[userenv]
+
+[userenv.shared]
+SEEDER_EMAILS = "laurenrose-thorpe@hotmail.co.uk"

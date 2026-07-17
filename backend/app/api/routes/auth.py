@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -68,7 +69,12 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
             )
 
     # ── Duplicate checks ──────────────────────────────────────────────────────
-    existing_user = db.query(UserModel).filter(UserModel.email == user_data.email).first()
+    # Emails are stored lowercase and compared case-insensitively so no two
+    # accounts can differ only by email casing (login lookup is case-insensitive).
+    normalized_email = user_data.email.strip().lower()
+    existing_user = db.query(UserModel).filter(
+        func.lower(UserModel.email) == normalized_email
+    ).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -84,7 +90,7 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
 
     # ── Create user (+ increment invite use_count in same transaction) ────────
     db_user = UserModel(
-        email=user_data.email,
+        email=normalized_email,
         username=user_data.username,
         hashed_password=get_password_hash(user_data.password),
         display_name=user_data.display_name or user_data.username
@@ -111,7 +117,10 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
 
     Security: Credentials must be sent in request body, not query parameters.
     """
-    user = db.query(UserModel).filter(UserModel.email == login_data.email).first()
+    # Case-insensitive email lookup: stored emails are lowercase, but users may
+    # type their address with capital letters — that must not fail the lookup.
+    normalized_email = login_data.email.strip().lower()
+    user = db.query(UserModel).filter(func.lower(UserModel.email) == normalized_email).first()
 
     if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
@@ -150,7 +159,11 @@ def forgot_password(
     """
     msg = "If an account exists, a reset link has been sent."
     hint = "Check spam/junk folders. Delivery can take a few minutes."
-    user = db.query(UserModel).filter(UserModel.email == body.email).first()
+    # Case-insensitive lookup — must match the login behaviour so a user who can
+    # log in with mixed-case email can also reset their password with it.
+    user = db.query(UserModel).filter(
+        func.lower(UserModel.email) == body.email.strip().lower()
+    ).first()
 
     if not user:
         return ForgotPasswordResponse(message=msg, hint=hint)
