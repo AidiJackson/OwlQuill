@@ -22,10 +22,30 @@ from app.api.routes import rp_stories
 logger = logging.getLogger(__name__)
 
 
+def _db_identity() -> dict:
+    """TEMP DIAG (remove after prod DB is confirmed): redacted DB host + name.
+
+    Exposes only the database hostname and database name parsed from
+    DATABASE_URL — never the user, password, port, or query string. Used to
+    identify which database the running process is connected to without needing
+    authentication.
+    """
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(settings.DATABASE_URL)
+        return {"host": p.hostname, "name": (p.path or "").lstrip("/")}
+    except Exception:
+        return {"host": None, "name": None}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
+    # TEMP DIAG (remove after prod DB is confirmed): log which database this
+    # process is connected to, so the deployment DB can be identified from logs.
+    _ident = _db_identity()
+    logger.info("TEMP DIAG db_identity host=%s name=%s", _ident.get("host"), _ident.get("name"))
     if settings.SMTP_HOST:
         logger.info("Email: SMTP enabled (host=%s)", settings.SMTP_HOST)
     else:
@@ -174,7 +194,26 @@ app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 @app.get("/health")
 def health_check() -> dict:
     """Health check endpoint."""
-    return {"status": "ok", "service": "ficshon-backend"}
+    resp: dict = {"status": "ok", "service": "ficshon-backend"}
+    # TEMP DIAG (remove after prod DB is confirmed): unauthenticated database
+    # identity + aggregate counts, so the deployment's database can be identified
+    # without login. Exposes only redacted host/db name and row counts — no
+    # credentials, no PII. Wrapped so /health never fails (start-prod.sh readiness
+    # depends on it): any DB error degrades to an error tag, status stays "ok".
+    diag: dict = {"db": _db_identity()}
+    try:
+        from app.core.database import SessionLocal
+        from sqlalchemy import text
+        _db = SessionLocal()
+        try:
+            diag["users"] = _db.execute(text("SELECT count(*) FROM users")).scalar()
+            diag["characters"] = _db.execute(text("SELECT count(*) FROM characters")).scalar()
+        finally:
+            _db.close()
+    except Exception as e:  # pragma: no cover - diagnostic only
+        diag["counts_error"] = type(e).__name__
+    resp["_diag"] = diag
+    return resp
 
 
 @app.get("/")
