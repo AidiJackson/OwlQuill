@@ -42,10 +42,27 @@ def _db_identity() -> dict:
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
-    # TEMP DIAG (remove after prod DB is confirmed): log which database this
-    # process is connected to, so the deployment DB can be identified from logs.
-    _ident = _db_identity()
-    logger.info("TEMP DIAG db_identity host=%s name=%s", _ident.get("host"), _ident.get("name"))
+    # TEMP DIAG (remove after prod DB is confirmed): emit a single consolidated
+    # line identifying the connected database + counts. Uses print(flush=True)
+    # (PYTHONUNBUFFERED=1 in start-prod.sh) so it reaches the deployment logs
+    # regardless of logging configuration. Never raises — startup must not break.
+    try:
+        _ident = _db_identity()
+        from app.core.database import SessionLocal as _diag_sl
+        from sqlalchemy import text as _diag_text
+        _diag_db = _diag_sl()
+        try:
+            _u = _diag_db.execute(_diag_text("SELECT count(*) FROM users")).scalar()
+            _c = _diag_db.execute(_diag_text("SELECT count(*) FROM characters")).scalar()
+        finally:
+            _diag_db.close()
+        print(
+            f"TEMP DIAG host={_ident.get('host')} db={_ident.get('name')} "
+            f"users={_u} characters={_c}",
+            flush=True,
+        )
+    except Exception as _diag_e:  # pragma: no cover - diagnostic only
+        print(f"TEMP DIAG host=? db=? counts_error={type(_diag_e).__name__}", flush=True)
     if settings.SMTP_HOST:
         logger.info("Email: SMTP enabled (host=%s)", settings.SMTP_HOST)
     else:
