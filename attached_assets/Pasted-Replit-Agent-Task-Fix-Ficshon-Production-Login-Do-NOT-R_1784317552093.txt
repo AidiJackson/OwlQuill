@@ -1,0 +1,113 @@
+Replit Agent Task — Fix Ficshon Production Login (Do NOT Redesign)
+Objective
+
+The deployment is healthy and running, but login returns 401 Unauthorized.
+
+Determine the exact cause and fix it with the smallest possible change.
+
+Current Known State
+
+The following are already confirmed and should NOT be reworked:
+
+Deployment builds successfully.
+Backend starts successfully.
+Frontend starts successfully.
+Launcher works correctly.
+/auth/login is reached.
+Login returns 401, not 404 or 500.
+JWT and Argon2 are working.
+No dependency problems remain.
+No deployment startup failures remain.
+
+Do not redesign deployment, auth, routing, Vite, launcher, or architecture.
+
+Database State
+
+The intended production database is:
+
+heliumdb
+
+It currently contains approximately:
+
+Users: 22
+Characters: 43
+Stories: 48
+Chapters: 72
+Character Images: 1320
+Invite Codes: 2
+
+These data must not be modified, deleted or recreated.
+
+Suspected Causes
+
+Only investigate these:
+
+Deployment is connected to the wrong database.
+Deployment DATABASE_URL differs from workspace.
+Login credentials fail despite correct database.
+Password hash mismatch.
+Case-sensitive email mismatch.
+Existing admin credentials need safe reset.
+Required Investigation
+
+Determine:
+
+Which database the deployment is actually using.
+Whether it is heliumdb.
+Why /auth/login returns 401.
+Which condition in login fails.
+Whether the user lookup fails or password verification fails.
+If deployment uses the wrong database
+
+Correct only the deployment DATABASE_URL.
+
+Republish.
+
+Do not touch any data.
+
+If deployment uses heliumdb
+
+Do not create new users.
+
+Do not wipe the database.
+
+Do not rerun seeders.
+
+Determine why authentication fails.
+
+Reset the existing admin password only if necessary.
+
+Lauren's Account
+
+Lauren already has an account.
+
+Do not create another.
+
+If login succeeds but she lacks permissions:
+
+set is_seeder=true
+
+Only grant is_admin if absolutely required.
+
+Absolutely Do NOT
+Delete any tables.
+Drop the database.
+Run destructive migrations.
+Re-seed production.
+Replace the database.
+Rewrite authentication.
+Replace deployment architecture.
+Modify unrelated code.
+Introduce new frameworks.
+Definition of Success
+
+Success means:
+
+Deployment remains healthy.
+Existing data is preserved.
+Admin login works.
+Lauren can log in.
+Lauren can perform founder seeding.
+No unnecessary code changes were made.
+
+If you cannot prove the cause, stop and explain exactly what evidence is still missing rather than making assumptions or broad changes.
