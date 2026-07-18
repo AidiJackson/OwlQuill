@@ -2,14 +2,67 @@
 import logging
 import os
 
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, engine
 from app.core.security import get_password_hash
 from app.models.user import User
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_identity_schema() -> None:
+    """Failsafe: make sure ``users.active_character_id`` exists.
+
+    The canonical schema change is alembic migration s33_01_active_character;
+    this guard only covers a deployment where the migration hasn't been applied
+    yet, so the User model (which now maps the column) can't 500 every request.
+    Idempotent; never raises.
+    """
+    try:
+        columns = {c["name"] for c in sa_inspect(engine).get_columns("users")}
+        if "active_character_id" in columns:
+            return
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN active_character_id INTEGER"))
+        logger.warning(
+            "Added users.active_character_id via startup guard — run "
+            "'alembic upgrade head' to record migration s33_01_active_character."
+        )
+    except Exception as e:
+        logger.error(f"ensure_identity_schema failed: {e}")
+
+
+def ensure_seeder_flags() -> None:
+    """Persist ``is_seeder=True`` for accounts listed in SEEDER_EMAILS.
+
+    The runtime exemption (services/seeding.py::is_seeder_account) already
+    honours the email list; writing the flag makes seeder status durable even
+    if the env var is absent in some environment. Idempotent; never raises.
+    """
+    from app.core.config import settings
+
+    seeder_emails = settings.get_seeder_emails()
+    if not seeder_emails:
+        return
+    db: Session = SessionLocal()
+    try:
+        users = db.query(User).filter(User.email.in_(list(seeder_emails))).all()
+        changed = [u for u in users if not u.is_seeder]
+        for u in changed:
+            u.is_seeder = True
+        if changed:
+            db.commit()
+            logger.info(
+                "Seeder flag set for: %s", ", ".join(u.email for u in changed)
+            )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to ensure seeder flags: {e}")
+    finally:
+        db.close()
 
 
 def ensure_admin_user() -> None:

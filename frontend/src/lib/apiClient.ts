@@ -107,9 +107,21 @@ class ApiClient {
     return this.request<CharacterSearchResult[]>(`/users/${encodeURIComponent(username)}/characters`);
   }
 
+  // Active character (the account's visible Ficshon identity)
+  async setActiveCharacter(characterId: number | null): Promise<User> {
+    return this.request<User>('/users/me/active-character', {
+      method: 'PATCH',
+      body: JSON.stringify({ character_id: characterId }),
+    });
+  }
+
   // Characters
   async getCharacters(): Promise<Character[]> {
     return this.request<Character[]>('/characters/');
+  }
+
+  async getCharacterPosts(characterId: number, limit = 20): Promise<ProfileTimelineItem[]> {
+    return this.request<ProfileTimelineItem[]>(`/characters/${characterId}/posts?limit=${limit}`);
   }
 
   async searchCharacters(q: string): Promise<CharacterSearchResult[]> {

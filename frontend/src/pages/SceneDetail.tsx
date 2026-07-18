@@ -119,9 +119,9 @@ export default function SceneDetail() {
               <div className="flex items-center gap-2 mb-2">
                 {p.character_name ? (
                   <span className="text-sm font-medium text-emerald-400">{p.character_name}</span>
-                ) : p.author_username ? (
-                  <span className="text-sm text-gray-400">@{p.author_username}</span>
-                ) : null}
+                ) : (
+                  <span className="text-sm text-gray-400">Wanderer</span>
+                )}
                 <span className="text-xs text-gray-500">
                   {new Date(p.created_at).toLocaleString()}
                 </span>

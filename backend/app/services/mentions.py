@@ -5,7 +5,6 @@ from typing import Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.user import User
 from app.models.character import Character, VisibilityEnum
 
 _MENTION_RE = re.compile(r"@([A-Za-z0-9_]+)")
@@ -28,7 +27,12 @@ def parse_mention_texts(text: str) -> list[str]:
 
 
 def resolve_mentions(mention_texts: list[str], db: Session) -> list[dict[str, Any]]:
-    """Resolve a list of @mention strings to user/character records.
+    """Resolve a list of @mention strings to character records.
+
+    Sprint 33 (identity-first): mentions resolve to PUBLIC CHARACTERS ONLY.
+    Account usernames are private infrastructure — an @mention matching a
+    username stays unresolved (no link, and no confirmation that such an
+    account exists).
 
     Returns a list of dicts with keys:
         mention_text, target_type, target_id,
@@ -39,25 +43,7 @@ def resolve_mentions(mention_texts: list[str], db: Session) -> list[dict[str, An
     for mention_text in mention_texts:
         handle = mention_text.lstrip("@")
 
-        # Try user first
-        user = (
-            db.query(User)
-            .filter(func.lower(User.username) == handle.lower())
-            .first()
-        )
-        if user:
-            results.append({
-                "mention_text": mention_text,
-                "target_type": "user",
-                "target_id": user.id,
-                "mentioned_user_id": user.id,
-                "mentioned_character_id": None,
-                "display_name": user.username,
-                "url": f"/u/{user.username}",
-            })
-            continue
-
-        # Try public character
+        # Public character only — accounts are never mention targets
         char = (
             db.query(Character)
             .filter(

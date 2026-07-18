@@ -24,6 +24,10 @@ export default function Characters() {
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
+  // Founders (admin or seeder) hold unlimited characters and never see the
+  // one-character beta messaging.
+  const hasUnlimitedCharacters = !!(currentUser?.is_admin || currentUser?.is_seeder);
+
   // ── Search state ──
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CharacterSearchResult[]>([]);
@@ -152,7 +156,7 @@ export default function Characters() {
 
   const handleCreateCharacter = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (cooldownInfo && !currentUser?.is_admin) {
+    if (cooldownInfo && !hasUnlimitedCharacters) {
       alert(`Character creation is on cooldown. You can create a new character in ${cooldownInfo.hours}h ${cooldownInfo.minutes}m.`);
       return;
     }
@@ -185,8 +189,8 @@ export default function Characters() {
     <div className="max-w-4xl mx-auto p-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">My Characters</h1>
-        {currentUser?.is_admin ? (
-          // Admin: always show create actions, no beta-limit badge
+        {hasUnlimitedCharacters ? (
+          // Founder (admin/seeder): always show create actions, no beta-limit badge
           <div className="flex gap-2">
             <button
               onClick={() => navigate('/characters/new')}

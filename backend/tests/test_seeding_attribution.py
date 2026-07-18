@@ -1,12 +1,13 @@
-"""Step 2 — character-first attribution + roster privacy (seeding mode).
+"""Character-first attribution + account privacy (Sprint 33: identity-first).
 
 Covers the server-side guarantees:
-  * character-attributed posts omit the owner's identity (author_username +
-    author_user_id) to non-owner viewers, but keep it for the owner;
-  * non-character posts keep normal @username attribution for everyone;
+  * every post omits the author's account identity (author_username +
+    author_user_id) to non-author viewers — characters are the only public
+    identities; the author still sees their own attribution;
+  * posts REQUIRE a character author (characterless posting is rejected);
   * GET /characters/{id} omits owner_username to non-owner viewers;
-  * GET /users/{username}/characters does not enumerate a roster to a non-owner
-    (returns []), while the owner sees their full roster;
+  * account surfaces (/users/{username}/*) return 404 to non-owners —
+    accounts are private infrastructure;
   * the one-character-per-account limit is enforced, and seeder accounts are
     exempt.
 """
@@ -50,7 +51,6 @@ def test_character_post_hides_owner_from_non_owner(client, db_session):
     realm = _create_realm(client, owner, "AttrPub", "attr-pub", True)
     char_id = _create_character(client, owner)
     char_post = _create_post(client, owner, realm, "In character", character_id=char_id)
-    plain_post = _create_post(client, owner, realm, "OOC chatter")
 
     # Non-owner: character post is attributed to the CHARACTER only — no owner leak.
     v = client.get(f"/posts/{char_post}", headers=auth_headers(viewer)).json()
@@ -64,10 +64,35 @@ def test_character_post_hides_owner_from_non_owner(client, db_session):
     assert o["author_username"] == "attrowner"
     assert o["author_user_id"] is not None
 
-    # Non-character post keeps normal @username attribution for everyone.
-    vp = client.get(f"/posts/{plain_post}", headers=auth_headers(viewer)).json()
-    assert vp["author_username"] == "attrowner"
-    assert vp["character_name"] is None
+
+def test_characterless_post_rejected(client, db_session):
+    """Sprint 33: every post is authored by a character — no account posting."""
+    owner = get_auth_token(client, email="nochar_owner@test.com", username="nocharowner")
+    realm = _create_realm(client, owner, "NoCharPub", "nochar-pub", True)
+
+    resp = client.post(
+        f"/posts/realms/{realm}/posts",
+        json={"content": "OOC chatter"},
+        headers=auth_headers(owner),
+    )
+    assert resp.status_code == 403
+
+
+def test_post_as_someone_elses_character_rejected(client, db_session):
+    """Attribution is validated server-side: you can only post as your own
+    character (closes the arbitrary-attribution hole)."""
+    owner = get_auth_token(client, email="own_char@test.com", username="ownchar")
+    attacker = get_auth_token(client, email="attacker@test.com", username="attacker")
+
+    realm = _create_realm(client, attacker, "AtkPub", "atk-pub", True)
+    victim_char = _create_character(client, owner)
+
+    resp = client.post(
+        f"/posts/realms/{realm}/posts",
+        json={"content": "impersonation attempt", "character_id": victim_char},
+        headers=auth_headers(attacker),
+    )
+    assert resp.status_code == 403
 
 
 def test_character_payload_hides_owner_username(client, db_session):
@@ -85,30 +110,26 @@ def test_character_payload_hides_owner_username(client, db_session):
     assert o["owner_username"] == "cpowner"
 
 
-def test_roster_not_enumerable_to_non_owner(client, db_session):
+def test_account_surfaces_404_to_non_owner(client, db_session):
+    """Sprint 33: account pages are private infrastructure — every
+    /users/{username}/* surface 404s to non-owners, indistinguishable from a
+    nonexistent account."""
     owner = get_auth_token(client, email="rost_owner@test.com", username="rostowner")
     viewer = get_auth_token(client, email="rost_viewer@test.com", username="rostviewer")
     _create_character(client, owner)
 
-    # Seeding mode ON (default): non-owner gets an empty roster (non-enumerable).
-    v = client.get("/users/rostowner/characters", headers=auth_headers(viewer))
-    assert v.status_code == 200
-    assert v.json() == []
+    for path in (
+        "/users/rostowner",
+        "/users/rostowner/characters",
+        "/users/rostowner/timeline",
+        "/users/rostowner/mentions",
+    ):
+        v = client.get(path, headers=auth_headers(viewer))
+        assert v.status_code == 404, f"{path} leaked to non-owner: {v.status_code}"
 
-    # Owner sees their full roster.
+    # Owner still sees their own account surfaces.
+    assert client.get("/users/rostowner", headers=auth_headers(owner)).status_code == 200
     o = client.get("/users/rostowner/characters", headers=auth_headers(owner))
     assert o.status_code == 200
     assert len(o.json()) == 1
-
-
-def test_roster_visible_to_non_owner_when_seeding_off(client, db_session, monkeypatch):
-    from app.core import config as cfg_module
-    monkeypatch.setattr(cfg_module.settings, "SEEDING_MODE", False)
-
-    owner = get_auth_token(client, email="off_owner@test.com", username="offowner")
-    viewer = get_auth_token(client, email="off_viewer@test.com", username="offviewer")
-    _create_character(client, owner)  # public by default
-
-    v = client.get("/users/offowner/characters", headers=auth_headers(viewer))
-    assert v.status_code == 200
-    assert len(v.json()) == 1
+    assert client.get("/users/rostowner/timeline", headers=auth_headers(owner)).status_code == 200

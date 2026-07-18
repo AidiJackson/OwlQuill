@@ -39,9 +39,25 @@ class UserInDB(UserBase):
     model_config = {"from_attributes": True}
 
 
+class ActiveCharacterSummary(BaseModel):
+    """Minimal summary of the account's active character (its visible identity)."""
+    id: int
+    name: str
+    avatar_url: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class User(UserInDB):
-    """Public user schema."""
+    """Authenticated user schema (never shown publicly — accounts are private
+    infrastructure; characters are the social identities)."""
     is_admin: bool = False
+    is_seeder: bool = False
+    # Explicitly selected active character, or the single-character fallback.
+    active_character: Optional[ActiveCharacterSummary] = None
+    # Number of characters the account owns. 0 (for non-founders) = Wanderer:
+    # browse/react/comment only, no creator tools.
+    character_count: int = 0
 
 
 class LoginRequest(BaseModel):

@@ -285,6 +285,81 @@ def get_character(
     return character
 
 
+def _get_visible_character(
+    db: Session, character_id: int, current_user: User
+) -> CharacterModel:
+    """Fetch a character enforcing the standard visibility rule: PUBLIC or
+    owned by the caller, else 404 (indistinguishable from nonexistent)."""
+    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not character or (
+        character.visibility != VisibilityEnum.PUBLIC
+        and character.owner_id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Character not found",
+        )
+    return character
+
+
+@router.get("/{character_id}/posts")
+def get_character_posts(
+    character_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """A character's public timeline: posts authored BY this character only,
+    restricted to realms the viewer can see. Account identity is stripped by
+    the serializer for non-authors (identity-first policy)."""
+    from app.core.admin_seed import auto_join_commons
+    from app.models.post import Post as PostModel
+    from app.models.realm import (
+        Realm as RealmModel,
+        RealmMembership as RealmMembershipModel,
+    )
+    from app.services.seeding import serialize_post_for_viewer
+
+    _get_visible_character(db, character_id, current_user)
+
+    # Ensure viewer is in The Commons (idempotent, same as the user timeline)
+    auto_join_commons(current_user.id, db)
+
+    memberships = db.query(RealmMembershipModel).filter(
+        RealmMembershipModel.user_id == current_user.id
+    ).all()
+    viewer_realm_ids = {m.realm_id for m in memberships}
+    if not viewer_realm_ids:
+        return []
+
+    rows = (
+        db.query(PostModel, RealmModel.name)
+        .join(RealmModel, PostModel.realm_id == RealmModel.id)
+        .filter(
+            PostModel.character_id == character_id,
+            PostModel.realm_id.in_(viewer_realm_ids),
+        )
+        .order_by(PostModel.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "type": "post",
+            "created_at": post.created_at,
+            "realm_id": post.realm_id,
+            "realm_name": realm_name,
+            "payload": serialize_post_for_viewer(post, current_user).model_dump(),
+        }
+        for post, realm_name in rows
+    ]
+
+
+# NOTE: the character media library endpoint (GET /characters/{id}/images)
+# lives in character_visual.py — it already serves a PUBLIC character's active
+# non-temp images to any viewer, which is the Part F "media" surface.
+
+
 @router.patch("/{character_id}", response_model=Character)
 def update_character(
     character_id: int,
@@ -440,6 +515,11 @@ def delete_character(
         )
 
     db.delete(character)
+
+    # Clear the active-character selection if it pointed at this character
+    # (explicit, in addition to the FK's ON DELETE SET NULL).
+    if current_user.active_character_id == character_id:
+        current_user.active_character_id = None
 
     # Set 24h cooldown on the user (seeders/admins bypass)
     if not is_seeder_account(current_user):

@@ -30,6 +30,7 @@ from app.schemas.scene import SceneOut
 from app.schemas.user import User, UserUpdate, PublicUserProfile
 from app.schemas.character import CharacterSearchResult
 from app.schemas.character_image import CharacterImageRead
+from app.services.identity import build_user_out
 from app.services.image_provider import get_image_provider
 from app.services.seeding import roster_visible_to, serialize_post_for_viewer
 
@@ -86,7 +87,15 @@ def _crop_to_banner(png_bytes: bytes) -> bytes:
 
 
 def _is_admin(user: UserModel) -> bool:
-    return user.email.lower() in settings.get_admin_emails()
+    return bool(user.is_admin) or user.email.lower() in settings.get_admin_emails()
+
+
+def _require_owner_or_admin(current_user: UserModel, target: UserModel) -> None:
+    """Account pages are private infrastructure during closed beta: only the
+    owner (or an admin, for moderation) may view them. Everyone else gets a 404
+    indistinguishable from a nonexistent account."""
+    if current_user.id != target.id and not _is_admin(current_user):
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 class CoverGenerateRequest(BaseModel):
@@ -118,9 +127,12 @@ class UserImageRead(BaseModel):
 
 
 @router.get("/me", response_model=User)
-def get_current_user_info(current_user: UserModel = Depends(get_current_user)) -> User:
+def get_current_user_info(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
     """Get current user information."""
-    return current_user
+    return build_user_out(db, current_user)
 
 
 @router.patch("/me", response_model=User)
@@ -141,7 +153,43 @@ def update_current_user(
 
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return build_user_out(db, current_user)
+
+
+class ActiveCharacterUpdate(BaseModel):
+    """Body for selecting the account's active character (null clears it)."""
+    character_id: int | None = None
+
+
+@router.patch("/me/active-character", response_model=User)
+def set_active_character(
+    req: ActiveCharacterUpdate,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Select which owned character is the account's visible identity.
+
+    404 for a character that doesn't exist or isn't owned by the caller
+    (indistinguishable, to avoid confirming other users' character IDs).
+    """
+    if req.character_id is None:
+        current_user.active_character_id = None
+    else:
+        char = (
+            db.query(CharacterModel)
+            .filter(
+                CharacterModel.id == req.character_id,
+                CharacterModel.owner_id == current_user.id,
+            )
+            .first()
+        )
+        if not char:
+            raise HTTPException(status_code=404, detail="Character not found")
+        current_user.active_character_id = char.id
+
+    db.commit()
+    db.refresh(current_user)
+    return build_user_out(db, current_user)
 
 
 @router.post("/me/cover/generate", response_model=CoverGenerateResponse)
@@ -342,10 +390,12 @@ def get_user_mentions(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list:
-    """Get posts where the user (or their public characters) are mentioned."""
+    """Get posts where the user (or their public characters) are mentioned.
+    Owner/admin only — account surfaces are private infrastructure."""
     target = db.query(UserModel).filter(UserModel.username == username).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    _require_owner_or_admin(current_user, target)
 
     # Posts where the user is directly mentioned
     posts = (
@@ -366,10 +416,14 @@ def get_user_profile(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> PublicUserProfile:
-    """Get a public-facing user profile by username (no email)."""
+    """Get a user profile by username (no email).
+
+    Owner/admin only during closed beta: characters are the public identities,
+    so account profiles return 404 to everyone else."""
     user = db.query(UserModel).filter(UserModel.username == username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    _require_owner_or_admin(current_user, user)
     return user
 
 
@@ -392,6 +446,7 @@ def get_user_characters(
     target = db.query(UserModel).filter(UserModel.username == username).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    _require_owner_or_admin(current_user, target)
 
     if not roster_visible_to(current_user, target.id):
         return []
@@ -413,7 +468,8 @@ def get_user_timeline(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get a user's profile timeline (posts + scenes), access-safe."""
+    """Get a user's profile timeline (posts + scenes), access-safe.
+    Owner/admin only — the account timeline is private infrastructure."""
     # Ensure viewer is in The Commons (idempotent)
     auto_join_commons(current_user.id, db)
 
@@ -421,6 +477,7 @@ def get_user_timeline(
     target = db.query(UserModel).filter(UserModel.username == username).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    _require_owner_or_admin(current_user, target)
 
     # Viewer realm memberships
     memberships = db.query(RealmMembershipModel).filter(

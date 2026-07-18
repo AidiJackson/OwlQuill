@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Globe, Users, Lock, Feather, RefreshCw, MessageSquare, UserPlus, UserCheck, Trash2, X, Check, Sparkles, Image as ImageIcon } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { Character, User } from '@/lib/types';
+import type { Character, ProfileTimelineItem, User } from '@/lib/types';
 import CanonManager from '@/components/CanonManager';
+import MentionText from '@/components/MentionText';
 import { listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 import ImageGrid from '@/features/images/components/ImageGrid';
@@ -35,6 +36,8 @@ export default function CharacterDetail() {
   const [showCanonModal, setShowCanonModal] = useState(false);
 
   const [galleryImages, setGalleryImages] = useState<CharacterImageRead[]>([]);
+  const [timeline, setTimeline] = useState<ProfileTimelineItem[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(true);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [lbVisible, setLbVisible] = useState(false);
 
@@ -156,6 +159,11 @@ export default function CharacterDetail() {
         listCharacterImages(charId)
           .then(setGalleryImages)
           .catch(() => {});
+        // Character-only timeline (the public profile feed)
+        apiClient.getCharacterPosts(charId)
+          .then(setTimeline)
+          .catch(() => setTimeline([]))
+          .finally(() => setTimelineLoading(false));
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Character not found'))
       .finally(() => setLoading(false));
@@ -280,17 +288,8 @@ export default function CharacterDetail() {
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
               <VisIcon className="w-3.5 h-3.5" />
               <span className="capitalize">{character.visibility}</span>
-              {character.owner_username && (character.visibility === 'public' || (currentUser && (character.owner_id === currentUser.id))) && (
-                <>
-                  <span className="text-gray-600">·</span>
-                  <Link
-                    to={`/u/${encodeURIComponent(character.owner_username)}`}
-                    className="text-gray-400 hover:text-emerald-300 hover:underline transition-colors"
-                  >
-                    @{character.owner_username}
-                  </Link>
-                </>
-              )}
+              {/* Identity-first: no owner byline, even for the owner — the
+                  character IS the identity. Account access lives in the sidebar. */}
               {character.visual_locked && (
                 <>
                   <span className="text-gray-600">·</span>
@@ -402,6 +401,58 @@ export default function CharacterDetail() {
         <ErrorBoundary>
           <IdentityCanonSection characterId={character.id} />
         </ErrorBoundary>
+
+        {/* Character timeline — posts authored by THIS character only */}
+        <div className="border-t border-gray-800 pt-6 space-y-3">
+          <h2 className="text-sm font-medium text-gray-300">Posts</h2>
+          {timelineLoading ? (
+            <p className="text-sm text-gray-500">Loading posts…</p>
+          ) : timeline.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              {character.name} hasn't posted yet.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {timeline.map((item, idx) => {
+                const post = item.payload as {
+                  id?: number;
+                  title?: string;
+                  content?: string;
+                  image_url?: string;
+                  mentions?: import('@/lib/types').PostMention[];
+                };
+                return (
+                  <div key={post.id ?? idx} className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <span className="text-sm font-medium text-emerald-400">{character.name}</span>
+                      {item.realm_name && (
+                        <span className="text-[11px] text-gray-600">in {item.realm_name}</span>
+                      )}
+                      <span className="text-[11px] text-gray-600 ml-auto">
+                        {new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                    {post.title && (
+                      <h3 className="text-base font-semibold text-gray-100 mb-1">{post.title}</h3>
+                    )}
+                    <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
+                      <MentionText text={post.content ?? ''} mentions={post.mentions} />
+                    </p>
+                    {post.image_url && (
+                      <img
+                        src={post.image_url}
+                        alt={post.title || 'Post image'}
+                        className="mt-3 rounded-lg max-h-80 object-contain"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Image gallery */}
         {galleryImages.length > 0 && (

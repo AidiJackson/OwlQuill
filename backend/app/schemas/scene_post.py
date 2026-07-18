@@ -13,10 +13,14 @@ class ScenePostCreate(BaseModel):
 
 
 class ScenePostOut(BaseModel):
-    """Schema for returning a scene post."""
+    """Schema for returning a scene post.
+
+    author_user_id/author_username are populated only for the viewer's own
+    turns (character-first identity — accounts are never public authors).
+    """
     id: int
     scene_id: int
-    author_user_id: int
+    author_user_id: Optional[int] = None
     author_username: Optional[str] = None
     character_id: Optional[int] = None
     character_name: Optional[str] = None

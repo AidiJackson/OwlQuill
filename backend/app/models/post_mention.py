@@ -40,16 +40,16 @@ class PostMention(Base):
 
     @property
     def display_name(self) -> str:
-        if self.mentioned_user and self.mentioned_user.username:
-            return self.mentioned_user.username
+        # Identity-first: never surface an account username, even on legacy
+        # rows that resolved to a user before Sprint 33.
         if self.mentioned_character and self.mentioned_character.name:
             return self.mentioned_character.name
         return self.mention_text.lstrip("@")
 
     @property
     def url(self) -> str:
-        if self.mentioned_user and self.mentioned_user.username:
-            return f"/u/{self.mentioned_user.username}"
+        # Identity-first: only characters are linkable identities. Legacy
+        # user-mention rows render unlinked.
         if self.mentioned_character:
             return f"/characters/{self.mentioned_character.id}"
         return ""

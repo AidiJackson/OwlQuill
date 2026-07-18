@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/apiClient';
+import { useAuthStore } from '@/lib/store';
 import type { Comment, Character } from '@/lib/types';
 
 interface CommentSectionProps {
@@ -18,10 +19,19 @@ export default function CommentSection({ postId, characters = [], defaultExpande
   const [commentError, setCommentError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Auto-select when exactly one character exists; leave null for multi-char (requires explicit pick).
+  const activeCharacterId = useAuthStore((s) => s.user?.active_character?.id);
+
+  // Default the replying identity to the ACTIVE character; single-character
+  // accounts resolve automatically. Multi-character with no selection picks explicitly.
   useEffect(() => {
-    if (characters.length === 1) setComposerCharId(characters[0].id);
-  }, [characters]);
+    if (composerCharId !== null) return;
+    if (activeCharacterId && characters.some((c) => c.id === activeCharacterId)) {
+      setComposerCharId(activeCharacterId);
+    } else if (characters.length === 1) {
+      setComposerCharId(characters[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [characters, activeCharacterId]);
 
   useEffect(() => {
     if (expanded) {
@@ -111,11 +121,11 @@ export default function CommentSection({ postId, characters = [], defaultExpande
                           {comment.character_name}
                         </span>
                       </div>
-                    ) : comment.author_username ? (
+                    ) : (
                       <span className="text-sm text-gray-400 flex-shrink-0">
-                        @{comment.author_username}
+                        Wanderer
                       </span>
-                    ) : null}
+                    )}
                     {getTypeBadge(comment.content_type)}
                     <span className="text-xs text-gray-500">
                       {new Date(comment.created_at).toLocaleDateString()}

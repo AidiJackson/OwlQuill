@@ -10,7 +10,12 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
-from app.core.admin_seed import ensure_admin_user, ensure_commons_realm
+from app.core.admin_seed import (
+    ensure_admin_user,
+    ensure_commons_realm,
+    ensure_identity_schema,
+    ensure_seeder_flags,
+)
 from app.core.starter_seed import ensure_starter_realms_and_posts
 from app.core.invite_seed import seed_invite_codes
 from app.core.style_shop_seed import seed_style_presets
@@ -80,7 +85,9 @@ async def lifespan(app: FastAPI):
             settings.IDENTITY_ANGLES_PROVIDER,
             bool(settings.OPENAI_API_KEY),
         )
+    ensure_identity_schema()
     ensure_admin_user()
+    ensure_seeder_flags()
     ensure_commons_realm()
     try:
         ensure_starter_realms_and_posts()

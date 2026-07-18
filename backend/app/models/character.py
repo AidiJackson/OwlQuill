@@ -49,7 +49,7 @@ class Character(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
-    owner = relationship("User", back_populates="characters")
+    owner = relationship("User", back_populates="characters", foreign_keys=[owner_id])
     posts = relationship("Post", back_populates="character")
     comments = relationship("Comment", back_populates="character")
     dna = relationship("CharacterDNA", back_populates="character", uselist=False, cascade="all, delete-orphan")

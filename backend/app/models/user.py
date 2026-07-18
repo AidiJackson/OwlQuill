@@ -1,6 +1,6 @@
 """User model."""
 from datetime import datetime
-from sqlalchemy import Boolean, Column, Integer, String, DateTime
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, DateTime
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -20,6 +20,14 @@ class User(Base):
     avatar_url = Column(String, nullable=True)
     cover_url = Column(String, nullable=True)
     next_character_allowed_at = Column(DateTime, nullable=True)
+    # The owner's currently selected character — their visible Ficshon identity.
+    # NULL = no explicit selection; the API falls back to the account's single
+    # character when exactly one exists. SET NULL on character delete.
+    active_character_id = Column(
+        Integer,
+        ForeignKey("characters.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     # Role + moderation
     is_admin = Column(Boolean, default=False, nullable=False, server_default="false")
     # Dedicated seeder flag — exempt from the one-character-per-account limit
@@ -33,7 +41,19 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
-    characters = relationship("Character", back_populates="owner", cascade="all, delete-orphan")
+    # foreign_keys pinned: users↔characters now has two FK paths
+    # (characters.owner_id and users.active_character_id).
+    characters = relationship(
+        "Character",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        foreign_keys="Character.owner_id",
+    )
+    active_character = relationship(
+        "Character",
+        foreign_keys=[active_character_id],
+        post_update=True,
+    )
     owned_realms = relationship("Realm", back_populates="owner", cascade="all, delete-orphan")
     realm_memberships = relationship("RealmMembership", back_populates="user", cascade="all, delete-orphan")
     posts = relationship("Post", back_populates="author_user", cascade="all, delete-orphan")

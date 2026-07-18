@@ -126,16 +126,26 @@ export default function RealmDetail() {
 
 
   const requestToJoin = async (postId: number) => {
-    if (!user?.username) {
+    if (!user) {
       setJoinError(m => ({ ...m, [postId]: 'You must be logged in.' }));
+      return;
+    }
+    // Identity-first: the request comes from the CHARACTER (never the account
+    // username). Wanderers send an identity-less request.
+    const joinChar = user.active_character ?? null;
+    if (!joinChar && (user.character_count ?? 0) > 0) {
+      setJoinError(m => ({ ...m, [postId]: 'Choose your active character first (sidebar switcher).' }));
       return;
     }
     setJoinLoading(m => ({ ...m, [postId]: true }));
     setJoinError(m => { const { [postId]: _, ...rest } = m; return rest; });
     try {
       await apiClient.createComment(postId, {
-        content: `@${user.username} requested to join this starter.`,
+        content: joinChar
+          ? `@${joinChar.name} requested to join this starter.`
+          : 'A wanderer requested to join this starter.',
         content_type: 'ooc',
+        ...(joinChar ? { character_id: joinChar.id } : {}),
       });
       setJoinSent(m => ({ ...m, [postId]: true }));
     } catch (e) {
@@ -607,7 +617,9 @@ export default function RealmDetail() {
         ) : (
           <div className="space-y-4">
             {posts.map((post) => {
-              const profileHref = post.author_username ? `/u/${encodeURIComponent(post.author_username)}` : '#';
+              // Identity-first: characters are the only public authors — a post
+              // links to its character's profile, never an account page.
+              const profileHref = post.character_id != null ? `/characters/${post.character_id}` : '#';
 
               return (
                 <div key={post.id} className="card">
@@ -631,16 +643,14 @@ export default function RealmDetail() {
                             {post.character_name}
                           </span>
                         </Link>
-                      ) : post.author_username ? (
-                        <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 flex-shrink-0">
-                          <div className="w-7 h-7 rounded-md bg-gray-700 border border-gray-600 flex items-center justify-center text-[11px] font-medium text-gray-400 flex-shrink-0">
-                            {post.author_username.charAt(0).toUpperCase()}
+                      ) : (
+                        <div className="flex items-center gap-1.5 mr-0.5 flex-shrink-0">
+                          <div className="w-7 h-7 rounded-md bg-gray-700 border border-gray-600 flex items-center justify-center text-[11px] font-medium text-gray-500 flex-shrink-0">
+                            ✦
                           </div>
-                          <span className="text-sm text-gray-400 group-hover:text-emerald-300 transition-colors">
-                            @{post.author_username}
-                          </span>
-                        </Link>
-                      ) : null}
+                          <span className="text-sm text-gray-400">Wanderer</span>
+                        </div>
+                      )}
                       {getPostTypeBadge(post.content_type)}
                       {getPostKindBadge(post.post_kind)}
                       {getSourceTypePill(post.source_type)}

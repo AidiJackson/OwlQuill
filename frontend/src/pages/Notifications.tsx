@@ -35,13 +35,16 @@ function NotificationItem({
 
   const renderBody = () => {
     if (notif.type === 'mention') {
-      const author = payload.author_username as string | undefined;
+      // Identity-first: notifications identify the authoring CHARACTER.
+      // Legacy payloads (pre-Sprint 33) stored the account username — never
+      // render it; fall back to a neutral "Someone".
+      const authorCharacter = payload.author_character_name as string | undefined;
       const mention = payload.mention_text as string | undefined;
       const preview = payload.post_preview as string | undefined;
       return (
         <div>
           <p className="text-sm text-white/90">
-            <span className="font-semibold text-violet-400">@{author}</span>{' '}
+            <span className="font-semibold text-violet-400">{authorCharacter ?? 'Someone'}</span>{' '}
             mentioned {mention ? <span className="text-violet-400">{mention}</span> : 'you'} in a post
           </p>
           {preview && (

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
+from app.models.character import Character as CharacterModel
 from app.models.comment import Comment as CommentModel
 from app.models.post import Post as PostModel
 from app.schemas.comment import Comment, CommentCreate
@@ -15,6 +16,10 @@ from app.services.seeding import serialize_comments_for_viewer
 
 router = APIRouter()
 
+# Wanderers (accounts with no characters) may leave short, identity-less
+# comments only.
+_WANDERER_COMMENT_MAX_CHARS = 1000
+
 
 @router.post("/posts/{post_id}/comments", response_model=Comment, status_code=status.HTTP_201_CREATED)
 def create_comment(
@@ -23,13 +28,44 @@ def create_comment(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Comment:
-    """Create a comment on a post."""
+    """Create a comment on a post.
+
+    Character-first identity (Sprint 33): a comment is authored by one of the
+    caller's characters. Accounts with no characters (Wanderers) may leave a
+    short identity-less comment; accounts WITH characters must comment as one,
+    and only as their own (closes the arbitrary-attribution hole).
+    """
     # Check if post exists
     post = db.query(PostModel).filter(PostModel.id == post_id).first()
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Post not found"
+        )
+
+    owned_count = db.query(CharacterModel).filter(
+        CharacterModel.owner_id == current_user.id
+    ).count()
+
+    if comment_data.character_id is not None:
+        owned = db.query(CharacterModel).filter(
+            CharacterModel.id == comment_data.character_id,
+            CharacterModel.owner_id == current_user.id,
+        ).first()
+        if not owned:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only comment as your own character.",
+            )
+    elif owned_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Select a character to comment as.",
+        )
+    elif len(comment_data.content) > _WANDERER_COMMENT_MAX_CHARS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Comments are limited to {_WANDERER_COMMENT_MAX_CHARS} characters.",
         )
 
     db_comment = CommentModel(

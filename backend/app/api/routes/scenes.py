@@ -7,6 +7,7 @@ from sqlalchemy import func
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.models.character import Character as CharacterModel
 from app.models.user import User
 from app.models.scene import Scene as SceneModel, SceneVisibilityEnum
 from app.models.scene_post import ScenePost as ScenePostModel
@@ -15,6 +16,24 @@ from app.schemas.scene import SceneCreate, SceneOut
 from app.schemas.scene_post import ScenePostCreate, ScenePostOut
 
 router = APIRouter()
+
+
+def _scene_post_out(p: ScenePostModel, viewer_id: int) -> ScenePostOut:
+    """Serialize a scene post character-first: the account identity
+    (author_user_id/author_username) is included only for the author's own
+    turns — to everyone else a turn belongs to its character alone."""
+    is_author = p.author_user_id == viewer_id
+    return ScenePostOut(
+        id=p.id,
+        scene_id=p.scene_id,
+        author_user_id=p.author_user_id if is_author else None,
+        author_username=(p.author.username if p.author else None) if is_author else None,
+        character_id=p.character_id,
+        character_name=p.character.name if p.character else None,
+        content=p.content,
+        reply_to_id=p.reply_to_id,
+        created_at=p.created_at,
+    )
 
 
 def _require_realm_membership(db: Session, user_id: int, realm_id: int) -> None:
@@ -151,20 +170,7 @@ def list_scene_posts(
         .all()
     )
 
-    return [
-        ScenePostOut(
-            id=p.id,
-            scene_id=p.scene_id,
-            author_user_id=p.author_user_id,
-            author_username=p.author.username if p.author else None,
-            character_id=p.character_id,
-            character_name=p.character.name if p.character else None,
-            content=p.content,
-            reply_to_id=p.reply_to_id,
-            created_at=p.created_at,
-        )
-        for p in posts
-    ]
+    return [_scene_post_out(p, current_user.id) for p in posts]
 
 
 @router.post("/{scene_id}/posts", response_model=ScenePostOut, status_code=status.HTTP_201_CREATED)
@@ -183,6 +189,19 @@ def create_scene_post(
         _require_realm_membership(db, current_user.id, scene.realm_id)
     _check_scene_access(scene, current_user.id)
 
+    # A scene turn attributed to a character must be attributed to one of the
+    # caller's OWN characters (closes the arbitrary-attribution hole).
+    if data.character_id is not None:
+        owned = db.query(CharacterModel).filter(
+            CharacterModel.id == data.character_id,
+            CharacterModel.owner_id == current_user.id,
+        ).first()
+        if not owned:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only post as your own character.",
+            )
+
     post = ScenePostModel(
         scene_id=scene_id,
         author_user_id=current_user.id,
@@ -197,14 +216,4 @@ def create_scene_post(
     # Eager load for response
     db.refresh(post, attribute_names=["author", "character"])
 
-    return ScenePostOut(
-        id=post.id,
-        scene_id=post.scene_id,
-        author_user_id=post.author_user_id,
-        author_username=post.author.username if post.author else None,
-        character_id=post.character_id,
-        character_name=post.character.name if post.character else None,
-        content=post.content,
-        reply_to_id=post.reply_to_id,
-        created_at=post.created_at,
-    )
+    return _scene_post_out(post, current_user.id)

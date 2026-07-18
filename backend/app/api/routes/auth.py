@@ -134,11 +134,15 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
 
 
 @router.get("/me", response_model=User)
-def get_me(current_user: UserModel = Depends(get_current_user)) -> User:
-    """Get current user information."""
-    user_data = User.model_validate(current_user)
-    user_data.is_admin = current_user.email.lower() in settings.get_admin_emails()
-    return user_data
+def get_me(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Get current user information, including identity context
+    (is_admin/is_seeder, active character, character count)."""
+    from app.services.identity import build_user_out
+
+    return build_user_out(db, current_user)
 
 
 # ---------- Password reset ----------

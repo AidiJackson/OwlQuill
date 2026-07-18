@@ -75,10 +75,19 @@ export default function Home() {
   const [joinSent, setJoinSent] = useState<Record<number, boolean>>({});
   const [joinError, setJoinError] = useState<Record<number, string>>({});
 
-  // Auto-select posting character when exactly one exists; leave null for multi-char (requires explicit pick).
+  // Default the posting identity to the ACTIVE character (single-character
+  // accounts resolve to their one character automatically). Multi-character
+  // founders with no active selection still pick explicitly.
   useEffect(() => {
-    if (characters.length === 1) setComposerCharId(characters[0].id);
-  }, [characters]);
+    if (composerCharId !== null) return;
+    const activeId = user?.active_character?.id;
+    if (activeId && characters.some((c) => c.id === activeId)) {
+      setComposerCharId(activeId);
+    } else if (characters.length === 1) {
+      setComposerCharId(characters[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [characters, user?.active_character?.id]);
 
   // Dev diagnostics: mount/unmount tracking.
   useEffect(() => {
@@ -153,16 +162,26 @@ export default function Home() {
   };
 
   const requestToJoin = async (postId: number) => {
-    if (!user?.username) {
+    if (!user) {
       setJoinError(m => ({ ...m, [postId]: 'You must be logged in.' }));
+      return;
+    }
+    // Identity-first: the request comes from the CHARACTER (never the account
+    // username). Wanderers send an identity-less request.
+    const joinChar = user.active_character ?? null;
+    if (!joinChar && (user.character_count ?? 0) > 0) {
+      setJoinError(m => ({ ...m, [postId]: 'Choose your active character first (sidebar switcher).' }));
       return;
     }
     setJoinLoading(m => ({ ...m, [postId]: true }));
     setJoinError(m => { const { [postId]: _, ...rest } = m; return rest; });
     try {
       await apiClient.createComment(postId, {
-        content: `@${user.username} requested to join this starter.`,
+        content: joinChar
+          ? `@${joinChar.name} requested to join this starter.`
+          : 'A wanderer requested to join this starter.',
         content_type: 'ooc',
+        ...(joinChar ? { character_id: joinChar.id } : {}),
       });
       setJoinSent(m => ({ ...m, [postId]: true }));
     } catch (e) {
@@ -284,14 +303,23 @@ export default function Home() {
         </div>
       )}
 
-      {/* Quick Post composer for The Commons */}
-      {commonsRealm ? (
+      {/* Quick Post composer for The Commons — posts are authored by
+          characters, so the composer only exists once you have one. */}
+      {commonsRealm && characters.length === 0 ? (
+        <div className="card mb-6 text-center py-8">
+          <p className="text-gray-300 font-medium mb-1">Create your character to start posting</p>
+          <p className="text-sm text-gray-500 mb-4">On Ficshon, your character is your voice.</p>
+          <button
+            onClick={() => navigate('/characters/new')}
+            className="btn btn-primary text-sm"
+          >
+            Create your character
+          </button>
+        </div>
+      ) : commonsRealm ? (
         <div className="card mb-6">
           <h3 className="text-base font-semibold mb-3 text-gray-300">
-            {characters.length > 0
-              ? <>Writing as <span className="text-emerald-400">{composerCharId ? (characters.find(c => c.id === composerCharId)?.name ?? characters[0].name) : characters[0].name}</span></>
-              : <>Post in <span className="text-emerald-400">The Commons</span></>
-            }
+            <>Writing as <span className="text-emerald-400">{composerCharId ? (characters.find(c => c.id === composerCharId)?.name ?? characters[0].name) : characters[0].name}</span></>
           </h3>
           {showWorkspacePasteHint && (
             <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
@@ -502,13 +530,12 @@ export default function Home() {
             const realmName = getRealmName(post.realm_id);
             const realm = realms.find(r => r.id === post.realm_id);
             const isCommons = realm?.is_commons;
-            // Character-first attribution (permanent): a character-attributed post
-            // links to the CHARACTER page, never the owning account. Non-character
-            // posts keep the normal @username link.
-            const isCharacterPost = Boolean(post.character_name);
-            const headerHref = isCharacterPost && post.character_id != null
+            // Identity-first (locked): the character is the ONLY public author
+            // identity. Legacy characterless posts render as an identity-less
+            // "Wanderer" with no link — account usernames never appear.
+            const headerHref = post.character_id != null
               ? `/characters/${post.character_id}`
-              : (post.author_username ? `/u/${encodeURIComponent(post.author_username)}` : '#');
+              : '#';
 
             return (
               <div key={post.id} className="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 hover:border-gray-700 hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all group">
@@ -530,13 +557,13 @@ export default function Home() {
                           </div>
                         )}
                       </Link>
-                    ) : post.author_username ? (
-                      <Link to={headerHref} className="flex-shrink-0 mt-0.5">
-                        <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-medium text-gray-400">
-                          {post.author_username.charAt(0).toUpperCase()}
+                    ) : (
+                      <div className="flex-shrink-0 mt-0.5">
+                        <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-medium text-gray-500">
+                          ✦
                         </div>
-                      </Link>
-                    ) : null}
+                      </div>
+                    )}
 
                     {/* Identity text: name + badges on first line, attribution on second */}
                     <div className="min-w-0 flex-1">
@@ -545,22 +572,14 @@ export default function Home() {
                           <Link to={headerHref} className="text-sm font-semibold text-gray-100 hover:text-emerald-300 transition-colors leading-tight">
                             {post.character_name}
                           </Link>
-                        ) : post.author_username ? (
-                          <Link to={headerHref} className="text-sm font-medium text-gray-300 hover:text-emerald-300 transition-colors">
-                            @{post.author_username}
-                          </Link>
-                        ) : null}
+                        ) : (
+                          <span className="text-sm font-medium text-gray-400">Wanderer</span>
+                        )}
                         {getPostTypeBadge(post.content_type)}
                         {getPostKindBadge(post.post_kind)}
                         {getSourceTypePill(post.source_type)}
                       </div>
                       <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                        {post.character_name && post.author_username && (
-                          <span className="text-[11px] text-gray-600">by @{post.author_username}</span>
-                        )}
-                        {post.character_name && post.author_username && (
-                          <span className="text-gray-700 text-[11px]">·</span>
-                        )}
                         <span className="text-[11px] text-gray-600">
                           in <span className={isCommons ? 'text-gray-500' : 'text-emerald-600/80'}>{realmName}</span>
                         </span>

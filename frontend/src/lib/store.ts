@@ -11,6 +11,8 @@ interface AuthState {
   register: (email: string, username: string, password: string, inviteCode: string) => Promise<void>;
   logout: () => void;
   fetchUser: () => Promise<void>;
+  /** Switch which owned character is this account's visible identity. */
+  setActiveCharacter: (characterId: number | null) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -58,5 +60,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch (error) {
       set({ user: null, isAuthenticated: false, isLoading: false });
     }
+  },
+
+  setActiveCharacter: async (characterId) => {
+    const user = await apiClient.setActiveCharacter(characterId);
+    set({ user, isAuthenticated: true });
   },
 }));

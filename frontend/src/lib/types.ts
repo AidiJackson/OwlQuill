@@ -1,5 +1,11 @@
 // API types matching backend schemas
 
+export interface ActiveCharacterSummary {
+  id: number;
+  name: string;
+  avatar_url?: string | null;
+}
+
 export interface User {
   id: number;
   email: string;
@@ -9,6 +15,12 @@ export interface User {
   avatar_url?: string;
   cover_url?: string;
   is_admin?: boolean;
+  is_seeder?: boolean;
+  /** The character this account is currently "being" — its visible Ficshon
+   *  identity. Null for multi-character accounts with no selection and for
+   *  accounts with no characters (Wanderers). */
+  active_character?: ActiveCharacterSummary | null;
+  character_count?: number;
   next_character_allowed_at?: string | null;
   created_at: string;
   updated_at: string;

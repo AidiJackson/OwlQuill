@@ -79,6 +79,25 @@ def create_post_in_realm(
             detail="You must be a member of this realm to post"
         )
 
+    # Character-first identity (Sprint 33): every post is authored BY a
+    # character — the account is private infrastructure and never a public
+    # author. Requiring the character here also closes the arbitrary-attribution
+    # hole (any character_id used to be accepted unchecked).
+    if not post_data.character_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Create a character to start posting — posts are authored by characters.",
+        )
+    author_char = db.query(CharacterModel).filter(
+        CharacterModel.id == post_data.character_id,
+        CharacterModel.owner_id == current_user.id,
+    ).first()
+    if not author_char:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only post as your own character.",
+        )
+
     # Enforce image ownership: if image_url is provided, it must belong to the
     # current user (via their character's images or their user images).
     if post_data.image_url:
@@ -150,9 +169,12 @@ def create_post_in_realm(
                 db.add(Notification(
                     user_id=notif_user_id,
                     type="mention",
+                    # Character-first: notifications identify the authoring
+                    # CHARACTER, never the account username.
                     payload=_json.dumps({
                         "post_id": db_post.id,
-                        "author_username": current_user.username,
+                        "author_character_id": author_char.id,
+                        "author_character_name": author_char.name,
                         "mention_text": r["mention_text"],
                         "post_preview": post_data.content[:120],
                         "target_type": r["target_type"],

@@ -65,21 +65,20 @@ def roster_visible_to(viewer: Optional[User], target_user_id: int) -> bool:
 def serialize_post_for_viewer(post, viewer: Optional[User]):
     """Serialize a Post ORM row to its schema, applying character-first policy.
 
-    For a character-attributed post (``character_id`` set) viewed by anyone other
-    than its author, the author's identity (``author_username`` and
-    ``author_user_id``) is omitted so the post is attributed to the CHARACTER
-    only and cannot be traced back to (or clustered by) the owning account.
-    Non-character posts keep normal ``@username`` attribution. The author always
-    sees full attribution on their own posts. This is a permanent policy and is
-    NOT gated by seeding mode.
+    Sprint 33 (identity-first): account identity (``author_username`` and
+    ``author_user_id``) is omitted from EVERY post viewed by anyone other than
+    its author — characters are the only public identities, and user accounts
+    are private infrastructure. Character-attributed posts belong publicly to
+    their character; legacy characterless posts are identity-less ("a
+    Wanderer"). The author always sees full attribution on their own posts.
+    This is a permanent policy and is NOT gated by seeding mode.
     """
     # Imported here to avoid importing the schema layer at module load time.
     from app.schemas.post import Post as PostSchema
 
     schema = PostSchema.model_validate(post)
-    is_character_post = getattr(post, "character_id", None) is not None
     is_author = viewer is not None and getattr(post, "author_user_id", None) == viewer.id
-    if is_character_post and not is_author:
+    if not is_author:
         schema.author_username = None
         schema.author_user_id = None
     return schema
@@ -92,15 +91,14 @@ def serialize_posts_for_viewer(posts, viewer: Optional[User]):
 
 def serialize_comment_for_viewer(comment, viewer: Optional[User]):
     """Serialize a Comment ORM row, applying the same character-first policy as
-    :func:`serialize_post_for_viewer` — a character-attributed comment omits the
-    author's identity to non-author viewers.
+    :func:`serialize_post_for_viewer` — every comment omits the author's account
+    identity to non-author viewers (characterless Wanderer comments included).
     """
     from app.schemas.comment import Comment as CommentSchema
 
     schema = CommentSchema.model_validate(comment)
-    is_character_comment = getattr(comment, "character_id", None) is not None
     is_author = viewer is not None and getattr(comment, "author_user_id", None) == viewer.id
-    if is_character_comment and not is_author:
+    if not is_author:
         schema.author_username = None
         schema.author_user_id = None
     return schema
