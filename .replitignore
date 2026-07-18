@@ -76,3 +76,10 @@ Thumbs.db
 # so these negations must stay at the end of this file.
 !.deploy-python/
 !.deploy-python/**
+
+# Compiled frontend, produced by the [deployment] build step (npm run build).
+# It MUST reach the runtime image — uvicorn serves it directly in production
+# (SERVE_FRONTEND_DIST=true, see start-prod.sh). Re-included last so the
+# generic dist/ and frontend/dist/ exclusions above don't strip it.
+!frontend/dist/
+!frontend/dist/**

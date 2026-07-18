@@ -30,6 +30,10 @@ def test_parse_max_20():
 
 
 # ── Integration tests ─────────────────────────────────────────────────────────
+#
+# Sprint 33 (character-first): posts are authored by characters, mentions
+# resolve to PUBLIC CHARACTERS only, and username mentions stay unresolved —
+# no /u/ link, no existence confirmation, no notification.
 
 def _create_realm(client, headers):
     """Helper: create a realm and return its id."""
@@ -42,33 +46,47 @@ def _create_realm(client, headers):
     return resp.json()["id"]
 
 
+def _create_character(client, headers, name="AuthorChar"):
+    """Helper: create a public character and return its id."""
+    resp = client.post(
+        "/characters/",
+        json={"name": name, "visibility": "public"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+def _create_post(client, headers, realm_id, content, character_id):
+    resp = client.post(
+        f"/posts/realms/{realm_id}/posts",
+        json={"content": content, "content_type": "ic", "character_id": character_id},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
 def test_post_create_with_mention_creates_row(client, db_session):
-    """Post mentioning a registered user creates a PostMention row."""
+    """Post mentioning a public character creates a PostMention row."""
     from app.models.post_mention import PostMention
 
     token_a = get_auth_token(client, "author@test.com", "authoruser")
     token_b = get_auth_token(client, "mentioned@test.com", "mentioneduser")
     hdrs_a = auth_headers(token_a)
+    hdrs_b = auth_headers(token_b)
 
+    _create_character(client, hdrs_b, name="Mentioned")
+    author_char = _create_character(client, hdrs_a)
     realm_id = _create_realm(client, hdrs_a)
-
-    # Join realm
     client.post(f"/realms/{realm_id}/join", headers=hdrs_a)
 
-    resp = client.post(
-        f"/posts/realms/{realm_id}/posts",
-        json={"content": "Hello @mentioneduser!", "content_type": "ic"},
-        headers=hdrs_a,
-    )
-    assert resp.status_code == 201, resp.text
+    data = _create_post(client, hdrs_a, realm_id, "Hello @Mentioned!", author_char)
 
-    post_id = resp.json()["id"]
-
-    # Verify PostMention row
-    pm = db_session.query(PostMention).filter(PostMention.post_id == post_id).first()
+    pm = db_session.query(PostMention).filter(PostMention.post_id == data["id"]).first()
     assert pm is not None
-    assert pm.mention_text == "@mentioneduser"
-    assert pm.mentioned_user_id is not None
+    assert pm.mention_text == "@Mentioned"
+    assert pm.mentioned_character_id is not None
 
 
 def test_post_response_includes_mentions(client, db_session):
@@ -76,65 +94,72 @@ def test_post_response_includes_mentions(client, db_session):
     token_a = get_auth_token(client, "author2@test.com", "authoruser2")
     token_b = get_auth_token(client, "mentioned2@test.com", "mentioneduser2")
     hdrs_a = auth_headers(token_a)
+    hdrs_b = auth_headers(token_b)
 
+    target_char = _create_character(client, hdrs_b, name="Nyra")
+    author_char = _create_character(client, hdrs_a)
     realm_id = _create_realm(client, hdrs_a)
     client.post(f"/realms/{realm_id}/join", headers=hdrs_a)
 
-    resp = client.post(
-        f"/posts/realms/{realm_id}/posts",
-        json={"content": "Hey @mentioneduser2, what's up?", "content_type": "ic"},
-        headers=hdrs_a,
-    )
-    assert resp.status_code == 201, resp.text
-    data = resp.json()
+    data = _create_post(client, hdrs_a, realm_id, "Hey @Nyra, what's up?", author_char)
 
     assert "mentions" in data
     assert len(data["mentions"]) == 1
     m = data["mentions"][0]
-    assert m["mention_text"] == "@mentioneduser2"
-    assert m["target_type"] == "user"
-    assert m["url"] == "/u/mentioneduser2"
-    assert m["display_name"] == "mentioneduser2"
+    assert m["mention_text"] == "@Nyra"
+    assert m["target_type"] == "character"
+    assert m["url"] == f"/characters/{target_char}"
+    assert m["display_name"] == "Nyra"
 
 
-def test_unresolved_mention_does_not_break(client, db_session):
-    """A mention to a non-existent user still creates the post successfully."""
-    token_a = get_auth_token(client, "author3@test.com", "authoruser3")
+def test_username_mention_stays_unresolved(client, db_session):
+    """A username mention resolves to nothing — accounts are never targets."""
+    token_a = get_auth_token(client, "author2b@test.com", "authoruser2b")
+    token_b = get_auth_token(client, "mentioned2b@test.com", "mentioneduser2b")
     hdrs_a = auth_headers(token_a)
 
+    author_char = _create_character(client, hdrs_a)
     realm_id = _create_realm(client, hdrs_a)
     client.post(f"/realms/{realm_id}/join", headers=hdrs_a)
 
-    resp = client.post(
-        f"/posts/realms/{realm_id}/posts",
-        json={"content": "Hey @nobody_exists!", "content_type": "ic"},
-        headers=hdrs_a,
+    data = _create_post(
+        client, hdrs_a, realm_id, "Hey @mentioneduser2b!", author_char
     )
-    assert resp.status_code == 201, resp.text
-    data = resp.json()
+    assert len(data["mentions"]) == 1
+    m = data["mentions"][0]
+    assert m["target_type"] == "unresolved"
+    assert m["url"] == ""
+    assert m["target_id"] is None
+
+
+def test_unresolved_mention_does_not_break(client, db_session):
+    """A mention to a non-existent name still creates the post successfully."""
+    token_a = get_auth_token(client, "author3@test.com", "authoruser3")
+    hdrs_a = auth_headers(token_a)
+
+    author_char = _create_character(client, hdrs_a)
+    realm_id = _create_realm(client, hdrs_a)
+    client.post(f"/realms/{realm_id}/join", headers=hdrs_a)
+
+    data = _create_post(client, hdrs_a, realm_id, "Hey @nobody_exists!", author_char)
     assert len(data["mentions"]) == 1
     assert data["mentions"][0]["target_type"] == "unresolved"
     assert data["mentions"][0]["url"] == ""
 
 
 def test_self_mention_no_notification(client, db_session):
-    """Mentioning yourself does not generate a notification."""
+    """Mentioning your own character does not generate a notification."""
     from app.models.notification import Notification
 
     token = get_auth_token(client, "self@test.com", "selfuser")
     hdrs = auth_headers(token)
 
+    own_char = _create_character(client, hdrs, name="SelfChar")
     realm_id = _create_realm(client, hdrs)
     client.post(f"/realms/{realm_id}/join", headers=hdrs)
 
-    resp = client.post(
-        f"/posts/realms/{realm_id}/posts",
-        json={"content": "I am @selfuser!", "content_type": "ic"},
-        headers=hdrs,
-    )
-    assert resp.status_code == 201, resp.text
+    _create_post(client, hdrs, realm_id, "I am @SelfChar!", own_char)
 
-    # No notifications should exist for selfuser
     from app.models.user import User
     user = db_session.query(User).filter(User.username == "selfuser").first()
     if user:
@@ -155,25 +180,13 @@ def test_character_mention_notifies_owner(client, db_session):
     hdrs_owner = auth_headers(token_owner)
     hdrs_author = auth_headers(token_author)
 
-    # Create public character
-    char_resp = client.post(
-        "/characters/",
-        json={"name": "Elara", "visibility": "public"},
-        headers=hdrs_owner,
-    )
-    assert char_resp.status_code == 201, char_resp.text
-
+    _create_character(client, hdrs_owner, name="Elara")
+    author_char = _create_character(client, hdrs_author)
     realm_id = _create_realm(client, hdrs_author)
     client.post(f"/realms/{realm_id}/join", headers=hdrs_author)
 
-    resp = client.post(
-        f"/posts/realms/{realm_id}/posts",
-        json={"content": "I see @Elara walking by!", "content_type": "ic"},
-        headers=hdrs_author,
-    )
-    assert resp.status_code == 201, resp.text
+    _create_post(client, hdrs_author, realm_id, "I see @Elara walking by!", author_char)
 
-    # Owner should have a mention notification
     owner = db_session.query(User).filter(User.username == "charowner").first()
     assert owner is not None
     notif = db_session.query(Notification).filter(
@@ -190,16 +203,12 @@ def test_unread_count_endpoint(client, db_session):
     hdrs_a = auth_headers(token_a)
     hdrs_b = auth_headers(token_b)
 
+    _create_character(client, hdrs_b, name="Recva")
+    author_char = _create_character(client, hdrs_a)
     realm_id = _create_realm(client, hdrs_a)
     client.post(f"/realms/{realm_id}/join", headers=hdrs_a)
 
-    # Create post mentioning notifrecv
-    resp = client.post(
-        f"/posts/realms/{realm_id}/posts",
-        json={"content": "Hey @notifrecv!", "content_type": "ic"},
-        headers=hdrs_a,
-    )
-    assert resp.status_code == 201, resp.text
+    _create_post(client, hdrs_a, realm_id, "Hey @Recva!", author_char)
 
     count_resp = client.get("/notifications/unread-count", headers=hdrs_b)
     assert count_resp.status_code == 200, count_resp.text
@@ -213,17 +222,13 @@ def test_mark_notification_read(client, db_session):
     hdrs_a = auth_headers(token_a)
     hdrs_b = auth_headers(token_b)
 
+    _create_character(client, hdrs_b, name="Markrecva")
+    author_char = _create_character(client, hdrs_a)
     realm_id = _create_realm(client, hdrs_a)
     client.post(f"/realms/{realm_id}/join", headers=hdrs_a)
 
-    resp = client.post(
-        f"/posts/realms/{realm_id}/posts",
-        json={"content": "Hello @markrecv!", "content_type": "ic"},
-        headers=hdrs_a,
-    )
-    assert resp.status_code == 201, resp.text
+    _create_post(client, hdrs_a, realm_id, "Hello @Markrecva!", author_char)
 
-    # Get the notification
     notif_resp = client.get("/notifications", headers=hdrs_b)
     assert notif_resp.status_code == 200, notif_resp.text
     notifications = notif_resp.json()
@@ -232,7 +237,6 @@ def test_mark_notification_read(client, db_session):
     notif_id = notifications[0]["id"]
     assert notifications[0]["is_read"] is False
 
-    # Mark as read
     patch_resp = client.patch(f"/notifications/{notif_id}/read", headers=hdrs_b)
     assert patch_resp.status_code == 200, patch_resp.text
     assert patch_resp.json()["is_read"] is True

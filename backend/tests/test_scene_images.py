@@ -381,8 +381,8 @@ def test_scene_prompt_includes_face_signature_when_present(client: TestClient):
             from app.services.stub_image_generator import generate_placeholder_png
             from pathlib import Path
             fp = generate_placeholder_png(label="scene", sublabel="test")
-            abs_path = Path(__file__).resolve().parent.parent / fp
-            return abs_path.read_bytes()
+            from app.core.storage import load_image_bytes
+            return load_image_bytes(fp)
 
         def generate_image(self, *, prompt, **kwargs):
             raise NotImplementedError("force Tier A")

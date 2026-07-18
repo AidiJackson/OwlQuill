@@ -59,8 +59,8 @@ def _stub_png_bytes() -> bytes:
     """Return a valid stub PNG from the stub generator."""
     from app.services.stub_image_generator import generate_placeholder_png
     fp = generate_placeholder_png(label="test", sublabel="stub")
-    abs_path = Path(__file__).resolve().parent.parent / fp
-    return abs_path.read_bytes()
+    from app.core.storage import load_image_bytes
+    return load_image_bytes(fp)
 
 
 def _stub_image_url(label: str = "ref") -> str:
@@ -235,8 +235,13 @@ def test_provider_option1_maps_to_openai(monkeypatch):
     assert isinstance(provider, _OpenAIImageProvider)
 
 
-def test_provider_option2_maps_to_google(client: TestClient):
+def test_provider_option2_maps_to_google(client: TestClient, monkeypatch):
+    from app.core.config import settings
     from app.services.image_provider import get_provider_for_option
+
+    # Fake key: conftest strips the live GOOGLE_AI_API_KEY (Sprint 34) so the
+    # provider constructor needs one injected, same as the option1 test above.
+    monkeypatch.setattr(settings, "GOOGLE_AI_API_KEY", "test-fake-key")
     provider = get_provider_for_option("option2")
     assert "google" in type(provider).__name__.lower() or hasattr(provider, "_google")
 

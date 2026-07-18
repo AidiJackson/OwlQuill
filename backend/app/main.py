@@ -1,10 +1,12 @@
 """Ficshon FastAPI application."""
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -241,9 +243,61 @@ def health_check() -> dict:
 
 
 @app.get("/")
-def root() -> dict:
-    """Root endpoint."""
+def root():
+    """Root endpoint — SPA index in production, API info otherwise."""
+    if _SERVE_SPA:
+        return FileResponse(_FRONTEND_DIST / "index.html")
     resp: dict = {"service": "Ficshon API", "version": settings.APP_VERSION}
     if settings.DEBUG:
         resp["docs"] = "/docs"
     return resp
+
+
+# --- Production SPA serving (Sprint 34) -------------------------------------
+# In production (start-prod.sh sets SERVE_FRONTEND_DIST=true) uvicorn serves
+# the compiled frontend from frontend/dist directly, replacing the Vite dev
+# server that previously fronted the app in deployments. Vite dev mode keeps
+# an HMR WebSocket open to the browser; when the connection drops (as it does
+# periodically behind the deployment proxy) the Vite client force-reloads the
+# page — the observed five-minute production reload. Serving static compiled
+# assets removes that WebSocket entirely.
+#
+# Development is unaffected: the env var is unset, so this whole block is
+# inert and start-dev.sh keeps using Vite exactly as before.
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+_SERVE_SPA = (
+    os.environ.get("SERVE_FRONTEND_DIST", "").lower() == "true"
+    and (_FRONTEND_DIST / "index.html").is_file()
+)
+if os.environ.get("SERVE_FRONTEND_DIST", "").lower() == "true" and not _SERVE_SPA:
+    # Fail loudly at import so a deployment without a built frontend surfaces
+    # immediately instead of serving JSON at every page URL.
+    raise RuntimeError(
+        f"SERVE_FRONTEND_DIST=true but {_FRONTEND_DIST / 'index.html'} does not "
+        "exist — run 'npm run build' in frontend/ (deployment build step)."
+    )
+
+if _SERVE_SPA:
+    # Compiled hashed assets (JS/CSS) live under dist/assets.
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(_FRONTEND_DIST / "assets")),
+        name="spa-assets",
+    )
+
+    # Registered last, so every real API route, /static and /assets mount, and
+    # /health match first. Only unmatched GETs land here.
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str):
+        """Serve dist files by exact path, else the SPA index (client routing).
+
+        Unmatched paths under the API namespaces keep returning JSON 404 —
+        the SPA index must never mask a missing API endpoint.
+        """
+        first_segment = full_path.split("/", 1)[0]
+        if first_segment in ("api", "static", "assets"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        candidate = (_FRONTEND_DIST / full_path).resolve()
+        if candidate.is_relative_to(_FRONTEND_DIST) and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_FRONTEND_DIST / "index.html")

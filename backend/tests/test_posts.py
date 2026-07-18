@@ -17,10 +17,26 @@ def _create_realm(client, token, name, slug, is_public):
     return resp.json()["id"]
 
 
+# Posts are authored by characters (Sprint 33). One character per account:
+# create on first use, reuse the existing one after.
+def _character_for(client, token):
+    resp = client.post(
+        "/characters/",
+        json={"name": "AuthorChar"},
+        headers=auth_headers(token),
+    )
+    if resp.status_code == 201:
+        return resp.json()["id"]
+    owned = client.get("/characters/", headers=auth_headers(token))
+    assert owned.status_code == 200, owned.text
+    assert owned.json(), "no character available and creation was refused"
+    return owned.json()[0]["id"]
+
+
 def _create_post(client, token, realm_id, content):
     resp = client.post(
         f"/posts/realms/{realm_id}/posts",
-        json={"content": content},
+        json={"content": content, "character_id": _character_for(client, token)},
         headers=auth_headers(token),
     )
     assert resp.status_code == 201, resp.text
@@ -87,10 +103,13 @@ def test_post_comments_and_reactions_private_realm_gated(client, db_session):
     priv_post = _create_post(client, owner, priv_realm, "hidden")
     pub_post = _create_post(client, owner, pub_realm, "shown")
 
-    # Owner seeds a comment + reaction on each post.
+    # Owner seeds a comment + reaction on each post. Comments by a
+    # character-owning account must be character-attributed (Sprint 33).
+    owner_char = _character_for(client, owner)
     for pid in (priv_post, pub_post):
         assert client.post(
-            f"/comments/posts/{pid}/comments", json={"content": "hi"},
+            f"/comments/posts/{pid}/comments",
+            json={"content": "hi", "character_id": owner_char},
             headers=auth_headers(owner),
         ).status_code == 201
         assert client.post(

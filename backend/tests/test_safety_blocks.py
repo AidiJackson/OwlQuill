@@ -51,20 +51,38 @@ def _join_realm(client: TestClient, token: str, realm_id: int) -> None:
     assert r.status_code in (200, 201), r.json()
 
 
+# Posts are authored by characters (Sprint 33). One character per account:
+# create on first use, reuse the existing one after.
+def _character_for(client: TestClient, token: str) -> int:
+    r = client.post("/characters/", json={"name": "AuthorChar"}, headers=_h(token))
+    if r.status_code == 201:
+        return r.json()["id"]
+    owned = client.get("/characters/", headers=_h(token))
+    assert owned.status_code == 200, owned.text
+    assert owned.json(), "no character available and creation was refused"
+    return owned.json()[0]["id"]
+
+
 def _create_post(client: TestClient, token: str, realm_id: int, content: str = "Hello") -> int:
     r = client.post(
         f"/posts/realms/{realm_id}/posts",
-        json={"content": content},
+        json={"content": content, "character_id": _character_for(client, token)},
         headers=_h(token),
     )
     assert r.status_code == 201, r.json()
     return r.json()["id"]
 
 
-def _create_comment(client: TestClient, token: str, post_id: int, body: str = "Nice") -> int:
+def _create_comment(
+    client: TestClient, token: str, post_id: int, body: str = "Nice",
+    character_id: int | None = None,
+) -> int:
+    payload: dict = {"content": body}
+    if character_id is not None:
+        payload["character_id"] = character_id
     r = client.post(
         f"/comments/posts/{post_id}/comments",
-        json={"content": body},
+        json=payload,
         headers=_h(token),
     )
     assert r.status_code == 201, r.json()
@@ -325,7 +343,12 @@ def test_comments_unauthenticated_still_works(client: TestClient):
 
     realm_id = _create_realm(client, a["token"], "OpenRealm", "open-realm")
     post_id = _create_post(client, a["token"], realm_id, "Open post")
-    cmt_id = _create_comment(client, a["token"], post_id, "Open comment")
+    # A owns a character (created by _create_post), so the comment must be
+    # character-attributed (Sprint 33).
+    cmt_id = _create_comment(
+        client, a["token"], post_id, "Open comment",
+        character_id=_character_for(client, a["token"]),
+    )
 
     r = client.get(f"/comments/posts/{post_id}/comments")
     assert r.status_code == 200

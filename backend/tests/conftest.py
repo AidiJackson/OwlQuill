@@ -1,5 +1,9 @@
 """Pytest configuration and fixtures."""
+import atexit
 import os
+import shutil
+import tempfile
+from pathlib import Path
 
 # Set test environment variables BEFORE any app imports
 # This ensures Settings() sees these values when instantiated at import time
@@ -8,11 +12,44 @@ os.environ["DEBUG"] = "true"  # force override — Replit sets DEBUG=False in sh
 # Ensure tests use stub image generator, never the real OpenAI or fal API
 os.environ.pop("OPENAI_API_KEY", None)
 os.environ.pop("FAL_KEY", None)
+# Strip every other live image/GPU provider credential too (Sprint 34).
+# Identity-pack generation degrades to the stub provider when the configured
+# provider has no API key — with GOOGLE_AI_API_KEY present, character-locking
+# tests were silently calling the real Gemini image API on every run.
+os.environ.pop("GOOGLE_AI_API_KEY", None)
+os.environ.pop("TOGETHER_API_KEY", None)
+os.environ.pop("REPLICATE_API_TOKEN", None)
+os.environ.pop("RUNPOD_API_KEY", None)
 # Force deterministic stub provider for all StoryLab tests — never call live OpenRouter
 os.environ["STORYLAB_PROVIDER"] = "stub"
 os.environ.pop("OPENROUTER_API_KEY", None)
 # Disable invite-code gate in tests — no invite codes are seeded in the test DB
 os.environ["BETA_INVITE_REQUIRED"] = "false"
+
+# --- Production-infrastructure isolation (Sprint 34) ---
+# Object storage must be OFF for the whole suite, and the production R2
+# credentials must be absent so any code path that still tries to upload
+# fails loudly (KeyError) instead of silently writing to the live bucket.
+# Tests that exercise R2 plumbing set their own stub values.
+os.environ["USE_OBJECT_STORAGE"] = "false"
+for _var in (
+    "R2_ACCOUNT_ID",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "R2_BUCKET_NAME",
+    "R2_PUBLIC_URL",
+):
+    os.environ.pop(_var, None)
+
+# The app engine (app.core.database, used by startup seeds and background
+# services via SessionLocal) must never reach the Replit-managed Postgres in
+# DATABASE_URL. Point it at a throwaway SQLite file that vanishes with the
+# temp dir. It stays a *separate* file from the test-fixture DB below so the
+# app engine sees the same "different database than the fixtures" world it
+# always has (startup seeds fail softly on the empty DB and are swallowed).
+_TEST_TMP_ROOT = Path(tempfile.mkdtemp(prefix="ficshon-tests-"))
+atexit.register(shutil.rmtree, _TEST_TMP_ROOT, ignore_errors=True)
+os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_TMP_ROOT / 'app.db'}"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,10 +71,43 @@ from app.core.database import Base, get_db
 from app.main import app
 from app.api.routes.auth import limiter
 
-# Create test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+# Create test database — a disposable file inside the session temp dir, never
+# a repository-root test.db. File-based SQLite (not :memory:) preserves the
+# existing connection/threading semantics exactly; the whole dir is removed at
+# interpreter exit.
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{_TEST_TMP_ROOT / 'test.db'}"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def generated_media_dir(tmp_path_factory):
+    """Redirect all generated-image disk writes to a pytest-managed temp dir.
+
+    ``_GENERATED_DIR`` is a module-level constant duplicated across
+    app.core.storage and several route modules; every one is repointed so no
+    test can write into backend/static/generated/. Stored *paths* remain
+    "static/generated/<uuid>.png" strings, so test assertions are unaffected.
+    """
+    tmp_dir = tmp_path_factory.mktemp("generated_media")
+
+    import app.core.storage as _storage
+    from app.api.routes import (
+        character_visual as _character_visual,
+        characters as _characters,
+        image_generator as _image_generator,
+        scene_images as _scene_images,
+        users as _users,
+    )
+
+    mods = [_storage, _character_visual, _characters, _image_generator,
+            _scene_images, _users]
+    originals = [(m, m._GENERATED_DIR) for m in mods]
+    for m in mods:
+        m._GENERATED_DIR = tmp_dir
+    yield tmp_dir
+    for m, original in originals:
+        m._GENERATED_DIR = original
 
 
 def override_get_db():

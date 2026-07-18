@@ -413,7 +413,8 @@ def _stub_png_bytes() -> bytes:
     from app.services.stub_image_generator import generate_placeholder_png
     from pathlib import Path
     fp = generate_placeholder_png(label="test", sublabel="stub")
-    return (Path(__file__).resolve().parent.parent / fp).read_bytes()
+    from app.core.storage import load_image_bytes
+    return load_image_bytes(fp)
 
 
 def _capturing_provider(captured: dict) -> MagicMock:
