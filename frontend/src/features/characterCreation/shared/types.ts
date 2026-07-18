@@ -87,6 +87,29 @@ export interface V2PackResponse {
   stopped?: string | null;
 }
 
+// ── Async v2 pack jobs (Sprint 35) ──────────────────────────────────
+// Generation runs as a background job; the wizard polls this view. A
+// completed job embeds the same V2PackResponse the sync endpoint returned.
+
+export type V2PackJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+export interface V2PackJob {
+  job_id: string;
+  character_id: number;
+  status: V2PackJobStatus;
+  stage?: string | null;
+  progress_message?: string | null;
+  progress_percent?: number | null;
+  attempt_count: number;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  reused: boolean;
+  result?: V2PackResponse | null;
+}
+
 // ── Identity canon read (GET /identity-canon) ───────────────────────
 // Used for timeout recovery (S24AQ): if a long v2 generation request is
 // severed by a proxy/edge timeout after the backend already persisted every

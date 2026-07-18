@@ -742,3 +742,189 @@ def generate_v2_pack(
         clean_pass=report["clean_pass"],
         stopped=report["stopped"],
     )
+
+
+# ── Sprint 35: async v2 pack jobs (fire-and-poll) ─────────────────────
+#
+# POST /{id}/identity-canon/generate-v2-pack/jobs   submit → 202 + job view
+# GET  /{id}/identity-canon/pack-jobs/latest        latest job (refresh recovery)
+# GET  /{id}/identity-canon/pack-jobs/{public_id}   poll one job
+#
+# The synchronous generate-v2-pack route above is preserved unchanged (legacy/
+# dev callers); the creation wizard uses these job endpoints. The expensive
+# pipeline runs in a detached driver process — never inside these requests.
+
+from datetime import datetime as _dt  # noqa: E402
+
+from app.services import identity_pack_job_service as _pack_jobs  # noqa: E402
+from app.models.identity_pack_job import IdentityPackJob  # noqa: E402
+
+
+class V2PackJobSubmitRequest(BaseModel):
+    provider_option: str = "option2"
+    admin_fallback: bool = False
+    max_spend: float = _V2_PACK_SPEND_CEILING
+    # Client-generated key; identical resubmissions return the same job.
+    idempotency_key: Optional[str] = None
+
+
+class V2PackJobView(BaseModel):
+    """Owner-visible job state. diag_json is internal and never serialised."""
+    job_id: str
+    character_id: int
+    status: str                       # queued | running | completed | failed
+    stage: Optional[str] = None
+    progress_message: Optional[str] = None
+    progress_percent: Optional[int] = None
+    attempt_count: int = 0
+    created_at: Optional[_dt] = None
+    started_at: Optional[_dt] = None
+    finished_at: Optional[_dt] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    reused: bool = False
+    result: Optional[V2PackResponse] = None
+
+
+def _job_to_view(job: IdentityPackJob, *, reused: bool = False) -> V2PackJobView:
+    result: Optional[V2PackResponse] = None
+    if job.status == "completed" and job.result_json:
+        r = job.result_json
+        try:
+            result = V2PackResponse(
+                pack_id=r["pack_id"],
+                dry_run=bool(r.get("dry_run")),
+                cards=[V2PackCard(**c) for c in r.get("cards", [])],
+                marks=[V2PackMark(**m) for m in r.get("marks", [])],
+                total_spend=r.get("total_spend", 0.0),
+                image_count=r.get("image_count", 0),
+                estimated_cost=r.get("estimated_cost"),
+                regenerations=r.get("regenerations", []),
+                openai_fallback=r.get("openai_fallback", []),
+                gate_failed=r.get("gate_failed", []),
+                errors=r.get("errors", []),
+                clean_pass=bool(r.get("clean_pass")),
+                stopped=r.get("stopped"),
+            )
+        except Exception:  # noqa: BLE001 — malformed stored report must not 500 the poll
+            logger.exception("pack job result deserialisation failed job=%s", job.public_id)
+    return V2PackJobView(
+        job_id=job.public_id,
+        character_id=job.character_id,
+        status=job.status,
+        stage=job.stage,
+        progress_message=job.progress_message,
+        progress_percent=job.progress_percent,
+        attempt_count=job.attempt_count or 0,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        error_code=job.error_code,
+        error_message=job.error_message,
+        reused=reused,
+        result=result,
+    )
+
+
+@router.post(
+    "/{character_id}/identity-canon/generate-v2-pack/jobs",
+    response_model=V2PackJobView,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Submit an async v2 canon-pack generation job (Sprint 35)",
+)
+def submit_v2_pack_job(
+    character_id: int,
+    req: V2PackJobSubmitRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> V2PackJobView:
+    """Validate, create (or return the existing active) job, respond immediately.
+
+    The provider pipeline runs in a detached driver process; this request only
+    writes the job row and launches the driver. If an active job already exists
+    for the character, it is returned with ``reused=true`` — no new generation
+    and no additional spend.
+    """
+    _get_owned_character(character_id, current_user, db)
+
+    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    cap = max(0.5, min(float(req.max_spend or _V2_PACK_SPEND_CEILING), _V2_PACK_SPEND_CEILING))
+    params = {
+        "provider_option": req.provider_option or "option2",
+        "admin_fallback": bool(req.admin_fallback and is_admin),
+        "is_admin": is_admin,
+        "max_spend": cap,
+    }
+
+    try:
+        job, reused = _pack_jobs.start_identity_pack_job(
+            db,
+            character_id=character_id,
+            user_id=current_user.id,
+            params=params,
+            idempotency_key=(req.idempotency_key or None),
+        )
+    except _pack_jobs.IdentityPackJobError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    logger.info(
+        "V2_PACK_JOB_SUBMIT character_id=%s job=%s reused=%s status=%s",
+        character_id, job.public_id, reused, job.status,
+    )
+    return _job_to_view(job, reused=reused)
+
+
+@router.get(
+    "/{character_id}/identity-canon/pack-jobs/latest",
+    response_model=Optional[V2PackJobView],
+    summary="Latest v2 pack job for this character (refresh recovery)",
+)
+def get_latest_v2_pack_job(
+    character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Optional[V2PackJobView]:
+    """Return the most recent job (any status), reconciling stale active jobs.
+
+    Lets a refreshed browser rediscover an in-flight generation, or recover a
+    completed pack it never displayed. Owner-only (admins may inspect too).
+    """
+    char = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found.")
+    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    if char.owner_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="You don't own this character.")
+
+    job = _pack_jobs.get_latest_job_reconciled(db, character_id)
+    if job is None:
+        return None
+    return _job_to_view(job)
+
+
+@router.get(
+    "/{character_id}/identity-canon/pack-jobs/{job_public_id}",
+    response_model=V2PackJobView,
+    summary="Poll one v2 pack job (owner or admin only)",
+)
+def get_v2_pack_job(
+    character_id: int,
+    job_public_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> V2PackJobView:
+    """Poll a job. 404 for jobs that don't exist OR aren't visible to the caller."""
+    char = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not char:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    if char.owner_id != current_user.id and not is_admin:
+        # Indistinguishable from nonexistent — never confirm another user's jobs.
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    job = _pack_jobs.get_job_for_owner(
+        db, character_id=character_id, public_id=job_public_id
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return _job_to_view(job)

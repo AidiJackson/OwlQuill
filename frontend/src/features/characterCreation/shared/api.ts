@@ -7,6 +7,7 @@ import type {
   IdentityPackAcceptResponse,
   IdentitySpec,
   SketchResponse,
+  V2PackJob,
   V2PackResponse,
 } from './types';
 
@@ -156,6 +157,39 @@ export async function getIdentityCanon(
   characterId: number,
 ): Promise<CharacterCanonRead> {
   return request(`/characters/${characterId}/identity-canon`);
+}
+
+// ── Async v2 pack jobs (Sprint 35) ───────────────────────────────────
+// Submit returns immediately (202) with a job to poll; the heavy pipeline
+// runs server-side in a detached process, so refreshes and closed tabs
+// never cancel a generation.
+
+export async function startV2PackJob(
+  characterId: number,
+  opts?: { maxSpend?: number; idempotencyKey?: string },
+): Promise<V2PackJob> {
+  return request(`/characters/${characterId}/identity-canon/generate-v2-pack/jobs`, {
+    method: 'POST',
+    body: JSON.stringify({
+      provider_option: 'option2',
+      max_spend: opts?.maxSpend ?? 8,
+      idempotency_key: opts?.idempotencyKey ?? null,
+    }),
+  });
+}
+
+export async function getV2PackJob(
+  characterId: number,
+  jobId: string,
+): Promise<V2PackJob> {
+  return request(`/characters/${characterId}/identity-canon/pack-jobs/${jobId}`);
+}
+
+/** Latest job (any status) — lets a refreshed page rediscover an active run. */
+export async function getLatestV2PackJob(
+  characterId: number,
+): Promise<V2PackJob | null> {
+  return request(`/characters/${characterId}/identity-canon/pack-jobs/latest`);
 }
 
 /** Persist body morphology onto the canon before v2 generation reads it. */

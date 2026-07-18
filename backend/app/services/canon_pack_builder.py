@@ -374,12 +374,26 @@ def build_v2_pack(
     is_admin: bool = False,
     admin_fallback: bool = False,
     dry_run: bool = True,
+    on_progress=None,
 ) -> dict:
     """Generate (or, in dry-run, plan) the full v2 canon pack for one character.
 
     Returns a report dict. Slots are assigned + committed as they generate so
     dependent cards can ground on them; the canon is NOT locked here.
+
+    ``on_progress(stage_key, done, total)`` — optional callback fired at real
+    pipeline boundaries (Sprint 35 async jobs): once per card slot before it
+    generates (``"card:<slot>"``) and once before mark detail crops
+    (``"mark_details"``). Failures inside the callback never break the build.
     """
+    def _progress(stage_key: str, done: int, total: int) -> None:
+        if on_progress is None:
+            return
+        try:
+            on_progress(stage_key, done, total)
+        except Exception:  # noqa: BLE001 — progress is observability, never fatal
+            logger.warning("v2_pack on_progress callback failed", exc_info=True)
+
     report: dict = {
         "pack_id": uuid.uuid4().hex,
         "dry_run": dry_run,
@@ -394,10 +408,13 @@ def build_v2_pack(
         "stopped": None,
     }
 
+    _total_cards = len(CARD_PIPELINE)
+
     try:
-        for spec in CARD_PIPELINE:
+        for _card_idx, spec in enumerate(CARD_PIPELINE):
             slot = spec.slot
             section = "face" if slot in FACE_SLOTS else "body"
+            _progress(f"card:{slot}", _card_idx, _total_cards)
 
             if dry_run:
                 res = generate_card(
@@ -442,6 +459,7 @@ def build_v2_pack(
                 "similarity": (report["verdicts"].get(slot) or {}).get("similarity"),
             })
 
+        _progress("mark_details", _total_cards, _total_cards)
         _build_marks(canon, identity, spend, db, report, dry_run=dry_run)
 
     except _StopBuild as exc:

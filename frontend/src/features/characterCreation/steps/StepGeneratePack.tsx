@@ -1,21 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ImageIcon, RefreshCw, ZoomIn, X } from 'lucide-react';
 import type {
   V2PackResponse,
   V2PackCard,
+  V2PackJob,
   IdentityPackResponse,
   IdentitySpec,
   BodyMorphology,
 } from '../shared/types';
 import { V2_SLOT_LABELS, BODY_HEIGHT_OPTIONS, BODY_BUILD_OPTIONS } from '../shared/types';
 import {
-  generateV2Pack,
+  startV2PackJob,
+  getV2PackJob,
+  getLatestV2PackJob,
   patchBodyCanon,
   generateIdentityPack,
-  getIdentityCanon,
   resolveImageUrl,
 } from '../shared/api';
-import { buildPackFromCanon } from '../shared/canonRecovery';
 
 interface Props {
   characterId: number;
@@ -74,32 +75,94 @@ export default function StepGeneratePack({
   onNext,
   onBack,
 }: Props) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // submit phase only (job does the long work)
+  const [job, setJob] = useState<V2PackJob | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [enlarged, setEnlarged] = useState<string | null>(null);
+  // One idempotency key per generate click — server returns the same job for
+  // any accidental resubmission of the same click (double-click, retry, refresh).
+  const idempotencyKeyRef = useRef<string | null>(null);
+  // Set when a completed job's result has been handed to the wizard, so
+  // polling/rediscovery never re-applies it.
+  const deliveredJobRef = useRef<string | null>(null);
 
   // Debug fallback: legacy 4-anchor path stays reachable only via this DEV flag,
   // never as the default. Production users always get the v2 canon pack.
   const legacyDebug =
     import.meta.env.DEV && localStorage.getItem('useLegacyPack') === '1';
 
-  // If a generate request fails, the backend may have already completed and
-  // persisted every slot (long request severed by a proxy/edge timeout). Re-read
-  // the canon and, if all 13 slots are present, reconstruct the pack — no
-  // regeneration, no spend (S24AQ).
-  const tryRecoverFromCanon = async (): Promise<V2PackResponse | null> => {
-    try {
-      const canon = await getIdentityCanon(characterId);
-      return buildPackFromCanon(canon);
-    } catch (recoverErr) {
-      console.error('[StepGeneratePack] canon recovery read failed', recoverErr);
-      return null;
+  const jobActive = !!job && (job.status === 'queued' || job.status === 'running');
+  const busy = loading || jobActive;
+
+  /** Apply a terminal job to the UI exactly once. */
+  const applyTerminalJob = (j: V2PackJob) => {
+    if (j.status === 'completed') {
+      if (deliveredJobRef.current !== j.job_id && j.result) {
+        deliveredJobRef.current = j.job_id;
+        if (j.result.stopped) {
+          setError('Generation stopped early. Please try again.');
+        }
+        onPackGenerated(j.result);
+      }
+    } else if (j.status === 'failed') {
+      setError(j.error_message || "We couldn't generate the images right now. Please try again.");
     }
   };
 
+  // Poll the active job while this step is mounted. Closing the tab never
+  // cancels the server-side generation — remounting rediscovers it below.
+  useEffect(() => {
+    if (!jobActive || !job) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const next = await getV2PackJob(characterId, job.job_id);
+        if (cancelled) return;
+        setJob(next);
+        if (next.status === 'completed' || next.status === 'failed') {
+          applyTerminalJob(next);
+        }
+      } catch (pollErr) {
+        // Transient poll failures are silent — the next tick retries.
+        console.error('[StepGeneratePack] job poll failed', pollErr);
+      }
+    };
+    const id = window.setInterval(tick, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [characterId, job?.job_id, jobActive]);
+
+  // Refresh recovery: on mount, rediscover an in-flight job (resume polling)
+  // or a completed pack this browser never displayed.
+  useEffect(() => {
+    if (legacyDebug) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const latest = await getLatestV2PackJob(characterId);
+        if (cancelled || !latest) return;
+        if (latest.status === 'queued' || latest.status === 'running') {
+          setJob(latest);
+        } else if (latest.status === 'completed' && !pack && latest.result) {
+          setJob(latest);
+          applyTerminalJob(latest);
+        }
+      } catch (discoverErr) {
+        console.error('[StepGeneratePack] active-job discovery failed', discoverErr);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [characterId]);
+
   const handleGenerate = async () => {
-    if (loading) return;
+    if (busy) return;
     setLoading(true);
     setError('');
     setNotice('');
@@ -135,26 +198,36 @@ export default function StepGeneratePack({
       return;
     }
 
-    // Step 2 — generate the v2 pack. This request can run for minutes; on a
-    // severed response, fall back to reading the canon before declaring failure.
+    // Step 2 — submit the async job. Returns in well under a second; the
+    // polling effect above takes over from here.
     try {
-      const result = await generateV2Pack(characterId, { maxSpend: 8 });
-      if (result.stopped) {
-        setError('Generation stopped early. Please try again.');
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current =
+          window.crypto?.randomUUID?.() ?? `${characterId}-${Date.now()}`;
       }
-      onPackGenerated(result);
-    } catch (genErr) {
-      console.error('[StepGeneratePack] generateV2Pack failed', genErr);
-      const recovered = await tryRecoverFromCanon();
-      if (recovered) {
-        setNotice('Identity pack completed. Loading your images.');
-        onPackGenerated(recovered);
-      } else {
-        setError(errorMessage(genErr, "We couldn't generate the images right now. Please try again."));
+      const submitted = await startV2PackJob(characterId, {
+        maxSpend: 8,
+        idempotencyKey: idempotencyKeyRef.current,
+      });
+      setJob(submitted);
+      if (submitted.status === 'completed' || submitted.status === 'failed') {
+        // Idempotent resubmission of an already-finished job.
+        applyTerminalJob(submitted);
       }
+    } catch (submitErr) {
+      console.error('[StepGeneratePack] job submission failed', submitErr);
+      setError(errorMessage(submitErr, "We couldn't start the generation. Please try again."));
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRetry = () => {
+    // A fresh attempt gets a fresh idempotency key; the previous failed job
+    // stays terminal and can never be re-run by polling.
+    idempotencyKeyRef.current = null;
+    setJob(null);
+    void handleGenerate();
   };
 
   const cardBySlot = new Map<string, V2PackCard>();
@@ -260,11 +333,11 @@ export default function StepGeneratePack({
       </div>
 
       <div className="flex justify-center">
-        <button className="btn btn-primary flex items-center gap-2" onClick={handleGenerate} disabled={loading}>
-          {loading ? (
+        <button className="btn btn-primary flex items-center gap-2" onClick={handleGenerate} disabled={busy}>
+          {busy ? (
             <>
               <RefreshCw className="w-4 h-4 animate-spin" />
-              Generating your canon pack…
+              {job?.status === 'queued' ? 'Queued…' : 'Generating your canon pack…'}
             </>
           ) : pack ? (
             <>
@@ -276,6 +349,21 @@ export default function StepGeneratePack({
           )}
         </button>
       </div>
+
+      {jobActive && (
+        <div className="max-w-sm mx-auto space-y-2" aria-live="polite">
+          <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+            <div
+              className="h-full bg-emerald-500 rounded-full transition-all duration-700"
+              style={{ width: `${Math.max(2, job?.progress_percent ?? 0)}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-400 text-center">
+            {job?.progress_message || 'Waiting to start…'}
+            {' '}— you can safely leave this page; generation continues in the background.
+          </p>
+        </div>
+      )}
 
       {notice && !error && (
         <div className="text-center">
@@ -291,15 +379,15 @@ export default function StepGeneratePack({
           <button
             type="button"
             className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
-            onClick={handleGenerate}
-            disabled={loading}
+            onClick={handleRetry}
+            disabled={busy}
           >
             Try again
           </button>
         </div>
       )}
 
-      {loading && (
+      {busy && (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {Array.from({ length: 13 }).map((_, i) => (
             <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
@@ -309,7 +397,7 @@ export default function StepGeneratePack({
         </div>
       )}
 
-      {!loading && pack && (
+      {!busy && pack && (
         <div className="space-y-5">
           {renderSection('Face', FACE_ORDER)}
           {renderSection('Body', BODY_ORDER)}

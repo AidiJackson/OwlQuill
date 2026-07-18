@@ -40,6 +40,7 @@ from app.models.adult_identity import (
 )
 from app.models.adult_founder_job import AdultFounderJob
 from app.models.editor_job import EditorJob
+from app.models.identity_pack_job import IdentityPackJob
 
 __all__ = [
     "AdultStudioIdentity",
