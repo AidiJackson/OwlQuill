@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, user_is_admin
 from app.models.character import Character as CharacterModel
 from app.models.realm import Realm, RealmMembership
 from app.models.storylab import (
@@ -254,7 +254,7 @@ _EXPLICIT_BOUNDARIES = {Boundary.fade_to_black, Boundary.sensual}
 
 def _is_admin_user(user: User) -> bool:
     """True when the user is an admin (DB flag or ADMIN_EMAILS config)."""
-    return bool(user.is_admin) or user.email.lower() in settings.get_admin_emails()
+    return user_is_admin(user)
 
 
 def _explicit_admin_only_error(control: str, value: str) -> HTTPException:
@@ -1723,7 +1723,7 @@ def delete_chapter(
         raise HTTPException(status_code=404, detail="Chapter not found")
     # Ownership check: only the chapter author or an admin may delete.
     # ch.user_id may be empty for legacy rows (pre-auth); those are deletable by any authed user.
-    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    is_admin = user_is_admin(current_user)
     if ch.user_id and ch.user_id != str(current_user.id) and not is_admin:
         raise HTTPException(status_code=403, detail="Not your chapter")
     db.delete(ch)

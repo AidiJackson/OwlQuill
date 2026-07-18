@@ -37,8 +37,6 @@ tests run with zero subprocesses, zero spend, and zero live providers.
 from __future__ import annotations
 
 import logging
-import os
-import sys
 import traceback
 import uuid
 from datetime import datetime
@@ -109,15 +107,14 @@ class IdentityPackJobError(Exception):
 
 def _default_launcher(job_public_id: str, job_id: int) -> None:
     """Spawn the detached identity-pack driver; returns once it starts."""
-    import subprocess
+    from app.services.detached_driver import spawn_detached_driver
 
-    DRIVER_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "IDENTITY_PACK_JOB_ID": str(job_id)}
-    logf = open(DRIVER_LOG_DIR / f"{job_public_id}.log", "ab")  # noqa: SIM115
-    subprocess.Popen(
-        [sys.executable, str(DRIVER_PATH)],
-        env=env, stdout=logf, stderr=logf,
-        start_new_session=True, cwd=str(_REPO_ROOT),
+    spawn_detached_driver(
+        driver_path=DRIVER_PATH,
+        log_dir=DRIVER_LOG_DIR,
+        log_name=job_public_id,
+        extra_env={"IDENTITY_PACK_JOB_ID": str(job_id)},
+        cwd=_REPO_ROOT,
     )
     logger.info("identity_pack_job launched public_id=%s job_id=%s", job_public_id, job_id)
 

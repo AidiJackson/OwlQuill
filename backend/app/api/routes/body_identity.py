@@ -25,7 +25,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import (
+    get_current_user,
+    get_owned_character as _get_owned_character,
+    user_is_admin,
+)
 from app.core.storage import load_image_bytes, save_image
 from app.models.character import Character as CharacterModel
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
@@ -344,18 +348,6 @@ def _save_body_slot(
     character.identity_anchor_json = _json.dumps(data)
 
 
-# ── Auth helper ───────────────────────────────────────────────────────
-
-def _get_owned_character(character_id: int, current_user: User, db: Session) -> CharacterModel:
-    char = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
-    if not char:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
-    if char.owner_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="You don't have permission to modify this character.")
-    return char
-
-
 # ── Schemas ───────────────────────────────────────────────────────────
 
 class BodySlotEntry(BaseModel):
@@ -652,7 +644,7 @@ _CANON_IMPORT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 def _require_admin(current_user: User) -> None:
-    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    is_admin = user_is_admin(current_user)
     if not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

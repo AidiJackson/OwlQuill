@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_owned_character
 from app.models.character import Character as CharacterModel
 from app.models.style_shop import (
     AttachmentModeEnum,
@@ -247,12 +247,5 @@ def archive_style_element(
 def _get_owned_character(
     character_id: int, current_user: User, db: Session
 ) -> CharacterModel:
-    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
-    if not character:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
-    if character.owner_id != current_user.id and not getattr(current_user, "is_admin", False):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to modify this character.",
-        )
-    return character
+    # Style shops admit admins as well as the owner.
+    return get_owned_character(character_id, current_user, db, allow_admin=True)

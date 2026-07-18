@@ -12,7 +12,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, get_current_user_optional
+from app.core.dependencies import (
+    get_current_user,
+    get_current_user_optional,
+    get_owned_character as _get_owned_character,
+)
 from app.core.storage import save_image, file_path_to_url, load_image_bytes
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
@@ -50,6 +54,7 @@ from app.services.image_provider import (
     get_identity_provider_by_name,
     get_fallback_provider,
     get_provider_for_option,
+    is_moderation_block as _is_moderation_block,
     ImageProvider,
     _OpenAIImageProvider,
 )
@@ -395,24 +400,6 @@ def generate_body_front(character: CharacterModel) -> bytes:
     return provider.generate_image(prompt=prompt)
 
 
-def _get_owned_character(
-    character_id: int,
-    current_user: User,
-    db: Session,
-) -> CharacterModel:
-    """Fetch a character and verify the current user owns it."""
-    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
-    if not character:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Character not found.",
-        )
-    if character.owner_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to modify this character.",
-        )
-    return character
 
 
 # ── 0) GET /characters/{id}/images ──────────────────────────────────
@@ -825,12 +812,6 @@ def generate_identity_pack(
         )
 
     if use_openai:
-
-        def _is_moderation_block(exc: BaseException) -> bool:
-            msg = str(exc).lower()
-            return any(kw in msg for kw in (
-                "moderation_blocked", "safety system", "safety_violation",
-            ))
 
         def _build_prompt_for_role(spec_str: str, role: str, *, failsafe: bool = False) -> str:
             """Build a prompt for a given role using structured spec or legacy path.

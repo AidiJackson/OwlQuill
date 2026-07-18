@@ -8,7 +8,9 @@ from __future__ import annotations
 import base64
 import tempfile
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
+from typing import IO, Iterator
 
 from openai import OpenAI, OpenAIError
 
@@ -166,6 +168,44 @@ class ImageProvider:
         )
 
 
+@contextmanager
+def _open_png_tempfiles(images: list[bytes]) -> Iterator[list[IO[bytes]]]:
+    """Write image bytes to temp .png files and yield open read handles.
+
+    Handles are closed and temp files removed on exit — the write/open/cleanup
+    dance previously duplicated in every OpenAI images.edit call path.
+    """
+    tmp_paths: list[Path] = []
+    handles: list[IO[bytes]] = []
+    try:
+        for img_bytes in images:
+            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            tmp_paths.append(Path(tmp.name))
+            tmp.write(img_bytes)
+            tmp.flush()
+            tmp.close()
+            handles.append(open(tmp.name, "rb"))  # noqa: WPS515
+        yield handles
+    finally:
+        for fh in handles:
+            try:
+                fh.close()
+            except Exception:
+                pass
+        for p in tmp_paths:
+            p.unlink(missing_ok=True)
+
+
+def is_moderation_block(exc: BaseException) -> bool:
+    """True when a provider exception is a content-moderation refusal.
+
+    Single definition of the moderation-refusal keywords — previously
+    duplicated in scene_images and character_visual.
+    """
+    msg = str(exc).lower()
+    return any(kw in msg for kw in ("moderation_blocked", "safety system", "safety_violation"))
+
+
 def _download_image(url: str) -> Path:
     """Download an image URL to a temporary file.
 
@@ -270,23 +310,15 @@ class _OpenAIImageProvider(ImageProvider):
 
     def _edit_from_bytes(self, *, prompt: str, size: str, image_bytes: bytes) -> bytes:
         """Run images.edit with seed bytes written to a temp file."""
-        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-        tmp_path = Path(tmp.name)
-        try:
-            tmp.write(image_bytes)
-            tmp.flush()
-            tmp.close()
-            with open(tmp_path, "rb") as fh:
-                response = self._client.images.edit(
-                    model=settings.IMAGE_MODEL,
-                    image=fh,
-                    prompt=prompt,
-                    n=1,
-                    size=size,
-                )
+        with _open_png_tempfiles([image_bytes]) as handles:
+            response = self._client.images.edit(
+                model=settings.IMAGE_MODEL,
+                image=handles[0],
+                prompt=prompt,
+                n=1,
+                size=size,
+            )
             return base64.b64decode(response.data[0].b64_json)
-        finally:
-            tmp_path.unlink(missing_ok=True)
 
     def _generate_with_anchors(
         self,
@@ -296,19 +328,8 @@ class _OpenAIImageProvider(ImageProvider):
         size: str,
     ) -> bytes:
         """Call images.edit with multiple anchor images as reference inputs (B19)."""
-        tmp_paths: list[Path] = []
-        file_handles: list = []
-        try:
-            for img_bytes in anchor_images:
-                tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-                tmp_path = Path(tmp.name)
-                tmp.write(img_bytes)
-                tmp.flush()
-                tmp.close()
-                tmp_paths.append(tmp_path)
-                file_handles.append(open(tmp_path, "rb"))  # noqa: WPS515
-
-            image_arg = file_handles if len(file_handles) > 1 else file_handles[0]
+        with _open_png_tempfiles(anchor_images) as handles:
+            image_arg = handles if len(handles) > 1 else handles[0]
             try:
                 response = self._client.images.edit(
                     model=settings.IMAGE_MODEL,
@@ -322,14 +343,6 @@ class _OpenAIImageProvider(ImageProvider):
                 raise RuntimeError(
                     f"OpenAI multi-anchor image generation failed: {exc}"
                 ) from exc
-        finally:
-            for fh in file_handles:
-                try:
-                    fh.close()
-                except Exception:
-                    pass
-            for p in tmp_paths:
-                p.unlink(missing_ok=True)
 
 
 class _GoogleImageProviderAdapter(ImageProvider):

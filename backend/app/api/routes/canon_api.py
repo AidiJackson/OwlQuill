@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_owned_character, user_is_admin
 from app.core.storage import save_image, load_image_bytes
 from app.models.character import Character as CharacterModel
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
@@ -81,17 +81,14 @@ _CANON_IMPORT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 # ── Guards ────────────────────────────────────────────────────────────
 
 def _get_owned_character(character_id: int, user: User, db: Session) -> CharacterModel:
-    char = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
-    if not char:
-        raise HTTPException(status_code=404, detail="Character not found.")
-    if char.owner_id != user.id:
-        raise HTTPException(status_code=403, detail="You don't own this character.")
-    return char
+    # Canon API keeps its original, distinct 403 message.
+    return get_owned_character(
+        character_id, user, db, not_owner_detail="You don't own this character."
+    )
 
 
 def _require_admin(user: User) -> None:
-    is_admin = bool(user.is_admin) or user.email.lower() in settings.get_admin_emails()
-    if not is_admin:
+    if not user_is_admin(user):
         raise HTTPException(status_code=403, detail="Admin access required.")
 
 
@@ -708,7 +705,7 @@ def generate_v2_pack(
     canon = get_or_create_canon(character_id, db)
     identity = founder_identity_from_character(char, canon, db)
 
-    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    is_admin = user_is_admin(current_user)
     cap = max(0.5, min(float(req.max_spend or _V2_PACK_SPEND_CEILING), _V2_PACK_SPEND_CEILING))
     spend = SpendTracker(cap_usd=cap)
 
@@ -871,7 +868,7 @@ def submit_v2_pack_job(
     """
     _get_owned_character(character_id, current_user, db)
 
-    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    is_admin = user_is_admin(current_user)
     cap = max(0.5, min(float(req.max_spend or _V2_PACK_SPEND_CEILING), _V2_PACK_SPEND_CEILING))
     params = {
         "provider_option": req.provider_option or "option2",
@@ -916,7 +913,7 @@ def get_latest_v2_pack_job(
     char = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not char:
         raise HTTPException(status_code=404, detail="Character not found.")
-    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    is_admin = user_is_admin(current_user)
     if char.owner_id != current_user.id and not is_admin:
         raise HTTPException(status_code=403, detail="You don't own this character.")
 
@@ -941,7 +938,7 @@ def get_v2_pack_job(
     char = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not char:
         raise HTTPException(status_code=404, detail="Job not found.")
-    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    is_admin = user_is_admin(current_user)
     if char.owner_id != current_user.id and not is_admin:
         # Indistinguishable from nonexistent — never confirm another user's jobs.
         raise HTTPException(status_code=404, detail="Job not found.")

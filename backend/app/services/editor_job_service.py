@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
@@ -121,15 +120,14 @@ def _new_run_id() -> str:
 
 def _default_launcher(run_id: str, job_id: int) -> None:
     """Spawn the detached editor driver; returns once the process starts."""
-    import subprocess
+    from app.services.detached_driver import spawn_detached_driver
 
-    EDITOR_JOB_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "EDITOR_RUN_ID": run_id, "EDITOR_JOB_ID": str(job_id)}
-    logf = open(EDITOR_JOB_REPORTS_DIR / f"{run_id}.log", "ab")  # noqa: SIM115
-    subprocess.Popen(
-        [sys.executable, str(DRIVER_PATH)],
-        env=env, stdout=logf, stderr=logf,
-        start_new_session=True, cwd=str(_REPO_ROOT),
+    spawn_detached_driver(
+        driver_path=DRIVER_PATH,
+        log_dir=EDITOR_JOB_REPORTS_DIR,
+        log_name=run_id,
+        extra_env={"EDITOR_RUN_ID": run_id, "EDITOR_JOB_ID": str(job_id)},
+        cwd=_REPO_ROOT,
     )
     logger.info("editor_job launched run_id=%s job_id=%s", run_id, job_id)
 

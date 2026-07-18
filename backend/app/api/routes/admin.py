@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, user_is_admin
 from app.models.report import Report, ReportStatusEnum, ReportTargetTypeEnum
 from app.models.user import User
 
@@ -19,7 +19,7 @@ router = APIRouter()
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     """Dependency that ensures the caller is an admin. Returns the user if so."""
-    is_admin = bool(current_user.is_admin) or current_user.email.lower() in settings.get_admin_emails()
+    is_admin = user_is_admin(current_user)
     if not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

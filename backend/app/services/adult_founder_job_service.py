@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
@@ -71,16 +70,14 @@ def _default_launcher(run_id: str, base_prompt: str, model: "AdultIdentityModel"
     run_id via env. stdout/stderr go to a run-scoped log. start_new_session detaches it
     from the API process so it outlives the request.
     """
-    import subprocess
+    from app.services.detached_driver import spawn_detached_driver
 
-    FOUNDER_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "FOUNDER_RUN_ID": run_id, "BASE_PROMPT": base_prompt}
-    log_path = FOUNDER_REPORTS_DIR / f"{run_id}.log"
-    logf = open(log_path, "ab")  # noqa: SIM115 — handed to the child; closed on its exit
-    subprocess.Popen(
-        [sys.executable, str(DRIVER_PATH)],
-        env=env, stdout=logf, stderr=logf,
-        start_new_session=True, cwd=str(_REPO_ROOT),
+    spawn_detached_driver(
+        driver_path=DRIVER_PATH,
+        log_dir=FOUNDER_REPORTS_DIR,
+        log_name=run_id,
+        extra_env={"FOUNDER_RUN_ID": run_id, "BASE_PROMPT": base_prompt},
+        cwd=_REPO_ROOT,
     )
     logger.info("founder_job launched run_id=%s driver=%s", run_id, DRIVER_PATH)
 

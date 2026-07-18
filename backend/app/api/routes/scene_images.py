@@ -16,7 +16,7 @@ from app.models.user import User
 from app.models.character import Character as CharacterModel
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
 from app.schemas.character_image import CharacterImageRead
-from app.services.image_provider import get_image_provider, get_fallback_provider
+from app.services.image_provider import get_image_provider, get_fallback_provider, is_moderation_block
 from app.services.image_quota import check_weekly_quota
 from app.services.stub_image_generator import generate_placeholder_png
 from app.services.style_elements import apply_style_elements_to_image_prompt
@@ -57,8 +57,7 @@ class SceneImageGenerateRequest(BaseModel):
 
 
 def _is_moderation_block(exc: BaseException) -> bool:
-    msg = str(exc).lower()
-    return any(kw in msg for kw in ("moderation_blocked", "safety system", "safety_violation"))
+    return is_moderation_block(exc)
 
 
 def _v2_canon_front_url(character_id: int, db: Session) -> str | None:

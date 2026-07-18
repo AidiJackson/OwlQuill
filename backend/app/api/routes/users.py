@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, user_is_admin
 from app.core.storage import save_image, file_path_to_url
 from app.core.admin_seed import auto_join_commons
 from app.models.user import User as UserModel
@@ -87,7 +87,7 @@ def _crop_to_banner(png_bytes: bytes) -> bytes:
 
 
 def _is_admin(user: UserModel) -> bool:
-    return bool(user.is_admin) or user.email.lower() in settings.get_admin_emails()
+    return user_is_admin(user)
 
 
 def _require_owner_or_admin(current_user: UserModel, target: UserModel) -> None:
