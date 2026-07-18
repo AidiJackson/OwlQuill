@@ -584,6 +584,9 @@ def test_rp_reply_endpoint_next_goal_for_kissing_scene(client):
 def test_rp_reply_endpoint_inferno_returns_scene_goal(client):
     from tests.conftest import get_auth_token, auth_headers
     token = get_auth_token(client)
+    from tests.conftest import make_admin
+    # Explicit/inferno heat is admin-only during launch (explicit_admin_only gate).
+    make_admin("user@test.com")
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),

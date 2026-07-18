@@ -72,7 +72,7 @@ def test_use_existing_body_slot_sets_locked_status(client):
 
 
 def test_use_existing_body_slot_archives_nothing_but_updates_json(client):
-    """use-existing updates identity_anchor_json and returns all four slots."""
+    """use-existing updates identity_anchor_json and returns all slot entries (v2 + legacy)."""
     token = get_auth_token(client)
     headers = auth_headers(token)
     char_id = _create_character(client, headers)
@@ -85,7 +85,13 @@ def test_use_existing_body_slot_archives_nothing_but_updates_json(client):
     )
     assert resp.status_code == 200
     keys = {s["key"] for s in resp.json()["slots"]}
-    assert keys == {"body_front", "body_three_quarter", "body_back", "tattoo_layout"}
+    assert keys == {
+        # v2 canonical roles
+        "body_front", "body_left_detail", "body_right_detail",
+        "body_back", "body_map", "final_character_card",
+        # legacy roles kept for backward compatibility
+        "body_three_quarter", "tattoo_layout",
+    }
     tl = next(s for s in resp.json()["slots"] if s["key"] == "tattoo_layout")
     assert tl["status"] == "locked"
 

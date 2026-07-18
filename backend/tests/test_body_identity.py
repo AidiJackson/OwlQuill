@@ -151,7 +151,7 @@ def test_save_body_slot_preserves_other_slots():
 
 # ── API endpoint tests ─────────────────────────────────────────────────
 
-def test_list_body_slots_returns_four_keys(client):
+def test_list_body_slots_returns_all_slot_keys(client):
     token = get_auth_token(client)
     headers = auth_headers(token)
     char_id = _create_character(client, headers)
@@ -160,7 +160,13 @@ def test_list_body_slots_returns_four_keys(client):
     data = resp.json()
     assert data["character_id"] == char_id
     keys = {s["key"] for s in data["slots"]}
-    assert keys == {"body_front", "body_three_quarter", "body_back", "tattoo_layout"}
+    assert keys == {
+        # v2 canonical roles
+        "body_front", "body_left_detail", "body_right_detail",
+        "body_back", "body_map", "final_character_card",
+        # legacy roles kept for backward compatibility
+        "body_three_quarter", "tattoo_layout",
+    }
 
 
 def test_list_body_slots_all_missing_initially(client):

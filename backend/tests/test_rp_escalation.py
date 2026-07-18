@@ -274,6 +274,9 @@ def test_rp_reply_endpoint_heat_level_flame(client: TestClient):
 
 def test_rp_reply_endpoint_heat_level_inferno(client: TestClient):
     token = get_auth_token(client)
+    from tests.conftest import make_admin
+    # Explicit/inferno heat is admin-only during launch (explicit_admin_only gate).
+    make_admin("user@test.com")
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),

@@ -335,6 +335,9 @@ def test_benchmark_all_archetypes_endpoint_200(client: TestClient):
 def test_benchmark_all_heat_levels_endpoint_200(client: TestClient):
     """All heat levels should return 200 and a non-empty reply."""
     token = get_auth_token(client)
+    from tests.conftest import make_admin
+    # Explicit/inferno heat is admin-only during launch (explicit_admin_only gate).
+    make_admin("user@test.com")
     for heat in _ALL_HEAT_LEVELS:
         resp = client.post(
             "/storylab/rp-reply/generate",
@@ -409,6 +412,9 @@ def test_benchmark_continuation_score_in_range_for_all_archetypes(client: TestCl
 def test_benchmark_style_warnings_is_list(client: TestClient):
     """style_warnings must always be a list, even when empty."""
     token = get_auth_token(client)
+    from tests.conftest import make_admin
+    # Explicit/inferno heat is admin-only during launch (explicit_admin_only gate).
+    make_admin("user@test.com")
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -477,6 +483,9 @@ def test_benchmark_archetypes_produce_valid_detected_stage(client: TestClient):
 def test_benchmark_cross_matrix_no_errors(client: TestClient):
     """Spot-check a cross-product of archetypes × heat levels — none should 500."""
     token = get_auth_token(client)
+    from tests.conftest import make_admin
+    # Explicit/inferno heat is admin-only during launch (explicit_admin_only gate).
+    make_admin("user@test.com")
     # 3 archetypes × 3 heat = 9 requests
     spot_archetypes = ["cinematic_dark_romance", "slow_burn_tension", "primal_restraint"]
     for archetype in spot_archetypes:
@@ -608,6 +617,9 @@ def test_intensity_explicit_maps_to_inferno():
 def test_rp_reply_explicit_intensity_accepted(client: TestClient):
     """intensity=explicit is a valid value and maps to inferno heat."""
     token = get_auth_token(client)
+    from tests.conftest import make_admin
+    # Explicit/inferno heat is admin-only during launch (explicit_admin_only gate).
+    make_admin("user@test.com")
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),

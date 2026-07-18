@@ -545,7 +545,7 @@ def test_flux_metadata_includes_model_name(client: TestClient, db_session):
 
 
 def test_flux_refs_not_used_metadata_when_include_character(client: TestClient, db_session):
-    """When include_character=True and FLUX is selected, metadata shows refs_not_used_reason."""
+    """include_character=True + FLUX (no ref support) fails loudly per S24AD."""
     from tests.canon_test_utils import setup_canon
     email = "flux_refs_meta@example.com"
     token = _register_and_login(client, email)
@@ -571,14 +571,11 @@ def test_flux_refs_not_used_metadata_when_include_character(client: TestClient, 
             "provider_option": "option3",
         })
 
-    assert resp.status_code == 200, resp.text
-    meta = resp.json()["metadata_json"]
-    assert meta["multi_image_used"] is False
-    assert meta["used_ref"] is False
-    # If refs were routed (refs_count > 0), reason must be explicit
-    if meta.get("refs_count", 0) > 0:
-        assert meta.get("refs_not_used_reason") == "provider_does_not_support_reference_input"
-        assert meta.get("refs_support_level") == "none"
+    # S24AD: a canon generation with reference images on a provider that cannot
+    # consume them must FAIL LOUDLY (422) instead of silently degrading to a
+    # ref-less text-only image that drops the character's identity.
+    assert resp.status_code == 422, resp.text
+    assert "Canon provider declined" in resp.json()["detail"]
 
 
 def test_existing_google_path_unaffected_by_flux_addition(client: TestClient):

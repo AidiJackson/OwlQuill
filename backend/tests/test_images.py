@@ -48,11 +48,12 @@ def test_image_weekly_limit_enforced(authed_client, client):
 
 def test_image_admin_unlimited(authed_client, client, monkeypatch):
     """Admin user (email in ADMIN_EMAILS) bypasses the weekly quota entirely."""
-    import app.api.routes.images as img_routes
     from app.core.config import settings as app_settings
 
-    # Promote the default test user (user@test.com) to admin via settings patch
-    monkeypatch.setattr(img_routes.settings, "ADMIN_EMAILS", "user@test.com")
+    # Promote the default test user (user@test.com) to admin via settings patch.
+    # settings is a shared singleton — patch it directly (the images route no
+    # longer re-imports it at module level).
+    monkeypatch.setattr(app_settings, "ADMIN_EMAILS", "user@test.com")
 
     limit = app_settings.IMAGE_WEEKLY_LIMIT
     over_limit = limit + 3  # generate clearly beyond the standard cap

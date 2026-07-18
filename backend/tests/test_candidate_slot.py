@@ -362,8 +362,10 @@ def test_rollback_restores_previous_anchor_json():
 
     rollback_to_snapshot(mock_db, character, snapshot)
 
-    assert character.identity_anchor_json == original_anchor
+    # Rollback re-derives pack_stages (identity evolution) on the restored
+    # anchor — every other field must be restored exactly.
     restored = json.loads(character.identity_anchor_json)
+    assert {k: v for k, v in restored.items() if k != "pack_stages"} == json.loads(original_anchor)
     assert restored["anchors"]["front"]["url"] == "http://original.com/front.png"
 
 

@@ -347,7 +347,7 @@ def compile_identity_prompt(
     # Assemble with safety prefix
     prompt = f"{_SAFETY_PREFIX}, " + ", ".join(v for _, v in sections)
 
-    # Hard cap at 800 — trim by section name, never by index
+    # Hard cap at _PROMPT_CAP — trim by section name, never by index
     if len(prompt) > _PROMPT_CAP:
         prompt = _trim_to_cap(prompt, sections, failsafe)
 

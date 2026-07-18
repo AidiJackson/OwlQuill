@@ -1749,7 +1749,7 @@ def test_crop_face_reference_survives_bad_input():
     assert result == garbage, "Should return original bytes unchanged on error"
 
 
-def test_accept_creates_identity_face_ref(client: TestClient, db_session):
+def test_accept_creates_identity_face_ref(client: TestClient, db_session, generated_media_dir):
     """accept_identity_pack must create exactly 1 IDENTITY_FACE_REF image."""
     from app.models.character_image import CharacterImage, ImageKindEnum
 
@@ -1805,12 +1805,11 @@ def test_accept_creates_identity_face_ref(client: TestClient, db_session):
     assert fr.metadata_json.get("is_temp") is False
     assert fr.metadata_json.get("pack_id") == pack_id
     assert fr.file_path.startswith("static/generated/")
-    # The file must actually exist on disk
+    # The file must actually exist on disk. Generated media is redirected to a
+    # pytest temp dir by the session-scoped generated_media_dir fixture (only
+    # the stored *path string* keeps the static/generated/ prefix).
     from pathlib import Path
-    abs_path = (
-        Path(__file__).resolve().parent.parent
-        / fr.file_path
-    )
+    abs_path = generated_media_dir / Path(fr.file_path).name
     assert abs_path.exists(), f"Face ref file not found on disk: {abs_path}"
 
 

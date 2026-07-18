@@ -57,7 +57,8 @@ def test_scene_image_success_stub(client: TestClient):
 
     # Image record created
     assert data["character_id"] == cid
-    assert data["kind"] == "generated"
+    # Identity OS: generated scenes are never canon — they are stamped scene_only.
+    assert data["kind"] == "scene_only"
     assert data["url"].startswith("/static/")
     assert data["file_path"].startswith("static/generated/")
 

@@ -1,6 +1,39 @@
-"""Tests for the StoryLab state + generate endpoints."""
+"""Tests for the StoryLab state + generate endpoints.
+
+All StoryLab endpoints require authentication (launch security hardening —
+enforced and covered by test_storylab_security.py). The autouse fixture below
+gives every request in this module an authenticated baseline user; tests that
+need a specific user (admin gating, per-user quotas) pass their own explicit
+Authorization header, which always takes precedence.
+"""
 import pytest
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def _storylab_default_auth(request):
+    """Authenticate this module's TestClient requests by default.
+
+    The endpoint tests here predate mandatory auth; they exercise state,
+    generation, chapters and quotas — not authentication itself. Requests that
+    already carry an Authorization header are left untouched.
+    """
+    if "client" not in request.fixturenames:
+        yield
+        return
+    client = request.getfixturevalue("client")
+    default_hdrs = _sl_auth_headers(client)
+    original_request = client.request
+
+    def request_with_default_auth(method, url, **kwargs):
+        headers = dict(kwargs.pop("headers", {}) or {})
+        for key, value in default_hdrs.items():
+            headers.setdefault(key, value)
+        return original_request(method, url, headers=headers, **kwargs)
+
+    client.request = request_with_default_auth
+    yield
+    client.request = original_request
 
 # ── prompt builder unit tests ─────────────────────────────────────────────────
 
@@ -500,7 +533,16 @@ def test_generate_safety_object(client: TestClient):
 
 
 def test_generate_fade_to_black_sensual_allowed(client: TestClient):
-    """fade_to_black boundary + sensual_scene direction is allowed."""
+    """fade_to_black boundary + sensual_scene direction is allowed (for admins).
+
+    Non-SFW boundaries are admin-only during launch (S24D FIX 3) — the gate
+    itself is covered by test_generate_non_sfw_boundary_is_admin_only. This
+    test promotes the baseline user so the boundary/direction combination and
+    the stub's fade-to-black cue remain covered.
+    """
+    from tests.conftest import make_admin
+
+    make_admin("sl-test@ficshon.com")
     body = {**_BASE_GENERATE, "controls": {
         "direction": "sensual_scene",
         "tone_intensity": "moderate",
@@ -1034,7 +1076,10 @@ def test_generate_passes_recent_endings_after_first_call(client):
     from unittest.mock import patch
     import app.services.storylab_generator as gen
 
-    story_id = "anti-rep-integration-story"
+    # Non-legacy story ids now require an owned StoryModel row for the recent-
+    # endings lookup (ownership isolation); the legacy "storylab:" prefix keeps
+    # this test exercising the endings hand-off without registering a story.
+    story_id = "storylab:anti-rep-integration-story"
     base = {**_BASE_GENERATE, "story_id": story_id}
 
     # First call — creates a generation log entry for this story_id
@@ -1045,9 +1090,9 @@ def test_generate_passes_recent_endings_after_first_call(client):
     captured: dict = {}
     orig = gen.generate_storylab_continuation
 
-    def spy(text, controls, state_json, summary, characters, story_id="", recent_endings=None, variant="default"):
+    def spy(text, controls, state_json, summary, characters, story_id="", recent_endings=None, variant="default", **kwargs):
         captured["recent_endings"] = recent_endings
-        return orig(text, controls, state_json, summary, characters, story_id, recent_endings, variant)
+        return orig(text, controls, state_json, summary, characters, story_id, recent_endings, variant, **kwargs)
 
     with patch("app.api.routes.storylab.generate_storylab_continuation", side_effect=spy):
         resp2 = client.post("/api/storylab/generate", json=base)

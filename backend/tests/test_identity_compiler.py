@@ -1,6 +1,8 @@
 """Unit tests for the identity prompt compiler."""
 import pytest
 
+from app.services.identity_compiler import _PROMPT_CAP as PROMPT_CAP
+
 from app.schemas.character_visual import (
     CharacterIdentitySpec,
     IdentityCore,
@@ -210,14 +212,14 @@ class TestRoleChanges:
             assert len(prompt) > 0
 
 
-# ── Cap is 800 and trimming keeps neutral outfit intact ───────────────
+# ── Cap is _PROMPT_CAP (currently 1500) and trimming keeps neutral outfit intact ───────────────
 
 class TestPromptCap:
 
     def test_prompt_within_800(self):
         spec = _make_grace_spec()
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert len(prompt) <= 800
+        assert len(prompt) <= PROMPT_CAP
 
     def test_long_marks_trimmed_neutral_outfit_kept(self):
         spec = _make_grace_spec(
@@ -227,7 +229,7 @@ class TestPromptCap:
             extra_notes="warm moody atmospheric cinematic lighting with depth",
         )
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert len(prompt) <= 800
+        assert len(prompt) <= PROMPT_CAP
         # Neutral outfit must survive trimming
         assert "neutral studio outfit" in prompt.lower()
 
@@ -238,7 +240,7 @@ class TestPromptCap:
             ),
         )
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert len(prompt) <= 800
+        assert len(prompt) <= PROMPT_CAP
         assert "neutral studio outfit" in prompt.lower()
 
 
@@ -503,7 +505,7 @@ class TestB15FieldsInPrompt:
         assert "brunette" in prompt.lower()
 
     def test_b15_fields_within_cap(self):
-        """Prompt with all B15 fields must still be within 800-char cap."""
+        """Prompt with all B15 fields must still be within prompt cap (_PROMPT_CAP)."""
         spec = _make_grace_spec(
             hair_texture="curly",
             hair_style="side_parted",
@@ -511,7 +513,7 @@ class TestB15FieldsInPrompt:
             eye_spacing="wide_set",
         )
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"
+        assert len(prompt) <= PROMPT_CAP, f"Prompt over cap: {len(prompt)} chars"
 
 
 # ── B16: Body morphology (Height + Build) ────────────────────────────
@@ -594,10 +596,10 @@ class TestBodyMorphologyPrompt:
         assert "average height" not in prompt
 
     def test_morphology_prompt_within_cap(self):
-        """Prompt with all B16 fields must remain within 800-char cap."""
+        """Prompt with all B16 fields must remain within prompt cap (_PROMPT_CAP)."""
         spec = _make_morphology_spec(body_height="tall", body_build="stocky")
         prompt = compile_identity_prompt(spec, "anchor_full_body")
-        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"
+        assert len(prompt) <= PROMPT_CAP, f"Prompt over cap: {len(prompt)} chars"
 
 
 class TestBodyMorphologyLockString:
@@ -775,7 +777,7 @@ class TestFacialGeometryInPrompt:
         assert "none" not in prompt_with_none.split("neutral")[0].lower()
 
     def test_all_geometry_fields_within_cap(self):
-        """Full set of facial geometry fields must remain within 800-char cap."""
+        """Full set of facial geometry fields must remain within prompt cap (_PROMPT_CAP)."""
         spec = _make_grace_spec(
             face_shape="oval",
             jaw_type="sharp",
@@ -787,7 +789,7 @@ class TestFacialGeometryInPrompt:
             facial_hair_type="stubble",
         )
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars — {prompt!r}"
+        assert len(prompt) <= PROMPT_CAP, f"Prompt over cap: {len(prompt)} chars — {prompt!r}"
 
     def test_geometry_in_all_roles(self):
         """Face geometry must appear in every pack role, not just anchor_front."""
@@ -955,10 +957,10 @@ class TestB34HairFidelity:
         assert "long brunette hair" in lock.lower()
 
     def test_b34_hair_within_cap(self):
-        """Prompt with curly texture and long hair must remain within 800-char cap."""
+        """Prompt with curly texture and long hair must remain within prompt cap (_PROMPT_CAP)."""
         spec = _make_grace_spec(hair_texture="curly")
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"
+        assert len(prompt) <= PROMPT_CAP, f"Prompt over cap: {len(prompt)} chars"
 
 
 # ── B34: Stature / build fidelity hardening ──────────────────────────
@@ -1023,25 +1025,25 @@ class TestB34StatureFidelity:
         assert "slim build, narrow shoulders, lean frame" not in lock
 
     def test_b34_petite_within_cap(self):
-        """Petite prompt must remain within 800-char cap."""
+        """Petite prompt must remain within prompt cap (_PROMPT_CAP)."""
         spec = _make_morphology_spec(body_height="short", body_build="slim")
         prompt = compile_identity_prompt(spec, "anchor_full_body")
-        assert len(prompt) <= 800, f"Prompt over cap: {len(prompt)} chars"
+        assert len(prompt) <= PROMPT_CAP, f"Prompt over cap: {len(prompt)} chars"
 
 
 # ── Trim compiler hardening: named-section trimming invariants ────────
 #
 # These tests exercise the _trim_to_cap path by constructing specs whose
-# assembled prompt exceeds 800 chars, then asserting that protected sections
+# assembled prompt exceeds the prompt cap, then asserting that protected sections
 # survive (build/morphology, species) and only low-priority sections are
 # removed (extra_notes, outfit_lock, shot).
 #
 # The over-cap load is achieved with a long extra_notes + many marks items.
-# A long marks list alone pushes total > 800; coupling with extra_notes
+# A long marks list alone pushes total over the cap; coupling with extra_notes
 # guarantees even harder trim pressure.
 
 def _make_overcap_human_spec(*, body_build="athletic", extra_notes: str = "") -> CharacterIdentitySpec:
-    """Human spec whose assembled prompt exceeds 800 chars due to many marks items."""
+    """Human spec whose assembled prompt exceeds the prompt cap due to many marks items."""
     spec = CharacterIdentitySpec(
         style="realistic",
         gender="female",
@@ -1062,7 +1064,7 @@ def _make_overcap_human_spec(*, body_build="athletic", extra_notes: str = "") ->
 
 
 def _make_overcap_species_spec(species: str, *, body_build="muscular") -> CharacterIdentitySpec:
-    """Non-human spec whose assembled prompt exceeds 800 chars."""
+    """Non-human spec whose assembled prompt exceeds the prompt cap."""
     spec = CharacterIdentitySpec(
         style="realistic",
         gender="male",
@@ -1091,7 +1093,7 @@ class TestTrimCompilerHardening:
         """Build/morphology must survive when extra_notes is absent and prompt is over cap."""
         spec = _make_overcap_human_spec(body_build="muscular", extra_notes="")
         prompt = compile_identity_prompt(spec, "anchor_full_body")
-        assert len(prompt) <= 800
+        assert len(prompt) <= PROMPT_CAP
         assert "muscular build" in prompt.lower(), (
             f"Build trimmed when extra_notes absent — should never be removed. Prompt: {prompt!r}"
         )
@@ -1103,7 +1105,7 @@ class TestTrimCompilerHardening:
             extra_notes="warm dramatic cinematic lighting, moody atmospheric depth",
         )
         prompt = compile_identity_prompt(spec, "anchor_full_body")
-        assert len(prompt) <= 800
+        assert len(prompt) <= PROMPT_CAP
         assert "athletic build" in prompt.lower(), (
             f"Build trimmed after extra_notes removal — should be protected. Prompt: {prompt!r}"
         )
@@ -1112,7 +1114,7 @@ class TestTrimCompilerHardening:
         """Species section must not be dropped due to index shift when prompt is over cap."""
         spec = _make_overcap_species_spec("vampire")
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert len(prompt) <= 800
+        assert len(prompt) <= PROMPT_CAP
         assert "vampire" in prompt.lower(), (
             f"Species 'vampire' trimmed from over-cap prompt — must be protected. Prompt: {prompt!r}"
         )
@@ -1121,7 +1123,7 @@ class TestTrimCompilerHardening:
         """Both species identity and build must survive together under trim pressure."""
         spec = _make_overcap_species_spec("werewolf", body_build="muscular")
         prompt = compile_identity_prompt(spec, "anchor_full_body")
-        assert len(prompt) <= 800
+        assert len(prompt) <= PROMPT_CAP
         assert "werewolf" in prompt.lower(), (
             f"Species 'werewolf' lost under trim: {prompt!r}"
         )
@@ -1135,7 +1137,7 @@ class TestTrimCompilerHardening:
         spec = _make_overcap_human_spec(body_build="slim", extra_notes=notes)
         prompt_with_notes = compile_identity_prompt(spec, "anchor_front")
         # extra_notes must be gone; identity core must survive
-        assert len(prompt_with_notes) <= 800
+        assert len(prompt_with_notes) <= PROMPT_CAP
         assert notes not in prompt_with_notes, "extra_notes should have been removed first"
         assert "auburn" in prompt_with_notes.lower(), "Identity hair color must not be removed"
         assert "slim build" in prompt_with_notes.lower(), "Build must survive after extra_notes removal"

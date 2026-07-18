@@ -37,20 +37,22 @@ def test_long_max_tokens_larger_than_short():
     assert _rp_reply_max_tokens("long", partner_words) > _rp_reply_max_tokens("short", partner_words)
 
 
-def test_novella_max_tokens_is_4000():
+def test_novella_max_tokens_is_2200():
+    """Novella budget is ~3x its 700-word target (retuned to enforce length)."""
     from app.services.storylab_generator import _rp_reply_max_tokens
-    assert _rp_reply_max_tokens("novella", 80) == 4000
+    assert _rp_reply_max_tokens("novella", 80) == 2200
 
 
-def test_short_max_tokens_is_900():
+def test_short_max_tokens_is_450():
+    """Short budget is ~3x its 100-word target (retuned to enforce length)."""
     from app.services.storylab_generator import _rp_reply_max_tokens
-    assert _rp_reply_max_tokens("short", 80) == 900
+    assert _rp_reply_max_tokens("short", 80) == 450
 
 
-def test_long_max_tokens_is_in_range():
+def test_long_max_tokens_is_1100():
+    """Long budget is ~3x its 350-word target (retuned to enforce length)."""
     from app.services.storylab_generator import _rp_reply_max_tokens
-    mt = _rp_reply_max_tokens("long", 80)
-    assert 2000 <= mt <= 3000
+    assert _rp_reply_max_tokens("long", 80) == 1100
 
 
 def test_match_max_tokens_capped():
@@ -230,7 +232,7 @@ def test_endpoint_returns_length_profile_fields(client):
     assert "resolved_length_profile" in data
     assert "novella" in data["resolved_length_profile"].lower()
     assert "max_tokens_used" in data
-    assert data["max_tokens_used"] == 4000
+    assert data["max_tokens_used"] == 2200
     assert "requested_beat_count" in data
     assert data["requested_beat_count"] >= 4
     assert "beat_completion_mode" in data
@@ -286,6 +288,9 @@ def test_endpoint_explicit_mode_max_tokens_unaffected(client):
     """Explicit mode should still get the full token budget for novella."""
     from tests.conftest import get_auth_token, auth_headers
     token = get_auth_token(client)
+    from tests.conftest import make_admin
+    # Explicit/inferno heat is admin-only during launch (explicit_admin_only gate).
+    make_admin("user@test.com")
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -300,7 +305,7 @@ def test_endpoint_explicit_mode_max_tokens_unaffected(client):
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["max_tokens_used"] == 4000
+    assert data["max_tokens_used"] == 2200
 
 
 def test_endpoint_blank_instructions_beat_mode_single(client):

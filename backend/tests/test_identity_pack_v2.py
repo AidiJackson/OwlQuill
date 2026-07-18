@@ -308,7 +308,7 @@ def test_admin_canon_import_rejects_invalid_slot(client, db_session, monkeypatch
     resp = client.post(
         f"/characters/{char_id}/identity/canon-import",
         headers=hdrs,
-        data={"target_slot": "body_back"},  # not an allowed import slot
+        data={"target_slot": "not_a_slot"},  # not an allowed import slot
         files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
     )
     assert resp.status_code == 422, resp.text
