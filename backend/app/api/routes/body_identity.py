@@ -33,6 +33,7 @@ from app.models.user import User
 from app.services.body_canon import build_body_canon_lock_string, load_markings
 from app.services.identity_evolution import write_pack_stages
 from app.services.image_provider import get_provider_for_option
+from app.services.provider_capabilities import Capability, provider_supports
 from app.services.pack_version import get_pack_version
 
 logger = logging.getLogger(__name__)
@@ -449,7 +450,7 @@ def _do_generate_body_slot(
                 pass
 
     try:
-        if ref_images and getattr(provider, "supports_multi_image_input", False):
+        if ref_images and provider_supports(provider, Capability.MULTI_IMAGE_ANCHORS):
             png_bytes = provider.generate_with_anchors(
                 prompt=prompt,
                 anchor_images=ref_images,

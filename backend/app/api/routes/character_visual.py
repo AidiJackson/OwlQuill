@@ -45,6 +45,7 @@ from app.services.identity_compiler import (
 )
 from app.services.body_canon import load_markings, build_body_canon_lock_string
 from app.services.stub_image_generator import generate_placeholder_png
+from app.services.provider_capabilities import Capability, provider_supports
 from app.services.image_provider import (
     get_identity_provider_by_name,
     get_fallback_provider,
@@ -389,7 +390,7 @@ def generate_body_front(character: CharacterModel) -> bytes:
             except Exception:
                 pass
 
-    if ref_images and getattr(provider, "supports_multi_image_input", False):
+    if ref_images and provider_supports(provider, Capability.MULTI_IMAGE_ANCHORS):
         return provider.generate_with_anchors(prompt=prompt, anchor_images=ref_images)
     return provider.generate_image(prompt=prompt)
 

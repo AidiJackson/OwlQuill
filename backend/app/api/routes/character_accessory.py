@@ -32,6 +32,7 @@ from app.services.character_accessory import (
     update_accessory_in_json,
 )
 from app.services.image_provider import get_provider_for_option
+from app.services.provider_capabilities import Capability, provider_supports
 
 logger = logging.getLogger(__name__)
 
@@ -328,7 +329,7 @@ def generate_fit_anchor(
             )
 
     png_bytes: bytes | None = None
-    provider_supports_multi = getattr(provider, "supports_multi_image_input", False)
+    provider_supports_multi = provider_supports(provider, Capability.MULTI_IMAGE_ANCHORS)
 
     if provider_supports_multi and anchor_images:
         try:

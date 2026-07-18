@@ -32,6 +32,7 @@ from app.models.adult_identity import (
     AdultIdentityModelVersion,
 )
 from app.services import adult_studio as svc
+from app.services.provider_capabilities import Capability, provider_supports
 from app.services.adult_identity_preparation import (
     CanonNotReadyError,
     prepare_adult_identity,
@@ -355,7 +356,7 @@ def generate_adult_studio_image(
                     "failure_reason": f"provider_unavailable: {exc}"},
         )
 
-    if not getattr(provider, "supports_multi_image_input", False):
+    if not provider_supports(provider, Capability.MULTI_IMAGE_ANCHORS):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={**base_meta, "multi_image_used": False,

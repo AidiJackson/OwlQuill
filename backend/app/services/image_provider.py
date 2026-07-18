@@ -13,19 +13,58 @@ from pathlib import Path
 from openai import OpenAI, OpenAIError
 
 from app.core.config import settings
+from app.services.provider_capabilities import Capability
 
 _MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 _DOWNLOAD_TIMEOUT_S = 10
 
 
+class _DerivedFlag:
+    """Legacy boolean flag derived from ``capabilities``.
+
+    A plain descriptor (not ``property``) so the flag reads correctly on both
+    instances AND classes — existing tests assert e.g.
+    ``_TogetherFluxAdapter.supports_image_guidance is False`` at class level.
+    """
+
+    def __init__(self, *caps: Capability) -> None:
+        self._caps = caps
+
+    def __get__(self, obj: object, objtype: type | None = None) -> bool:
+        owner = obj if obj is not None else objtype
+        return any(c in owner.capabilities for c in self._caps)
+
+
+class _DerivedRefLevel:
+    """Legacy ``refs_support_level`` string derived from ``capabilities``."""
+
+    def __get__(self, obj: object, objtype: type | None = None) -> str:
+        caps = (obj if obj is not None else objtype).capabilities
+        if Capability.IMAGE_GUIDANCE in caps or Capability.MULTI_IMAGE_ANCHORS in caps:
+            return "bytes"
+        if Capability.URL_ANCHORS in caps:
+            return "url_required"
+        return "none"
+
+
 class ImageProvider:
-    """Base image provider with prompt validation and delegation."""
+    """Base image provider with prompt validation and delegation.
 
-    # Subclasses that support seed-image grounding set this to True.
-    supports_image_guidance: bool = False
+    Subclasses declare what they can do via ``capabilities`` (Sprint 36); the
+    legacy boolean flags below are derived read-only views kept for existing
+    call sites and tests.
+    """
 
-    # B19: subclasses that accept multiple reference images set this to True.
-    supports_multi_image_input: bool = False
+    capabilities: frozenset[Capability] = frozenset({Capability.TEXT_TO_IMAGE})
+
+    def supports(self, cap: Capability) -> bool:
+        return cap in self.capabilities
+
+    # Derived legacy views — valid on classes and instances alike.
+    supports_image_guidance = _DerivedFlag(Capability.IMAGE_GUIDANCE)
+    supports_multi_image_input = _DerivedFlag(Capability.MULTI_IMAGE_ANCHORS)
+    # Admin-metadata view of reference support ("bytes"/"url_required"/"none").
+    refs_support_level = _DerivedRefLevel()
 
     def generate_image(
         self,
@@ -162,8 +201,11 @@ def _download_image(url: str) -> Path:
 class _OpenAIImageProvider(ImageProvider):
     """OpenAI Images API provider."""
 
-    supports_image_guidance = True
-    supports_multi_image_input = True
+    capabilities = frozenset({
+        Capability.TEXT_TO_IMAGE,
+        Capability.IMAGE_GUIDANCE,
+        Capability.MULTI_IMAGE_ANCHORS,
+    })
 
     def __init__(self) -> None:
         if not settings.OPENAI_API_KEY:
@@ -293,8 +335,11 @@ class _OpenAIImageProvider(ImageProvider):
 class _GoogleImageProviderAdapter(ImageProvider):
     """Adapt GoogleImageProvider to the legacy ImageProvider interface."""
 
-    supports_image_guidance = True
-    supports_multi_image_input = True
+    capabilities = frozenset({
+        Capability.TEXT_TO_IMAGE,
+        Capability.IMAGE_GUIDANCE,
+        Capability.MULTI_IMAGE_ANCHORS,
+    })
 
     def __init__(self) -> None:
         from app.services.image_providers.google_provider import GoogleImageProvider
@@ -338,6 +383,29 @@ class _GoogleImageProviderAdapter(ImageProvider):
         )
 
 
+def create_provider(name: str) -> ImageProvider:
+    """Instantiate a registered provider by name (see _PROVIDER_FACTORIES).
+
+    Raises:
+        RuntimeError: If the provider's required credentials are missing.
+        ValueError: If the name is not registered.
+    """
+    factory = _PROVIDER_FACTORIES.get(name.lower())
+    if factory is None:
+        supported = ", ".join(f"'{n}'" for n in _PROVIDER_FACTORIES)
+        raise ValueError(f"Unsupported provider: {name!r}. Supported: {supported}.")
+    return factory()
+
+
+def _require_capability(provider: ImageProvider, name: str, cap: Capability) -> ImageProvider:
+    if not provider.supports(cap):
+        raise ValueError(
+            f"Provider '{name}' does not support image guidance, which is required "
+            f"for identity pack generation. Use 'openai' or 'google'."
+        )
+    return provider
+
+
 def get_image_provider() -> ImageProvider:
     """Factory: return the configured image provider instance.
 
@@ -345,16 +413,12 @@ def get_image_provider() -> ImageProvider:
         ValueError: If IMAGE_PROVIDER names an unsupported backend.
     """
     provider = settings.IMAGE_PROVIDER.lower()
-    if provider == "openai":
-        return _OpenAIImageProvider()
-    if provider == "google":
-        return _GoogleImageProviderAdapter()
-    if provider == "openrouter":
-        return _OpenRouterImageProviderAdapter()
-    raise ValueError(
-        f"Unsupported IMAGE_PROVIDER: {settings.IMAGE_PROVIDER!r}. "
-        f"Supported providers: 'openai', 'google', 'openrouter'."
-    )
+    if provider not in _CONFIGURABLE_PROVIDERS:
+        raise ValueError(
+            f"Unsupported IMAGE_PROVIDER: {settings.IMAGE_PROVIDER!r}. "
+            f"Supported providers: 'openai', 'google', 'openrouter'."
+        )
+    return create_provider(provider)
 
 
 def get_identity_image_provider() -> ImageProvider:
@@ -369,23 +433,14 @@ def get_identity_image_provider() -> ImageProvider:
             does not support image guidance (required for identity consistency).
     """
     effective = (settings.IDENTITY_IMAGE_PROVIDER or settings.IMAGE_PROVIDER).lower()
-    if effective == "openai":
-        provider: ImageProvider = _OpenAIImageProvider()
-    elif effective == "google":
-        provider = _GoogleImageProviderAdapter()
-    elif effective == "openrouter":
-        provider = _OpenRouterImageProviderAdapter()
-    else:
+    if effective not in _CONFIGURABLE_PROVIDERS:
         raise ValueError(
             f"Unsupported provider: {effective!r}. "
             f"Supported: 'openai', 'google', 'openrouter'."
         )
-    if not provider.supports_image_guidance:
-        raise ValueError(
-            f"Provider '{effective}' does not support image guidance, which is required "
-            f"for identity pack generation. Use 'openai' or 'google'."
-        )
-    return provider
+    return _require_capability(
+        create_provider(effective), effective, Capability.IMAGE_GUIDANCE
+    )
 
 
 def get_identity_provider_by_name(name: str) -> ImageProvider:
@@ -400,22 +455,11 @@ def get_identity_provider_by_name(name: str) -> ImageProvider:
         ValueError: If the name is unsupported or the provider lacks image-guidance support.
     """
     n = name.lower()
-    if n == "openai":
-        provider: ImageProvider = _OpenAIImageProvider()
-    elif n == "google":
-        provider = _GoogleImageProviderAdapter()
-    elif n == "openrouter":
-        provider = _OpenRouterImageProviderAdapter()
-    else:
+    if n not in _CONFIGURABLE_PROVIDERS:
         raise ValueError(
             f"Unsupported provider: {n!r}. Supported: 'openai', 'google', 'openrouter'."
         )
-    if not provider.supports_image_guidance:
-        raise ValueError(
-            f"Provider '{n}' does not support image guidance, which is required "
-            f"for identity pack generation. Use 'openai' or 'google'."
-        )
-    return provider
+    return _require_capability(create_provider(n), n, Capability.IMAGE_GUIDANCE)
 
 
 def get_provider_for_option(option: str) -> ImageProvider:
@@ -436,40 +480,14 @@ def get_provider_for_option(option: str) -> ImageProvider:
         RuntimeError: If the resolved provider is missing required credentials.
         ValueError: If the option key is unrecognised.
     """
-    _OPTION_MAP = {
-        "option1": "openai",
-        "option2": "google",
-        "option3": "flux_pro",
-        "option4": "flux_max",
-        "option5": "together_flux",
-        "option6": "grok",
-    }
     effective = option.lower() if settings.IMAGE_GENERATOR_PROVIDER_TOGGLE else "option1"
-    provider_name = _OPTION_MAP.get(effective)
+    provider_name = _PROVIDER_OPTION_NAMES.get(effective)
     if provider_name is None:
         raise ValueError(
             f"Unknown provider option: {option!r}. "
             f"Expected 'option1' through 'option6'."
         )
-    if provider_name == "openai":
-        return _OpenAIImageProvider()
-    if provider_name == "google":
-        return _GoogleImageProviderAdapter()
-    if provider_name == "flux_pro":
-        return _FluxOpenRouterAdapter(
-            model=settings.OPENROUTER_FLUX_PRO_MODEL,
-            provider_label="flux_pro",
-        )
-    if provider_name == "flux_max":
-        return _FluxOpenRouterAdapter(
-            model=settings.OPENROUTER_FLUX_MAX_MODEL,
-            provider_label="flux_max",
-        )
-    if provider_name == "together_flux":
-        return _TogetherFluxAdapter(model=settings.TOGETHER_FLUX_MODEL)
-    if provider_name == "grok":
-        return _OpenRouterImageProviderAdapter(model=settings.OPENROUTER_GROK_IMAGE_MODEL)
-    raise ValueError(f"No provider implementation for resolved name: {provider_name!r}")
+    return create_provider(provider_name)
 
 
 # ── Beta provider gating ──────────────────────────────────────────────
@@ -566,7 +584,10 @@ def get_fallback_provider() -> ImageProvider | None:
 class _OpenRouterImageProviderAdapter(ImageProvider):
     """Adapt OpenRouterImageProvider to the ImageProvider interface."""
 
-    supports_image_guidance = True
+    capabilities = frozenset({
+        Capability.TEXT_TO_IMAGE,
+        Capability.IMAGE_GUIDANCE,
+    })
 
     def __init__(self, model: str | None = None) -> None:
         from app.services.image_providers.openrouter_provider import (
@@ -608,10 +629,8 @@ class _FluxOpenRouterAdapter(ImageProvider):
     so the admin can see exactly why refs were not used.
     """
 
-    supports_image_guidance = False
-    supports_multi_image_input = False
-    # Surfaced in endpoint metadata to explain why refs were not forwarded.
-    refs_support_level: str = "none"
+    # Text-to-image only — refs_support_level derives to "none" for metadata.
+    capabilities = frozenset({Capability.TEXT_TO_IMAGE})
 
     def __init__(self, model: str, provider_label: str) -> None:
         from app.services.image_providers.flux_openrouter_provider import (
@@ -651,9 +670,9 @@ class _TogetherFluxAdapter(ImageProvider):
     FLUX/OpenRouter where refs are never forwarded at all.
     """
 
-    supports_image_guidance = False
-    supports_multi_image_input = False
-    refs_support_level: str = "url_required"
+    # URL-only references: the bytes-based tiers are skipped (no IMAGE_GUIDANCE
+    # / MULTI_IMAGE_ANCHORS) and refs_support_level derives to "url_required".
+    capabilities = frozenset({Capability.TEXT_TO_IMAGE, Capability.URL_ANCHORS})
 
     def __init__(self, model: str) -> None:
         from app.services.image_providers.together_flux_provider import TogetherFluxProvider
@@ -711,6 +730,35 @@ class _FalProviderAdapter(ImageProvider):
     ) -> bytes:
         # Fal only supports text-to-image; ignore reference_image_url
         return self._fal.generate_text_to_image(prompt=prompt, size=size)
+
+
+# ── Provider registry (Sprint 36) ─────────────────────────────────────
+# The single, explicit registration point: name → zero-arg factory. Adding a
+# provider = implement it + declare its capabilities + add one entry here
+# (plus an option key in _PROVIDER_OPTION_NAMES if it should be selectable
+# through the B17 option flow). No runtime discovery, no plugins.
+
+_PROVIDER_FACTORIES: dict[str, "Callable[[], ImageProvider]"] = {
+    "openai": _OpenAIImageProvider,
+    "google": _GoogleImageProviderAdapter,
+    "openrouter": _OpenRouterImageProviderAdapter,
+    "flux_pro": lambda: _FluxOpenRouterAdapter(
+        model=settings.OPENROUTER_FLUX_PRO_MODEL, provider_label="flux_pro"
+    ),
+    "flux_max": lambda: _FluxOpenRouterAdapter(
+        model=settings.OPENROUTER_FLUX_MAX_MODEL, provider_label="flux_max"
+    ),
+    "together_flux": lambda: _TogetherFluxAdapter(model=settings.TOGETHER_FLUX_MODEL),
+    "grok": lambda: _OpenRouterImageProviderAdapter(
+        model=settings.OPENROUTER_GROK_IMAGE_MODEL
+    ),
+    "fal": _FalProviderAdapter,
+}
+
+# Names accepted for the IMAGE_PROVIDER / IDENTITY_IMAGE_PROVIDER settings —
+# unchanged from pre-Sprint 36 (the remaining registry entries are reachable
+# only through provider options or the fallback path).
+_CONFIGURABLE_PROVIDERS = frozenset({"openai", "google", "openrouter"})
 
 
 def test_image_generation() -> bytes:

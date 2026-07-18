@@ -39,6 +39,7 @@ from app.models.character_image import (
     ImageVisibilityEnum,
 )
 from app.schemas.character_image import CharacterImageRead
+from app.services.provider_capabilities import Capability, provider_supports, ref_support_level
 from app.services.image_provider import (
     get_provider_for_option,
     get_fallback_provider,
@@ -401,14 +402,14 @@ def generate_image(
     # Together AI requires public HTTPS URLs for reference_images — its backend
     # fetches them directly, so local /static/ paths are not accessible.
     # This path runs before the bytes-based tier chain because _TogetherFluxAdapter
-    # sets supports_multi_image_input=False (bytes tier skipped) but exposes
-    # generate_with_anchor_urls() for URL-based conditioning.
+    # declares URL_ANCHORS but not MULTI_IMAGE_ANCHORS (bytes tier skipped) and
+    # exposes generate_with_anchor_urls() for URL-based conditioning.
     # TOGETHER_DIAG log entries record selected_refs/loaded_refs/provider_refs_sent/
     # provider_response_mode for benchmark diagnostics.
     together_urls_sent: list[str] = []
     together_response_mode: str = "not_applicable"
 
-    if png_bytes is None and provider is not None and reference_urls and hasattr(provider, "generate_with_anchor_urls"):
+    if png_bytes is None and reference_urls and provider_supports(provider, Capability.URL_ANCHORS):
         public_urls = [u for u in reference_urls[:6] if u.startswith("https://")]
         local_refs = [u for u in reference_urls[:6] if not u.startswith("https://")]
         logger.info(
@@ -448,7 +449,7 @@ def generate_image(
             )
 
     # ── Generate: multi-image → grounded → text-only → fal → stub ──
-    provider_supports_multi = bool(getattr(provider, "supports_multi_image_input", False))
+    provider_supports_multi = provider_supports(provider, Capability.MULTI_IMAGE_ANCHORS)
     # S24AD: remember why the reference-bearing calls (multi-image / grounded)
     # failed so a canon generation can fail loudly instead of silently dropping
     # to a ref-less path. None until a ref-bearing attempt raises.
@@ -631,8 +632,7 @@ def generate_image(
         # When refs were loaded but not forwarded to the provider, record why so
         # admins can see the explicit reason rather than inferring from False flags.
         if ref_bytes and not multi_image_used and not used_ref and provider is not None:
-            _ref_support = getattr(provider, "refs_support_level", None)
-            ref_support = _ref_support if isinstance(_ref_support, str) else None
+            ref_support = ref_support_level(provider)
             if ref_support == "none":
                 metadata["refs_not_used_reason"] = "provider_does_not_support_reference_input"
                 metadata["refs_support_level"] = "none"
