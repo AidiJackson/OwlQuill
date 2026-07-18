@@ -783,10 +783,15 @@ class V2PackJobView(BaseModel):
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     reused: bool = False
+    # True when this completed job predates an accepted/locked canon — the
+    # wizard must not resurrect its snapshot as fresh candidates on refresh.
+    superseded: bool = False
     result: Optional[V2PackResponse] = None
 
 
-def _job_to_view(job: IdentityPackJob, *, reused: bool = False) -> V2PackJobView:
+def _job_to_view(
+    job: IdentityPackJob, *, reused: bool = False, superseded: bool = False
+) -> V2PackJobView:
     result: Optional[V2PackResponse] = None
     if job.status == "completed" and job.result_json:
         r = job.result_json
@@ -822,8 +827,27 @@ def _job_to_view(job: IdentityPackJob, *, reused: bool = False) -> V2PackJobView
         error_code=job.error_code,
         error_message=job.error_message,
         reused=reused,
+        superseded=superseded,
         result=result,
     )
+
+
+def _job_superseded(db: Session, job: IdentityPackJob) -> bool:
+    """A completed job is superseded once its pack has been accepted — i.e. the
+    canon was locked (v2 Dossier lock) or the character's visual identity was
+    locked (legacy accept) after generation. Its stored snapshot may no longer
+    match the live canon slots, so refresh recovery must not re-present it."""
+    if job.status != "completed":
+        return False
+    char = db.query(CharacterModel).filter(CharacterModel.id == job.character_id).first()
+    if char is not None and char.visual_locked:
+        return True
+    canon = (
+        db.query(CharacterIdentityCanon)
+        .filter(CharacterIdentityCanon.character_id == job.character_id)
+        .first()
+    )
+    return bool(canon is not None and (canon.face_locked or canon.body_locked))
 
 
 @router.post(
@@ -899,7 +923,7 @@ def get_latest_v2_pack_job(
     job = _pack_jobs.get_latest_job_reconciled(db, character_id)
     if job is None:
         return None
-    return _job_to_view(job)
+    return _job_to_view(job, superseded=_job_superseded(db, job))
 
 
 @router.get(
@@ -927,4 +951,4 @@ def get_v2_pack_job(
     )
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
-    return _job_to_view(job)
+    return _job_to_view(job, superseded=_job_superseded(db, job))

@@ -147,7 +147,14 @@ export default function StepGeneratePack({
         if (cancelled || !latest) return;
         if (latest.status === 'queued' || latest.status === 'running') {
           setJob(latest);
-        } else if (latest.status === 'completed' && !pack && latest.result) {
+        } else if (
+          latest.status === 'completed' &&
+          !pack &&
+          latest.result &&
+          !latest.superseded
+        ) {
+          // Only adopt a completed pack that has NOT already been accepted —
+          // a superseded snapshot may no longer match the live canon slots.
           setJob(latest);
           applyTerminalJob(latest);
         }

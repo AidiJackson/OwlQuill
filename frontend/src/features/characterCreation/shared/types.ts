@@ -107,6 +107,8 @@ export interface V2PackJob {
   error_code?: string | null;
   error_message?: string | null;
   reused: boolean;
+  /** Completed job predates an accepted/locked canon — never re-adopt it. */
+  superseded?: boolean;
   result?: V2PackResponse | null;
 }
 

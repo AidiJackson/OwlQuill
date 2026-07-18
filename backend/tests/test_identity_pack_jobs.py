@@ -352,6 +352,71 @@ def test_latest_endpoint_rediscovers_active_job(client, db_session, stub_launche
     assert resp.json()["result"]["pack_id"] == "fakepack01"
 
 
+# ── 9b. Refresh recovery cannot surface a stale completed pack ─────────────
+
+
+def test_latest_completed_job_superseded_after_canon_lock(client, db_session, stub_launcher):
+    """Once the pack is accepted (canon locked), the completed job is flagged
+    superseded so the wizard never re-adopts its snapshot on refresh."""
+    token = get_auth_token(client)
+    char_id = _make_character(client, token)
+    job_id = _submit(client, token, char_id).json()["job_id"]
+    _run(job_id)
+
+    # Fresh completion, canon unlocked → adoptable.
+    resp = client.get(
+        f"/characters/{char_id}/identity-canon/pack-jobs/latest",
+        headers=auth_headers(token),
+    )
+    assert resp.json()["status"] == "completed"
+    assert resp.json()["superseded"] is False
+
+    # Accept: the v2 flow's Dossier step locks the canon (face_front must be
+    # populated first, as it would be after a real generation).
+    from app.services.canon_service import (
+        assign_canon_slot_image,
+        get_or_create_canon,
+        lock_face_canon,
+    )
+
+    db = TestingSessionLocal()
+    try:
+        canon = get_or_create_canon(char_id, db)
+        assign_canon_slot_image(canon, "face_front", "static/generated/ff.png")
+        lock_face_canon(canon)
+        db.commit()
+    finally:
+        db.close()
+
+    for endpoint in (
+        f"/characters/{char_id}/identity-canon/pack-jobs/latest",
+        f"/characters/{char_id}/identity-canon/pack-jobs/{job_id}",
+    ):
+        resp = client.get(endpoint, headers=auth_headers(token))
+        assert resp.json()["status"] == "completed"
+        assert resp.json()["superseded"] is True, endpoint
+
+
+def test_latest_never_returns_older_completed_over_newer_job(client, db_session, stub_launcher):
+    """An older completed job can never outrank a newer job in refresh recovery."""
+    token = get_auth_token(client)
+    char_id = _make_character(client, token)
+
+    first_id = _submit(client, token, char_id, key="first").json()["job_id"]
+    _run(first_id)
+
+    second = _submit(client, token, char_id, key="second").json()
+    assert second["job_id"] != first_id
+
+    resp = client.get(
+        f"/characters/{char_id}/identity-canon/pack-jobs/latest",
+        headers=auth_headers(token),
+    )
+    data = resp.json()
+    assert data["job_id"] == second["job_id"]
+    assert data["status"] == "queued"  # the active job, not the old completed one
+
+
 # ── 10. Stale jobs recover per the documented policy ───────────────────────
 
 
