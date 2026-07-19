@@ -5,6 +5,7 @@ import { Image, X } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Post, Realm, Character, LibraryImage } from '@/lib/types';
+import { authorLink } from '@/lib/authorLink';
 import CommentSection from '@/components/CommentSection';
 import ReactionBar from '@/components/ReactionBar';
 import PostMenu from '@/components/PostMenu';
@@ -530,12 +531,11 @@ export default function Home() {
             const realmName = getRealmName(post.realm_id);
             const realm = realms.find(r => r.id === post.realm_id);
             const isCommons = realm?.is_commons;
-            // Identity-first (locked): the character is the ONLY public author
-            // identity. Legacy characterless posts render as an identity-less
-            // "Wanderer" with no link — account usernames never appear.
-            const headerHref = post.character_id != null
-              ? `/characters/${post.character_id}`
-              : '#';
+            // Character posts link to the character profile; legacy
+            // account-authored posts link to the creator profile; unknown
+            // identities render as an unlinked Wanderer.
+            const author = authorLink(post);
+            const headerHref = author.href ?? '#';
 
             return (
               <div key={post.id} className="bg-gray-900 rounded-xl border border-gray-800 px-5 py-4 hover:border-gray-700 hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all group">
@@ -557,6 +557,12 @@ export default function Home() {
                           </div>
                         )}
                       </Link>
+                    ) : author.kind === 'creator' ? (
+                      <Link to={headerHref} className="flex-shrink-0 mt-0.5">
+                        <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-medium text-gray-400">
+                          {(post.author_username ?? '?').charAt(0).toUpperCase()}
+                        </div>
+                      </Link>
                     ) : (
                       <div className="flex-shrink-0 mt-0.5">
                         <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-medium text-gray-500">
@@ -571,6 +577,10 @@ export default function Home() {
                         {post.character_name ? (
                           <Link to={headerHref} className="text-sm font-semibold text-gray-100 hover:text-emerald-300 transition-colors leading-tight">
                             {post.character_name}
+                          </Link>
+                        ) : author.kind === 'creator' ? (
+                          <Link to={headerHref} className="text-sm font-medium text-gray-300 hover:text-emerald-300 transition-colors">
+                            {author.label}
                           </Link>
                         ) : (
                           <span className="text-sm font-medium text-gray-400">Wanderer</span>

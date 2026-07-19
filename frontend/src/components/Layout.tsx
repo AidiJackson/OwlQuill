@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
+import { creatorProfilePath } from '@/lib/authorLink';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
 
@@ -190,17 +191,16 @@ export default function Layout() {
             </span>
           )}
         </Link>
-        {/* Character-first: "Profile" is the ACTIVE CHARACTER's profile. The
-            account has no public profile page. */}
-        {activeChar && (
-          <Link
-            to={`/characters/${activeChar.id}`}
-            className={navCls(isProfile)}
-            onClick={closeSidebar}
-          >
-            Profile
-          </Link>
-        )}
+        {/* Creator profile — always present, independent of the active
+            character. Character profiles are a separate surface (Characters
+            nav + the switcher below). */}
+        <Link
+          to={creatorProfilePath(user)}
+          className={navCls(isProfile)}
+          onClick={closeSidebar}
+        >
+          Profile
+        </Link>
       </nav>
 
       {user && (

@@ -89,14 +89,6 @@ def _is_admin(user: UserModel) -> bool:
     return user_is_admin(user)
 
 
-def _require_owner_or_admin(current_user: UserModel, target: UserModel) -> None:
-    """Account pages are private infrastructure during closed beta: only the
-    owner (or an admin, for moderation) may view them. Everyone else gets a 404
-    indistinguishable from a nonexistent account."""
-    if current_user.id != target.id and not _is_admin(current_user):
-        raise HTTPException(status_code=404, detail="Not found")
-
-
 class CoverGenerateRequest(BaseModel):
     preset_name: str = Field(..., description="One of: enchanted_library, midnight_citadel, celestial_garden")
 
@@ -390,11 +382,13 @@ def get_user_mentions(
     db: Session = Depends(get_db),
 ) -> list:
     """Get posts where the user (or their public characters) are mentioned.
-    Owner/admin only — account surfaces are private infrastructure."""
+
+    Readable by any authenticated user — creator profiles are public product
+    surfaces (post-Sprint-33 correction); the serializer still applies
+    character-first attribution to each post."""
     target = db.query(UserModel).filter(UserModel.username == username).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    _require_owner_or_admin(current_user, target)
 
     # Posts where the user is directly mentioned
     posts = (
@@ -415,14 +409,14 @@ def get_user_profile(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> PublicUserProfile:
-    """Get a user profile by username (no email).
+    """Get a public-facing user profile by username (no email).
 
-    Owner/admin only during closed beta: characters are the public identities,
-    so account profiles return 404 to everyone else."""
+    Readable by any authenticated user — creator profiles are public product
+    surfaces alongside character profiles (post-Sprint-33 correction). The
+    response schema exposes only public fields (no email, flags, or settings)."""
     user = db.query(UserModel).filter(UserModel.username == username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    _require_owner_or_admin(current_user, user)
     return user
 
 
@@ -445,7 +439,6 @@ def get_user_characters(
     target = db.query(UserModel).filter(UserModel.username == username).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    _require_owner_or_admin(current_user, target)
 
     if not roster_visible_to(current_user, target.id):
         return []
@@ -468,7 +461,10 @@ def get_user_timeline(
     db: Session = Depends(get_db),
 ):
     """Get a user's profile timeline (posts + scenes), access-safe.
-    Owner/admin only — the account timeline is private infrastructure."""
+
+    Readable by any authenticated user (post-Sprint-33 correction). Access
+    safety is preserved structurally: only content in realms the VIEWER is a
+    member of is ever included."""
     # Ensure viewer is in The Commons (idempotent)
     auto_join_commons(current_user.id, db)
 
@@ -476,7 +472,6 @@ def get_user_timeline(
     target = db.query(UserModel).filter(UserModel.username == username).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    _require_owner_or_admin(current_user, target)
 
     # Viewer realm memberships
     memberships = db.query(RealmMembershipModel).filter(

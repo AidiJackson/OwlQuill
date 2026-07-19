@@ -4,6 +4,7 @@ import { Image } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Realm, Post, Character, Scene, SceneVisibility, LibraryImage } from '@/lib/types';
+import { authorLink } from '@/lib/authorLink';
 import CommentSection from '@/components/CommentSection';
 import ReactionBar from '@/components/ReactionBar';
 import PostMenu from '@/components/PostMenu';
@@ -617,9 +618,10 @@ export default function RealmDetail() {
         ) : (
           <div className="space-y-4">
             {posts.map((post) => {
-              // Identity-first: characters are the only public authors — a post
-              // links to its character's profile, never an account page.
-              const profileHref = post.character_id != null ? `/characters/${post.character_id}` : '#';
+              // Character posts link to the character profile; legacy
+              // account-authored posts link to the creator profile.
+              const author = authorLink(post);
+              const profileHref = author.href ?? '#';
 
               return (
                 <div key={post.id} className="card">
@@ -641,6 +643,15 @@ export default function RealmDetail() {
                           )}
                           <span className="text-sm font-medium text-emerald-400 group-hover:text-emerald-300 transition-colors">
                             {post.character_name}
+                          </span>
+                        </Link>
+                      ) : author.kind === 'creator' ? (
+                        <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 flex-shrink-0">
+                          <div className="w-7 h-7 rounded-md bg-gray-700 border border-gray-600 flex items-center justify-center text-[11px] font-medium text-gray-400 flex-shrink-0">
+                            {(post.author_username ?? '?').charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-sm font-medium text-gray-300 group-hover:text-emerald-300 transition-colors">
+                            {author.label}
                           </span>
                         </Link>
                       ) : (

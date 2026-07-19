@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { Scene, ScenePost, Character } from '@/lib/types';
 
@@ -119,6 +119,13 @@ export default function SceneDetail() {
               <div className="flex items-center gap-2 mb-2">
                 {p.character_name ? (
                   <span className="text-sm font-medium text-emerald-400">{p.character_name}</span>
+                ) : p.author_username ? (
+                  <Link
+                    to={`/u/${encodeURIComponent(p.author_username)}`}
+                    className="text-sm text-gray-400 hover:text-emerald-300 transition-colors"
+                  >
+                    @{p.author_username}
+                  </Link>
                 ) : (
                   <span className="text-sm text-gray-400">Wanderer</span>
                 )}

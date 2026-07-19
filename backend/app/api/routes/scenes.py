@@ -19,15 +19,17 @@ router = APIRouter()
 
 
 def _scene_post_out(p: ScenePostModel, viewer_id: int) -> ScenePostOut:
-    """Serialize a scene post character-first: the account identity
-    (author_user_id/author_username) is included only for the author's own
-    turns — to everyone else a turn belongs to its character alone."""
-    is_author = p.author_user_id == viewer_id
+    """Serialize a scene post character-first: for character-attributed turns
+    the account identity (author_user_id/author_username) is included only for
+    the author — to everyone else the turn belongs to its character alone.
+    Characterless (legacy account-authored) turns keep ``@username``
+    attribution so they can link to the creator's profile."""
+    show_account = p.author_user_id == viewer_id or p.character_id is None
     return ScenePostOut(
         id=p.id,
         scene_id=p.scene_id,
-        author_user_id=p.author_user_id if is_author else None,
-        author_username=(p.author.username if p.author else None) if is_author else None,
+        author_user_id=p.author_user_id if show_account else None,
+        author_username=(p.author.username if p.author else None) if show_account else None,
         character_id=p.character_id,
         character_name=p.character.name if p.character else None,
         content=p.content,

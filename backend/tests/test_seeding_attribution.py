@@ -6,8 +6,9 @@ Covers the server-side guarantees:
     identities; the author still sees their own attribution;
   * posts REQUIRE a character author (characterless posting is rejected);
   * GET /characters/{id} omits owner_username to non-owner viewers;
-  * account surfaces (/users/{username}/*) return 404 to non-owners —
-    accounts are private infrastructure;
+  * creator profile read surfaces (/users/{username}/*) are readable by any
+    authenticated user (creator profiles are public product surfaces), while
+    roster privacy and character-first post attribution still hold;
   * the one-character-per-account limit is enforced, and seeder accounts are
     exempt.
 """
@@ -110,10 +111,11 @@ def test_character_payload_hides_owner_username(client, db_session):
     assert o["owner_username"] == "cpowner"
 
 
-def test_account_surfaces_404_to_non_owner(client, db_session):
-    """Sprint 33: account pages are private infrastructure — every
-    /users/{username}/* surface 404s to non-owners, indistinguishable from a
-    nonexistent account."""
+def test_creator_profile_read_surfaces_public(client, db_session):
+    """Creator profiles are public product surfaces: every read-only
+    /users/{username}/* surface returns 200 to any authenticated user. The
+    profile payload exposes only public fields, and roster privacy still
+    applies (seeding mode ON: non-owners get an empty roster)."""
     owner = get_auth_token(client, email="rost_owner@test.com", username="rostowner")
     viewer = get_auth_token(client, email="rost_viewer@test.com", username="rostviewer")
     _create_character(client, owner)
@@ -125,9 +127,21 @@ def test_account_surfaces_404_to_non_owner(client, db_session):
         "/users/rostowner/mentions",
     ):
         v = client.get(path, headers=auth_headers(viewer))
-        assert v.status_code == 404, f"{path} leaked to non-owner: {v.status_code}"
+        assert v.status_code == 200, f"{path} not readable by viewer: {v.status_code}"
 
-    # Owner still sees their own account surfaces.
+    # The public profile payload never leaks private account data.
+    profile = client.get("/users/rostowner", headers=auth_headers(viewer)).json()
+    assert profile["username"] == "rostowner"
+    for private_field in ("email", "is_admin", "is_seeder", "hashed_password"):
+        assert private_field not in profile
+
+    # Roster privacy is unchanged: non-owners cannot enumerate the roster
+    # while seeding mode is on.
+    assert client.get(
+        "/users/rostowner/characters", headers=auth_headers(viewer)
+    ).json() == []
+
+    # Owner still sees their own full roster and surfaces.
     assert client.get("/users/rostowner", headers=auth_headers(owner)).status_code == 200
     o = client.get("/users/rostowner/characters", headers=auth_headers(owner))
     assert o.status_code == 200

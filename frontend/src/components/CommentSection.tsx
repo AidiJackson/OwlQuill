@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import type { Comment, Character } from '@/lib/types';
@@ -121,6 +122,13 @@ export default function CommentSection({ postId, characters = [], defaultExpande
                           {comment.character_name}
                         </span>
                       </div>
+                    ) : comment.author_username ? (
+                      <Link
+                        to={`/u/${encodeURIComponent(comment.author_username)}`}
+                        className="text-sm text-gray-400 hover:text-emerald-300 transition-colors flex-shrink-0"
+                      >
+                        @{comment.author_username}
+                      </Link>
                     ) : (
                       <span className="text-sm text-gray-400 flex-shrink-0">
                         Wanderer

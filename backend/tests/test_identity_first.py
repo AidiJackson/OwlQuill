@@ -193,13 +193,13 @@ def test_wanderer_short_comment_allowed_and_identityless(client, db_session):
     )
     assert resp.status_code == 201, resp.text
 
-    # The comment is identity-less to other viewers (including the post author).
+    # Characterless (Wanderer) comments keep creator attribution so they can
+    # link to the creator profile; character attribution stays absent.
     listed = client.get(
         f"/comments/posts/{post_id}/comments", headers=auth_headers(author)
     ).json()
     assert len(listed) == 1
-    assert listed[0]["author_username"] is None
-    assert listed[0]["author_user_id"] is None
+    assert listed[0]["author_username"] == "wand1"
     assert listed[0]["character_name"] is None
 
 
