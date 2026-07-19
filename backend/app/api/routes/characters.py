@@ -2,7 +2,6 @@
 import io
 import json
 import logging
-import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List
@@ -17,7 +16,7 @@ from app.core.dependencies import get_current_user
 from app.core.storage import save_image, file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
-from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
+from app.models.character_image import CharacterImage, ImageStatusEnum
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.user_image import UserImage
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult

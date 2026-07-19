@@ -1,5 +1,4 @@
 """Tests for the beat planner — multi-beat instruction detection and extraction."""
-import pytest
 
 from app.services.rp_beat_planner import (
     build_beat_execution_block,

@@ -1,6 +1,5 @@
 """Tests for the RP Style Engine: prose layer injection, archetype routing,
 repetition detection, continuity preservation, and escalation story layering."""
-import pytest
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -132,7 +131,7 @@ def test_build_style_layer_includes_archetype_block():
 
 
 def test_build_style_layer_defaults_to_cinematic_dark_romance():
-    from app.services.rp_style_engine import build_style_layer, get_archetype_prompt_block, DEFAULT_ARCHETYPE
+    from app.services.rp_style_engine import build_style_layer, DEFAULT_ARCHETYPE
     default_combined = build_style_layer()
     explicit_combined = build_style_layer(DEFAULT_ARCHETYPE)
     assert default_combined == explicit_combined

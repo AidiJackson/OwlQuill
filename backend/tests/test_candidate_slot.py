@@ -17,14 +17,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.services.candidate_slot import (
-    create_candidate,
     validate_candidate,
     promote_candidate,
     reject_candidate,
-    _parse_anchor_json,
 )
 from app.models.candidate_slot import CandidateSlot
-from app.models.identity_snapshot import IdentitySnapshot
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

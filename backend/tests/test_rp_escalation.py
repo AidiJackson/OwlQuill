@@ -1,5 +1,4 @@
 """Tests for the RP Escalation Engine: heat profiles, stage detection, resolution, continuation."""
-import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import get_auth_token, auth_headers
@@ -195,7 +194,7 @@ def test_get_pacing_warnings_warns_on_resolved_scene():
 
 
 def test_get_pacing_warnings_warns_on_low_continuation():
-    from app.services.rp_escalation import get_pacing_warnings, detect_scene_resolution
+    from app.services.rp_escalation import get_pacing_warnings
     resolution = {"resolved": False, "reasons": []}
     warnings = get_pacing_warnings("She was done.", "flame", 0.20, resolution)
     assert any("continuation" in w.lower() for w in warnings)

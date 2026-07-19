@@ -321,7 +321,6 @@ def _default_pipeline(job: IdentityPackJob, db: "Session", on_progress) -> dict:
     This is the exact sequence the sync route performs (ownership was already
     validated at submission): assemble identity → SpendTracker → build_v2_pack.
     """
-    from app.core.config import settings
     from app.models.character import Character as CharacterModel
     from app.services.canon_card_generator import SpendTracker
     from app.services.canon_pack_builder import (

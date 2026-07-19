@@ -42,11 +42,6 @@ _SHE_DIALOGUE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Bare speech verb (no quote): pronoun + speech verb
-_BARE_SPEECH_RE = re.compile(
-    r'\b(she|he|they)\s+(?:' + _SPEECH_VERBS + r')\b',
-    re.IGNORECASE,
-)
 
 # Partner consent / agency verbs
 _CONSENT_VERB_RE = re.compile(

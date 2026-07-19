@@ -30,7 +30,6 @@ from app.core.storage import load_image_bytes, save_image
 from app.schemas.canon import SLOT_FIELD_MAP
 from app.services.canon_card_prompts import (
     CARD_BY_SLOT,
-    GATE_SLOTS,
     FounderIdentity,
     build_card_prompt,
 )

@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import auth_headers, get_auth_token
+from tests.conftest import auth_headers
 
 
 # ── Shared helpers ────────────────────────────────────────────────────

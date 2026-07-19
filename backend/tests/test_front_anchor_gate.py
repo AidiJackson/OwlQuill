@@ -5,7 +5,7 @@ All tests use mocks — no live API calls.
 from __future__ import annotations
 
 import io
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient

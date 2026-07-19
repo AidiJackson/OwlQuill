@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import io
 import time
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 
 from app.services.adult_identity_enforcement_plan import (
     EXECUTOR_SUPPORTED_ROUTES,

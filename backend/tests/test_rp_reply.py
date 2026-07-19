@@ -1,5 +1,4 @@
 """Tests for the RP Reply Generator endpoint and prompt builder."""
-import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import get_auth_token, auth_headers, make_admin

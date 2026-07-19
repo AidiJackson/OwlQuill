@@ -21,7 +21,6 @@ from sqlalchemy import (
     Integer,
     JSON,
     String,
-    Text,
     func,
 )
 

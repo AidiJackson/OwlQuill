@@ -23,7 +23,6 @@ build_partner_silence_correction()   — retry correction block for silence viol
 build_waiting_loop_correction()      — retry correction block for waiting-loop violations
 """
 import re
-from collections import Counter
 
 from app.services._rp_constants import _SPEECH_VERBS
 

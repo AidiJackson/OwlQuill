@@ -1,6 +1,5 @@
 """User routes."""
 import io
-import uuid
 from pathlib import Path
 from typing import List
 

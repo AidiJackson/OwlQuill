@@ -18,7 +18,6 @@ Fixes:
   5. _build_strict_identity_prompt gains arm_side_binding_str parameter, injected
      as a dedicated section between body_canon and sleeve.
 """
-import pytest
 
 from app.services.body_canon import (
     build_arm_side_binding_str,

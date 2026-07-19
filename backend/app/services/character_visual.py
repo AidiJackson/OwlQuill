@@ -65,23 +65,6 @@ def create_character_image(
     return image
 
 
-def create_character_images(
-    db: Session,
-    character_id: int,
-    items: list[CharacterImageCreate],
-) -> list[CharacterImage]:
-    """Insert multiple CharacterImage records in one transaction."""
-    images = [
-        CharacterImage(character_id=character_id, **item.model_dump())
-        for item in items
-    ]
-    db.add_all(images)
-    db.commit()
-    for img in images:
-        db.refresh(img)
-    return images
-
-
 def list_character_images(
     db: Session,
     character_id: int,

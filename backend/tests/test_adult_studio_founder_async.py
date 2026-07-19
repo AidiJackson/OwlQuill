@@ -9,7 +9,6 @@ import importlib.util
 import pathlib
 from datetime import datetime, timedelta
 
-from fastapi.testclient import TestClient
 
 from app.core import config as cfg_module
 from app.models.adult_founder_job import AdultFounderJob

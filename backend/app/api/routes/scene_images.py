@@ -1,7 +1,6 @@
 """Scene image generation endpoints — anchored to a character's locked identity."""
 import json as _json
 import logging
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status

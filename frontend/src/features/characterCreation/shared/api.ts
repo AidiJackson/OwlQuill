@@ -4,7 +4,6 @@ import type {
   CharacterDNARead,
   CharacterImageRead,
   IdentityPackResponse,
-  IdentityPackAcceptResponse,
   IdentitySpec,
   SketchResponse,
   V2PackJob,
@@ -110,16 +109,6 @@ export async function generateIdentityPack(
       prompt_vibe: promptVibe || null,
       identity_spec: identitySpec || null,
     }),
-  });
-}
-
-export async function acceptIdentityPack(
-  characterId: number,
-  packId: string,
-): Promise<IdentityPackAcceptResponse> {
-  return request(`/characters/${characterId}/identity-pack/accept`, {
-    method: 'POST',
-    body: JSON.stringify({ pack_id: packId }),
   });
 }
 

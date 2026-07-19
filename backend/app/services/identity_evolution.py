@@ -192,27 +192,6 @@ def validate_evolution_spec(
     )
 
 
-def compute_immutable_fingerprint(spec_json: Optional[str]) -> Optional[str]:
-    """
-    Build a stable string from immutable fields only.
-    Used alongside identity_prompt_hash for drift detection in Phase 2.
-    Returns None if spec is absent or unparseable.
-    """
-    if not spec_json:
-        return None
-    try:
-        spec = json.loads(spec_json)
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-    parts = []
-    for field_name in sorted(IMMUTABLE_CANON_FIELDS):
-        val = _resolve_field(spec, field_name)
-        if val is not None:
-            parts.append(f"{field_name}:{val}")
-    return "|".join(parts) or None
-
-
 # ── Pack stages ───────────────────────────────────────────────────────────────
 
 def compute_pack_stages(character: Character) -> dict:

@@ -10,7 +10,6 @@ identity_anchor_json and body_canon_json precisely.
 import json
 import types
 
-import pytest
 
 from app.services.pack_version import (
     compute_identity_health,

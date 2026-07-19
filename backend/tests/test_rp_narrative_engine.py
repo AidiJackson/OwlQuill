@@ -11,7 +11,6 @@ Covers:
 8. StoryLab isolation — propulsion NOT in chapter or continuation prompts
 """
 import inspect
-import pytest
 
 from app.services.rp_narrative_engine import (
     build_narrative_propulsion_block,

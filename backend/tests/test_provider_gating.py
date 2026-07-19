@@ -12,7 +12,6 @@ Covers:
   * endpoint: admin OpenAI request → allowed, no fallback
   * existing Google path unaffected
 """
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest

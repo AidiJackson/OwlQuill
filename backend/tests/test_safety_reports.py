@@ -1,7 +1,7 @@
 """Tests for the reports + admin ban system (Gate 3A)."""
 from fastapi.testclient import TestClient
 
-from tests.conftest import get_auth_token, auth_headers
+from tests.conftest import auth_headers
 
 
 def _register_and_login(client: TestClient, email: str, username: str) -> str:

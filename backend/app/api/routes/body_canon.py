@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_owned_character as _get_owned_character
 from app.core.storage import save_image
-from app.models.character import Character as CharacterModel
 from app.models.character_image import CharacterImage
 from app.models.user import User
 from app.schemas.body_canon import BodyCanonRead, BodyMarkingCreate, BodyMarkingRead

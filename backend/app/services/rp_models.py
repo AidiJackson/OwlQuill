@@ -5,7 +5,6 @@ Used by the RP Reply Generator bake-off system to benchmark prose quality,
 anti-godmodding behaviour, and style matching across different OpenRouter models.
 """
 import re
-from collections import Counter
 
 # ── model registry ────────────────────────────────────────────────────────────
 

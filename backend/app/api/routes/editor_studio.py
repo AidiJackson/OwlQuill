@@ -300,7 +300,6 @@ async def editor_generate(
 from datetime import datetime as _dt  # noqa: E402
 
 from app.models.editor_job import EditorJob  # noqa: E402
-from app.core.storage import save_image  # noqa: E402
 
 
 class EditorJobRead(BaseModel):

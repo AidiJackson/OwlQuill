@@ -10,9 +10,8 @@ Tests:
 """
 import json
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from app.services.body_canon import get_canonical_body_front
 
@@ -194,7 +193,7 @@ class TestNoBodyTruthWhenNoMarkings:
 
     def test_body_canon_str_empty_when_no_markings(self):
         """build_body_canon_lock_string returns empty string for empty markings."""
-        from app.services.body_canon import build_body_canon_lock_string, BodyMarking
+        from app.services.body_canon import build_body_canon_lock_string
         result = build_body_canon_lock_string([])
         assert result == "", "empty markings must produce empty lock string"
 

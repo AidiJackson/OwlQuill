@@ -14,8 +14,6 @@ Contract:
   - Generated images save as SCENE_ONLY (COVER when is_cover); canon is never
     mutated by generation.
 """
-import logging
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest

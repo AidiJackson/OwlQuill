@@ -7,7 +7,6 @@ reference plates.
 
 No fixtures or DB required — pure unit tests of build_body_slot_prompt().
 """
-import pytest
 from app.api.routes.body_identity import build_body_slot_prompt
 
 

@@ -36,7 +36,6 @@ from app.schemas.canon import (
     AddAccessoryRequest,
     AddPermanentMarkRequest,
     BodyCanonUpdate,
-    CANON_UPLOAD_SLOTS,
     CharacterCanonRead,
     FaceCanonUpdate,
     PermanentBodyMark,
@@ -49,7 +48,6 @@ from app.services.scene_router import route_canon_refs
 from app.services.canon_service import (
     add_accessory,
     add_permanent_mark,
-    assign_accessory_image,
     assign_canon_slot_image,
     assign_mark_detail_crop,
     assign_mark_reference_image,

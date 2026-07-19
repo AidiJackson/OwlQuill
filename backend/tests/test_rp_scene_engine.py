@@ -1,6 +1,5 @@
 """Tests for the RP Scene Beat Engine: beat detection, regression detection,
 next-goal planning, progression block generation."""
-import pytest
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

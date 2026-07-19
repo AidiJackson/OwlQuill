@@ -29,7 +29,6 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from app.schemas.canon import AddPermanentMarkRequest
 from app.services import canon_service as cs
 from app.services.canon_card_generator import (
     SpendCapExceeded,

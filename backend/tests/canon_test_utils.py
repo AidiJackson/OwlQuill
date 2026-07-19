@@ -3,7 +3,6 @@
 Not a test module (no test_ prefix) — imported by the route-level test files
 that were migrated from the legacy identity_anchor_json contract to canon.
 """
-from pathlib import Path
 
 
 def stub_png_bytes() -> bytes:

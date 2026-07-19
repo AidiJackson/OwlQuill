@@ -12,11 +12,8 @@ Simplified text (when tattoo_visibility_requested=True):
   Short canonical instruction + compact per-arm side note (Right arm: X. Left arm: Y.)
   No sleeve enforcement essay, no mirror guard, no anti-merge essay.
 """
-import pytest
 
 from app.services.body_canon import (
-    build_arm_side_binding_str,
-    build_sleeve_enforcement_str,
     build_short_arm_side_str,
     BodyMarking,
 )

@@ -15,9 +15,7 @@ B19: Anchor-image conditioning.
   - Falls back to single-image grounded generation (face-ref crop) when not
   - Tightens the strict identity text wrapper to be short and punchy
 """
-import json as _json
 import logging
-import uuid
 from pathlib import Path
 from typing import Literal
 

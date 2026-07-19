@@ -10,7 +10,6 @@ Tests cover:
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.services.character_accessory import (
@@ -539,8 +538,6 @@ def test_lock_anchor_requires_existing_anchor_image(client: TestClient):
 
 def test_lock_anchor_sets_status_locked(client: TestClient):
     """lock-anchor transitions anchor_status from 'generated' to 'locked'."""
-    from app.models.character import Character as CharacterModel
-    from app.core.database import get_db
 
     token = _register_and_login(client, "lock_ok@example.com")
     cid = _create_character(client, token, "Lock OK Char")

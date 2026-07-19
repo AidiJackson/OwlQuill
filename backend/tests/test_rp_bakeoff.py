@@ -1,5 +1,4 @@
 """Tests for the RP Reply bake-off system: model routing, quality evaluator, anti-godmodding."""
-import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import get_auth_token, auth_headers

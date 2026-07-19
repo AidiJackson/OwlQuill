@@ -1,10 +1,8 @@
 """Tests for Identity Pack v2: snapshot safety, pack stages, admin canon import."""
 import io
 import json
-import os
-import pytest
-from unittest.mock import MagicMock, patch
-from tests.conftest import auth_headers, get_auth_token
+from unittest.mock import patch
+from tests.conftest import auth_headers
 
 # Minimal 1x1 PNG
 _STUB_PNG = (

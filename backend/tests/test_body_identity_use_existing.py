@@ -1,5 +1,4 @@
 """Tests for use-existing body identity and body canon anchor endpoints."""
-import pytest
 from unittest.mock import MagicMock, patch
 from tests.conftest import auth_headers, get_auth_token
 

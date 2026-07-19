@@ -1,6 +1,4 @@
 """Tests for GET /api/admin/diagnostics and forgot-password hint."""
-import os
-import pytest
 from fastapi.testclient import TestClient
 
 

@@ -14,7 +14,6 @@ Covers:
  11. evaluate_quality: pass / needs_review / failed classifications
 """
 import io
-import json
 
 import pytest
 
@@ -23,11 +22,7 @@ from tests.conftest import auth_headers, get_auth_token
 import app.core.config as cfg_module
 import app.services.editor_job_service as job_svc
 from app.services.editor_job_service import (
-    EditorJobError,
-    cancel_job,
     evaluate_quality,
-    get_latest_job,
-    start_editor_job,
 )
 
 _ADMIN_EMAIL = "editor-jobs-admin@ficshon.com"

@@ -8,7 +8,6 @@ Covers the six requirements from the task spec:
   (e) current_status cannot be downgraded from alive to dead by memory merge
   (f) contradiction detection fires from characters[name]["current_status"] too
 """
-import pytest
 
 
 # ── fixture helpers ───────────────────────────────────────────────────────────

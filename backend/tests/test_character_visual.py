@@ -806,7 +806,7 @@ def test_b7_front_anchor_prompt_starts_with_passport_headshot_structured():
     """Structured spec path must contain the passport preamble."""
     from app.api.routes.character_visual import _build_front_anchor_prompt
     from app.schemas.character_visual import (
-        CharacterIdentitySpec, IdentityCore, WardrobeSpec,
+        CharacterIdentitySpec, IdentityCore,
     )
 
     spec = CharacterIdentitySpec(
@@ -1022,7 +1022,6 @@ def test_google_front_seed_strip_fallback_to_openai(client: TestClient):
     - provider.generate_grounded_image called 3x (angles still use Google)
     - Front image record has provider='openai'; angle records have provider='google'
     """
-    import pytest
     token = _register_and_login(client)
     cid = _create_character(client, token)
 
@@ -1854,8 +1853,6 @@ def _mock_sketch_provider():
 def test_identity_sketch_kind_stored_as_lowercase_value(client: TestClient):
     """Sketch endpoint must store CharacterImage.kind == 'identity_sketch' (lowercase value)."""
     from app.models.character_image import CharacterImage, ImageKindEnum
-    from app.core.database import Base
-    from sqlalchemy import inspect as sa_inspect
 
     token = _register_and_login(client)
     cid = _create_character(client, token)
@@ -2022,7 +2019,7 @@ class TestSpeciesSchema:
     """Pydantic validation for species / species_tells fields."""
 
     def _base_spec(self, **overrides):
-        from app.schemas.character_visual import CharacterIdentitySpec, SpeciesEnum
+        from app.schemas.character_visual import CharacterIdentitySpec
         defaults = dict(
             style="realistic",
             gender="female",

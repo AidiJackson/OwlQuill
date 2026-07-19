@@ -8,7 +8,6 @@ All tests are pure unit tests — no DB, no network, no generation.
 import json
 import types
 
-import pytest
 
 from app.services.pack_version import (
     compute_identity_health,

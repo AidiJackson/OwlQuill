@@ -10,7 +10,6 @@ Verifies the 6 surgical changes from the Contract Repair Sprint:
   7. Godmod gate fires even when a prior retry already set retry_triggered.
   8. SC internal thoughts, actions, perceptions remain allowed (regression guard).
 """
-import pytest
 
 from app.services.godmod_validator import detect_godmod_violations
 from app.services.rp_behavior_engine import PARTNER_CONTROL_PROTECTION_BLOCK

@@ -1,5 +1,4 @@
 """Tests for RP Story Thread endpoints."""
-import pytest
 
 from tests.conftest import get_auth_token, auth_headers
 

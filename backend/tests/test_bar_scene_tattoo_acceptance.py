@@ -29,9 +29,6 @@ that reference "pool table" are excluded from the parametrized suite; a
 dedicated regression class (TestPoolTableFalsePositive) documents the
 collision so it can be fixed separately.
 """
-import json
-import os
-from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest

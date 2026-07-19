@@ -47,7 +47,6 @@ def seed_memory_from_story_creation(
     genre: str = "",
     premise: str = "",
     characters: list[dict[str, Any]] | None = None,
-    opening_prompt: str = "",
 ) -> dict[str, Any]:
     """Initialise canon memory from story creation inputs.
 

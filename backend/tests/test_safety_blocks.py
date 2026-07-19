@@ -7,7 +7,6 @@ Covers:
 - Comments: blocked author's comments excluded
 - Reverse-direction enforcement (B blocks A → A also affected)
 """
-import pytest
 from fastapi.testclient import TestClient
 
 

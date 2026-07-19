@@ -584,7 +584,9 @@ def get_fallback_provider() -> ImageProvider | None:
     fallback = settings.IMAGE_PROVIDER_FALLBACK.lower()
     if fallback == "fal" and settings.FAL_KEY:
         try:
-            from app.services.image_providers.fal_provider import FalImageProvider
+            # Import probe: verifies the fal provider module (and its deps)
+            # loads before we hand back the adapter. Not an unused import.
+            from app.services.image_providers.fal_provider import FalImageProvider  # noqa: F401
 
             # Wrap FalImageProvider in an ImageProvider adapter so the
             # route can call .generate_image() uniformly.

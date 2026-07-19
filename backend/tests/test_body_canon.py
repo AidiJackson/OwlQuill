@@ -387,7 +387,7 @@ def test_build_anchor_generation_prompt_left_arm():
 def test_update_marking_sets_anchor_fields():
     """update_marking patches anchor fields without touching other fields."""
     from app.schemas.body_canon import BodyMarking, MarkingType, MarkingPlacement, MarkingSize
-    from app.services.body_canon import _save_markings, update_marking, load_markings
+    from app.services.body_canon import _save_markings, update_marking
     from unittest.mock import MagicMock
 
     char = MagicMock()
@@ -464,7 +464,7 @@ def test_lock_anchor_requires_generated_first(client):
 
 def test_upsert_marking_from_preset_creates_marking():
     """upsert_marking_from_preset creates a new body marking with slug tag."""
-    from app.services.body_canon import upsert_marking_from_preset, load_markings, _save_markings
+    from app.services.body_canon import upsert_marking_from_preset
     from unittest.mock import MagicMock
 
     char = MagicMock()
@@ -540,8 +540,6 @@ def test_get_body_markings_does_not_backfill_tattoo_elements(client, db_session,
     """GET /body-markings no longer backfills style shop tattoos into body_canon_json.
     Auto-sync is disabled. Body canon is managed via /identity-canon routes only.
     """
-    from app.models.character import Character
-    from app.services.body_canon import load_markings
 
     token = get_auth_token(client, email="sync1@test.com", username="syncuser1")
     hdrs = auth_headers(token)
@@ -650,7 +648,7 @@ def test_applying_two_tattoo_presets_does_not_auto_sync_to_body_canon(client, db
 
 def test_anchor_fields_preserved_on_sync_update():
     """update_marking preserves anchor fields when syncing updates placement/style."""
-    from app.schemas.body_canon import BodyMarking, MarkingType, MarkingPlacement, MarkingSize
+    from app.schemas.body_canon import BodyMarking
     from app.services.body_canon import _save_markings, upsert_marking_from_preset, load_markings
     from unittest.mock import MagicMock
 

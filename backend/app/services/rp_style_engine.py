@@ -684,7 +684,6 @@ def detect_wrong_pov(
                 break
         # Only fire if pronoun is unambiguous: selected char name implies a different pronoun
         # (we skip pronoun check when we can't establish pronoun differs between characters)
-        selected_lower = selected_first.lower() if selected_first else ""
         # Heuristic: if selected character name starts with a male name indicator we skip
         # This is inherently imperfect — prefer name check over pronoun check
         # Safe rule: only use pronoun if partner reply starts with pronoun AND we have a char name

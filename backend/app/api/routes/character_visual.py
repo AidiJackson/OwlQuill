@@ -22,8 +22,8 @@ from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_dna import CharacterDNA
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
-from app.schemas.character_dna import CharacterDNACreate, CharacterDNAUpdate, CharacterDNARead
-from app.schemas.character_image import CharacterImageCreate, CharacterImageRead
+from app.schemas.character_dna import CharacterDNACreate, CharacterDNARead
+from app.schemas.character_image import CharacterImageRead
 from app.schemas.character_visual import (
     IdentityPackGenerateRequest,
     IdentityPackGenerateResponse,
@@ -55,7 +55,6 @@ from app.services.image_provider import (
     get_fallback_provider,
     get_provider_for_option,
     is_moderation_block as _is_moderation_block,
-    ImageProvider,
     _OpenAIImageProvider,
 )
 from app.services.identity_front_validator import validate_front_anchor_png
@@ -318,40 +317,6 @@ ROLE_EDIT_PROMPT = {
 }
 
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "generated"
-
-
-def _build_pack_prompt(
-    character: CharacterModel,
-    dna: CharacterDNA | None,
-    role: str,
-    prompt_vibe: str | None,
-    tweaks_label: str | None,
-) -> str:
-    """Build a concise image prompt from character data + role. Max 250 chars."""
-    parts: list[str] = []
-
-    # Character identity
-    parts.append(character.name)
-    if dna:
-        if dna.species:
-            parts.append(dna.species)
-        if dna.gender_presentation:
-            parts.append(dna.gender_presentation)
-    elif character.species:
-        parts.append(character.species)
-
-    # Vibe / tweaks
-    if prompt_vibe:
-        parts.append(prompt_vibe)
-    elif tweaks_label:
-        parts.append(tweaks_label)
-
-    # Shot framing for this role
-    parts.append(ROLE_SHOT_DESCRIPTION[role])
-
-    prompt = ", ".join(parts)
-    # Hard-cap at 250 chars (provider validates this)
-    return prompt[:250]
 
 
 def generate_body_front(character: CharacterModel) -> bytes:

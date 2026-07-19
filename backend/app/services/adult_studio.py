@@ -19,7 +19,6 @@ import re
 import zipfile
 from typing import Optional
 
-from sqlalchemy.orm import Session
 
 from app.core.storage import load_image_bytes
 from app.models.character_identity_canon import CharacterIdentityCanon
@@ -241,19 +240,6 @@ _FIXED_ROLE_FILENAMES = {
     "body_map": "body_map.png",
     "final_card": "final_card.png",
 }
-
-_FACE_VIEW = {
-    "face_front": "front view",
-    "face_left_3q": "left three-quarter view",
-    "face_right_3q": "right three-quarter view",
-}
-_BODY_VIEW = {
-    "body_front": "front view",
-    "body_left": "left side view",
-    "body_right": "right side view",
-    "body_back": "back view",
-}
-
 
 def _slug(text: str) -> str:
     """Lowercase a label into a stable filesystem-safe token."""

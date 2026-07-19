@@ -18,7 +18,7 @@ Sprint 1 schema) to avoid an unnecessary migration.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from app.models.adult_identity import AdultIdentityMarkRender, AdultIdentityModel
 from app.models.character import Character

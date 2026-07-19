@@ -2,7 +2,6 @@
 import os
 import json
 from typing import Literal, Optional
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

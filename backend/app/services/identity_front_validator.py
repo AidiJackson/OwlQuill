@@ -79,7 +79,7 @@ def validate_front_anchor_png(png_bytes: bytes) -> dict[str, Any]:
         }
 
     try:
-        from openai import OpenAI, OpenAIError  # local import keeps module importable without key
+        from openai import OpenAI  # local import keeps module importable without key
 
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
         b64 = base64.b64encode(png_bytes).decode("ascii")

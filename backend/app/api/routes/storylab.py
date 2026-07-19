@@ -70,7 +70,6 @@ from app.services.storylab_generator import (
     get_effective_story_model,
     _fallback_suggestions,
     _check_rp_reply_output,
-    build_rp_reply_prompt,
     _rp_length_profile,
 )
 from app.services.rp_behavior_engine import detect_partner_control, detect_partner_silence_severe, detect_scene_stall, score_inferno_anatomy_density
@@ -89,7 +88,7 @@ from app.services.rp_escalation import (
 from app.services.rp_models import effective_heat_level, evaluate_rp_reply_quality
 from app.services.rp_beat_planner import detect_multi_beat_instruction, extract_requested_beats, beat_completion_mode
 from app.services.rp_spatial_engine import detect_spatial_state
-from app.services.rp_style_engine import DEFAULT_ARCHETYPE, detect_ai_cadence, detect_wrong_pov
+from app.services.rp_style_engine import DEFAULT_ARCHETYPE, detect_ai_cadence
 from app.services.rp_narrative_engine import (
     detect_scene_mechanics,
     detect_scene_progression_events,
@@ -1192,7 +1191,6 @@ def _infer_story_only_role(name: str, corpus: str) -> str:
     Checks for patterns like "the detective [Name]", "[Name] the guard", etc.
     Returns the title as role string, or empty string if none found.
     """
-    name_lower = name.lower()
     # Pattern: title word within 3 words before or after the name
     titles_pat = '|'.join(re.escape(t) for t in _ROLE_TITLES)
     title_before = re.compile(
@@ -1997,7 +1995,6 @@ def create_story(
         genre=req.genre or "",
         premise=req.premise or "",
         characters=story_char_dicts,
-        opening_prompt="",
     )
 
     now = datetime.utcnow()

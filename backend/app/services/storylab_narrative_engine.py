@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 # ── repetition detection ──────────────────────────────────────────────────────
 
 _DIALOGUE_LINE_PAT = re.compile(r'"([^"]{8,})"')
-_SENTENCE_SPLIT_PAT = re.compile(r'(?<=[.!?])\s+')
 
 _REPEATED_WEATHER_PAT = re.compile(
     r'\b(?:storm|thunder|lightning|rain|wind|cold\s+air|darkness\s+outside|'
@@ -49,14 +48,6 @@ def _normalise(s: str) -> str:
     return re.sub(r'[^\w\s]', '', s.lower()).strip()
 
 
-def _sentence_windows(text: str, window: int = 5) -> list[str]:
-    """Split text into overlapping sentence windows for duplication detection."""
-    sents = [s.strip() for s in _SENTENCE_SPLIT_PAT.split(text) if s.strip()]
-    if len(sents) < window:
-        return [" ".join(sents)]
-    return [" ".join(sents[i: i + window]) for i in range(len(sents) - window + 1)]
-
-
 def detect_story_repetition(text: str) -> dict[str, Any]:
     """Detect repeated exchanges, dialogue loops, and atmospheric repetition.
 
@@ -74,8 +65,6 @@ def detect_story_repetition(text: str) -> dict[str, Any]:
         repeated_phrases: list[str]        — up to 5 example repeated n-grams
     }
     """
-    word_count = max(1, len(text.split()))
-
     # ── repeated dialogue lines ───────────────────────────────────────────────
     dialogue_lines = [_normalise(m.group(1)) for m in _DIALOGUE_LINE_PAT.finditer(text)]
     dialogue_counts = Counter(dialogue_lines)

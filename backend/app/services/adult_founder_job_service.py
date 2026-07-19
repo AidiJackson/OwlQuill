@@ -29,7 +29,6 @@ from app.models.adult_founder_job import (
 )
 from app.services.adult_identity_founder_generate import (
     FOUNDER_SPEND_CAP_USD,
-    SUMMER_CHARACTER_ID,
     FounderGenerateBlocked,
     build_founder_base_prompt,
     validate_founder_preconditions,

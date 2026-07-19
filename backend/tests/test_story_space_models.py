@@ -17,7 +17,6 @@ from app.models.story_space import (
     ChannelTypeEnum,
 )
 from app.models.user import User
-from app.models.character import Character
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

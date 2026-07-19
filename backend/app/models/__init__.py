@@ -46,6 +46,7 @@ __all__ = [
     "AdultStudioIdentity",
     "AdultFounderJob",
     "EditorJob",
+    "IdentityPackJob",
     "AdultIdentityModel",
     "AdultIdentityModelVersion",
     "AdultIdentityTrainingJob",

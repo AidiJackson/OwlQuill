@@ -1,5 +1,4 @@
 """Tests for @mentions + notifications feature."""
-import pytest
 
 from tests.conftest import get_auth_token, auth_headers
 from app.services.mentions import parse_mention_texts

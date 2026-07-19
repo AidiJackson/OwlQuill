@@ -1,5 +1,4 @@
 """Tests for image library endpoints — weekly quota + admin bypass."""
-from fastapi.testclient import TestClient
 
 from tests.conftest import get_auth_token
 

@@ -9,7 +9,6 @@ this row from that file on poll.
 SEPARATE from Canon Studio and from the normal image generator. Does NOT modify any
 existing table. Summer-only by construction (character_id is always 60).
 """
-from datetime import datetime
 
 from sqlalchemy import (
     Column,

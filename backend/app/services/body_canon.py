@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Optional
 
 from app.models.character import Character as CharacterModel
 from app.schemas.body_canon import (
-    AnchorStatus,
     BodyCanonRead,
     BodyMarking,
     BodyMarkingCreate,

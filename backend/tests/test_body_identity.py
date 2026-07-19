@@ -1,5 +1,4 @@
 """Tests for body identity pack — body morphology and tattoo layout anchor slots."""
-import pytest
 from unittest.mock import MagicMock, patch
 from tests.conftest import auth_headers, get_auth_token
 
@@ -124,7 +123,6 @@ def test_load_body_slots_returns_empty_when_no_body_slots_key():
 
 
 def test_save_and_load_body_slot_roundtrip():
-    import json
     from app.api.routes.body_identity import _load_body_slots, _save_body_slot
     from app.models.character import Character as CharacterModel
     char = CharacterModel()

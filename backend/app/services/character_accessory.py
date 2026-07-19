@@ -1,6 +1,5 @@
 """Character accessory helpers for identity-pack accessory slot (v1/v2)."""
 import json as _json
-import re
 from typing import Any
 
 

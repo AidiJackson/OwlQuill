@@ -91,15 +91,6 @@ class PublicUserProfile(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ProfileTimelineItem(BaseModel):
-    """Mixed timeline item for a user's profile."""
-    type: str  # "post" | "scene"
-    created_at: datetime
-    realm_id: Optional[int] = None
-    realm_name: Optional[str] = None
-    payload: dict
-
-
 # --- Password reset schemas ---
 
 class ForgotPasswordRequest(BaseModel):

@@ -1,5 +1,4 @@
 """Tests for the partner silence enforcement layer."""
-import pytest
 
 from app.services.rp_behavior_engine import (
     PARTNER_SILENCE_LAYER,

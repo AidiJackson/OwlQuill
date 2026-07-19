@@ -15,9 +15,6 @@ Verifies the layered canon architecture:
   12. Existing characters still load (backwards compat)
   13. Admin canon-import accepts all new slots
 """
-import json
-import pytest
-from unittest.mock import MagicMock
 
 from tests.conftest import auth_headers, get_auth_token
 
@@ -256,7 +253,7 @@ class TestBodyCanonPromptInjection:
     def test_locked_canon_clause_in_identity_prompt(self):
         """Locked-canon enforcement clause is injected when body markings present."""
         from app.schemas.body_canon import BodyMarking, MarkingType, MarkingPlacement, MarkingSize
-        from app.services.identity_compiler import compile_identity_prompt, LOCKED_CANON_CLAUSE
+        from app.services.identity_compiler import compile_identity_prompt
 
         spec = self._make_spec()
         tattoo = BodyMarking(
@@ -512,7 +509,7 @@ class TestPromoteToCanon:
 
     def test_promote_to_face_canon(self, client, db_session):
         """promote_to_canon with face_canon changes image kind to ANCHOR_FRONT."""
-        from app.models.character_image import CharacterImage, ImageKindEnum
+        from app.models.character_image import ImageKindEnum
 
         token = get_auth_token(client, email="iosptc1@test.com", username="ios_ptc1")
         hdrs = auth_headers(token)
@@ -707,7 +704,7 @@ class TestLeonardoScenario:
     def test_left_script_sleeve_is_body_canon(self):
         """Leonardo's left arm gothic script sleeve is body truth."""
         from app.schemas.body_canon import BodyMarking, MarkingType, MarkingPlacement, MarkingSize
-        from app.services.body_canon import build_body_canon_lock_string, build_sleeve_enforcement_str
+        from app.services.body_canon import build_body_canon_lock_string
 
         left_sleeve = BodyMarking(
             type=MarkingType.TATTOO,

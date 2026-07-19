@@ -8,7 +8,6 @@ preserving accessories and all other anchor slots.
 """
 import json
 import logging
-from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -57,17 +56,6 @@ def create_candidate(
 
 
 # ── Validate ──────────────────────────────────────────────────────────────────
-
-@dataclass
-class CandidateValidationResult:
-    ok: bool
-    validation_status: str  # "valid" | "warning" | "invalid"
-    notes: list[str] = field(default_factory=list)
-
-    @property
-    def notes_text(self) -> str:
-        return "; ".join(self.notes) if self.notes else ""
-
 
 def validate_candidate(
     db: Session,

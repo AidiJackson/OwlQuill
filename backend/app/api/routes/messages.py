@@ -15,7 +15,6 @@ from app.schemas.messaging import (
     MessageRead,
 )
 from app.services.messaging import (
-    get_conversation,
     get_last_message,
     get_or_create_conversation,
     list_conversations_for_owner,

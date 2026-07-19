@@ -288,7 +288,6 @@ class TestOpenRouterProviderUnit:
         import urllib.error
         from app.services.image_providers.openrouter_provider import (
             OpenRouterImageProvider,
-            _MAX_RETRIES,
         )
 
         def _always_fail(req, timeout=None):

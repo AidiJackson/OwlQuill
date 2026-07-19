@@ -61,7 +61,6 @@ from app.services.rp_behavior_engine import (
     NO_PARTNER_BRIDGE_INSTRUCTION,
     PARTNER_CONTROL_PROTECTION_BLOCK,
     PARTNER_SILENCE_LAYER,
-    SCENE_PROGRESSION_BLOCK,
     SELECTED_CHARACTER_DRIVES_SCENE,
     TURN_BOUNDARY_FOOTER,
 )
@@ -80,7 +79,6 @@ from app.services.rp_models import (
     resolve_rp_model,
 )
 from app.services.rp_beat_planner import (
-    beat_completion_mode,
     build_beat_execution_block,
     detect_multi_beat_instruction,
     extract_requested_beats,
@@ -3124,20 +3122,6 @@ def generate_story_summary(
 
 # ── RP Reply Generator ────────────────────────────────────────────────────────
 
-_RP_REPLY_SYSTEM = """\
-You are a collaborative roleplay writing assistant. Your sole job is to write one character's response.
-
-ABSOLUTE RULES — these override everything else:
-1. Write ONLY the user's character. Never write dialogue, actions, thoughts, physical reactions, or emotional states for any other character.
-2. Do NOT godmod. You may not decide what the partner character feels, thinks, says, does, reacts to, or consents to — in any way, even by implication.
-3. Do NOT narrate the partner character's body language, internal state, or response.
-4. Do NOT resolve the scene from both sides. End at a point where the partner has clear space to respond.
-5. Match the emotional momentum of the partner's reply. Respond to what just happened — do not ignore it.
-6. Leave the door open. The last beat must invite a response, not close one.
-
-OUTPUT: Return the reply text inside <REPLY>...</REPLY> tags. Nothing else — no preamble, no author notes.\
-"""
-
 # ── length profiles ────────────────────────────────────────────────────────────
 #
 # Each profile carries:
@@ -3184,10 +3168,6 @@ def _rp_length_profile(response_length: str, partner_word_count: int) -> dict[st
         mt = min(_MATCH_MAX_TOKENS_CAP, max(400, int(wt * 2.2)))
         return {"word_target": wt, "max_tokens": mt, "label": f"match (~{wt} words)"}
     return dict(base)
-
-
-def _rp_reply_word_target(response_length: str, partner_word_count: int) -> int:
-    return int(_rp_length_profile(response_length, partner_word_count)["word_target"])
 
 
 def _rp_reply_max_tokens(response_length: str, partner_word_count: int) -> int:

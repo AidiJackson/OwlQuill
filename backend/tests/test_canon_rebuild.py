@@ -19,7 +19,7 @@ Tests:
 """
 import json
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from tests.conftest import auth_headers, get_auth_token
 
@@ -394,7 +394,6 @@ class TestMinimalPrompt:
 
 class TestPermanentTattoosAreBodyCanon:
     def test_tattoo_stored_in_body_canon_permanent_marks(self, client, db_session):
-        from app.models.character_identity_canon import CharacterIdentityCanon
         from app.services.canon_service import load_body_canon
 
         token = get_auth_token(client, email="crb6@test.com", username="crb_u6")
@@ -879,7 +878,6 @@ class TestAutoSyncDisabled:
     def test_style_shop_tattoo_apply_does_not_mutate_body_canon(self, client, db_session):
         """Applying a tattoo preset does NOT auto-sync to body_canon_json."""
         from app.models.character import Character
-        from app.services.body_canon import load_markings
         from app.core.style_shop_seed import seed_style_presets
 
         seed_style_presets(db_session)

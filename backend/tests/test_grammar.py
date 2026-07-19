@@ -1,7 +1,6 @@
 """Tests for the grammar-check endpoint."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 

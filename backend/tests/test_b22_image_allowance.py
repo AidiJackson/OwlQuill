@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import get_auth_token, auth_headers
+from tests.conftest import auth_headers
 from tests.canon_test_utils import setup_canon
 
 
@@ -67,7 +67,6 @@ def _lock_character(client: TestClient, token: str, cid: int) -> None:
 
 
 def _stub_png_bytes() -> bytes:
-    from pathlib import Path
     from app.services.stub_image_generator import generate_placeholder_png
     fp = generate_placeholder_png(label="test", sublabel="stub")
     from app.core.storage import load_image_bytes

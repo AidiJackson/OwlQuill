@@ -16,7 +16,6 @@ build_scene_progression_block(...)   — dynamic high-priority prompt block for 
 detect_scene_regression(reply, prior)— regression flags: looping, confession repeat, etc.
 """
 import re
-from collections import Counter
 
 
 # ── Scene stage sequence ──────────────────────────────────────────────────────

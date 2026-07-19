@@ -221,7 +221,6 @@ class TestTokenBudget:
     def test_rp_profiles_not_imported_into_chapter_prompt_builder(self):
         """Chapter prompt builder must not reference RP reply length profiles."""
         import inspect
-        from app.services import storylab_generator
         src = inspect.getsource(build_chapter_prompt)
         assert "_rp_length_profile" not in src
         assert "_RP_LENGTH_PROFILES" not in src

@@ -348,7 +348,7 @@ def test_scene_unlocked_v2_character_still_blocked(client: TestClient, db_sessio
 def test_scene_prompt_includes_face_signature_when_present(client: TestClient):
     """Tier A grounded generation prompt must include face_signature text when stored."""
     import json
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import patch
 
     token = _register_and_login(client, email="facesg@example.com")
     cid = _create_character(client, token)
@@ -380,7 +380,6 @@ def test_scene_prompt_includes_face_signature_when_present(client: TestClient):
             captured_prompts.append(prompt)
             # Return a minimal valid PNG placeholder
             from app.services.stub_image_generator import generate_placeholder_png
-            from pathlib import Path
             fp = generate_placeholder_png(label="scene", sublabel="test")
             from app.core.storage import load_image_bytes
             return load_image_bytes(fp)

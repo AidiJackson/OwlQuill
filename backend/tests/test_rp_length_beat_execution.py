@@ -1,5 +1,4 @@
 """Tests for RP reply length profiles and beat execution fixes."""
-import pytest
 
 _CARTER_HOTEL_INSTRUCTIONS = (
     "Carter warns her about the danger then reveals the darker world. "

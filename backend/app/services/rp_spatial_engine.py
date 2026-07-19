@@ -95,8 +95,6 @@ def _detect_position(text: str) -> str:
 
 def _detect_clothing_state(text: str) -> dict[str, str]:
     """Return clothing states for each tracked garment: 'on' | 'open' | 'off'."""
-    lower = text.lower()
-
     garments = {
         "shirt": "on",
         "pants": "on",
