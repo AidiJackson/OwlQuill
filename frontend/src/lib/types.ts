@@ -329,16 +329,6 @@ export interface UserImageRead {
 
 // Profile
 
-export interface PublicUserProfile {
-  id: number;
-  username: string;
-  display_name?: string;
-  bio?: string;
-  avatar_url?: string;
-  cover_url?: string;
-  created_at: string;
-}
-
 export interface ProfileTimelineItem {
   type: 'post' | 'scene';
   created_at: string;

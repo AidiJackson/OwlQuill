@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, PublicUserProfile, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -95,18 +95,6 @@ class ApiClient {
     });
   }
 
-  async getUserProfile(username: string): Promise<PublicUserProfile> {
-    return this.request<PublicUserProfile>(`/users/${encodeURIComponent(username)}`);
-  }
-
-  async getUserTimeline(username: string, limit = 20): Promise<ProfileTimelineItem[]> {
-    return this.request<ProfileTimelineItem[]>(`/users/${encodeURIComponent(username)}/timeline?limit=${limit}`);
-  }
-
-  async getUserCharacters(username: string): Promise<CharacterSearchResult[]> {
-    return this.request<CharacterSearchResult[]>(`/users/${encodeURIComponent(username)}/characters`);
-  }
-
   // Active character (the account's visible Ficshon identity)
   async setActiveCharacter(characterId: number | null): Promise<User> {
     return this.request<User>('/users/me/active-character', {
@@ -122,6 +110,14 @@ class ApiClient {
 
   async getCharacterPosts(characterId: number, limit = 20): Promise<ProfileTimelineItem[]> {
     return this.request<ProfileTimelineItem[]>(`/characters/${characterId}/posts?limit=${limit}`);
+  }
+
+  async getCharacterMentions(characterId: number, limit = 20): Promise<ProfileTimelineItem[]> {
+    return this.request<ProfileTimelineItem[]>(`/characters/${characterId}/mentions?limit=${limit}`);
+  }
+
+  async getCharacterDirectory(limit = 30, skip = 0): Promise<CharacterSearchResult[]> {
+    return this.request<CharacterSearchResult[]>(`/characters/directory?limit=${limit}&skip=${skip}`);
   }
 
   async searchCharacters(q: string): Promise<CharacterSearchResult[]> {
@@ -276,14 +272,6 @@ class ApiClient {
     return this.request('/ai/scene', {
       method: 'POST',
       body: JSON.stringify({ characters, setting, mood, prompt }),
-    });
-  }
-
-  // Profile cover (admin-only beta)
-  async generateProfileCover(presetName: string): Promise<{ cover_url: string; image_id: number }> {
-    return this.request<{ cover_url: string; image_id: number }>('/users/me/cover/generate', {
-      method: 'POST',
-      body: JSON.stringify({ preset_name: presetName }),
     });
   }
 
@@ -546,10 +534,6 @@ class ApiClient {
 
   async markAllNotificationsRead(): Promise<void> {
     return this.request<void>('/notifications/mark-all-read', { method: 'POST' });
-  }
-
-  async getUserMentions(username: string): Promise<Post[]> {
-    return this.request<Post[]>(`/users/${encodeURIComponent(username)}/mentions`);
   }
 
   // Style Shops

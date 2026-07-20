@@ -2,9 +2,30 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
+import { useAuthStore } from '@/lib/store';
+import CharacterDirectory from '@/pages/CharacterDirectory';
 import type { Character, CharacterSearchResult, User } from '@/lib/types';
 
+/** One nav item, two experiences: Character Owners get their management
+ *  surface; Wanderers get the public character directory. */
 export default function Characters() {
+  const authUser = useAuthStore((s) => s.user);
+  const isOwnerExperience = !!(
+    authUser?.is_admin || authUser?.is_seeder || (authUser?.character_count ?? 0) > 0
+  );
+
+  if (!authUser) {
+    return (
+      <div className="flex justify-center py-16">
+        <div className="w-8 h-8 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return isOwnerExperience ? <CharacterManagement /> : <CharacterDirectory />;
+}
+
+function CharacterManagement() {
   const navigate = useNavigate();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);

@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
 import Layout from '@/components/Layout';
-import ProfileLayout from '@/components/Profile/ProfileLayout';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -12,7 +11,6 @@ import Realms from '@/pages/Realms';
 import RealmDetail from '@/pages/RealmDetail';
 import Characters from '@/pages/Characters';
 import Profile from '@/pages/Profile';
-import UserProfile from '@/pages/UserProfile';
 import SceneDetail from '@/pages/SceneDetail';
 import CharacterCreationFlow from '@/features/characterCreation/CharacterCreationFlow';
 import CharacterDetail from '@/pages/CharacterDetail';
@@ -180,15 +178,9 @@ function App() {
           }
         />
 
-        <Route
-          element={
-            <ProtectedRoute>
-              <ProfileLayout />
-            </ProtectedRoute>
-          }
-        >
-          <Route path="/u/:username" element={<UserProfile />} />
-        </Route>
+        {/* Identity-first: accounts have no public profile page. Legacy
+            /u/{username} links land on the feed. */}
+        <Route path="/u/*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

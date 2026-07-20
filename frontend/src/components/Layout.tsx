@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
-import { creatorProfilePath } from '@/lib/authorLink';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
 
@@ -78,11 +77,16 @@ export default function Layout() {
       : 'flex items-center gap-2 h-10 px-4 rounded-xl text-gray-300 hover:bg-gray-900/40 hover:text-gray-100 transition-colors';
   }
 
+  // Character Owners' Profile destination is their ACTIVE CHARACTER's public
+  // profile — the character IS the identity. With no resolvable active
+  // character (multi-character account, nothing selected) it falls back to
+  // character management so an identity can be chosen.
+  const ownerProfilePath = activeChar ? `/characters/${activeChar.id}` : '/characters';
+
   const p = location.pathname;
   const isHome          = p === '/';
   const isRealms        = p.startsWith('/realms');
   const isSpaces        = p.startsWith('/spaces');
-  const isChars         = p.startsWith('/characters');
   const isWorkspace     = p.startsWith('/workspace');
   const isStoryLab      = p.startsWith('/storylab');
   const isRPStories     = p.startsWith('/rp-stories');
@@ -90,7 +94,8 @@ export default function Layout() {
   const isEditorStudio  = p.startsWith('/editor-studio');
   const isMessages      = p.startsWith('/messages');
   const isNotifications = p.startsWith('/notifications');
-  const isProfile       = p.startsWith('/u/') || p === '/profile';
+  const isProfile       = isCreator ? (!!activeChar && p === ownerProfilePath) : p === '/profile';
+  const isChars         = p.startsWith('/characters') && !isProfile;
 
   const sidebarContent = (
     <>
@@ -191,16 +196,26 @@ export default function Layout() {
             </span>
           )}
         </Link>
-        {/* Creator profile — always present, independent of the active
-            character. Character profiles are a separate surface (Characters
-            nav + the switcher below). */}
-        <Link
-          to={creatorProfilePath(user)}
-          className={navCls(isProfile)}
-          onClick={closeSidebar}
-        >
-          Profile
-        </Link>
+        {/* Identity-first: Character Owners' Profile opens their ACTIVE
+            CHARACTER's public profile. Wanderers have no public identity —
+            they get a private My Account page instead. */}
+        {isCreator ? (
+          <Link
+            to={ownerProfilePath}
+            className={navCls(isProfile)}
+            onClick={closeSidebar}
+          >
+            Profile
+          </Link>
+        ) : (
+          <Link
+            to="/profile"
+            className={navCls(isProfile)}
+            onClick={closeSidebar}
+          >
+            My Account
+          </Link>
+        )}
       </nav>
 
       {user && (
@@ -265,13 +280,17 @@ export default function Layout() {
             </div>
           )}
 
-          <Link
-            to="/profile"
-            onClick={closeSidebar}
-            className="block px-4 py-2 text-sm text-gray-400 hover:text-gray-200 rounded-lg hover:bg-gray-800 transition-colors"
-          >
-            Account Settings
-          </Link>
+          {/* Wanderers already have "My Account" in the main nav — only
+              Character Owners need this extra path to the private account. */}
+          {isCreator && (
+            <Link
+              to="/profile"
+              onClick={closeSidebar}
+              className="block px-4 py-2 text-sm text-gray-400 hover:text-gray-200 rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              My Account
+            </Link>
+          )}
           <button
             onClick={handleLogout}
             className="w-full px-4 py-2 text-left rounded-lg hover:bg-gray-800 transition-colors text-red-400"

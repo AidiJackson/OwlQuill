@@ -531,9 +531,8 @@ export default function Home() {
             const realmName = getRealmName(post.realm_id);
             const realm = realms.find(r => r.id === post.realm_id);
             const isCommons = realm?.is_commons;
-            // Character posts link to the character profile; legacy
-            // account-authored posts link to the creator profile; unknown
-            // identities render as an unlinked Wanderer.
+            // Identity-first: character posts link to the character profile;
+            // anything else renders as an unlinked Wanderer.
             const author = authorLink(post);
             const headerHref = author.href ?? '#';
 
@@ -557,12 +556,6 @@ export default function Home() {
                           </div>
                         )}
                       </Link>
-                    ) : author.kind === 'creator' ? (
-                      <Link to={headerHref} className="flex-shrink-0 mt-0.5">
-                        <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-medium text-gray-400">
-                          {(post.author_username ?? '?').charAt(0).toUpperCase()}
-                        </div>
-                      </Link>
                     ) : (
                       <div className="flex-shrink-0 mt-0.5">
                         <div className="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-medium text-gray-500">
@@ -578,12 +571,8 @@ export default function Home() {
                           <Link to={headerHref} className="text-sm font-semibold text-gray-100 hover:text-emerald-300 transition-colors leading-tight">
                             {post.character_name}
                           </Link>
-                        ) : author.kind === 'creator' ? (
-                          <Link to={headerHref} className="text-sm font-medium text-gray-300 hover:text-emerald-300 transition-colors">
-                            {author.label}
-                          </Link>
                         ) : (
-                          <span className="text-sm font-medium text-gray-400">Wanderer</span>
+                          <span className="text-sm font-medium text-gray-400">{author.label}</span>
                         )}
                         {getPostTypeBadge(post.content_type)}
                         {getPostKindBadge(post.post_kind)}

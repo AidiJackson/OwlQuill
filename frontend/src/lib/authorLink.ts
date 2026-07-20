@@ -1,12 +1,11 @@
 /**
- * Author attribution fallback (creator-profile restoration).
+ * Author attribution (identity-first, final product direction).
  *
- * Character-authored content links to the character profile; legacy
- * account-authored content with a known creator links to the creator profile
- * at /u/{username}; genuinely anonymous content renders as an unlinked
- * "Wanderer". Character-first attribution is unchanged — the backend still
- * omits account identity from character-attributed posts for non-authors, so
- * the creator branch can only ever fire for characterless content.
+ * Characters are the ONLY public identities on Ficshon. Character-authored
+ * content links to the character profile; everything else — legacy
+ * account-authored content included — renders as an unlinked "Wanderer".
+ * Account usernames are private infrastructure and never appear on, or link
+ * from, a public surface.
  */
 
 export interface AuthoredContent {
@@ -20,16 +19,7 @@ export interface AuthorLink {
   href: string | null;
   /** Display label for the author line. */
   label: string;
-  kind: 'character' | 'creator' | 'anonymous';
-}
-
-/**
- * Sidebar "Profile" destination: always the CREATOR profile at /u/{username}.
- * Deliberately independent of the active character — the character profile is
- * a separate surface (Characters nav + the character switcher).
- */
-export function creatorProfilePath(user: { username: string } | null | undefined): string {
-  return user ? `/u/${encodeURIComponent(user.username)}` : '/profile';
+  kind: 'character' | 'anonymous';
 }
 
 export function authorLink(item: AuthoredContent): AuthorLink {
@@ -40,12 +30,6 @@ export function authorLink(item: AuthoredContent): AuthorLink {
       kind: 'character',
     };
   }
-  if (item.author_username) {
-    return {
-      href: `/u/${encodeURIComponent(item.author_username)}`,
-      label: `@${item.author_username}`,
-      kind: 'creator',
-    };
-  }
+  // No character — never fall back to the account. Wanderer, unlinked.
   return { href: null, label: 'Wanderer', kind: 'anonymous' };
 }

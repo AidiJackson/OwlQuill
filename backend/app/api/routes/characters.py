@@ -245,6 +245,29 @@ def search_characters(
     return results
 
 
+@router.get("/directory", response_model=List[CharacterSearchResult])
+def character_directory(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[CharacterSearchResult]:
+    """Public character directory — the Wanderer browse surface.
+
+    Lists PUBLIC characters only, newest first. The response schema carries no
+    owner fields, so the directory cannot be used to cluster characters by
+    account (identity-first policy).
+    """
+    return (
+        db.query(CharacterModel)
+        .filter(CharacterModel.visibility == VisibilityEnum.PUBLIC)
+        .order_by(CharacterModel.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
 @router.get("/{character_id}", response_model=Character)
 def get_character(
     character_id: int,
@@ -336,6 +359,61 @@ def get_character_posts(
         .join(RealmModel, PostModel.realm_id == RealmModel.id)
         .filter(
             PostModel.character_id == character_id,
+            PostModel.realm_id.in_(viewer_realm_ids),
+        )
+        .order_by(PostModel.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "type": "post",
+            "created_at": post.created_at,
+            "realm_id": post.realm_id,
+            "realm_name": realm_name,
+            "payload": serialize_post_for_viewer(post, current_user).model_dump(),
+        }
+        for post, realm_name in rows
+    ]
+
+
+@router.get("/{character_id}/mentions")
+def get_character_mentions(
+    character_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Posts that @mention this character, restricted to realms the viewer can
+    see. Account identity is stripped by the serializer for non-authors
+    (identity-first policy), mirroring the character timeline."""
+    from app.core.admin_seed import auto_join_commons
+    from app.models.post import Post as PostModel
+    from app.models.post_mention import PostMention as PostMentionModel
+    from app.models.realm import (
+        Realm as RealmModel,
+        RealmMembership as RealmMembershipModel,
+    )
+    from app.services.seeding import serialize_post_for_viewer
+
+    _get_visible_character(db, character_id, current_user)
+
+    # Ensure viewer is in The Commons (idempotent, same as the timeline)
+    auto_join_commons(current_user.id, db)
+
+    memberships = db.query(RealmMembershipModel).filter(
+        RealmMembershipModel.user_id == current_user.id
+    ).all()
+    viewer_realm_ids = {m.realm_id for m in memberships}
+    if not viewer_realm_ids:
+        return []
+
+    rows = (
+        db.query(PostModel, RealmModel.name)
+        .join(PostMentionModel, PostMentionModel.post_id == PostModel.id)
+        .join(RealmModel, PostModel.realm_id == RealmModel.id)
+        .filter(
+            PostMentionModel.mentioned_character_id == character_id,
             PostModel.realm_id.in_(viewer_realm_ids),
         )
         .order_by(PostModel.created_at.desc())

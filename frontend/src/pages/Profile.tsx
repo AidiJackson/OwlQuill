@@ -1,24 +1,54 @@
 import { useState } from 'react';
+import { Lock, Check, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '@/lib/store';
 import { apiClient } from '@/lib/apiClient';
+
+/** Curated default avatars — small inline SVG sigils, no upload required.
+ *  Accounts are private infrastructure; the avatar only ever appears in the
+ *  owner's own UI (sidebar/account page), never on a public surface. */
+const AVATAR_PRESETS: { id: string; label: string; url: string }[] = [
+  ['ember',    'Ember',    '#f59e0b', '#7c2d12', 'M32 14 L38 28 L52 32 L38 36 L32 50 L26 36 L12 32 L26 28 Z'],
+  ['tide',     'Tide',     '#38bdf8', '#1e3a8a', 'M12 38 Q22 28 32 38 T52 38 Q42 48 32 42 T12 38 Z'],
+  ['grove',    'Grove',    '#34d399', '#064e3b', 'M32 12 Q46 26 32 52 Q18 26 32 12 Z'],
+  ['dusk',     'Dusk',     '#a78bfa', '#312e81', 'M40 14 A18 18 0 1 0 50 40 A14 14 0 1 1 40 14 Z'],
+  ['rose',     'Rose',     '#fb7185', '#881337', 'M32 18 A8 8 0 0 1 46 24 Q46 38 32 46 Q18 38 18 24 A8 8 0 0 1 32 18 Z'],
+  ['aurum',    'Aurum',    '#fbbf24', '#78350f', 'M32 12 L36 28 L52 32 L36 36 L32 52 L28 36 L12 32 L28 28 Z'],
+  ['mist',     'Mist',     '#94a3b8', '#1e293b', 'M20 40 A12 12 0 1 1 30 22 A10 10 0 1 1 46 30 A8 8 0 1 1 44 40 Z'],
+  ['sol',      'Sol',      '#f97316', '#7c2d12', 'M32 20 A12 12 0 1 0 32 44 A12 12 0 1 0 32 20 Z'],
+].map(([id, label, from, to, glyph]) => ({
+  id,
+  label,
+  url: `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="64" height="64" fill="url(#g)"/>` +
+    `<path d="${glyph}" fill="rgba(255,255,255,0.85)"/>` +
+    `</svg>`
+  )}`,
+}));
 
 export default function Profile() {
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
-  const [editing, setEditing] = useState(false);
-  const [formData, setFormData] = useState({
-    display_name: user?.display_name || '',
-    bio: user?.bio || '',
-    avatar_url: user?.avatar_url || '',
-  });
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSave = async () => {
+  const handlePickAvatar = async (url: string) => {
+    if (saving) return;
+    setSaving(true);
+    setError('');
     try {
-      const updated = await apiClient.updateMe(formData);
+      const updated = await apiClient.updateMe({ avatar_url: url });
       setUser(updated);
-      setEditing(false);
-    } catch (error) {
-      console.error('Failed to update profile:', error);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2000);
+    } catch {
+      setError('Could not save your avatar. Try again.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -26,112 +56,95 @@ export default function Profile() {
     return <div className="p-8">Loading...</div>;
   }
 
-  return (
-    <div className="max-w-2xl mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-8">Profile</h1>
+  const joinDate = new Date(user.created_at).toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  });
 
-      <div className="card">
-        {/* Avatar display section */}
-        <div className="flex items-center gap-6 mb-8 pb-6 border-b border-gray-700">
-          <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-700 flex-shrink-0">
-            {(editing ? formData.avatar_url : user.avatar_url) ? (
-              <img
-                src={editing ? formData.avatar_url : user.avatar_url || ''}
-                alt="Avatar"
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  e.currentTarget.src = '';
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
+  return (
+    <div className="max-w-2xl mx-auto p-6 sm:p-8">
+      <div className="mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">My Account</h1>
+        <p className="flex items-center gap-1.5 text-sm text-gray-500 mt-1">
+          <Lock className="w-3.5 h-3.5" />
+          Private — only you can see this page. Your public identity on Ficshon is a character.
+        </p>
+      </div>
+
+      {/* Avatar */}
+      <div className="card mb-6">
+        <div className="flex items-center gap-5 mb-5">
+          <div className="w-20 h-20 rounded-2xl overflow-hidden bg-gray-800 border border-gray-700 flex-shrink-0">
+            {user.avatar_url ? (
+              <img src={user.avatar_url} alt="Account avatar" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-3xl text-gray-500">
+              <div className="w-full h-full flex items-center justify-center text-2xl text-gray-500">
                 {user.username.charAt(0).toUpperCase()}
               </div>
             )}
           </div>
           <div>
-            <h2 className="text-2xl font-bold">{user.display_name || user.username}</h2>
-            <p className="text-gray-400">@{user.username}</p>
+            <h2 className="text-lg font-semibold">Account avatar</h2>
+            <p className="text-sm text-gray-500">
+              Pick a sigil for your account.
+              {saving && <RefreshCw className="inline w-3.5 h-3.5 ml-2 animate-spin text-gray-400" />}
+              {savedFlash && <span className="text-emerald-400 ml-2 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" />Saved</span>}
+            </p>
+            {error && <p className="text-sm text-red-400 mt-1">{error}</p>}
           </div>
         </div>
 
-        <div className="mb-6">
-          <p className="text-sm text-gray-500">Email</p>
-          <p className="text-lg">{user.email}</p>
-        </div>
-
-        {editing ? (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Display Name</label>
-              <input
-                type="text"
-                value={formData.display_name}
-                onChange={(e) =>
-                  setFormData({ ...formData, display_name: e.target.value })
-                }
-                className="input"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Avatar URL</label>
-              <input
-                type="url"
-                value={formData.avatar_url}
-                onChange={(e) =>
-                  setFormData({ ...formData, avatar_url: e.target.value })
-                }
-                className="input"
-                placeholder="https://..."
-              />
-              {formData.avatar_url && (
-                <p className="text-xs text-gray-500 mt-1">Preview updated above</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Bio</label>
-              <textarea
-                value={formData.bio}
-                onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
-                className="textarea"
-                placeholder="Tell us about yourself..."
-              />
-            </div>
-
-            <div className="flex gap-4">
-              <button onClick={handleSave} className="btn btn-primary">
-                Save
-              </button>
+        <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
+          {AVATAR_PRESETS.map((preset) => {
+            const selected = user.avatar_url === preset.url;
+            return (
               <button
-                onClick={() => {
-                  setEditing(false);
-                  setFormData({
-                    display_name: user.display_name || '',
-                    bio: user.bio || '',
-                    avatar_url: user.avatar_url || '',
-                  });
-                }}
-                className="btn btn-secondary"
+                key={preset.id}
+                onClick={() => handlePickAvatar(preset.url)}
+                disabled={saving}
+                title={preset.label}
+                className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all disabled:opacity-60 ${
+                  selected
+                    ? 'border-emerald-500 shadow-lg shadow-emerald-500/20'
+                    : 'border-transparent hover:border-gray-600'
+                }`}
               >
-                Cancel
+                <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
+                {selected && (
+                  <span className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
+                    <Check className="w-3 h-3 text-white" />
+                  </span>
+                )}
               </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="mb-6">
-              <p className="text-sm text-gray-500">Bio</p>
-              <p className="text-gray-300 whitespace-pre-wrap">{user.bio || 'No bio yet'}</p>
-            </div>
+            );
+          })}
+        </div>
+      </div>
 
-            <button onClick={() => setEditing(true)} className="btn btn-primary">
-              Edit Profile
-            </button>
-          </>
-        )}
+      {/* Account details */}
+      <div className="card mb-6 space-y-4">
+        <h2 className="text-lg font-semibold">Account details</h2>
+        <div>
+          <p className="text-sm text-gray-500">Username</p>
+          <p className="text-base">{user.username}</p>
+        </div>
+        <div>
+          <p className="text-sm text-gray-500">Email</p>
+          <p className="text-base">{user.email}</p>
+        </div>
+        <div>
+          <p className="text-sm text-gray-500">Member since</p>
+          <p className="text-base">{joinDate}</p>
+        </div>
+      </div>
+
+      {/* Security */}
+      <div className="card space-y-3">
+        <h2 className="text-lg font-semibold">Security</h2>
+        <p className="text-sm text-gray-400">
+          To change your password, sign out and use “Forgot password” on the
+          login screen — a reset link will be emailed to you.
+        </p>
       </div>
     </div>
   );
