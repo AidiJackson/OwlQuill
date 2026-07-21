@@ -69,7 +69,7 @@ export default function ConversationThread() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-400">
+      <div className="min-h-screen flex items-center justify-center text-ink-3">
         Loading…
       </div>
     );
@@ -78,8 +78,8 @@ export default function ConversationThread() {
   if (error || !conversation) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
-        <p className="text-gray-400">{error || 'Conversation not found.'}</p>
-        <Link to="/messages" className="btn btn-secondary text-sm">
+        <p className="text-ink-2">{error || 'Conversation not found.'}</p>
+        <Link to="/messages" className="px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors">
           Back to messages
         </Link>
       </div>
@@ -121,11 +121,11 @@ export default function ConversationThread() {
   return (
     <div className="min-h-screen flex flex-col">
       {/* Top bar */}
-      <div className="border-b border-gray-800 bg-gray-900/50 flex-shrink-0">
+      <div className="border-b border-edge bg-surface/60 flex-shrink-0">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
           <Link
             to="/messages"
-            className="text-gray-400 hover:text-gray-200 transition-colors"
+            className="text-ink-3 hover:text-ink transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
@@ -137,18 +137,18 @@ export default function ConversationThread() {
               <img
                 src={other.avatar_url}
                 alt={other.name}
-                className="w-10 h-10 rounded-full object-cover border border-gray-700 flex-shrink-0"
+                className="w-10 h-10 rounded-full object-cover border border-edge-md flex-shrink-0"
               />
             ) : (
-              <div className="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center flex-shrink-0">
-                <Feather className="w-4 h-4 text-gray-600" />
+              <div className="w-10 h-10 rounded-full bg-surface-elevated border border-edge flex items-center justify-center flex-shrink-0">
+                <Feather className="w-4 h-4 text-ink-3" />
               </div>
             )}
             <div className="min-w-0">
-              <h1 className="text-sm font-semibold text-gray-200 truncate">
+              <h1 className="text-sm font-semibold text-ink truncate">
                 {other.name}
               </h1>
-              <p className="text-xs text-gray-500">Character</p>
+              <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Character</p>
             </div>
           </Link>
         </div>
@@ -158,7 +158,7 @@ export default function ConversationThread() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-4 space-y-3">
           {messages.length === 0 && (
-            <p className="text-center text-xs text-gray-500 py-8">
+            <p className="text-center text-xs text-ink-3 py-8">
               No messages yet. Say hello!
             </p>
           )}
@@ -170,14 +170,14 @@ export default function ConversationThread() {
                 className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[75%] rounded-lg px-3 py-2 ${
+                  className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 ${
                     isMine
-                      ? 'bg-emerald-600/20 border border-emerald-600/30 text-gray-200'
-                      : 'bg-gray-800 border border-gray-700 text-gray-300'
+                      ? 'bg-gem-soft text-ink'
+                      : 'bg-surface-elevated text-ink-2'
                   }`}
                 >
                   <p className="text-sm whitespace-pre-wrap break-words">{msg.body}</p>
-                  <p className="text-[10px] text-gray-500 mt-1">
+                  <p className="font-mono text-[10px] text-ink-3 mt-1">
                     {new Date(msg.created_at).toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
@@ -192,7 +192,7 @@ export default function ConversationThread() {
       </div>
 
       {/* Compose */}
-      <div className="border-t border-gray-800 bg-gray-900/50 flex-shrink-0">
+      <div className="border-t border-edge bg-surface/60 flex-shrink-0">
         {sendError && (
           <div className="max-w-2xl mx-auto px-4 pt-2">
             <p className="text-xs text-red-400">{sendError}</p>
@@ -206,12 +206,12 @@ export default function ConversationThread() {
             onKeyDown={handleKeyDown}
             placeholder="Write a message…"
             rows={1}
-            className="flex-1 resize-none overflow-y-hidden bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-emerald-500"
+            className="flex-1 resize-none overflow-y-hidden bg-surface-elevated border border-edge rounded-xl px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:border-gem/50"
           />
           <button
             onClick={handleSend}
             disabled={!body.trim() || sending}
-            className="btn btn-primary p-2 flex-shrink-0"
+            className="p-2.5 rounded-xl bg-gem hover:bg-gem/90 text-gray-950 transition-colors disabled:opacity-40 flex-shrink-0"
           >
             <Send className="w-4 h-4" />
           </button>

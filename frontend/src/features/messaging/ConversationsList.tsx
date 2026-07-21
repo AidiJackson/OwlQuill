@@ -41,7 +41,7 @@ export default function ConversationsList() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-400">
+      <div className="min-h-screen flex items-center justify-center text-ink-3">
         Loading…
       </div>
     );
@@ -50,12 +50,12 @@ export default function ConversationsList() {
   return (
     <div className="min-h-screen">
       {/* Top bar */}
-      <div className="border-b border-gray-800 bg-gray-900/50">
+      <div className="border-b border-edge bg-surface/60">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Link to="/" className="text-gray-400 hover:text-gray-200 transition-colors">
+          <Link to="/" className="text-ink-3 hover:text-ink transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </Link>
-          <span className="text-sm font-medium text-gray-300">Messages</span>
+          <span className="font-serif text-base font-medium text-ink">Messages</span>
         </div>
       </div>
 
@@ -68,20 +68,20 @@ export default function ConversationsList() {
 
         {conversations.length === 0 ? (
           <div className="flex flex-col items-center text-center py-16 space-y-4">
-            <div className="w-14 h-14 rounded-full bg-emerald-900/40 border border-emerald-600/20 flex items-center justify-center">
-              <MessageSquare className="w-7 h-7 text-emerald-400" />
+            <div className="w-14 h-14 rounded-full bg-gem-soft flex items-center justify-center">
+              <MessageSquare className="w-7 h-7 text-gem" />
             </div>
-            <h2 className="text-lg font-semibold text-gray-200">No conversations yet</h2>
-            <p className="text-sm text-gray-400">
+            <h2 className="font-serif text-xl text-ink">No conversations yet</h2>
+            <p className="text-sm text-ink-2">
               Start by finding a character to message.
             </p>
             <Link
               to="/characters"
-              className="mt-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded-lg transition-colors"
+              className="mt-2 px-5 py-2 bg-gem hover:bg-gem/90 text-gray-950 text-sm font-semibold rounded-lg transition-colors"
             >
               Find characters
             </Link>
-            <p className="text-xs text-gray-500 mt-2">
+            <p className="text-xs text-ink-3 mt-2">
               You'll need at least one other user's character to start a conversation.
             </p>
           </div>
@@ -93,30 +93,30 @@ export default function ConversationsList() {
                 <Link
                   key={conv.id}
                   to={`/messages/${conv.id}`}
-                  className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-gray-800/50 transition-colors"
+                  className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-surface-elevated transition-colors"
                 >
                   {other.avatar_url ? (
                     <img
                       src={other.avatar_url}
                       alt={other.name}
-                      className="w-10 h-10 rounded-full object-cover border border-gray-700 flex-shrink-0"
+                      className="w-10 h-10 rounded-full object-cover border border-edge-md flex-shrink-0"
                     />
                   ) : (
-                    <div className="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center flex-shrink-0">
-                      <Feather className="w-4 h-4 text-gray-600" />
+                    <div className="w-10 h-10 rounded-full bg-surface-elevated border border-edge flex items-center justify-center flex-shrink-0">
+                      <Feather className="w-4 h-4 text-ink-3" />
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-gray-200 truncate">
+                      <span className="text-sm font-medium text-ink truncate">
                         {other.name}
                       </span>
-                      <span className="text-xs text-gray-500 flex-shrink-0">
+                      <span className="font-mono text-[11px] text-ink-3 flex-shrink-0">
                         {formatTime(conv.updated_at)}
                       </span>
                     </div>
                     {conv.last_message && (
-                      <p className="text-xs text-gray-400 truncate mt-0.5">
+                      <p className="text-xs text-ink-2 truncate mt-0.5">
                         {conv.last_message.body}
                       </p>
                     )}

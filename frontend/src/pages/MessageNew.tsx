@@ -58,7 +58,7 @@ export default function MessageNew() {
 
   if (loading || creating) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-400">
+      <div className="min-h-screen flex items-center justify-center text-ink-3">
         {creating ? 'Opening conversation…' : 'Loading…'}
       </div>
     );
@@ -74,23 +74,23 @@ export default function MessageNew() {
   if (myCharacters.length === 0) {
     return (
       <div className="min-h-screen">
-        <div className="border-b border-gray-800 bg-gray-900/50">
+        <div className="border-b border-edge bg-surface/60">
           <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
             <Link
               to={`/characters/${characterId}`}
-              className="text-gray-400 hover:text-gray-200 transition-colors"
+              className="text-ink-3 hover:text-ink transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
             </Link>
-            <span className="text-sm font-medium text-gray-300">New Message</span>
+            <span className="font-serif text-base font-medium text-ink">New Message</span>
           </div>
         </div>
         <div className="max-w-2xl mx-auto px-4 py-16 flex flex-col items-center text-center space-y-4">
-          <MessageSquare className="w-8 h-8 text-gray-500" />
-          <p className="text-sm text-gray-400">
+          <MessageSquare className="w-8 h-8 text-ink-3" />
+          <p className="text-sm text-ink-2">
             You need at least one character to send messages.
           </p>
-          <Link to="/characters/new" className="btn btn-primary text-sm">
+          <Link to="/characters/new" className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors">
             Create a character
           </Link>
         </div>
@@ -101,20 +101,20 @@ export default function MessageNew() {
   // Multiple characters — show chooser
   return (
     <div className="min-h-screen">
-      <div className="border-b border-gray-800 bg-gray-900/50">
+      <div className="border-b border-edge bg-surface/60">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
           <Link
             to={`/characters/${characterId}`}
-            className="text-gray-400 hover:text-gray-200 transition-colors"
+            className="text-ink-3 hover:text-ink transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
-          <span className="text-sm font-medium text-gray-300">Choose a character</span>
+          <span className="font-serif text-base font-medium text-ink">Choose a character</span>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        <p className="text-sm text-gray-400">Message as which character?</p>
+        <p className="text-sm text-ink-2">Message as which character?</p>
 
         {error && (
           <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2">
@@ -130,25 +130,25 @@ export default function MessageNew() {
                 setSelectedFromId(ch.id);
                 startConversation(ch.id);
               }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-700 hover:border-emerald-500/50 hover:bg-gray-800/50 transition-colors text-left"
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-edge hover:border-gem/40 hover:bg-surface-elevated transition-colors text-left"
             >
               {ch.avatar_url ? (
                 <img
                   src={ch.avatar_url}
                   alt={ch.name}
-                  className="w-10 h-10 rounded-full object-cover border border-gray-700 flex-shrink-0"
+                  className="w-10 h-10 rounded-full object-cover border border-edge-md flex-shrink-0"
                 />
               ) : (
-                <div className="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center flex-shrink-0">
-                  <Feather className="w-4 h-4 text-gray-600" />
+                <div className="w-10 h-10 rounded-full bg-surface-elevated border border-edge flex items-center justify-center flex-shrink-0">
+                  <Feather className="w-4 h-4 text-ink-3" />
                 </div>
               )}
               <div className="min-w-0">
-                <span className="text-sm font-medium text-gray-200 truncate block">
+                <span className="text-sm font-medium text-ink truncate block">
                   {ch.name}
                 </span>
                 {ch.species && (
-                  <span className="text-xs text-gray-500">{ch.species}</span>
+                  <span className="text-xs text-ink-3">{ch.species}</span>
                 )}
               </div>
             </button>

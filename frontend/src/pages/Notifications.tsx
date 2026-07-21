@@ -12,6 +12,18 @@ function parsePayload(raw?: string): Record<string, unknown> {
   }
 }
 
+/** Presentation-only day bucket for grouped headers (Figma-style). */
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
+  if (diffDays <= 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return 'This week';
+  return 'Earlier';
+}
+
 function NotificationItem({
   notif,
   onRead,
@@ -43,37 +55,37 @@ function NotificationItem({
       const preview = payload.post_preview as string | undefined;
       return (
         <div>
-          <p className="text-sm text-white/90">
-            <span className="font-semibold text-violet-400">{authorCharacter ?? 'Someone'}</span>{' '}
-            mentioned {mention ? <span className="text-violet-400">{mention}</span> : 'you'} in a post
+          <p className="text-sm text-ink">
+            <span className="font-semibold text-gem">{authorCharacter ?? 'Someone'}</span>{' '}
+            mentioned {mention ? <span className="text-gem">{mention}</span> : 'you'} in a post
           </p>
           {preview && (
-            <p className="mt-1 text-xs text-white/50 line-clamp-2">{preview}</p>
+            <p className="mt-1 text-xs text-ink-3 line-clamp-2">{preview}</p>
           )}
         </div>
       );
     }
     return (
-      <p className="text-sm text-white/90 capitalize">{notif.type.replace(/_/g, ' ')}</p>
+      <p className="text-sm text-ink capitalize">{notif.type.replace(/_/g, ' ')}</p>
     );
   };
 
   return (
     <div
       onClick={handleClick}
-      className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
+      className={`flex items-start gap-3 px-3 py-3.5 -mx-3 rounded-xl cursor-pointer transition-colors ${
         notif.is_read
-          ? 'bg-[#1A1D23]/30 border-[#2D3139]/40 hover:bg-[#1A1D23]/50'
-          : 'bg-violet-950/20 border-violet-800/30 hover:bg-violet-950/30'
+          ? 'hover:bg-surface-elevated'
+          : 'bg-gem-soft/60 hover:bg-gem-soft'
       }`}
     >
       {!notif.is_read && (
-        <span className="mt-1.5 w-2 h-2 rounded-full bg-violet-400 flex-shrink-0" />
+        <span className="mt-1.5 w-2 h-2 rounded-full bg-gem flex-shrink-0" />
       )}
       {notif.is_read && <span className="mt-1.5 w-2 h-2 flex-shrink-0" />}
       <div className="flex-1 min-w-0">
         {renderBody()}
-        <p className="mt-1 text-xs text-white/30">
+        <p className="mt-1 font-mono text-[11px] text-ink-3">
           {new Date(notif.created_at).toLocaleDateString(undefined, {
             month: 'short',
             day: 'numeric',
@@ -119,14 +131,14 @@ export default function Notifications() {
   const unread = notifications.filter((n) => !n.is_read).length;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-white">Notifications</h1>
+    <div className="max-w-2xl mx-auto px-5 sm:px-8 py-10">
+      <div className="flex items-end justify-between mb-8">
+        <h1 className="font-serif text-4xl font-medium tracking-[-0.02em] text-ink">Notifications</h1>
         {unread > 0 && (
           <button
             onClick={handleMarkAllRead}
             disabled={markingAll}
-            className="text-sm text-violet-400 hover:text-violet-300 transition-colors disabled:opacity-50"
+            className="text-sm text-gem hover:opacity-80 transition-opacity disabled:opacity-50"
           >
             {markingAll ? 'Marking…' : 'Mark all read'}
           </button>
@@ -135,21 +147,32 @@ export default function Notifications() {
 
       {loading && (
         <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-4 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-gem/25 border-t-gem rounded-full animate-spin" />
         </div>
       )}
 
       {!loading && notifications.length === 0 && (
         <div className="text-center py-16">
-          <p className="text-white/50">You have no notifications yet.</p>
+          <p className="text-ink-3">You have no notifications yet.</p>
         </div>
       )}
 
       {!loading && notifications.length > 0 && (
-        <div className="space-y-2">
-          {notifications.map((notif) => (
-            <NotificationItem key={notif.id} notif={notif} onRead={handleRead} />
-          ))}
+        <div className="space-y-1">
+          {notifications.map((notif, idx) => {
+            const label = dayLabel(notif.created_at);
+            const prevLabel = idx > 0 ? dayLabel(notifications[idx - 1].created_at) : null;
+            return (
+              <div key={notif.id}>
+                {label !== prevLabel && (
+                  <h2 className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3 pt-5 pb-2 first:pt-0">
+                    {label}
+                  </h2>
+                )}
+                <NotificationItem notif={notif} onRead={handleRead} />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
