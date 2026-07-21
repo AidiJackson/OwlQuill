@@ -780,7 +780,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
             {/* Story context */}
             {storyRecord && (
               <div className="mb-6">
-                <h2 className="text-xl font-semibold text-gray-100 leading-tight">{storyRecord.title}</h2>
+                <h2 className="font-serif text-2xl font-medium text-ink leading-tight">{storyRecord.title}</h2>
                 {(storyRecord.genre || protagonist) && (
                   <div className="flex items-center gap-1.5 mt-1.5 text-[11px] text-gray-500">
                     {storyRecord.genre && <span className="capitalize">{storyRecord.genre}</span>}
@@ -842,7 +842,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
             {/* Support characters — collapsible */}
             <details className="group mt-5">
-              <summary className="text-[10px] font-medium text-gray-600 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
+              <summary className="text-[10px] font-mono text-gray-600 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
                 <span className="inline-block text-gray-700 transition-transform duration-150 group-open:rotate-90">{'\u203A'}</span>
                 Supporting characters{supportChars.length > 0 && <span className="text-gray-700 normal-case tracking-normal">({supportChars.length})</span>}
               </summary>
@@ -908,7 +908,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
             {/* Generation settings — collapsible */}
             <details className="group mt-4">
-              <summary className="text-[10px] font-medium text-gray-600 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
+              <summary className="text-[10px] font-mono text-gray-600 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
                 <span className="inline-block text-gray-700 transition-transform duration-150 group-open:rotate-90">{'\u203A'}</span>
                 Generation settings
               </summary>
@@ -930,7 +930,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                         onClick={() => setSlControls((p) => ({ ...p, direction: value }))}
                         className={`text-[11px] px-2.5 py-1 rounded-md border transition ${
                           slControls.direction === value
-                            ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                            ? 'bg-gem-soft border-gem/50 text-gem'
                             : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
                         }`}
                       >
@@ -972,7 +972,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 type="button"
                 onClick={() => void handleGenerate()}
                 disabled={isGenerating}
-                className="w-full py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-[15px] tracking-wide shadow-[0_4px_24px_rgba(16,185,129,0.18)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-4 rounded-2xl bg-gem hover:bg-gem/90 active:bg-gem/80 text-gray-950 font-semibold text-[15px] tracking-wide shadow-[0_4px_24px_var(--accent-glow)] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Write Opening Chapter →
               </button>
@@ -994,7 +994,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
             {currentChapter ? (
               <div className="mb-8">
                 <div className="flex items-baseline justify-between">
-                  <span className={`text-[12px] font-semibold uppercase tracking-[0.14em] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#7A6E5F]' : 'text-gray-500'}`}>
+                  <span className={`font-mono text-[11px] uppercase tracking-[0.14em] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#7A6E5F]' : 'text-gray-500'}`}>
                     Chapter {currentChapter.chapter_number}
                   </span>
                   <span className={`text-[11px] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#9D8E7D]' : 'text-gray-700'}`}>{currentChapter.words} words</span>
@@ -1052,7 +1052,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 </div>
               </div>
             ) : currentChapter ? (
-              <p className={`text-[16px] leading-[1.9] whitespace-pre-wrap font-normal tracking-[0.01em] transition-colors duration-200 animate-[fadeIn_0.25s_ease] ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-100'}`}>
+              <p className={`font-serif text-[17px] leading-[1.85] whitespace-pre-wrap tracking-[0.005em] transition-colors duration-200 animate-[fadeIn_0.25s_ease] ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-100'}`}>
                 {currentChapter.generated_text}
               </p>
             ) : (
@@ -1072,7 +1072,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                   <>
                     {/* Guidance — inline above continuation buttons */}
                     <div className="space-y-1.5">
-                      <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Guidance</p>
+                      <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Guidance</p>
                       <textarea
                         value={promptInput}
                         onChange={(e) => setPromptInput(e.target.value)}
@@ -1084,12 +1084,12 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
                     {/* Section label + generation status */}
                     <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">
+                      <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">
                         What happens next?
                       </p>
                       {isGenerating && (
                         <span className="flex items-center gap-1.5 text-[11px] text-gray-500 tracking-wide">
-                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500/60 animate-pulse" />
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-gem/70 animate-pulse" />
                           Writing next beat&hellip;
                         </span>
                       )}
@@ -1102,17 +1102,17 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                         type="button"
                         onClick={() => handleBeatAction(action)}
                         disabled={isGenerating}
-                        className="w-full group flex items-center justify-between px-4 py-3.5 rounded-xl border border-emerald-800/40 bg-emerald-950/20 hover:bg-emerald-950/35 hover:border-emerald-700/55 active:bg-emerald-950/45 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="w-full group flex items-center justify-between px-4 py-3.5 rounded-xl border border-gem/30 bg-gem-soft/60 hover:bg-gem-soft hover:border-gem/45 transition disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <div className="text-left">
-                          <span className="block text-[14px] font-semibold text-emerald-300 group-hover:text-emerald-200 transition leading-tight">
+                          <span className="block text-[14px] font-semibold text-gem transition leading-tight">
                             {action.label}
                           </span>
                           <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">
                             {action.hint}
                           </span>
                         </div>
-                        <span className="text-emerald-700/60 group-hover:text-emerald-500/80 transition text-lg leading-none select-none">›</span>
+                        <span className="text-gem/50 group-hover:text-gem/80 transition text-lg leading-none select-none">›</span>
                       </button>
                     ))}
 
@@ -1174,7 +1174,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     type="button"
                     onClick={() => void handleGenerate()}
                     disabled={isGenerating}
-                    className="w-full py-3 rounded-2xl bg-emerald-700/80 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm tracking-wide shadow-[0_4px_20px_rgba(16,185,129,0.10)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full py-3 rounded-2xl bg-gem hover:bg-gem/90 active:bg-gem/80 text-gray-950 font-semibold text-sm tracking-wide shadow-[0_4px_20px_var(--accent-glow)] transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isGenerating ? 'Writing\u2026' : 'Write Opening Chapter'}
                   </button>
@@ -1269,16 +1269,16 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           {/* Suggestions */}
           {suggestions.length > 0 && (
             <div className="space-y-2">
-              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Suggestions</p>
+              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Suggestions</p>
               <ul className="space-y-1.5">
                 {suggestions.map((s, i) => (
                   <li key={i}>
                     <button
                       type="button"
                       onClick={() => setPromptInput(s)}
-                      className="text-left w-full flex gap-2 text-[12px] text-gray-400 hover:text-emerald-300 leading-relaxed transition group"
+                      className="text-left w-full flex gap-2 text-[12px] text-gray-400 hover:text-gem leading-relaxed transition group"
                     >
-                      <span className="mt-0.5 shrink-0 text-emerald-700 group-hover:text-emerald-400 transition">{'\u203A'}</span>
+                      <span className="mt-0.5 shrink-0 text-gem/50 group-hover:text-gem transition">{'\u203A'}</span>
                       <span>{s}</span>
                     </button>
                   </li>
@@ -1290,7 +1290,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           {/* Guidance — only shown before first chapter; after that it moves inline above continuation buttons */}
           {chapters.length === 0 && (
             <div className="space-y-1.5">
-              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Guidance</p>
+              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Guidance</p>
               <textarea
                 value={promptInput}
                 onChange={(e) => setPromptInput(e.target.value)}
@@ -1303,7 +1303,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
           {/* Direction chips */}
           <div className="space-y-2">
-            <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Direction</p>
+            <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Direction</p>
             {(
               [
                 { group: 'Emotion',    chips: [{ value: 'sad_moment', label: 'Sad' }, { value: 'quiet_reflection', label: 'Reflective' }] },
@@ -1322,7 +1322,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                       onClick={() => setSlControls((p) => ({ ...p, direction: value }))}
                       className={`text-[11px] px-2 py-0.5 rounded-md border transition ${
                         slControls.direction === value
-                          ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                          ? 'bg-gem-soft border-gem/50 text-gem'
                           : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
                       }`}
                     >
@@ -1337,7 +1337,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           {/* Tone + Pacing — two columns */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Tone</p>
+              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Tone</p>
               <div className="flex flex-col gap-1">
                 {(['light','moderate','intense'] as const).map((v) => (
                   <button
@@ -1346,7 +1346,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     onClick={() => setSlControls((p) => ({ ...p, tone_intensity: v }))}
                     className={`py-1 text-[11px] rounded-md border transition capitalize ${
                       slControls.tone_intensity === v
-                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                        ? 'bg-gem-soft border-gem/50 text-gem'
                         : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
                     }`}
                   >
@@ -1356,7 +1356,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
               </div>
             </div>
             <div className="space-y-1.5">
-              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Pacing</p>
+              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Pacing</p>
               <div className="flex flex-col gap-1">
                 {(['slow','balanced','fast'] as const).map((v) => (
                   <button
@@ -1365,7 +1365,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     onClick={() => setSlControls((p) => ({ ...p, pacing: v }))}
                     className={`py-1 text-[11px] rounded-md border transition capitalize ${
                       slControls.pacing === v
-                        ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                        ? 'bg-gem-soft border-gem/50 text-gem'
                         : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
                     }`}
                   >
@@ -1379,7 +1379,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           {/* Boundary + Length — two columns */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Boundary</p>
+              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Boundary</p>
               <select
                 value={slControls.boundary}
                 onChange={(e) => setSlControls((p) => ({ ...p, boundary: e.target.value }))}
@@ -1391,7 +1391,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
               </select>
             </div>
             <div className="space-y-1.5">
-              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Length</p>
+              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Length</p>
               <select
                 value={slControls.length}
                 onChange={(e) => setSlControls((p) => ({ ...p, length: e.target.value }))}
@@ -1407,7 +1407,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           {/* Story state bars — compact, at bottom */}
           <div className="space-y-2 pt-2">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-medium text-gray-600 uppercase tracking-widest">Story State</p>
+              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Story State</p>
               {isLoadingState && <span className="text-[10px] text-gray-700">{'\u2026'}</span>}
             </div>
             {storyState ? (
@@ -1427,7 +1427,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     </div>
                     <div className="h-0.5 bg-gray-800/60 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-emerald-700/50 rounded-full transition-[width] duration-500 ease-out"
+                        className="h-full bg-gem/50 rounded-full transition-[width] duration-500 ease-out"
                         style={{ width: `${value * 100}%` }}
                       />
                     </div>

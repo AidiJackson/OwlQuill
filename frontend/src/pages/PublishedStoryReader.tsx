@@ -37,13 +37,13 @@ export default function PublishedStoryReader() {
 
   if (loading) {
     return (
-      <div className="max-w-2xl mx-auto px-6 py-12 space-y-4">
-        <div className="h-8 bg-gray-800 rounded animate-pulse w-2/3" />
-        <div className="h-4 bg-gray-800 rounded animate-pulse w-full" />
-        <div className="h-4 bg-gray-800 rounded animate-pulse w-4/5" />
+      <div className="max-w-[680px] mx-auto px-6 py-14 space-y-4">
+        <div className="h-9 bg-surface-elevated rounded animate-pulse w-2/3" />
+        <div className="h-4 bg-surface-elevated rounded animate-pulse w-full" />
+        <div className="h-4 bg-surface-elevated rounded animate-pulse w-4/5" />
         <div className="space-y-3 mt-8">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-4 bg-gray-800 rounded animate-pulse" />
+            <div key={i} className="h-4 bg-surface-elevated rounded animate-pulse" />
           ))}
         </div>
       </div>
@@ -52,8 +52,8 @@ export default function PublishedStoryReader() {
 
   if (error || !story) {
     return (
-      <div className="max-w-2xl mx-auto px-6 py-10">
-        <Link to="/" className="text-sm text-gray-500 hover:text-gray-300 transition-colors mb-6 inline-block">
+      <div className="max-w-[680px] mx-auto px-6 py-10">
+        <Link to="/" className="text-sm text-ink-3 hover:text-ink-2 transition-colors mb-6 inline-block">
           ← Home
         </Link>
         <div className="rounded-xl bg-red-900/20 border border-red-700/40 px-4 py-3 text-sm text-red-400">
@@ -73,45 +73,46 @@ export default function PublishedStoryReader() {
   // ── Story layout ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-10">
-      {/* Header */}
-      <header className="mb-8 border-b border-gray-800/60 pb-6">
-        <h1 className="text-2xl font-semibold text-gray-100 leading-tight mb-3">
+    <div className="max-w-[680px] mx-auto px-5 sm:px-6 py-14">
+      {/* Header — the title card */}
+      <header className="mb-12 text-center">
+        <h1 className="font-serif text-4xl sm:text-[44px] font-medium leading-[1.15] tracking-[-0.02em] text-ink mb-5">
           {story.title}
         </h1>
 
         {story.summary && (
-          <p className="text-base text-gray-400 leading-relaxed mb-4">
+          <p className="font-serif italic text-lg text-ink-2 leading-relaxed mb-6 max-w-[540px] mx-auto">
             {story.summary}
           </p>
         )}
 
-        <div className="flex items-center gap-3 text-xs text-gray-600 flex-wrap">
+        <div className="flex items-center justify-center gap-3 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3 flex-wrap">
           {publisherLabel && (
-            <span className="text-gray-500">{publisherLabel}</span>
+            <span>{publisherLabel}</span>
           )}
           <span>{formatDate(publishedDate)}</span>
-          <span>·</span>
+          <span aria-hidden="true">·</span>
           <span>{story.segment_count} {story.segment_count === 1 ? 'segment' : 'segments'}</span>
         </div>
+        <div className="mt-8 mx-auto w-10 border-t border-edge-md" aria-hidden="true" />
       </header>
 
-      {/* Segments */}
-      <div className="space-y-6">
+      {/* Segments — the manuscript */}
+      <div className="space-y-8">
         {story.segments.map((seg) => (
           <section key={seg.id}>
             {seg.character_name_snap && (
-              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-500 mb-1.5">
+              <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-gem mb-2">
                 {seg.character_name_snap}
               </p>
             )}
             <p
-              className={`text-base leading-loose whitespace-pre-wrap ${
+              className={`whitespace-pre-wrap ${
                 seg.content_type === 'narration'
-                  ? 'text-gray-300 italic'
+                  ? 'font-serif italic text-[18px] leading-[1.85] text-ink-2'
                   : seg.content_type === 'ooc'
-                  ? 'text-gray-500 italic text-sm'
-                  : 'text-gray-200'
+                  ? 'text-sm italic leading-[1.7] text-ink-3'
+                  : 'font-serif text-[18px] leading-[1.85] text-ink'
               }`}
             >
               {seg.content}
@@ -121,8 +122,9 @@ export default function PublishedStoryReader() {
       </div>
 
       {/* Footer */}
-      <footer className="mt-12 pt-6 border-t border-gray-800/60 text-center">
-        <p className="text-xs text-gray-700">Published on Ficshon</p>
+      <footer className="mt-16 pt-8 text-center">
+        <div className="mx-auto w-10 border-t border-edge-md mb-6" aria-hidden="true" />
+        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">Published on Ficshon</p>
       </footer>
     </div>
   );

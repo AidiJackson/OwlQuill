@@ -34,20 +34,20 @@ export default function StoryLabSession() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-gray-600 text-sm animate-pulse">Loading story…</div>
+      <div className="min-h-screen bg-app flex items-center justify-center">
+        <div className="text-ink-3 text-sm animate-pulse">Loading story…</div>
       </div>
     );
   }
 
   if (notFound || !story) {
     return (
-      <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-4">
-        <p className="text-gray-400 text-sm">Story not found or you don't have access.</p>
+      <div className="min-h-screen bg-app flex flex-col items-center justify-center gap-4">
+        <p className="text-ink-2 text-sm">Story not found or you don't have access.</p>
         <button
           type="button"
           onClick={() => navigate('/storylab')}
-          className="px-4 py-2 text-sm rounded-xl border border-gray-700/60 bg-gray-900/40 hover:bg-gray-800/50 text-gray-300 transition"
+          className="px-4 py-2 text-sm rounded-xl border border-edge bg-surface hover:bg-surface-elevated text-ink-2 hover:text-ink transition"
         >
           ← Back to StoryLab
         </button>
@@ -56,13 +56,13 @@ export default function StoryLabSession() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+    <div className="min-h-screen bg-app text-ink flex flex-col">
       {/* Story header bar */}
-      <div className="flex items-center gap-3 px-4 md:px-6 py-4 border-b border-gray-800/40 bg-gray-950/60 backdrop-blur-sm">
+      <div className="flex items-center gap-3 px-4 md:px-6 py-4 border-b border-edge bg-app/60 backdrop-blur-sm">
         <button
           type="button"
           onClick={() => navigate('/storylab')}
-          className="text-[12px] text-gray-600 hover:text-gray-300 transition shrink-0"
+          className="text-[12px] text-ink-3 hover:text-ink transition shrink-0"
         >
           {'\u2190'} StoryLab
         </button>
@@ -70,13 +70,13 @@ export default function StoryLabSession() {
           className="w-5 h-5 rounded-md shrink-0"
           style={{ backgroundColor: story.cover_color }}
         />
-        <h1 className="text-base font-semibold text-gray-100 truncate flex-1">
+        <h1 className="font-serif text-lg font-medium text-ink truncate flex-1">
           {story.title && !isUuidLike(story.title)
             ? story.title
             : deriveReadableTitle(story.premise)}
         </h1>
         {story.genre && (
-          <span className="text-[11px] text-gray-500 shrink-0 capitalize tracking-wide">{story.genre}</span>
+          <span className="font-mono text-[11px] text-ink-3 shrink-0 capitalize tracking-wide">{story.genre}</span>
         )}
       </div>
 

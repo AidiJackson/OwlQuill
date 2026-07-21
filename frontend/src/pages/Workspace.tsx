@@ -15,9 +15,9 @@ const EDITOR_TEXT    = 'text-[16px] md:text-[17px] lg:text-[18px]';
 const EDITOR_LEADING = 'leading-[1.75]';
 const EDITOR_FONT    = 'font-normal';
 const EDITOR_TRACKING = 'tracking-[0.01em]';
-const PAPER        = 'bg-gray-900/60 border border-gray-800/70 ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)]';
+const PAPER        = 'bg-surface border border-edge ring-1 ring-black/10 shadow-[0_8px_30px_rgba(0,0,0,0.25)]';
 const PAPER_LIGHT  = 'bg-[#F5F0E8] border border-[#A09382]/30 shadow-[0_4px_16px_rgba(0,0,0,0.06)]';
-const TOOLBTN      = 'h-9 px-3 text-sm rounded-lg bg-gray-900/30 border border-gray-800/70 text-gray-200 hover:bg-gray-800/40 hover:border-gray-700 transition';
+const TOOLBTN      = 'h-9 px-3 text-sm rounded-lg bg-surface-elevated border border-edge text-ink-2 hover:text-ink hover:border-edge-md transition';
 
 const OOC_OPTION = { id: 0, name: 'Yourself (OOC)' };
 
@@ -827,8 +827,8 @@ export default function Workspace() {
     function labelFor(id: string) { return suggestionLabel(id) || 'Issue'; }
 
     return (
-      <div className="shrink-0 mt-3 border border-gray-800 rounded-xl bg-gray-900/40">
-        <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between">
+      <div className="shrink-0 mt-3 border border-edge rounded-xl bg-surface">
+        <div className="px-3 py-2 border-b border-edge flex items-center justify-between">
           <span className="text-xs font-semibold text-gray-300">Live Checks</span>
           {checks.length > 0 && (
             <span className="text-xs text-gray-500">
@@ -837,7 +837,7 @@ export default function Workspace() {
           )}
         </div>
         {checks.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-emerald-300">{'\u2705'} No issues detected</div>
+          <div className="px-3 py-2 text-xs text-gem">{'\u2705'} No issues detected</div>
         ) : (
           <ul className="divide-y divide-gray-800">
             {checks.map((s) => {
@@ -1025,7 +1025,7 @@ export default function Workspace() {
           <select
             value={characterId}
             onChange={(e) => setCharacterId(Number(e.target.value))}
-            className="input text-sm"
+            className="bg-surface-elevated border border-edge rounded-lg px-2.5 py-1.5 text-sm text-ink-2 cursor-pointer focus:outline-none"
           >
             {wsCharacters.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
@@ -1037,7 +1037,7 @@ export default function Workspace() {
           <select
             value={selectedRealmId ?? ''}
             onChange={(e) => setSelectedRealmId(e.target.value ? Number(e.target.value) : null)}
-            className="input text-sm"
+            className="bg-surface-elevated border border-edge rounded-lg px-2.5 py-1.5 text-sm text-ink-2 cursor-pointer focus:outline-none"
           >
             <option value="">Commons</option>
             {realms.map((r) => (
@@ -1105,7 +1105,7 @@ export default function Workspace() {
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); void applySuggestionFix(s); }}
-                        className="btn btn-secondary text-xs shrink-0"
+                        className="px-2.5 py-1 rounded-lg text-xs font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors shrink-0"
                       >
                         {s.fix.label}
                       </button>
@@ -1139,7 +1139,7 @@ export default function Workspace() {
               <p className="text-sm text-red-400">{grammar.error}</p>
             )}
             {grammar.status === 'ok' && visibleGrammarMatches.length === 0 && (
-              <p className="text-sm text-emerald-300">&#10003; No grammar issues found.</p>
+              <p className="text-sm text-gem">&#10003; No grammar issues found.</p>
             )}
             {grammar.status === 'ok' && visibleGrammarMatches.length > 0 && (
               <ul className="space-y-2">
@@ -1148,7 +1148,7 @@ export default function Workspace() {
                     <button
                       type="button"
                       onClick={() => jumpToRange(m.offset, m.length)}
-                      className="text-left text-gray-200 hover:text-emerald-300 transition-colors w-full"
+                      className="text-left text-gray-200 hover:text-gem transition-colors w-full"
                     >
                       {m.shortMessage || m.message}
                     </button>
@@ -1161,7 +1161,7 @@ export default function Workspace() {
                           key={ri}
                           type="button"
                           onClick={() => applyGrammarFix(m, r.value)}
-                          className="text-xs px-2 py-0.5 rounded-md bg-emerald-900/40 border border-emerald-800/60 text-emerald-300 hover:bg-emerald-800/40 transition"
+                          className="text-xs px-2 py-0.5 rounded-md bg-gem-soft border border-gem/30 text-gem hover:bg-gem/20 transition"
                         >
                           {r.value}
                         </button>
@@ -1191,9 +1191,9 @@ export default function Workspace() {
 
         {publishSuccess ? (
           /* ── Post success panel ─────────────────────────────────── */
-          <div className="rounded-xl border border-emerald-800/50 bg-emerald-950/20 p-4 space-y-3">
+          <div className="rounded-xl border border-gem/25 bg-gem-soft/60 p-4 space-y-3">
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-emerald-300">Published</p>
+              <p className="text-sm font-semibold text-gem">Published</p>
               <p className="text-xs text-gray-400 leading-relaxed">
                 Your post is live on{' '}
                 <span className="text-gray-300">
@@ -1205,7 +1205,7 @@ export default function Workspace() {
               <button
                 type="button"
                 onClick={() => navigate(publishDestination)}
-                className="w-full py-2 px-3 rounded-lg bg-emerald-700/80 hover:bg-emerald-600 active:bg-emerald-700 text-white text-xs font-semibold transition"
+                className="w-full py-2 px-3 rounded-lg bg-gem hover:bg-gem/90 text-gray-950 text-xs font-semibold transition"
               >
                 View post
               </button>
@@ -1233,7 +1233,7 @@ export default function Workspace() {
                   {selectedCharName ? (
                     <>
                       <span className="text-gray-300">{selectedCharName}</span>
-                      <span className="text-emerald-600/70 font-semibold"> · IC</span>
+                      <span className="text-gem/80 font-semibold"> · IC</span>
                     </>
                   ) : (
                     <span className="text-gray-500">You · OOC</span>
@@ -1255,7 +1255,7 @@ export default function Workspace() {
               type="button"
               onClick={handlePublishToCommons}
               disabled={publishing || !body.trim()}
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-700/90 hover:bg-emerald-600 active:bg-emerald-700 text-white font-semibold text-sm tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2.5 px-4 rounded-xl bg-gem hover:bg-gem/90 text-gray-950 font-semibold text-sm tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {publishing
                 ? 'Publishing\u2026'
@@ -1282,7 +1282,7 @@ export default function Workspace() {
               type="button"
               onClick={downloadDraft}
               disabled={!body.trim()}
-              className="btn btn-secondary w-full disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Download text
             </button>
@@ -1300,7 +1300,7 @@ export default function Workspace() {
               const ok = await copyToClipboard(body);
               setCopyStatus(ok ? 'copied' : 'failed');
             }}
-            className="btn btn-secondary w-full"
+            className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
           >
             Copy for posting
           </button>
@@ -1310,7 +1310,7 @@ export default function Workspace() {
               localStorage.setItem(PASTE_HINT_KEY, 'true');
               navigate('/');
             }}
-            className="btn btn-secondary w-full"
+            className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
           >
             Go to Home &amp; paste
           </button>
@@ -1345,7 +1345,7 @@ export default function Workspace() {
           <button
             type="button"
             onClick={() => navigate('/storylab')}
-            className="w-full py-1.5 px-4 rounded-lg border border-emerald-800/60 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-400 hover:text-emerald-300 text-xs font-medium transition"
+            className="w-full py-1.5 px-4 rounded-lg border border-gem/30 bg-gem-soft/60 hover:bg-gem-soft text-gem text-xs font-medium transition"
           >
             Open StoryLab
           </button>
@@ -1486,10 +1486,10 @@ export default function Workspace() {
   return (
     <div className={
       "w-full h-[calc(100vh-24px)] flex flex-col transition-colors " +
-      (focusMode ? "bg-black" : "bg-gray-950")
+      (focusMode ? "bg-black" : "bg-app")
     }>
       <style>{`
-        .ws-hl{background:rgba(52,211,153,.15);border-radius:3px;padding:0 2px;outline:1px solid rgba(52,211,153,.4)}
+        .ws-hl{background:rgb(var(--gem) / .15);border-radius:3px;padding:0 2px;outline:1px solid rgb(var(--gem) / .4)}
         .ws-ul-sentence{text-decoration:underline;text-decoration-color:rgba(251,191,36,.6);text-decoration-thickness:2px}
         .ws-ul-passive{text-decoration:underline dotted;text-decoration-color:rgba(96,165,250,.7)}
         .ws-ul-grammar{text-decoration-line:underline;text-decoration-style:wavy;text-decoration-color:rgba(248,113,113,.8);text-underline-offset:3px}
@@ -1501,33 +1501,33 @@ export default function Workspace() {
         .ws-write-overlay span.ws-filler{color:transparent;text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:rgba(167,139,250,.7);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:pointer}
         .ws-write-overlay span.ws-overuse{color:transparent;text-decoration-line:underline;text-decoration-style:dashed;text-decoration-color:rgba(251,146,60,.7);text-decoration-thickness:2px;text-underline-offset:3px;pointer-events:auto;cursor:default}
         .ws-tip{position:fixed;pointer-events:none;transform:translate(12px,12px);background:#111827;border:1px solid #374151;color:#e5e7eb;font-size:.75rem;line-height:1.4;border-radius:.5rem;padding:.375rem .625rem;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:260px;z-index:9999}
-        ::selection{background:rgba(52,211,153,.25)}
+        ::selection{background:rgb(var(--gem) / .25)}
         .ws-paper-surface::placeholder{color:#9D8E7D}
       `}</style>
       {/* A) Header bar */}
-      <div className="px-4 md:px-6 pt-4 pb-3 border-b border-gray-800 flex-shrink-0">
+      <div className="px-4 md:px-6 pt-4 pb-3 border-b border-edge flex-shrink-0">
         <div className="flex flex-wrap items-center gap-3">
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Untitled story"
-            className="flex-1 bg-transparent text-lg font-bold text-gray-100 placeholder-gray-600 focus:outline-none"
+            className="flex-1 bg-transparent font-serif text-xl font-medium text-ink placeholder:text-ink-3 focus:outline-none"
           />
           {/* Selectors: desktop only — drawer carries them on mobile */}
           <div className="hidden lg:flex items-center gap-3">
             {/* Character / role selector */}
             <div className={`flex items-center gap-1.5 rounded-lg px-2 py-1 transition-colors ${
-              selectedCharName ? 'bg-emerald-950/25 border border-emerald-800/30' : ''
+              selectedCharName ? 'bg-gem-soft/60 border border-gem/25' : ''
             }`}>
               {selectedCharName && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full bg-gem/80 shrink-0" />
               )}
               <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider select-none">As</span>
               <select
                 value={characterId}
                 onChange={(e) => setCharacterId(Number(e.target.value))}
-                className="input text-sm"
+                className="bg-surface-elevated border border-edge rounded-lg px-2.5 py-1.5 text-sm text-ink-2 cursor-pointer focus:outline-none"
               >
                 {wsCharacters.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -1537,7 +1537,7 @@ export default function Workspace() {
               </select>
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border select-none transition-colors ${
                 selectedCharName
-                  ? 'text-emerald-400/80 border-emerald-800/50 bg-emerald-950/20'
+                  ? 'text-gem border-gem/30 bg-gem-soft/60'
                   : 'text-gray-600 border-gray-800/60 bg-transparent'
               }`}>
                 {selectedCharName ? 'IC' : 'OOC'}
@@ -1548,7 +1548,7 @@ export default function Workspace() {
               onChange={(e) =>
                 setSelectedRealmId(e.target.value ? Number(e.target.value) : null)
               }
-              className="input text-sm"
+              className="bg-surface-elevated border border-edge rounded-lg px-2.5 py-1.5 text-sm text-ink-2 cursor-pointer focus:outline-none"
             >
               <option value="">Publish to Commons</option>
               {realms.map((r) => (
@@ -1561,7 +1561,7 @@ export default function Workspace() {
           <p className="text-xs text-gray-500">
             {getSaveLabel()}
           </p>
-          {formatFlash && <span className="text-xs text-emerald-400">{formatFlash}</span>}
+          {formatFlash && <span className="text-xs text-gem">{formatFlash}</span>}
           {/* Surface mode toggle — Night / Paper */}
           <div className="flex items-center rounded-md border border-gray-700 overflow-hidden text-xs">
             <button
@@ -1590,7 +1590,7 @@ export default function Workspace() {
             Clear draft
           </button>
           <button
-            className="lg:hidden btn btn-secondary text-xs"
+            className="lg:hidden px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
             onClick={() => setShowPanel(true)}
           >
             Options
@@ -1610,8 +1610,8 @@ export default function Workspace() {
               onClick={() => setMode('write')}
               className={`px-3 py-1 rounded-md text-sm ${
                 mode === 'write'
-                  ? 'bg-gray-800 text-white'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-gem-soft text-gem'
+                  : 'text-ink-2 hover:text-ink'
               }`}
             >
               Write
@@ -1621,8 +1621,8 @@ export default function Workspace() {
               onClick={() => setMode('preview')}
               className={`px-3 py-1 rounded-md text-sm ${
                 mode === 'preview'
-                  ? 'bg-gray-800 text-white'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-gem-soft text-gem'
+                  : 'text-ink-2 hover:text-ink'
               }`}
             >
               Preview
@@ -1632,8 +1632,8 @@ export default function Workspace() {
               onClick={() => setMode('review')}
               className={`px-3 py-1 rounded-md text-sm ${
                 mode === 'review'
-                  ? 'bg-gray-800 text-white'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-gem-soft text-gem'
+                  : 'text-ink-2 hover:text-ink'
               }`}
             >
               Review
@@ -1647,10 +1647,10 @@ export default function Workspace() {
                 {selectedCharName && (
                   <>
                     <span className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60 shrink-0" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-gem/70 shrink-0" />
                       <span className="text-gray-300 font-medium">{selectedCharName}</span>
                     </span>
-                    <span className="text-emerald-500/70 text-[10px] font-semibold uppercase tracking-wider">IC</span>
+                    <span className="text-gem/80 text-[10px] font-mono uppercase tracking-wider">IC</span>
                     <span>·</span>
                   </>
                 )}
@@ -1677,7 +1677,7 @@ export default function Workspace() {
                   ].filter(Boolean).join(' · ')}
                 </button>
               ) : (
-                <span className="px-2 py-1 rounded-md bg-gray-900 border border-gray-800 text-emerald-300">
+                <span className="px-2 py-1 rounded-md bg-surface border border-edge text-gem">
                   All good
                 </span>
               )}
@@ -1722,10 +1722,10 @@ export default function Workspace() {
           {!hasText && mode === 'write' && (
             selectedCharName ? (
               <div className="flex flex-col items-center gap-2 mt-8 text-center">
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/30 border border-emerald-800/30 text-sm">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 shrink-0" />
-                  <span className="text-emerald-300/80 font-medium">{selectedCharName}</span>
-                  <span className="text-emerald-600/60 text-[10px] font-semibold uppercase tracking-wider">IC</span>
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gem-soft border border-gem/25 text-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gem/80 shrink-0" />
+                  <span className="text-gem font-medium">{selectedCharName}</span>
+                  <span className="text-gem/60 text-[10px] font-mono uppercase tracking-wider">IC</span>
                 </div>
                 <p className="text-gray-600 text-xs">Start your scene — in character.</p>
               </div>
@@ -1744,7 +1744,7 @@ export default function Workspace() {
 
           {mode === 'preview' ? (
             <div
-              className={`flex-1 min-h-0 rounded-2xl p-4 md:p-5 ${surfaceMode === 'paper' ? PAPER_LIGHT : PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-200'} overflow-y-auto`}
+              className={`flex-1 min-h-0 rounded-2xl p-4 md:p-5 ${surfaceMode === 'paper' ? PAPER_LIGHT : PAPER} font-serif ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_TRACKING} ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-ink'} overflow-y-auto`}
               onClick={(e) => {
                 // Grammar underline click → switch to Review and jump to range
                 const gEl = (e.target as HTMLElement).closest('[data-ws-grammar-offset]');
@@ -1763,7 +1763,7 @@ export default function Workspace() {
                 if (s) handleSuggestionClick(s.id, s.kind, s.matchText, 'review');
               }}
             >
-              <div className={`${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-200'} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} space-y-4`}>
+              <div className={`${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-ink'} font-serif ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_TRACKING} space-y-4`}>
                 {renderPreview(body)}
               </div>
             </div>
@@ -1840,7 +1840,7 @@ export default function Workspace() {
                 onScroll={(e) => {
                   if (overlayRef.current) overlayRef.current.scrollTop = e.currentTarget.scrollTop;
                 }}
-                className={`absolute inset-0 w-full h-full rounded-2xl p-4 md:p-5 ${surfaceMode === 'paper' ? PAPER_LIGHT : PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} ${surfaceMode === 'paper' ? 'text-[#1C1917] caret-emerald-700 ws-paper-surface' : 'text-gray-200 caret-emerald-300 placeholder-gray-600'} resize-none outline-none`}
+                className={`absolute inset-0 w-full h-full rounded-2xl p-4 md:p-5 ${surfaceMode === 'paper' ? PAPER_LIGHT : PAPER} ${EDITOR_TEXT} ${EDITOR_LEADING} ${EDITOR_FONT} ${EDITOR_TRACKING} ${surfaceMode === 'paper' ? 'text-[#1C1917] caret-gem ws-paper-surface' : 'text-ink caret-gem placeholder:text-ink-3'} resize-none outline-none`}
               />
               {mode === 'write' && renderWriteOverlay(body)}
             </div>
@@ -1856,7 +1856,7 @@ export default function Workspace() {
 
         {/* C) Desktop sidebar */}
         <aside
-          className={`hidden lg:flex flex-col w-[340px] shrink-0 border-l border-gray-800 bg-gray-950 p-4 overflow-y-auto${focusMode ? ' opacity-0 pointer-events-none' : ''}`}
+          className={`hidden lg:flex flex-col w-[340px] shrink-0 border-l border-edge bg-app p-4 overflow-y-auto${focusMode ? ' opacity-0 pointer-events-none' : ''}`}
         >
           {renderSidebarContent('desktop')}
         </aside>
@@ -1869,29 +1869,29 @@ export default function Workspace() {
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowPanel(false)}
           />
-          <div className="relative ml-auto w-[85%] max-w-sm h-full bg-gray-950 border-l border-gray-800 p-4 overflow-y-auto">
+          <div className="relative ml-auto w-[85%] max-w-sm h-full bg-app border-l border-edge p-4 overflow-y-auto">
             {renderSidebarContent('drawer')}
           </div>
         </div>
       )}
 
       {/* E) Mobile sticky bottom bar */}
-      <div className="lg:hidden sticky bottom-0 border-t border-gray-800 bg-gray-950 px-4 py-3 flex gap-2">
+      <div className="lg:hidden sticky bottom-0 border-t border-edge bg-app px-4 py-3 flex gap-2">
         <button
           onClick={handlePublishToCommons}
           disabled={publishing || !body.trim()}
-          className="flex-1 text-sm h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 text-sm h-11 rounded-xl bg-gem hover:bg-gem/90 text-gray-950 font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Publish
         </button>
         <button
-          className="btn btn-secondary flex-1 text-sm h-11 rounded-xl"
+          className="flex-1 text-sm h-11 rounded-xl bg-surface-elevated text-ink-2 hover:text-ink font-medium transition-colors"
           onClick={() => setMode('preview')}
         >
           Preview
         </button>
         <button
-          className="btn btn-secondary flex-1 text-sm h-11 rounded-xl"
+          className="flex-1 text-sm h-11 rounded-xl bg-surface-elevated text-ink-2 hover:text-ink font-medium transition-colors"
           onClick={() => setMode('review')}
         >
           Review

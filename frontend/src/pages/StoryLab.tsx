@@ -71,9 +71,9 @@ export default function StoryLab() {
   // ── theme-derived class tokens ─────────────────────────────────────────────
   const page = isDiamond
     ? 'min-h-screen bg-gradient-to-b from-stone-50 via-white to-stone-50 text-gray-900 flex flex-col'
-    : 'min-h-screen bg-gray-950 text-gray-100 flex flex-col';
+    : 'min-h-screen bg-app text-ink flex flex-col';
 
-  const heading = isDiamond ? 'text-gray-900' : 'text-gray-100';
+  const heading = isDiamond ? 'text-gray-900' : 'text-ink';
   const sub = isDiamond ? 'text-gray-500' : 'text-gray-500';
 
   const modeCardBase = isDiamond
@@ -82,11 +82,11 @@ export default function StoryLab() {
 
   const modeCardIdle = isDiamond
     ? 'border-gray-200 hover:border-emerald-300 hover:shadow-md hover:bg-emerald-50/30'
-    : 'border-gray-800 bg-gray-900/40 hover:border-gray-700 hover:bg-gray-900/70';
+    : 'border-edge bg-surface hover:border-edge-md hover:bg-surface-elevated';
 
   const modeCardNewStory = isDiamond
     ? 'border-emerald-200 bg-emerald-50/50 hover:border-emerald-400 hover:bg-emerald-50 shadow-sm'
-    : 'border-emerald-800/40 bg-emerald-950/20 hover:border-emerald-700/60 hover:bg-emerald-950/40';
+    : 'border-gem/25 bg-gem-soft/60 hover:border-gem/40 hover:bg-gem-soft';
 
   function modeCardActive(accent: 'emerald' | 'violet') {
     if (isDiamond) {
@@ -95,13 +95,13 @@ export default function StoryLab() {
         : 'border-violet-400 bg-violet-50 shadow-md ring-1 ring-violet-200';
     }
     return accent === 'emerald'
-      ? 'border-emerald-500/60 bg-emerald-900/25 ring-1 ring-emerald-800/30'
+      ? 'border-gem/50 bg-gem-soft ring-1 ring-gem/25'
       : 'border-violet-500/60 bg-violet-900/20 ring-1 ring-violet-800/30';
   }
 
-  const modeTitle = isDiamond ? 'text-gray-900' : 'text-gray-100';
+  const modeTitle = isDiamond ? 'text-gray-900' : 'text-ink';
   const modeSub = isDiamond ? 'text-gray-500' : 'text-gray-500';
-  const modeActiveBadgeEmerald = isDiamond ? 'text-emerald-600' : 'text-emerald-400';
+  const modeActiveBadgeEmerald = isDiamond ? 'text-emerald-600' : 'text-gem';
   const modeActiveBadgeViolet = isDiamond ? 'text-violet-600' : 'text-violet-400';
 
   const sectionHdr = isDiamond ? 'text-gray-500' : 'text-gray-600';
@@ -109,18 +109,18 @@ export default function StoryLab() {
 
   const storyCardCls = isDiamond
     ? 'group w-full text-left flex items-center gap-4 px-4 py-4 rounded-2xl border border-gray-200 bg-white shadow-sm hover:border-emerald-300 hover:shadow-md transition'
-    : 'group w-full text-left flex items-center gap-4 px-4 py-4 rounded-2xl border border-gray-800/50 bg-gray-900/30 hover:border-gray-700/60 hover:bg-gray-900/60 transition';
+    : 'group w-full text-left flex items-center gap-4 px-4 py-4 rounded-2xl border border-edge bg-surface hover:border-edge-md hover:bg-surface-elevated transition';
 
   const storyTitle = isDiamond
     ? 'text-sm font-medium text-gray-800 truncate group-hover:text-gray-900 transition leading-snug'
-    : 'text-sm font-medium text-gray-200 truncate group-hover:text-white transition leading-snug';
+    : 'text-sm font-medium text-ink truncate transition leading-snug';
 
   const storyGenre = isDiamond ? 'text-xs text-gray-400 mt-0.5 capitalize' : 'text-xs text-gray-600 mt-0.5 capitalize';
   const storyArrow = isDiamond ? 'text-gray-400 group-hover:text-emerald-500 transition' : 'text-gray-700 group-hover:text-gray-400 transition';
 
-  const divider = isDiamond ? 'border-gray-200' : 'border-gray-800/60';
-  const skeletonBg = isDiamond ? 'bg-gray-200/60' : 'bg-gray-800/60';
-  const skeletonCard = isDiamond ? 'border border-gray-200 bg-gray-100/50' : 'border border-gray-800/60 bg-gray-900/20';
+  const divider = isDiamond ? 'border-gray-200' : 'border-edge';
+  const skeletonBg = isDiamond ? 'bg-gray-200/60' : 'bg-surface-elevated';
+  const skeletonCard = isDiamond ? 'border border-gray-200 bg-gray-100/50' : 'border border-edge bg-surface';
 
   return (
     <div className={page}>
@@ -131,7 +131,7 @@ export default function StoryLab() {
         {/* Title row + theme toggle */}
         <div className="flex items-start justify-between gap-4 mb-8">
           <div>
-            <h1 className={`text-3xl font-semibold tracking-tight ${heading}`}>StoryLab</h1>
+            <h1 className={`font-serif text-4xl font-medium tracking-[-0.02em] ${heading}`}>StoryLab</h1>
             <p className={`mt-1.5 text-sm ${sub}`}>Your narrative workspace.</p>
           </div>
 
