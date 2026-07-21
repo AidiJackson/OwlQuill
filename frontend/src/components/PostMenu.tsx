@@ -43,17 +43,17 @@ export default function PostMenu({ postId, onDeleted }: PostMenuProps) {
       <div className="relative" ref={menuRef}>
         <button
           onClick={() => setOpen(!open)}
-          className="p-1 rounded hover:bg-gray-700 transition-colors text-gray-500 hover:text-gray-300"
+          className="p-1 rounded-lg hover:bg-surface-elevated transition-colors text-ink-3 hover:text-ink"
           aria-label="Post options"
         >
           <MoreVertical className="w-4 h-4" />
         </button>
 
         {open && (
-          <div className="absolute right-0 top-full mt-1 w-36 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-10">
+          <div className="absolute right-0 top-full mt-1 w-36 bg-surface-overlay border border-edge-md rounded-lg shadow-lg z-10">
             <button
               onClick={() => { setOpen(false); setConfirming(true); }}
-              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 rounded-lg transition-colors"
+              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-surface-elevated rounded-lg transition-colors"
             >
               Delete
             </button>
@@ -64,9 +64,9 @@ export default function PostMenu({ postId, onDeleted }: PostMenuProps) {
       {/* Confirm modal */}
       {confirming && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 border border-gray-700 rounded-xl max-w-sm w-full p-6">
-            <h3 className="text-lg font-bold mb-2">Delete post?</h3>
-            <p className="text-gray-400 text-sm mb-5">This can't be undone.</p>
+          <div className="bg-surface-overlay border border-edge-md rounded-xl max-w-sm w-full p-6">
+            <h3 className="text-lg font-semibold text-ink mb-2">Delete post?</h3>
+            <p className="text-ink-2 text-sm mb-5">This can't be undone.</p>
 
             {error && (
               <p className="text-red-400 text-sm mb-3">{error}</p>

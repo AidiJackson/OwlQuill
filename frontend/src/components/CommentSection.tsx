@@ -72,24 +72,24 @@ export default function CommentSection({ postId, characters = [], defaultExpande
   const getTypeBadge = (type?: string) => {
     if (!type) return null;
     const badges: Record<string, { label: string; className: string }> = {
-      ic: { label: 'IC', className: 'bg-emerald-600 text-white' },
-      ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
-      narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' },
+      ic: { label: 'IC', className: 'bg-gem-soft text-gem border border-gem/25' },
+      ooc: { label: 'OOC', className: 'bg-surface-elevated text-ink-3 border border-edge' },
+      narration: { label: 'NARRATION', className: 'bg-amber-950/20 text-amber-400/80 border border-amber-800/40' },
     };
     const badge = badges[type];
     if (!badge) return null;
     return (
-      <span className={`px-1.5 py-0.5 text-xs font-semibold rounded ${badge.className}`}>
+      <span className={`px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-[0.06em] rounded ${badge.className}`}>
         {badge.label}
       </span>
     );
   };
 
   return (
-    <div className="mt-4 pt-3 border-t border-gray-800">
+    <div className="mt-3 pt-3 border-t border-edge">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
+        className="text-sm text-ink-2 hover:text-ink transition-colors"
       >
         {expanded ? 'Hide comments' : `Comments${comments.length > 0 ? ` (${comments.length})` : ''}`}
       </button>
@@ -97,11 +97,11 @@ export default function CommentSection({ postId, characters = [], defaultExpande
       {expanded && (
         <div className="mt-3">
           {loading ? (
-            <p className="text-sm text-gray-500">Loading comments...</p>
+            <p className="text-sm text-ink-3">Loading comments...</p>
           ) : comments.length > 0 ? (
             <div className="space-y-3 mb-4">
               {comments.map((comment) => (
-                <div key={comment.id} className="pl-3 border-l-2 border-gray-700">
+                <div key={comment.id} className="pl-3 border-l-2 border-edge-md">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     {/* Character-first identity, username fallback */}
                     {comment.character_name ? (
@@ -110,35 +110,35 @@ export default function CommentSection({ postId, characters = [], defaultExpande
                           <img
                             src={comment.character_avatar_url}
                             alt={comment.character_name}
-                            className="w-5 h-5 rounded object-cover border border-gray-700"
+                            className="w-5 h-5 rounded-full object-cover border border-edge-md"
                           />
                         ) : (
-                          <div className="w-5 h-5 rounded bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[9px] font-semibold text-emerald-400 flex-shrink-0">
+                          <div className="w-5 h-5 rounded-full bg-gem-soft flex items-center justify-center text-[9px] font-semibold text-gem flex-shrink-0">
                             {comment.character_name.charAt(0)}
                           </div>
                         )}
-                        <span className="text-sm font-medium text-emerald-400">
+                        <span className="text-sm font-medium text-gem">
                           {comment.character_name}
                         </span>
                       </div>
                     ) : (
                       // Identity-first: no character means no public identity —
                       // account usernames never render on a public surface.
-                      <span className="text-sm text-gray-400 flex-shrink-0">
+                      <span className="text-sm text-ink-3 flex-shrink-0">
                         Wanderer
                       </span>
                     )}
                     {getTypeBadge(comment.content_type)}
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs font-mono text-ink-3">
                       {new Date(comment.created_at).toLocaleDateString()}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-300 whitespace-pre-wrap">{comment.content}</p>
+                  <p className="text-sm text-ink-2 whitespace-pre-wrap">{comment.content}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500 mb-4">No comments yet.</p>
+            <p className="text-sm text-ink-3 mb-4">No comments yet.</p>
           )}
 
           {/* Comment composer */}
@@ -146,27 +146,27 @@ export default function CommentSection({ postId, characters = [], defaultExpande
             {/* Replying identity */}
             {characters.length > 0 && (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500 flex-shrink-0">Replying as</span>
+                <span className="text-xs text-ink-3 flex-shrink-0">Replying as</span>
                 {characters.length === 1 ? (
-                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-800/60 border border-gray-700 text-xs select-none">
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-elevated border border-edge text-xs select-none">
                     {characters[0].avatar_url ? (
                       <img
                         src={characters[0].avatar_url}
                         alt={characters[0].name}
-                        className="w-4 h-4 rounded object-cover flex-shrink-0"
+                        className="w-4 h-4 rounded-full object-cover flex-shrink-0"
                       />
                     ) : (
-                      <div className="w-4 h-4 rounded bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[8px] font-semibold text-emerald-400 flex-shrink-0">
+                      <div className="w-4 h-4 rounded-full bg-gem-soft flex items-center justify-center text-[8px] font-semibold text-gem flex-shrink-0">
                         {characters[0].name.charAt(0)}
                       </div>
                     )}
-                    <span className="text-emerald-400 font-medium">{characters[0].name}</span>
+                    <span className="text-gem font-medium">{characters[0].name}</span>
                   </div>
                 ) : (
                   <select
                     value={composerCharId ?? ''}
                     onChange={(e) => setComposerCharId(e.target.value ? Number(e.target.value) : null)}
-                    className="input text-xs py-1 w-auto"
+                    className="bg-surface-elevated border border-edge rounded-lg px-2 py-1 text-xs text-ink-2 cursor-pointer focus:outline-none w-auto"
                   >
                     <option value="" disabled>— select character —</option>
                     {characters.map((c) => (
@@ -180,7 +180,7 @@ export default function CommentSection({ postId, characters = [], defaultExpande
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Write a comment..."
-              className="textarea text-sm"
+              className="w-full px-3 py-2 bg-surface-elevated border border-edge rounded-lg text-sm text-ink placeholder:text-ink-3 focus:outline-none min-h-[60px]"
               rows={2}
             />
             {commentError && (
@@ -192,7 +192,7 @@ export default function CommentSection({ postId, characters = [], defaultExpande
                 onChange={(e) =>
                   setContentType(e.target.value as 'ic' | 'ooc' | 'narration')
                 }
-                className="input text-sm py-1 w-auto"
+                className="bg-surface-elevated border border-edge rounded-lg px-2.5 py-1 text-sm text-ink-2 cursor-pointer focus:outline-none w-auto"
               >
                 <option value="ic">IC</option>
                 <option value="ooc">OOC</option>
@@ -201,7 +201,7 @@ export default function CommentSection({ postId, characters = [], defaultExpande
               <button
                 onClick={handleSubmit}
                 disabled={!content.trim() || submitting}
-                className="btn btn-primary text-sm py-1 px-3"
+                className="px-3 py-1 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors disabled:opacity-40"
               >
                 {submitting ? 'Posting...' : 'Comment'}
               </button>

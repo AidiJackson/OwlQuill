@@ -26,7 +26,7 @@ export default function MentionText({ text, mentions = [], className }: Props) {
               <Link
                 key={i}
                 to={resolved.url}
-                className="text-violet-400 hover:text-violet-300 hover:underline"
+                className="text-gem hover:underline hover:opacity-80"
                 onClick={e => e.stopPropagation()}
               >
                 {part}
@@ -35,7 +35,7 @@ export default function MentionText({ text, mentions = [], className }: Props) {
           }
           // Unresolved mention — highlight without link
           return (
-            <span key={i} className="text-violet-400/60">
+            <span key={i} className="text-gem/60">
               {part}
             </span>
           );

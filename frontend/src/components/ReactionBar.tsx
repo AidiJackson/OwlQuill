@@ -51,7 +51,7 @@ export default function ReactionBar({ postId }: ReactionBarProps) {
   };
 
   return (
-    <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-800/60">
+    <div className="flex items-center gap-1.5 mt-4">
       {REACTION_TYPES.map(({ type, emoji }) => {
         const count = getCount(type);
         const isActive = !!getUserReaction(type);
@@ -60,10 +60,10 @@ export default function ReactionBar({ postId }: ReactionBarProps) {
             key={type}
             onClick={() => handleToggle(type)}
             disabled={busy}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md border text-sm transition-all ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-sm transition-all ${
               isActive
-                ? 'bg-gray-800 border-gray-600 text-white'
-                : 'border-transparent text-gray-600 hover:bg-gray-800/60 hover:border-gray-700 hover:text-gray-300'
+                ? 'bg-gem-soft border-gem/25 text-gem'
+                : 'border-transparent text-ink-3 hover:bg-surface-elevated hover:text-ink-2'
             }`}
           >
             <span>{emoji}</span>
