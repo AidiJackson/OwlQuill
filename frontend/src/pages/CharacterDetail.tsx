@@ -218,7 +218,7 @@ export default function CharacterDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-400">
+      <div className="min-h-screen flex items-center justify-center text-ink-3">
         Loading…
       </div>
     );
@@ -226,9 +226,12 @@ export default function CharacterDetail() {
 
   if (error || !character) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
-        <p className="text-gray-400">{error || 'Character not found.'}</p>
-        <button className="btn btn-secondary" onClick={() => navigate('/characters')}>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-app">
+        <p className="text-ink-2">{error || 'Character not found.'}</p>
+        <button
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
+          onClick={() => navigate('/characters')}
+        >
           Back to Characters
         </button>
       </div>
@@ -255,201 +258,216 @@ export default function CharacterDetail() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0F1419]">
-      {/* === HERO — the character's public identity === */}
-      <div className="relative" style={{ background: 'radial-gradient(ellipse 62% 92% at 0% 24%, rgba(130,100,215,0.15) 0%, transparent 75%), radial-gradient(ellipse 62% 92% at 100% 24%, rgba(16,185,129,0.14) 0%, transparent 75%), #0F1419' }}>
-        <div className="max-w-[1000px] mx-auto px-4 sm:px-8 pt-0 pb-8">
-
-          {/* Arrival banner */}
-          {justCreated && (
-            <div className="bg-emerald-600/10 border border-emerald-600/20 rounded-lg px-4 py-4 my-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Feather className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-emerald-300">
-                      {character.name} is live on Ficshon.
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      Write your first post to introduce them to the community.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={dismissBanner}
-                  className="text-gray-600 hover:text-gray-400 transition-colors flex-shrink-0 mt-0.5"
-                  aria-label="Dismiss"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
+    <div className="min-h-screen bg-app">
+      {/* Arrival banner — floats above the establishing shot */}
+      {justCreated && (
+        <div className="max-w-[1000px] mx-auto px-4 sm:px-8">
+          <div className="bg-gem-soft border border-gem/20 rounded-2xl px-5 py-4 my-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2">
-                <button onClick={() => navigate('/')} className="btn btn-primary text-sm">
-                  Post to The Commons
-                </button>
-                <button onClick={() => navigate('/storylab')} className="btn btn-secondary text-sm">
-                  Open StoryLab
-                </button>
+                <Feather className="w-4 h-4 text-gem flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-gem">
+                    {character.name} is live on Ficshon.
+                  </p>
+                  <p className="text-xs text-ink-2 mt-0.5">
+                    Write your first post to introduce them to the community.
+                  </p>
+                </div>
               </div>
+              <button
+                onClick={dismissBanner}
+                className="text-ink-3 hover:text-ink-2 transition-colors flex-shrink-0 mt-0.5"
+                aria-label="Dismiss"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate('/')}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors"
+              >
+                Post to The Commons
+              </button>
+              <button
+                onClick={() => navigate('/storylab')}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
+              >
+                Open StoryLab
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-          {/* Cover band */}
-          <div className="relative h-[220px] sm:h-[300px] md:h-[360px] rounded-2xl overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-500">
-            {character.cover_url && (
-              <img
-                src={character.cover_url}
-                alt={`${character.name}'s cover`}
-                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                style={{ objectPosition: `${coverPosX * 100}% ${coverPosY * 100}%` }}
-                draggable={false}
-              />
+      {/* === HERO — cinematic establishing shot, full-bleed === */}
+      <div className="relative h-[44vh] min-h-[300px] max-h-[560px]">
+        {character.cover_url ? (
+          <img
+            src={character.cover_url}
+            alt={`${character.name}'s cover`}
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+            style={{ objectPosition: `${coverPosX * 100}% ${coverPosY * 100}%` }}
+            draggable={false}
+          />
+        ) : (
+          /* Designed fallback — quiet gem atmosphere, no borrowed imagery */
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(ellipse 70% 90% at 20% 0%, rgb(var(--gem) / 0.16) 0%, transparent 60%), radial-gradient(ellipse 60% 80% at 90% 100%, rgb(var(--gem) / 0.08) 0%, transparent 55%), var(--surface)',
+            }}
+          >
+            <Feather className="absolute bottom-8 right-8 w-16 h-16 text-ink-3/25" />
+          </div>
+        )}
+        {/* Cinematic fade into the page background */}
+        <div className="cover-gradient absolute inset-0" />
+
+        {/* Title card — the character's name IS the headline */}
+        <div className="absolute bottom-0 left-0 right-0 px-5 sm:px-10 pb-6 sm:pb-8 max-w-[1100px] mx-auto">
+          <div className="flex flex-wrap items-center gap-2.5 mb-2">
+            {metaLine && (
+              <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-white/65">
+                {metaLine}
+              </span>
             )}
-            {/* Gradient vignette */}
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(15,20,25,0.45) 0%, rgba(15,20,25,0.05) 35%, rgba(15,20,25,0.75) 100%)' }} />
-            {!character.cover_url && (
-              <div className="absolute inset-0 flex items-end justify-end p-4">
-                <Feather className="w-16 h-16 text-white/10" />
-              </div>
+            {character.visual_locked && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-[0.05em] bg-gem-soft border border-gem/30 text-gem">
+                <Lock className="w-3 h-3" />
+                Identity locked
+              </span>
+            )}
+            {isOwner && (
+              <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.05em] text-white/50">
+                <VisIcon className="w-3 h-3" />
+                <span>{character.visibility}</span>
+              </span>
             )}
           </div>
+          <h1
+            className="font-serif font-semibold text-white leading-[0.98] tracking-[-0.02em] break-words"
+            style={{ fontSize: 'clamp(38px, 6.5vw, 76px)', textShadow: '0 2px 40px rgba(0,0,0,0.45)' }}
+          >
+            {character.name}
+          </h1>
+        </div>
+      </div>
 
-          {/* Identity row — avatar overlaps the cover's lower edge */}
-          <div className="flex items-start gap-4 sm:gap-5 -mt-5 sm:-mt-6 relative z-10">
-            <div className="relative flex-shrink-0">
-              <div className="w-28 h-28 sm:w-32 sm:h-32 md:w-36 md:h-36 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-1 sm:p-1.5 shadow-2xl shadow-emerald-700/40 ring-[3px] ring-[#0F1419]">
-                <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#2D3139]">
-                  {character.avatar_url ? (
-                    <img
-                      src={character.avatar_url}
-                      alt={character.name}
-                      className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                      style={avatarScale > 1.001 ? {
-                        transformOrigin: 'center center',
-                        transform: `scale(${avatarScale}) translate(${(0.5 - avatarPosX) * (avatarScale - 1) / avatarScale * 100}%, ${(0.5 - avatarPosY) * (avatarScale - 1) / avatarScale * 100}%)`,
-                      } : undefined}
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-white/80 bg-gradient-to-br from-emerald-500 to-emerald-700">
-                      {character.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
+      {/* === Identity band — avatar, stats, actions === */}
+      <div className="max-w-[1000px] mx-auto px-4 sm:px-8">
+        <div className="flex items-start gap-4 sm:gap-5 pt-5 relative z-10">
+          <div className="relative flex-shrink-0 -mt-14 sm:-mt-16">
+            <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-2xl overflow-hidden border-[3px] border-app shadow-[0_0_0_1px_var(--border-md),0_8px_28px_rgba(0,0,0,0.4)] bg-surface-elevated">
+              {character.avatar_url ? (
+                <img
+                  src={character.avatar_url}
+                  alt={character.name}
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                  style={avatarScale > 1.001 ? {
+                    transformOrigin: 'center center',
+                    transform: `scale(${avatarScale}) translate(${(0.5 - avatarPosX) * (avatarScale - 1) / avatarScale * 100}%, ${(0.5 - avatarPosY) * (avatarScale - 1) / avatarScale * 100}%)`,
+                  } : undefined}
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center font-serif text-3xl font-semibold text-gem bg-gem-soft">
+                  {character.name.charAt(0).toUpperCase()}
                 </div>
-              </div>
-            </div>
-
-            {/* Name, meta, stats, action buttons */}
-            <div className="flex-1 min-w-0 pt-9 sm:pt-11 md:pt-12">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0 flex-1">
-                  <h1 className="text-xl sm:text-2xl md:text-[28px] font-bold text-white tracking-tight truncate">
-                    {character.name}
-                  </h1>
-                  {metaLine && (
-                    <p className="text-[#E8ECEF]/60 text-sm sm:text-base mt-0.5 truncate">{metaLine}</p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-3 sm:gap-5 mt-2">
-                    <span className="flex items-baseline gap-1">
-                      <span className="text-sm sm:text-base font-semibold text-white tracking-tight">{timeline.length}</span>
-                      <span className="text-[#E8ECEF]/60 text-xs sm:text-sm">Posts</span>
-                    </span>
-                    <span className="flex items-baseline gap-1" title="Follower counts are coming soon">
-                      <span className="text-sm sm:text-base font-semibold text-white/50 tracking-tight">—</span>
-                      <span className="text-[#E8ECEF]/60 text-xs sm:text-sm">Followers</span>
-                    </span>
-                    {isOwner && (
-                      <span className="inline-flex items-center gap-1.5 text-xs text-[#E8ECEF]/50">
-                        <VisIcon className="w-3.5 h-3.5" />
-                        <span className="capitalize">{character.visibility}</span>
-                        {character.visual_locked && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-800/40 text-emerald-400/80">
-                            <Lock className="w-3 h-3" />
-                            Identity locked
-                          </span>
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 flex-shrink-0 pt-1">
-                  {!isOwner && (
-                    <>
-                      {/* Messaging is character-to-character — only viewers who
-                          own a character can open a conversation. */}
-                      {(currentUser?.character_count ?? 0) > 0 && (
-                        <button
-                          className="bg-[#1A1D23] border border-[#E8ECEF]/15 text-[#E8ECEF]/90 hover:bg-[#252930] hover:border-[#E8ECEF]/30 hover:text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all shadow-lg"
-                          onClick={() => navigate(`/messages/new?characterId=${id}`)}
-                        >
-                          <MessageSquare className="w-4 h-4 flex-shrink-0" />
-                          Message
-                        </button>
-                      )}
-                      <button
-                        className="bg-gradient-to-r from-emerald-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all shadow-lg shadow-emerald-500/30 border border-white/10"
-                        onClick={() => setFollowHint('Following is coming soon.')}
-                      >
-                        <UserPlus className="w-4 h-4 flex-shrink-0" />
-                        Follow
-                      </button>
-                    </>
-                  )}
-                  {isOwner && (
-                    <button
-                      onClick={() => setActiveTab('manage')}
-                      className="bg-[#1A1D23] border border-[#2D3139] hover:border-[#E8ECEF]/20 text-[#E8ECEF]/80 hover:text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      Manage
-                    </button>
-                  )}
-                </div>
-              </div>
-              {followHint && (
-                <p className="text-xs text-[#E8ECEF]/40 mt-2">{followHint}</p>
               )}
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="flex items-center gap-1 mt-5 overflow-x-auto">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-3 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-all duration-200 ${
-                  activeTab === tab.id
-                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
-                    : 'text-[#E8ECEF]/70 hover:text-white hover:bg-[#2D3139]/40'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          {/* Stats + action buttons */}
+          <div className="flex-1 min-w-0 pt-1">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex flex-wrap items-center gap-5 sm:gap-8 min-w-0 pt-1">
+                <span className="text-center">
+                  <span className="block font-serif text-xl sm:text-2xl font-medium text-ink leading-tight">{timeline.length}</span>
+                  <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Posts</span>
+                </span>
+                <span className="text-center" title="Follower counts are coming soon">
+                  <span className="block font-serif text-xl sm:text-2xl font-medium text-ink-3 leading-tight">—</span>
+                  <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Followers</span>
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-shrink-0 pt-1">
+                {!isOwner && (
+                  <>
+                    {/* Messaging is character-to-character — only viewers who
+                        own a character can open a conversation. */}
+                    {(currentUser?.character_count ?? 0) > 0 && (
+                      <button
+                        className="bg-surface-elevated border border-edge text-ink-2 hover:text-ink hover:border-edge-md px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all"
+                        onClick={() => navigate(`/messages/new?characterId=${id}`)}
+                      >
+                        <MessageSquare className="w-4 h-4 flex-shrink-0" />
+                        Message
+                      </button>
+                    )}
+                    <button
+                      className="bg-gem hover:bg-gem/90 text-gray-950 px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-semibold transition-all"
+                      onClick={() => setFollowHint('Following is coming soon.')}
+                    >
+                      <UserPlus className="w-4 h-4 flex-shrink-0" />
+                      Follow
+                    </button>
+                  </>
+                )}
+                {isOwner && (
+                  <button
+                    onClick={() => setActiveTab('manage')}
+                    className="bg-surface-elevated border border-edge hover:border-edge-md text-ink-2 hover:text-ink px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Manage
+                  </button>
+                )}
+              </div>
+            </div>
+            {followHint && (
+              <p className="text-xs text-ink-3 mt-2">{followHint}</p>
+            )}
           </div>
+        </div>
+
+        {/* Tabs — calm editorial underline */}
+        <div className="flex items-center gap-1 mt-6 border-b border-edge overflow-x-auto hide-scrollbar">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3 sm:px-4 py-2.5 -mb-px text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-colors duration-200 ${
+                activeTab === tab.id
+                  ? 'border-gem text-ink'
+                  : 'border-transparent text-ink-3 hover:text-ink-2'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* === CONTENT === */}
-      <div className="max-w-[1000px] mx-auto px-4 sm:px-8 py-6 pb-16">
+      <div className="max-w-[1000px] mx-auto px-4 sm:px-8 py-8 pb-16">
 
-        {/* Bio — shown above every public tab */}
+        {/* Bio — the character's own introduction, shown above every public tab */}
         {activeTab !== 'manage' && (character.short_bio || character.long_bio || character.tags) && (
-          <div className="mb-8 max-w-3xl space-y-4">
+          <div className="mb-10 max-w-3xl space-y-5">
             {character.short_bio && (
-              <p className="text-[#E8ECEF]/90 text-base sm:text-lg leading-relaxed">{character.short_bio}</p>
+              <p className="font-serif text-lg sm:text-xl leading-[1.6] text-ink">{character.short_bio}</p>
             )}
             {character.long_bio && (
-              <div className="bg-[#1A1D23]/40 border border-[#2D3139]/60 rounded-2xl p-4">
-                <p className="text-sm text-[#E8ECEF]/70 whitespace-pre-wrap">{character.long_bio}</p>
-              </div>
+              <p className="text-[15px] leading-[1.75] text-ink-2 whitespace-pre-wrap">{character.long_bio}</p>
             )}
             {character.tags && (
               <div className="flex flex-wrap gap-2">
                 {character.tags.split(',').map((tag, i) => (
-                  <span key={i} className="px-2.5 py-1 bg-emerald-900/40 text-emerald-300 text-xs rounded-full border border-emerald-800/40">
+                  <span key={i} className="px-2.5 py-1 bg-surface-elevated text-ink-2 font-mono text-[11px] rounded-full">
                     {tag.trim()}
                   </span>
                 ))}
@@ -460,14 +478,14 @@ export default function CharacterDetail() {
 
         {/* Timeline */}
         {activeTab === 'timeline' && (
-          <div className="space-y-4">
+          <div className="max-w-3xl">
             {timelineLoading ? (
-              <p className="text-sm text-gray-500">Loading posts…</p>
+              <p className="text-sm text-ink-3">Loading posts…</p>
             ) : timeline.length === 0 ? (
-              <div className="rounded-2xl p-12 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
-                <Feather className="w-12 h-12 text-[#E8ECEF]/30 mx-auto mb-4" />
-                <h3 className="text-white text-lg font-semibold mb-1">No Posts Yet</h3>
-                <p className="text-[#E8ECEF]/60 text-sm">{character.name} hasn't posted yet.</p>
+              <div className="py-16 text-center">
+                <Feather className="w-10 h-10 text-ink-3/50 mx-auto mb-4" />
+                <h3 className="font-serif text-xl text-ink mb-1">No Posts Yet</h3>
+                <p className="text-ink-3 text-sm">{character.name} hasn't posted yet.</p>
               </div>
             ) : (
               timeline.map((item, idx) => (
@@ -479,10 +497,10 @@ export default function CharacterDetail() {
 
         {/* Stories — placeholder until character-scoped stories ship */}
         {activeTab === 'stories' && (
-          <div className="rounded-2xl p-12 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
-            <BookOpen className="w-12 h-12 text-[#E8ECEF]/30 mx-auto mb-4" />
-            <h3 className="text-white text-lg font-semibold mb-1">No Stories Yet</h3>
-            <p className="text-[#E8ECEF]/60 text-sm">
+          <div className="py-16 text-center max-w-3xl">
+            <BookOpen className="w-10 h-10 text-ink-3/50 mx-auto mb-4" />
+            <h3 className="font-serif text-xl text-ink mb-1">No Stories Yet</h3>
+            <p className="text-ink-3 text-sm">
               Stories featuring {character.name} will appear here.
             </p>
           </div>
@@ -491,10 +509,10 @@ export default function CharacterDetail() {
         {/* Media */}
         {activeTab === 'media' && (
           galleryImages.length === 0 ? (
-            <div className="rounded-2xl p-12 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
-              <Camera className="w-12 h-12 text-[#E8ECEF]/30 mx-auto mb-4" />
-              <h3 className="text-white text-lg font-semibold mb-1">No Media Yet</h3>
-              <p className="text-[#E8ECEF]/60 text-sm">
+            <div className="py-16 text-center max-w-3xl">
+              <Camera className="w-10 h-10 text-ink-3/50 mx-auto mb-4" />
+              <h3 className="font-serif text-xl text-ink mb-1">No Media Yet</h3>
+              <p className="text-ink-3 text-sm">
                 Images of {character.name} will appear here.
               </p>
             </div>
@@ -512,17 +530,17 @@ export default function CharacterDetail() {
 
         {/* Mentions */}
         {activeTab === 'mentions' && (
-          <div className="space-y-4">
+          <div className="max-w-3xl">
             {mentionsLoading && (
               <div className="flex justify-center py-12">
-                <div className="w-8 h-8 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+                <div className="w-8 h-8 border-4 border-gem/25 border-t-gem rounded-full animate-spin" />
               </div>
             )}
             {!mentionsLoading && mentions.length === 0 && (
-              <div className="rounded-2xl p-12 text-center bg-[#1A1D23]/40 border border-[#2D3139]/60">
-                <MessageCircle className="w-12 h-12 text-[#E8ECEF]/30 mx-auto mb-4" />
-                <h3 className="text-white text-lg font-semibold mb-1">No Mentions Yet</h3>
-                <p className="text-[#E8ECEF]/60 text-sm">
+              <div className="py-16 text-center">
+                <MessageCircle className="w-10 h-10 text-ink-3/50 mx-auto mb-4" />
+                <h3 className="font-serif text-xl text-ink mb-1">No Mentions Yet</h3>
+                <p className="text-ink-3 text-sm">
                   Posts that mention {character.name} will appear here.
                 </p>
               </div>
@@ -533,15 +551,15 @@ export default function CharacterDetail() {
           </div>
         )}
 
-        {/* Manage — owner only */}
+        {/* Manage — owner only. The character's backstage. */}
         {activeTab === 'manage' && isOwner && (
           <div className="space-y-6 max-w-3xl">
-            <div className="rounded-2xl p-5 bg-[#1A1D23]/40 border border-[#2D3139]/60 space-y-3">
-              <h3 className="text-sm font-semibold text-white">Character Tools</h3>
+            <div className="rounded-2xl p-5 bg-surface border border-edge space-y-3">
+              <h3 className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3">Character Tools</h3>
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => navigate(`/images?characterId=${character.id}`)}
-                  className="text-sm flex items-center gap-2 btn btn-secondary"
+                  className="text-sm flex items-center gap-2 px-3.5 py-2 rounded-lg bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
                 >
                   <ImageIcon className="w-3.5 h-3.5" />
                   Generate Images
@@ -549,14 +567,14 @@ export default function CharacterDetail() {
                 {character.visual_locked && (
                   <button
                     onClick={() => setShowCanonModal(true)}
-                    className="text-sm flex items-center gap-2 btn btn-secondary"
+                    className="text-sm flex items-center gap-2 px-3.5 py-2 rounded-lg bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     Manage Character Canon
                   </button>
                 )}
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-ink-3">
                 Set the avatar from any gallery image (open it from the Media tab), and set a
                 cover with the “Set as cover” action on a gallery image.
               </p>
@@ -591,7 +609,7 @@ export default function CharacterDetail() {
 
       {/* Cover toast */}
       {coverToast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-gray-200 shadow-lg pointer-events-none">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-surface-overlay border border-edge-md text-sm text-ink shadow-lg pointer-events-none">
           {coverToast}
         </div>
       )}
@@ -600,7 +618,7 @@ export default function CharacterDetail() {
       <ErrorBoundary>
       {lightboxIdx !== null && galleryImages[lightboxIdx] && (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
           onClick={closeLightbox}
         >
           <div
@@ -616,15 +634,15 @@ export default function CharacterDetail() {
             <img
               src={resolveImageUrl(galleryImages[lightboxIdx].url)}
               alt={galleryImages[lightboxIdx].kind?.replace(/_/g, ' ') ?? ''}
-              className="w-full rounded-lg"
+              className="w-full rounded-xl"
             />
             <div className="flex items-center justify-between mt-2">
-              <p className="text-xs text-gray-400 capitalize">
+              <p className="font-mono text-xs text-white/60 capitalize">
                 {galleryImages[lightboxIdx].kind?.replace(/_/g, ' ')}
               </p>
               {isOwner && (
                 <button
-                  className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  className="text-xs px-3 py-1.5 rounded-lg bg-gem hover:bg-gem/90 text-gray-950 font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5"
                   disabled={settingAvatar}
                   onClick={() => handleSetAvatar(galleryImages[lightboxIdx!])}
                 >
@@ -646,19 +664,19 @@ export default function CharacterDetail() {
       {/* Manage Character Canon modal — single source of identity truth (CanonManager) */}
       {showCanonModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+          <div className="bg-surface-overlay border border-edge-md rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
 
             {/* Header */}
             <div className="flex items-center justify-between gap-3 px-6 pt-6 pb-4 flex-shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-emerald-900/40 border border-emerald-700/40 flex items-center justify-center flex-shrink-0">
-                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                <div className="w-8 h-8 rounded-lg bg-gem-soft border border-gem/25 flex items-center justify-center flex-shrink-0">
+                  <Sparkles className="w-4 h-4 text-gem" />
                 </div>
-                <h2 className="text-sm font-semibold text-white">Manage Character Canon</h2>
+                <h2 className="text-sm font-semibold text-ink">Manage Character Canon</h2>
               </div>
               <button
                 onClick={() => setShowCanonModal(false)}
-                className="text-gray-500 hover:text-gray-300 transition-colors p-1 flex-shrink-0"
+                className="text-ink-3 hover:text-ink-2 transition-colors p-1 flex-shrink-0"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
@@ -681,13 +699,13 @@ export default function CharacterDetail() {
       {/* Delete character modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4 space-y-4">
+          <div className="bg-surface-overlay border border-edge-md rounded-2xl p-6 max-w-md w-full mx-4 space-y-4">
             {deleteStep === 1 ? (
               <>
                 <h3 className="text-lg font-semibold text-red-400">Reset Character Identity</h3>
-                <div className="text-sm text-gray-300 space-y-2">
+                <div className="text-sm text-ink-2 space-y-2">
                   <p>This will <strong>permanently delete</strong> your character <strong>{character.name}</strong> and all associated data:</p>
-                  <ul className="list-disc list-inside text-gray-400 space-y-1">
+                  <ul className="list-disc list-inside text-ink-3 space-y-1">
                     <li>Character profile, bio, and DNA</li>
                     <li>All generated images</li>
                     <li>All conversations and messages as this character</li>
@@ -702,17 +720,17 @@ export default function CharacterDetail() {
                     onChange={(e) => setDeleteConfirmed(e.target.checked)}
                     className="mt-1 accent-red-500"
                   />
-                  <span className="text-sm text-gray-300">I understand this action is permanent and cannot be undone.</span>
+                  <span className="text-sm text-ink-2">I understand this action is permanent and cannot be undone.</span>
                 </label>
                 <div className="flex gap-3 pt-2">
                   <button
-                    className="btn btn-secondary text-sm flex-1"
+                    className="px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors flex-1"
                     onClick={closeDeleteModal}
                   >
                     Cancel
                   </button>
                   <button
-                    className="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-2 rounded transition-colors flex-1"
+                    className="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-2 rounded-lg transition-colors flex-1"
                     disabled={!deleteConfirmed}
                     onClick={() => setDeleteStep(2)}
                   >
@@ -723,7 +741,7 @@ export default function CharacterDetail() {
             ) : (
               <>
                 <h3 className="text-lg font-semibold text-red-400">Final Confirmation</h3>
-                <p className="text-sm text-gray-300">
+                <p className="text-sm text-ink-2">
                   Are you absolutely sure you want to permanently delete <strong>{character.name}</strong>?
                 </p>
                 {deleteError && (
@@ -731,14 +749,14 @@ export default function CharacterDetail() {
                 )}
                 <div className="flex gap-3 pt-2">
                   <button
-                    className="btn btn-secondary text-sm flex-1"
+                    className="px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors flex-1"
                     onClick={closeDeleteModal}
                     disabled={deleting}
                   >
                     Cancel
                   </button>
                   <button
-                    className="bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-sm px-4 py-2 rounded transition-colors flex-1"
+                    className="bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-sm px-4 py-2 rounded-lg transition-colors flex-1"
                     onClick={handleDeleteCharacter}
                     disabled={deleting}
                   >
@@ -779,38 +797,38 @@ function PostCard({
   const authorAvatar = post.character_avatar_url ?? (post.character_name ? null : character?.avatar_url) ?? null;
 
   return (
-    <div className="rounded-2xl p-5 bg-[#1A1D23]/40 border border-[#2D3139]/60">
+    <article className="py-6 border-b border-edge">
       <div className="flex items-center gap-2.5 mb-3 flex-wrap">
-        <div className="w-8 h-8 rounded-lg overflow-hidden bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+        <div className="w-8 h-8 rounded-full overflow-hidden bg-gem-soft flex items-center justify-center flex-shrink-0 border border-edge-md">
           {authorAvatar ? (
             <img src={authorAvatar} alt={authorName} className="w-full h-full object-cover" />
           ) : (
-            <span className="text-sm font-semibold text-emerald-400">{authorName.charAt(0)}</span>
+            <span className="text-sm font-semibold text-gem">{authorName.charAt(0)}</span>
           )}
         </div>
-        <span className="text-sm font-medium text-emerald-400">{authorName}</span>
+        <span className="text-sm font-medium text-ink">{authorName}</span>
         {item.realm_name && (
-          <span className="text-[11px] text-gray-600">in {item.realm_name}</span>
+          <span className="font-mono text-[11px] text-ink-3">in {item.realm_name}</span>
         )}
-        <span className="text-[11px] text-gray-600 ml-auto">
+        <span className="font-mono text-[11px] text-ink-3 ml-auto">
           {new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
         </span>
       </div>
       {post.title && (
-        <h3 className="text-base font-semibold text-gray-100 mb-1">{post.title}</h3>
+        <h3 className="font-serif text-lg font-medium text-ink mb-1.5 leading-snug">{post.title}</h3>
       )}
-      <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
+      <p className="font-serif text-[16px] text-ink whitespace-pre-wrap leading-[1.75]">
         <MentionText text={post.content ?? ''} mentions={post.mentions} />
       </p>
       {post.image_url && (
         <img
           src={post.image_url}
           alt={post.title || 'Post image'}
-          className="mt-3 rounded-lg max-h-80 object-contain"
+          className="mt-4 rounded-xl border border-edge max-h-96 object-contain"
           loading="lazy"
           decoding="async"
         />
       )}
-    </div>
+    </article>
   );
 }
