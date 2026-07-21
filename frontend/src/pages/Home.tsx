@@ -289,7 +289,7 @@ export default function Home() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   onClick={() => navigate('/characters/new')}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors"
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
                 >
                   Create character
                 </button>
@@ -316,7 +316,7 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={focusComposer}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors"
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
                 >
                   Write first post
                 </button>
@@ -338,7 +338,7 @@ export default function Home() {
               <p className="text-sm text-ink-3 mb-5">On Ficshon, your character is your voice.</p>
               <button
                 onClick={() => navigate('/characters/new')}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors"
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
               >
                 Create your character
               </button>
@@ -459,7 +459,7 @@ export default function Home() {
                 <button
                   onClick={handleQuickPost}
                   disabled={posting || !quickContent.trim()}
-                  className="ml-auto px-5 py-1.5 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors disabled:opacity-40"
+                  className="ml-auto px-5 py-1.5 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors disabled:opacity-40"
                 >
                   {posting ? 'Posting...' : 'Post'}
                 </button>
@@ -538,7 +538,7 @@ export default function Home() {
               <div className="flex flex-wrap justify-center gap-3">
                 <button
                   onClick={focusComposer}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors"
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
                 >
                   {characters.length > 0
                     ? `Post as ${characters[0].name}`

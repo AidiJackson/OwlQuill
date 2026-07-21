@@ -33,7 +33,7 @@ export default function ImageGrid({
   return (
     <div className="grid grid-cols-3 gap-3">
       {showPlaceholder && (
-        <div className="rounded-lg border border-gray-800 bg-gray-800 aspect-[2/3] animate-pulse" />
+        <div className="rounded-lg border border-edge bg-surface-elevated aspect-[2/3] animate-pulse" />
       )}
 
       {images.map((img, idx) => {

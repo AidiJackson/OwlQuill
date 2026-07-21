@@ -203,7 +203,7 @@ export default function CharacterCreationFlow() {
 
   if (loadingDraft) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-400">
+      <div className="min-h-screen flex items-center justify-center text-ink-2">
         Loading draft…
       </div>
     );
@@ -212,14 +212,14 @@ export default function CharacterCreationFlow() {
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
-      <div className="border-b border-gray-800 bg-gray-900/50">
+      <div className="border-b border-edge bg-surface">
         <div className="max-w-xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-gray-400">
-            <Feather className="w-5 h-5 text-emerald-400" />
+          <div className="flex items-center gap-2 text-ink-2">
+            <Feather className="w-5 h-5 text-gem" />
             <span className="text-sm font-medium">New Character</span>
           </div>
           <button
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            className="text-xs text-ink-3 hover:text-ink-2 transition-colors"
             onClick={() => navigate('/characters')}
           >
             Cancel
@@ -235,10 +235,10 @@ export default function CharacterCreationFlow() {
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
                   i === step
-                    ? 'bg-emerald-600 text-white'
+                    ? 'bg-gem text-white'
                     : i < step
-                      ? 'bg-emerald-800 text-emerald-300'
-                      : 'bg-gray-800 text-gray-500'
+                      ? 'bg-gem-soft text-gem'
+                      : 'bg-surface-elevated text-ink-3'
                 }`}
               >
                 {i + 1}
@@ -246,7 +246,7 @@ export default function CharacterCreationFlow() {
               {i < STEP_LABELS.length - 1 && (
                 <div
                   className={`w-6 sm:w-10 h-0.5 transition-colors ${
-                    i < step ? 'bg-emerald-600' : 'bg-gray-800'
+                    i < step ? 'bg-gem' : 'bg-surface-elevated'
                   }`}
                 />
               )}
@@ -254,7 +254,7 @@ export default function CharacterCreationFlow() {
           ))}
         </div>
         <div className="text-center mt-1">
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-ink-3">
             Step {step + 1}: {STEP_LABELS[step]}
           </span>
         </div>
@@ -271,7 +271,7 @@ export default function CharacterCreationFlow() {
 
       {/* Step content */}
       <div className="flex-1 max-w-xl mx-auto w-full px-4 py-6">
-        <ErrorBoundary fallback={<p className="text-center text-sm text-gray-400 py-8">Something went wrong. Please refresh and try again.</p>}>
+        <ErrorBoundary fallback={<p className="text-center text-sm text-ink-2 py-8">Something went wrong. Please refresh and try again.</p>}>
         {step === 0 && (
           <StepBasics
             data={basics}

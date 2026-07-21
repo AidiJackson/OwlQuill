@@ -47,16 +47,16 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 max-w-lg w-full shadow-xl max-h-[85vh] flex flex-col">
-          <h3 className="text-lg font-semibold text-gray-200 mb-3">Attach a Ficshon image</h3>
+        <div className="bg-surface border border-edge rounded-lg p-6 max-w-lg w-full shadow-xl max-h-[85vh] flex flex-col">
+          <h3 className="text-lg font-semibold text-ink mb-3">Attach a Ficshon image</h3>
 
           {loading ? (
-            <p className="text-sm text-gray-400 py-8 text-center">Loading images…</p>
+            <p className="text-sm text-ink-2 py-8 text-center">Loading images…</p>
           ) : error ? (
             <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2 mb-3">{error}</p>
           ) : images.length === 0 ? (
             <>
-              <p className="text-sm text-gray-400 mb-4">
+              <p className="text-sm text-ink-2 mb-4">
                 No generated images saved yet. Generate an image first, then attach it here.
               </p>
               <div className="flex items-center gap-3">
@@ -67,7 +67,7 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
                   Close
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-3">
+              <p className="text-xs text-ink-3 mt-3">
                 Uploads are disabled in beta. Only images generated in Ficshon can be attached.
               </p>
             </>
@@ -82,8 +82,8 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
                       onClick={() => setPicked(img.id)}
                       className={`rounded-lg overflow-hidden border-2 transition-colors ${
                         picked === img.id
-                          ? 'border-emerald-500 ring-2 ring-emerald-500/30'
-                          : 'border-gray-800 hover:border-gray-600'
+                          ? 'border-gem/50 ring-2 ring-gem/40'
+                          : 'border-edge hover:border-edge-md'
                       }`}
                     >
                       <img
@@ -106,11 +106,11 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
                 <button onClick={onClose} className="btn btn-secondary text-sm">
                   Close
                 </button>
-                <Link to="/images/new" className="text-xs text-emerald-400 hover:text-emerald-300 ml-auto">
+                <Link to="/images/new" className="text-xs text-gem hover:opacity-80 ml-auto">
                   Generate new
                 </Link>
               </div>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-ink-3 mt-2">
                 Uploads are disabled in beta. Only images generated in Ficshon can be attached.
               </p>
             </>

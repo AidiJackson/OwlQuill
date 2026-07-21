@@ -112,7 +112,7 @@ export default function Realms() {
   return (
     <div className="max-w-4xl mx-auto p-8">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Realms</h1>
+        <h1 className="font-serif text-4xl font-medium tracking-[-0.02em] text-ink">Realms</h1>
         <button
           onClick={() => setShowCreateForm(!showCreateForm)}
           className="btn btn-primary"
@@ -205,8 +205,8 @@ export default function Realms() {
             onClick={() => setSelectedGenre(null)}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
               selectedGenre === null
-                ? 'bg-emerald-700 border-emerald-500 text-white'
-                : 'bg-transparent border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                ? 'bg-gem border-gem/50 text-white'
+                : 'bg-transparent border-edge-md text-ink-2 hover:border-gray-500 hover:text-ink'
             }`}
           >
             All
@@ -217,8 +217,8 @@ export default function Realms() {
               onClick={() => setSelectedGenre(genre)}
               className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                 selectedGenre?.toLowerCase() === genre.toLowerCase()
-                  ? 'bg-emerald-700 border-emerald-500 text-white'
-                  : 'bg-transparent border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                  ? 'bg-gem border-gem/50 text-white'
+                  : 'bg-transparent border-edge-md text-ink-2 hover:border-gray-500 hover:text-ink'
               }`}
             >
               {genre}
@@ -231,7 +231,7 @@ export default function Realms() {
         {filteredRealms.map((realm) => (
           <div key={realm.id} className="card overflow-hidden p-0">
             {realm.banner_url && (
-              <div className="h-32 bg-gradient-to-r from-emerald-900 to-emerald-700">
+              <div className="h-32 bg-gem-soft">
                 <img
                   src={realm.banner_url}
                   alt={realm.name}
@@ -245,20 +245,20 @@ export default function Realms() {
             <div className="p-6">
               <div className="flex justify-between items-start">
                 <Link to={`/realms/${realm.id}`} className="flex-1 group">
-                  <h3 className="text-xl font-semibold group-hover:text-emerald-300 transition-colors">
+                  <h3 className="text-xl font-semibold group-hover:text-gem transition-colors">
                     {realm.name}
                   </h3>
                   {realm.tagline && (
-                    <p className="text-sm text-emerald-400 italic mb-1">{realm.tagline}</p>
+                    <p className="text-sm text-gem italic mb-1">{realm.tagline}</p>
                   )}
-                  <p className="text-xs text-gray-500 mb-2">
+                  <p className="text-xs text-ink-3 mb-2">
                     /{realm.slug} • {realm.is_public ? 'Public' : 'Private'}
                   </p>
                   {realm.description && (
-                    <p className="text-gray-300 mb-2">{realm.description}</p>
+                    <p className="text-ink-2 mb-2">{realm.description}</p>
                   )}
                   {realm.genre && (
-                    <span className="inline-block px-2 py-1 bg-emerald-900 text-emerald-300 text-xs rounded">
+                    <span className="inline-block px-2 py-1 bg-gem-soft text-gem text-xs rounded">
                       {realm.genre}
                     </span>
                   )}
@@ -268,7 +268,7 @@ export default function Realms() {
                   disabled={joiningId === realm.id || joinedIds.has(realm.id)}
                   className={`btn ml-4 flex-shrink-0 ${
                     joinedIds.has(realm.id)
-                      ? 'btn-secondary text-emerald-400 border-emerald-800 cursor-default'
+                      ? 'btn-secondary text-gem border-gem/30 cursor-default'
                       : 'btn-primary'
                   }`}
                 >
@@ -280,19 +280,19 @@ export default function Realms() {
               )}
               {joinNudgeById[realm.id] && (
                 <div className="mt-2 flex items-center justify-between gap-2">
-                  <span className="text-xs text-emerald-400">You're in — go post your intro.</span>
+                  <span className="text-xs text-gem">You're in — go post your intro.</span>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button
                       type="button"
                       onClick={() => navigate(`/realms/${realm.id}`)}
-                      className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+                      className="text-xs text-gem hover:opacity-80 transition-colors"
                     >
                       Open realm
                     </button>
                     <button
                       type="button"
                       onClick={() => dismissNudge(realm.id)}
-                      className="text-gray-600 hover:text-gray-400 transition-colors"
+                      className="text-ink-3 hover:text-ink-2 transition-colors"
                       aria-label="Dismiss"
                     >
                       <X className="w-3 h-3" />

@@ -286,7 +286,7 @@ export default function CharacterDetail() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => navigate('/')}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors"
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
               >
                 Post to The Commons
               </button>
@@ -409,7 +409,7 @@ export default function CharacterDetail() {
                       </button>
                     )}
                     <button
-                      className="bg-gem hover:bg-gem/90 text-gray-950 px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-semibold transition-all"
+                      className="bg-gem hover:bg-gem/90 text-gem-ink px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-semibold transition-all"
                       onClick={() => setFollowHint('Following is coming soon.')}
                     >
                       <UserPlus className="w-4 h-4 flex-shrink-0" />
@@ -642,7 +642,7 @@ export default function CharacterDetail() {
               </p>
               {isOwner && (
                 <button
-                  className="text-xs px-3 py-1.5 rounded-lg bg-gem hover:bg-gem/90 text-gray-950 font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  className="text-xs px-3 py-1.5 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5"
                   disabled={settingAvatar}
                   onClick={() => handleSetAvatar(galleryImages[lightboxIdx!])}
                 >

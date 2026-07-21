@@ -14,8 +14,8 @@ import type { TrainingPackReview as TrainingPackReviewData, TrainingCandidate, T
  */
 
 const STATUS_META: Record<TrainingCandidateStatus, { label: string; cls: string; Icon: typeof Clock }> = {
-  pending_review: { label: 'Pending', cls: 'text-gray-300 border-gray-700 bg-gray-800/50', Icon: Clock },
-  approved: { label: 'Approved', cls: 'text-emerald-300 border-emerald-800/50 bg-emerald-900/20', Icon: CheckCircle2 },
+  pending_review: { label: 'Pending', cls: 'text-ink-2 border-edge-md bg-surface-elevated', Icon: Clock },
+  approved: { label: 'Approved', cls: 'text-gem border-gem/30 bg-gem-soft', Icon: CheckCircle2 },
   rejected: { label: 'Rejected', cls: 'text-red-300 border-red-800/50 bg-red-900/20', Icon: XCircle },
   failed: { label: 'Failed', cls: 'text-amber-300 border-amber-800/50 bg-amber-900/20', Icon: AlertTriangle },
 };
@@ -87,38 +87,38 @@ function CandidateCard({
   const isFailed = candidate.status === 'failed';
 
   return (
-    <div className="rounded-lg border border-gray-800 bg-gray-900/50 overflow-hidden flex flex-col">
+    <div className="rounded-lg border border-edge bg-surface overflow-hidden flex flex-col">
       <button
         type="button"
         onClick={() => imgUrl && onOpen()}
         disabled={!imgUrl}
         aria-label={`Enlarge ${candidate.role}`}
-        className="group relative w-full aspect-[3/4] bg-gray-950 flex items-center justify-center disabled:cursor-default"
+        className="group relative w-full aspect-[3/4] bg-app flex items-center justify-center disabled:cursor-default"
       >
         {imgUrl ? (
           <>
             <img src={imgUrl} alt={candidate.role} className="w-full h-full object-cover" />
             {/* Enlarge affordance — visible on hover/focus, always tappable on touch. */}
-            <span className="absolute top-2 right-2 rounded-md bg-black/60 p-1.5 text-gray-100 opacity-100 sm:opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
+            <span className="absolute top-2 right-2 rounded-md bg-black/60 p-1.5 text-ink opacity-100 sm:opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
               <Maximize2 className="w-4 h-4" />
             </span>
           </>
         ) : imgError ? (
-          <div className="flex flex-col items-center gap-1 text-gray-600 text-xs">
+          <div className="flex flex-col items-center gap-1 text-ink-3 text-xs">
             <ImageIcon className="w-5 h-5" /> no image
           </div>
         ) : (
-          <Loader2 className="w-5 h-5 text-gray-600 animate-spin" />
+          <Loader2 className="w-5 h-5 text-ink-3 animate-spin" />
         )}
       </button>
 
       <div className="p-3 space-y-2 flex-1 flex flex-col">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-xs text-gray-200 truncate" title={candidate.role}>{candidate.role}</span>
+          <span className="font-mono text-xs text-ink truncate" title={candidate.role}>{candidate.role}</span>
           <StatusBadge status={candidate.status} />
         </div>
         {candidate.caption && (
-          <p className="text-[11px] leading-snug text-gray-500 line-clamp-3">{candidate.caption}</p>
+          <p className="text-[11px] leading-snug text-ink-3 line-clamp-3">{candidate.caption}</p>
         )}
 
         <div className="mt-auto pt-1 flex items-center gap-2">
@@ -227,38 +227,38 @@ function CandidateModal({
       aria-label={`Candidate ${candidate.role}`}
     >
       <div
-        className="relative w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-xl border border-gray-800 bg-gray-900 shadow-2xl"
+        className="relative w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-xl border border-edge bg-surface shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-2 right-2 z-10 rounded-md bg-black/60 p-1.5 text-gray-200 hover:text-white hover:bg-black/80 transition-colors"
+          className="absolute top-2 right-2 z-10 rounded-md bg-black/60 p-1.5 text-ink hover:text-white hover:bg-black/80 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
 
         <div className="p-4 space-y-3">
           {/* Image — fits the viewport, never cropped. */}
-          <div className="flex items-center justify-center rounded-lg bg-gray-950 min-h-[12rem]">
+          <div className="flex items-center justify-center rounded-lg bg-app min-h-[12rem]">
             {imgUrl ? (
               <img src={imgUrl} alt={candidate.role} className="max-h-[70vh] w-auto max-w-full object-contain" />
             ) : imgError ? (
-              <div className="flex flex-col items-center gap-1 text-gray-600 text-sm py-12">
+              <div className="flex flex-col items-center gap-1 text-ink-3 text-sm py-12">
                 <ImageIcon className="w-6 h-6" /> no image
               </div>
             ) : (
-              <Loader2 className="w-6 h-6 text-gray-600 animate-spin my-12" />
+              <Loader2 className="w-6 h-6 text-ink-3 animate-spin my-12" />
             )}
           </div>
 
           <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-sm text-gray-100 break-all">{candidate.role}</span>
+            <span className="font-mono text-sm text-ink break-all">{candidate.role}</span>
             <StatusBadge status={candidate.status} />
           </div>
           {candidate.caption && (
-            <p className="text-xs leading-relaxed text-gray-400">{candidate.caption}</p>
+            <p className="text-xs leading-relaxed text-ink-2">{candidate.caption}</p>
           )}
 
           {isFailed ? (
@@ -341,7 +341,7 @@ export default function TrainingPackReview({ characterId }: { characterId: numbe
     });
   };
 
-  if (loading) return <p className="text-sm text-gray-500">Loading training candidates…</p>;
+  if (loading) return <p className="text-sm text-ink-3">Loading training candidates…</p>;
   if (error) {
     return (
       <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
@@ -350,7 +350,7 @@ export default function TrainingPackReview({ characterId }: { characterId: numbe
     );
   }
   if (!data || data.candidates.length === 0) {
-    return <p className="text-sm text-gray-500">No training-pack candidates have been staged yet.</p>;
+    return <p className="text-sm text-ink-3">No training-pack candidates have been staged yet.</p>;
   }
 
   const c = data.counts;
@@ -359,16 +359,16 @@ export default function TrainingPackReview({ characterId }: { characterId: numbe
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
-        <span className="text-gray-300">{c.total_roles ?? data.candidates.length} candidates</span>
+      <div className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
+        <span className="text-ink-2">{c.total_roles ?? data.candidates.length} candidates</span>
         <span>·</span>
-        <span className="text-emerald-300">{c.approved ?? 0} approved</span>
+        <span className="text-gem">{c.approved ?? 0} approved</span>
         <span className="text-red-300">{c.rejected ?? 0} rejected</span>
-        <span className="text-gray-300">{c.pending_review ?? 0} pending</span>
+        <span className="text-ink-2">{c.pending_review ?? 0} pending</span>
         {(c.failed ?? 0) > 0 && <span className="text-amber-300">{c.failed} failed</span>}
       </div>
 
-      <p className="text-xs text-gray-500 bg-gray-900/50 border border-gray-800 rounded-lg px-3 py-2">
+      <p className="text-xs text-ink-3 bg-surface border border-edge rounded-lg px-3 py-2">
         Decisions are saved to the candidate pack manifest. No training runs and no final
         pack is exported here — that stays a separate, explicit step.
       </p>

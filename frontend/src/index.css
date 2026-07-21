@@ -8,14 +8,25 @@
    (see tailwind.config.js → colors.gem). Legacy --fic-* tokens below are
    intentionally untouched: unmigrated pages keep their exact colors.     */
 
-/* Gemstone accent — default emerald for brand continuity */
-:root                 { --gem: 45 200 150; }
+/* Gemstone accent — default emerald for brand continuity.
+   --gem-ink is the text color used ON a gem-filled surface. */
+:root                 { --gem: 45 200 150; --gem-ink: #06070d; }
 [data-gem="emerald"]  { --gem: 45 200 150; }
 [data-gem="sapphire"] { --gem: 79 142 247; }
 [data-gem="amethyst"] { --gem: 155 110 242; }
 [data-gem="ruby"]     { --gem: 224 85 112; }
 [data-gem="gold"]     { --gem: 204 159 68; }
 [data-gem="obsidian"] { --gem: 176 184 200; }
+
+/* Light mode uses deepened gem values so accent text stays AA-readable on
+   light surfaces; on-gem text flips to white accordingly. */
+[data-mode="light"]                       { --gem: 13 128 92;  --gem-ink: #ffffff; }
+[data-mode="light"][data-gem="emerald"]   { --gem: 13 128 92; }
+[data-mode="light"][data-gem="sapphire"]  { --gem: 37 88 214; }
+[data-mode="light"][data-gem="amethyst"]  { --gem: 116 63 214; }
+[data-mode="light"][data-gem="ruby"]      { --gem: 186 41 70; }
+[data-mode="light"][data-gem="gold"]      { --gem: 146 100 16; }
+[data-mode="light"][data-gem="obsidian"]  { --gem: 73 84 104; }
 
 /* Dark mode surfaces (default) */
 :root {
@@ -51,10 +62,12 @@
   --accent-glow:   rgb(var(--gem) / 0.12);
 }
 
-/* ── Ficshon design tokens ───────────────────────────────────────────────── */
+/* ── Legacy Ficshon tokens — re-pointed onto the v2 gem system so every
+      remaining .fic-* / rgb(var(--fic-accent)) usage follows the active
+      gemstone theme automatically. Purple stays as the secondary brand. */
 :root {
-  --fic-accent:     16 185 129;   /* emerald-500 — primary    */
-  --fic-accent-600: 5 150 105;    /* emerald-600              */
+  --fic-accent:     var(--gem);
+  --fic-accent-600: var(--gem);
   --fic-purple:     168 85 247;   /* purple-500  — secondary  */
   --fic-purple-600: 147 51 234;   /* purple-600               */
   --fic-surface:    17 24 39;     /* gray-900                 */
@@ -82,8 +95,8 @@ button:focus {
 }
 :focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(var(--fic-purple), .22);
-  border-color: rgba(var(--fic-purple), .4);
+  box-shadow: 0 0 0 3px rgb(var(--gem) / .3);
+  border-color: rgb(var(--gem) / .45);
 }
 
 @layer base {
@@ -161,29 +174,25 @@ button:focus {
     @apply px-4 py-2 rounded-lg font-medium transition-colors;
   }
 
-  /* Primary CTA: emerald with subtle purple glow on hover */
+  /* Primary CTA: gem accent, dark text for AA contrast on every gemstone */
   .btn-primary {
-    @apply bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white transition-all;
-  }
-  .btn-primary:hover {
-    box-shadow: 0 0 18px rgba(var(--fic-purple), .22);
+    @apply bg-gem hover:bg-gem/90 text-gray-950 font-semibold transition-all;
   }
 
   .btn-secondary {
-    @apply bg-gray-800 hover:bg-gray-700 text-gray-100;
+    @apply bg-surface-elevated hover:bg-surface-overlay text-ink-2 hover:text-ink;
   }
 
   .card {
-    @apply bg-gray-900 rounded-lg border border-gray-800 p-6;
+    @apply bg-surface rounded-2xl border border-edge p-6;
   }
 
-  /* Focus rings: emerald accent */
   .input {
-    @apply w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-600;
+    @apply w-full px-4 py-2 bg-surface-elevated border border-edge rounded-lg text-ink placeholder:text-ink-3 focus:outline-none focus:border-gem/40;
   }
 
   .textarea {
-    @apply w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 min-h-[100px];
+    @apply w-full px-4 py-2 bg-surface-elevated border border-edge rounded-lg text-ink placeholder:text-ink-3 focus:outline-none focus:border-gem/40 min-h-[100px];
   }
 
   /* v2 glass surface (token-driven; class was previously unused in TSX) */

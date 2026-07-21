@@ -14,6 +14,8 @@ import {
   Bell,
   CircleUser,
   Menu,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/store';
 import { useThemeStore, GEMS } from '@/lib/theme';
@@ -22,7 +24,7 @@ import type { Character } from '@/lib/types';
 
 export default function Layout() {
   const { user, logout, setActiveCharacter } = useAuthStore();
-  const { gem, setGem } = useThemeStore();
+  const { gem, setGem, mode, toggleMode } = useThemeStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -256,11 +258,24 @@ export default function Layout() {
 
       {user && (
         <div className="mt-auto pt-6 space-y-2">
-          {/* Gem accent picker — cosmetic, available to every account */}
+          {/* Gem accent picker + light/dark toggle — cosmetic, every account */}
           <div className="flex items-center gap-2 px-3.5 pb-1">
             <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-ink-3 select-none mr-auto">
               Theme
             </span>
+            <button
+              type="button"
+              onClick={toggleMode}
+              aria-label={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={mode === 'dark' ? 'Light mode' : 'Dark mode'}
+              className="p-1 rounded-lg text-ink-3 hover:text-ink hover:bg-surface-elevated transition-colors"
+            >
+              {mode === 'dark' ? (
+                <Sun className="w-[15px] h-[15px]" strokeWidth={1.8} />
+              ) : (
+                <Moon className="w-[15px] h-[15px]" strokeWidth={1.8} />
+              )}
+            </button>
             {GEMS.map((g) => (
               <button
                 key={g.id}

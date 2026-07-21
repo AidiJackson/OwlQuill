@@ -28,11 +28,11 @@ const STATUS_META: Record<
   StudioStatus,
   { label: string; icon: typeof Clock; cls: string }
 > = {
-  not_trained: { label: 'Not prepared', icon: Clock, cls: 'text-gray-400 border-gray-700 bg-gray-800/40' },
+  not_trained: { label: 'Not prepared', icon: Clock, cls: 'text-ink-2 border-edge-md bg-surface-elevated' },
   preparing: { label: 'Preparing', icon: Loader2, cls: 'text-amber-300 border-amber-800/50 bg-amber-900/20' },
   prepared: { label: 'Prepared', icon: CheckCircle2, cls: 'text-sky-300 border-sky-800/50 bg-sky-900/20' },
   training: { label: 'Training', icon: Loader2, cls: 'text-amber-300 border-amber-800/50 bg-amber-900/20' },
-  ready: { label: 'Ready', icon: CheckCircle2, cls: 'text-emerald-300 border-emerald-800/50 bg-emerald-900/20' },
+  ready: { label: 'Ready', icon: CheckCircle2, cls: 'text-gem border-gem/30 bg-gem-soft' },
   stale: { label: 'Update available', icon: AlertTriangle, cls: 'text-amber-300 border-amber-800/50 bg-amber-900/20' },
   failed: { label: 'Failed', icon: XCircle, cls: 'text-red-300 border-red-800/50 bg-red-900/20' },
 };
@@ -295,12 +295,12 @@ export default function Studio18Plus() {
   return (
     <div className="min-h-screen">
       {/* Top bar */}
-      <div className="border-b border-gray-800 bg-gray-900/50">
+      <div className="border-b border-edge bg-surface">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Link to="/images" className="text-gray-400 hover:text-gray-200 transition-colors">
+          <Link to="/images" className="text-ink-2 hover:text-ink transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </Link>
-          <span className="text-sm font-medium text-gray-300">18+ Studio</span>
+          <span className="text-sm font-medium text-ink-2">18+ Studio</span>
         </div>
       </div>
 
@@ -311,9 +311,9 @@ export default function Studio18Plus() {
             <div className="rounded-xl bg-fuchsia-900/30 border border-fuchsia-800/40 p-2.5">
               <Sparkles className="w-5 h-5 text-fuchsia-300" />
             </div>
-            <h1 className="text-xl font-semibold text-gray-100">18+ Studio</h1>
+            <h1 className="font-serif text-2xl font-medium text-ink">18+ Studio</h1>
           </div>
-          <p className="text-sm leading-relaxed text-gray-300">
+          <p className="text-sm leading-relaxed text-ink-2">
             18+ Studio is designed for mature, swimwear, lingerie, underwear, and
             adult-adjacent character scenes using stronger identity-locking technology.
           </p>
@@ -321,16 +321,16 @@ export default function Studio18Plus() {
 
         {/* ── Character selector ───────────────────────────────────── */}
         <section className="space-y-3">
-          <h2 className="text-sm font-medium text-gray-300">Choose a character</h2>
+          <h2 className="text-sm font-medium text-ink-2">Choose a character</h2>
 
           {loading ? (
-            <p className="text-sm text-gray-500">Loading your characters…</p>
+            <p className="text-sm text-ink-3">Loading your characters…</p>
           ) : loadError ? (
             <p className="text-sm text-red-400 bg-red-400/10 rounded-lg px-4 py-2">{loadError}</p>
           ) : characters.length === 0 ? (
-            <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-4 text-sm text-gray-400">
+            <div className="rounded-lg border border-edge bg-surface px-4 py-4 text-sm text-ink-2">
               You don't have any characters yet.{' '}
-              <Link to="/characters/new" className="text-emerald-400 hover:text-emerald-300">
+              <Link to="/characters/new" className="text-gem hover:opacity-80">
                 Create one
               </Link>{' '}
               to get started.
@@ -347,7 +347,7 @@ export default function Studio18Plus() {
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors ${
                       isSel
                         ? 'border-fuchsia-700 bg-fuchsia-900/20'
-                        : 'border-gray-800 bg-gray-900/50 hover:border-gray-700'
+                        : 'border-edge bg-surface hover:border-edge-md'
                     }`}
                   >
                     {c.avatar_url ? (
@@ -358,11 +358,11 @@ export default function Studio18Plus() {
                         onError={(e) => { e.currentTarget.style.display = 'none'; }}
                       />
                     ) : (
-                      <div className="w-10 h-10 rounded-lg bg-gray-800 flex-shrink-0" />
+                      <div className="w-10 h-10 rounded-lg bg-surface-elevated flex-shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-100 truncate">{c.name}</p>
-                      <p className="text-xs text-gray-500 flex items-center gap-1 truncate">
+                      <p className="text-sm font-medium text-ink truncate">{c.name}</p>
+                      <p className="text-xs text-ink-3 flex items-center gap-1 truncate">
                         {c.visual_locked && <Lock className="w-3 h-3 flex-shrink-0" />}
                         {identityStatus(c)}
                       </p>
@@ -377,7 +377,7 @@ export default function Studio18Plus() {
         {/* ── Identity status + prepare ────────────────────────────── */}
         {selected && (
           <section className="space-y-3">
-            <h2 className="text-sm font-medium text-gray-300">18+ identity status</h2>
+            <h2 className="text-sm font-medium text-ink-2">18+ identity status</h2>
 
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               {STATUS_GRID.map((key) => {
@@ -390,7 +390,7 @@ export default function Studio18Plus() {
                   <div
                     key={key}
                     className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-3 text-[11px] text-center transition-opacity ${
-                      active ? meta.cls : 'text-gray-600 border-gray-800 bg-gray-900/40 opacity-60'
+                      active ? meta.cls : 'text-ink-3 border-edge bg-surface opacity-60'
                     }`}
                   >
                     <Icon className={`w-4 h-4 ${spin ? 'animate-spin' : ''}`} />
@@ -423,10 +423,10 @@ export default function Studio18Plus() {
             )}
 
             {isPrepared && (
-              <p className="text-sm text-gray-400 bg-gray-900/50 border border-gray-800 rounded-lg px-4 py-3">
+              <p className="text-sm text-ink-2 bg-surface border border-edge rounded-lg px-4 py-3">
                 Identity manifest ready from the locked canon pack
                 {studio ? ` — ${studio.refs_count} reference image(s), ${studio.marks_count} marking(s).` : '.'}
-                <span className="block mt-1 text-xs text-gray-500">
+                <span className="block mt-1 text-xs text-ink-3">
                   Training is disabled in this environment — identity is prepared, not trained.
                 </span>
               </p>
@@ -434,14 +434,14 @@ export default function Studio18Plus() {
 
             {/* Per-mark render routes (e.g. butterfly → ip_adapter). */}
             {isPrepared && studio?.marks && studio.marks.length > 0 && (
-              <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 space-y-1">
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-1">
+              <div className="rounded-lg border border-edge bg-surface px-4 py-3 space-y-1">
+                <p className="text-xs font-medium uppercase tracking-wide text-ink-3 mb-1">
                   Permanent mark routing
                 </p>
                 {studio.marks.map((m) => (
-                  <p key={m.canon_mark_id} className="text-xs text-gray-400 flex items-center justify-between gap-2">
+                  <p key={m.canon_mark_id} className="text-xs text-ink-2 flex items-center justify-between gap-2">
                     <span className="truncate">{m.region || m.canon_mark_id}{m.side ? ` · ${m.side}` : ''}</span>
-                    <span className="text-gray-300 font-mono flex-shrink-0">{m.route}</span>
+                    <span className="text-ink-2 font-mono flex-shrink-0">{m.route}</span>
                   </p>
                 ))}
               </div>
@@ -461,7 +461,7 @@ export default function Studio18Plus() {
                     <><Download className="w-3.5 h-3.5" /> Export Training Pack</>
                   )}
                 </button>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-ink-3">
                   Downloads a ZIP of canon reference images + captions for SDXL LoRA training.
                 </p>
                 {exportError && (
@@ -481,9 +481,9 @@ export default function Studio18Plus() {
           <section className="space-y-3">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-fuchsia-300" />
-              <h2 className="text-sm font-medium text-gray-200">Training Pack Review</h2>
+              <h2 className="text-sm font-medium text-ink">Training Pack Review</h2>
             </div>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-ink-3">
               Summer v4 LoRA training candidates · admin only. Approve or reject each
               image — decisions are saved and survive a refresh.
             </p>
@@ -494,7 +494,7 @@ export default function Studio18Plus() {
         {/* ── Generation disabled notice (Phase 2 default) ─────────── */}
         {selected && isPrepared && !generationEnabled && (
           <section>
-            <p className="text-sm text-gray-400 bg-gray-900/50 border border-gray-800 rounded-lg px-4 py-3 flex items-start gap-2">
+            <p className="text-sm text-ink-2 bg-surface border border-edge rounded-lg px-4 py-3 flex items-start gap-2">
               <Lock className="w-4 h-4 mt-0.5 flex-shrink-0" />
               Generation is disabled in this environment.
             </p>
@@ -504,7 +504,7 @@ export default function Studio18Plus() {
         {/* ── Generation (only when prepared AND generation enabled) ── */}
         {selected && isPrepared && generationEnabled && (
           <section className="space-y-3">
-            <h2 className="text-sm font-medium text-gray-300">Generate in 18+ Studio</h2>
+            <h2 className="text-sm font-medium text-ink-2">Generate in 18+ Studio</h2>
             <textarea
               className="textarea w-full"
               rows={3}
@@ -549,23 +549,23 @@ export default function Studio18Plus() {
             )}
 
             {result && (
-              <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 max-w-xs">
+              <div className="rounded-lg border border-edge overflow-hidden bg-surface max-w-xs">
                 <img src={result.image_url} alt="18+ Studio result" className="w-full object-cover" />
               </div>
             )}
 
             {/* Admin metadata — provider / refs / multi-image (success path). */}
             {isAdmin && genMeta && !genError && (
-              <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-xs text-gray-400 space-y-0.5">
-                <p className="font-medium uppercase tracking-wide text-gray-500 mb-1 flex items-center gap-1.5">
+              <div className="rounded-lg border border-edge bg-surface px-4 py-3 text-xs text-ink-2 space-y-0.5">
+                <p className="font-medium uppercase tracking-wide text-ink-3 mb-1 flex items-center gap-1.5">
                   <Shield className="w-3.5 h-3.5" /> Admin · generation metadata
                 </p>
-                <p>provider: <span className="text-gray-300">{genMeta.provider}</span></p>
-                <p>model_ref: <span className="text-gray-300">{genMeta.model_ref ?? '—'}</span></p>
-                <p>refs_count: <span className="text-gray-300">{genMeta.refs_count}</span></p>
-                <p>multi_image_used: <span className="text-gray-300">{String(genMeta.multi_image_used)}</span></p>
-                <p>used_refs: <span className="text-gray-300">{genMeta.used_refs?.join(', ') || '—'}</span></p>
-                <p>failure_reason: <span className="text-gray-300">{genMeta.failure_reason ?? 'none'}</span></p>
+                <p>provider: <span className="text-ink-2">{genMeta.provider}</span></p>
+                <p>model_ref: <span className="text-ink-2">{genMeta.model_ref ?? '—'}</span></p>
+                <p>refs_count: <span className="text-ink-2">{genMeta.refs_count}</span></p>
+                <p>multi_image_used: <span className="text-ink-2">{String(genMeta.multi_image_used)}</span></p>
+                <p>used_refs: <span className="text-ink-2">{genMeta.used_refs?.join(', ') || '—'}</span></p>
+                <p>failure_reason: <span className="text-ink-2">{genMeta.failure_reason ?? 'none'}</span></p>
               </div>
             )}
           </section>
@@ -579,9 +579,9 @@ export default function Studio18Plus() {
           <section className="space-y-3">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-fuchsia-300" />
-              <h2 className="text-sm font-medium text-gray-200">Founder Generate · validated pipeline</h2>
+              <h2 className="text-sm font-medium text-ink">Founder Generate · validated pipeline</h2>
             </div>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-ink-3">
               Summer only · active LoRA + tattoo enforcement · $0.05 cap · admin only.
               Runs on RunPod (a few minutes). Output requires manual review.
             </p>
@@ -646,13 +646,13 @@ export default function Studio18Plus() {
             {/* Completed — the single real RunPod 99_final image (no montage). */}
             {founderView?.state === 'completed' && founderView.finalImageUrl && (
               <div className="space-y-2">
-                <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 max-w-md">
+                <div className="rounded-lg border border-edge overflow-hidden bg-surface max-w-md">
                   <img src={founderView.finalImageUrl} alt="Founder Generate result" className="w-full object-cover" />
                 </div>
-                <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-xs text-gray-400 space-y-0.5">
-                  <p>cost: <span className="text-gray-200">{founderView.costLabel}</span></p>
-                  <p>runtime: <span className="text-gray-200">{founderView.runtimeLabel}</span></p>
-                  <p>routes: <span className="text-gray-200">{founderView.routeLabels.join(', ') || '—'}</span></p>
+                <div className="rounded-lg border border-edge bg-surface px-4 py-3 text-xs text-ink-2 space-y-0.5">
+                  <p>cost: <span className="text-ink">{founderView.costLabel}</span></p>
+                  <p>runtime: <span className="text-ink">{founderView.runtimeLabel}</span></p>
+                  <p>routes: <span className="text-ink">{founderView.routeLabels.join(', ') || '—'}</span></p>
                   {founderView.manualReviewRequired && (
                     <p className="text-amber-300 flex items-center gap-1.5 mt-1">
                       <AlertTriangle className="w-3.5 h-3.5" /> Manual review required before any use.
@@ -675,7 +675,7 @@ export default function Studio18Plus() {
                 <Shield className="w-3.5 h-3.5" />
                 Admin · Replicate (Experimental Adult)
               </p>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-ink-2">
                 Pure image-to-image from a canon source image via Replicate. Experimental,
                 additive provider — result is saved to the image library.
               </p>
@@ -712,26 +712,26 @@ export default function Studio18Plus() {
 
               {/* Dedicated Replicate result card — never reuses the Founder preview. */}
               {replicateResult && (
-                <div className="rounded-lg border border-fuchsia-900/40 bg-gray-900/60 px-4 py-3 space-y-3">
+                <div className="rounded-lg border border-fuchsia-900/40 bg-surface px-4 py-3 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <p className="text-[11px] uppercase tracking-wide text-gray-500">Source image</p>
-                      <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900">
+                      <p className="text-[11px] uppercase tracking-wide text-ink-3">Source image</p>
+                      <div className="rounded-lg border border-edge overflow-hidden bg-surface">
                         <img src={replicateResult.source_image_url} alt="Replicate source" className="w-full object-cover" />
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-[11px] uppercase tracking-wide text-gray-500">Final output</p>
-                      <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900">
+                      <p className="text-[11px] uppercase tracking-wide text-ink-3">Final output</p>
+                      <div className="rounded-lg border border-edge overflow-hidden bg-surface">
                         <img src={replicateResult.image_url} alt="Replicate test result" className="w-full object-cover" />
                       </div>
                     </div>
                   </div>
-                  <div className="text-xs text-gray-400 space-y-0.5">
-                    <p>provider: <span className="text-gray-300">{replicateResult.provider}</span></p>
-                    <p>model: <span className="text-gray-300">{replicateResult.model_ref}</span></p>
-                    <p>strength: <span className="text-gray-300">{replicateResult.strength}</span></p>
-                    <p>source image used: <span className="text-gray-300">{replicateResult.source_role}</span></p>
+                  <div className="text-xs text-ink-2 space-y-0.5">
+                    <p>provider: <span className="text-ink-2">{replicateResult.provider}</span></p>
+                    <p>model: <span className="text-ink-2">{replicateResult.model_ref}</span></p>
+                    <p>strength: <span className="text-ink-2">{replicateResult.strength}</span></p>
+                    <p>source image used: <span className="text-ink-2">{replicateResult.source_role}</span></p>
                   </div>
                 </div>
               )}
@@ -742,13 +742,13 @@ export default function Studio18Plus() {
         {/* ── Admin-only tech direction panel ──────────────────────── */}
         {isAdmin && (
           <section className="space-y-2">
-            <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-2 flex items-center gap-1.5">
+            <div className="rounded-lg border border-edge bg-surface px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-3 mb-2 flex items-center gap-1.5">
                 <Shield className="w-3.5 h-3.5" />
                 Admin · tech direction
               </p>
-              <p className="text-sm text-gray-400 mb-1">Future pipeline candidates:</p>
-              <ul className="text-sm text-gray-400 list-disc list-inside space-y-0.5">
+              <p className="text-sm text-ink-2 mb-1">Future pipeline candidates:</p>
+              <ul className="text-sm text-ink-2 list-disc list-inside space-y-0.5">
                 <li>InstantID</li>
                 <li>PhotoMaker</li>
                 <li>PuLID</li>

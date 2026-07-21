@@ -30,8 +30,8 @@ export default function Register() {
       <div className="max-w-md w-full">
         <div className="flex flex-col items-center gap-4 mb-6">
           <img src="/brand/ficshon-mark-v1.png" alt="Ficshon" className="h-12 w-12 rounded-xl object-contain" />
-          <h1 className="text-3xl font-semibold tracking-tight">Ficshon</h1>
-          <p className="text-gray-400">Closed beta — invite required</p>
+          <h1 className="font-serif text-4xl font-semibold tracking-tight text-ink">Ficshon</h1>
+          <p className="text-ink-2">Closed beta — invite required</p>
         </div>
 
         <div className="card">
@@ -98,9 +98,9 @@ export default function Register() {
             </button>
           </form>
 
-          <p className="text-center text-gray-400 mt-4">
+          <p className="text-center text-ink-2 mt-4">
             Already have an account?{' '}
-            <Link to="/login" className="text-emerald-500 hover:text-emerald-400">
+            <Link to="/login" className="text-gem hover:opacity-80">
               Login
             </Link>
           </p>

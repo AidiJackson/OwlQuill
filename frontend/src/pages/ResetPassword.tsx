@@ -19,7 +19,7 @@ export default function ResetPassword() {
         <div className="max-w-md w-full">
           <div className="card">
             <h2 className="text-2xl font-bold mb-4">Invalid Link</h2>
-            <p className="text-gray-400 mb-4">
+            <p className="text-ink-2 mb-4">
               This password reset link is invalid or malformed. Please request a new one.
             </p>
             <Link to="/forgot-password" className="btn btn-primary w-full block text-center">
@@ -63,8 +63,8 @@ export default function ResetPassword() {
       <div className="max-w-md w-full">
         <div className="flex flex-col items-center gap-4 mb-6">
           <img src="/brand/ficshon-mark-v1.png" alt="Ficshon" className="h-12 w-12 rounded-xl object-contain" />
-          <h1 className="text-3xl font-semibold tracking-tight">Ficshon</h1>
-          <p className="text-gray-400">Roleplay-first social network</p>
+          <h1 className="font-serif text-4xl font-semibold tracking-tight text-ink">Ficshon</h1>
+          <p className="text-ink-2">Roleplay-first social network</p>
         </div>
 
         <div className="card">
@@ -75,8 +75,8 @@ export default function ResetPassword() {
               <div className="bg-green-900/20 border border-green-800 text-green-200 px-4 py-3 rounded mb-4">
                 Password reset successfully! Redirecting to login...
               </div>
-              <p className="text-center text-gray-400 mt-4">
-                <Link to="/login" className="text-emerald-500 hover:text-emerald-400">
+              <p className="text-center text-ink-2 mt-4">
+                <Link to="/login" className="text-gem hover:opacity-80">
                   Go to Login
                 </Link>
               </p>
@@ -120,8 +120,8 @@ export default function ResetPassword() {
                 </button>
               </form>
 
-              <p className="text-center text-gray-400 mt-4">
-                <Link to="/login" className="text-emerald-500 hover:text-emerald-400">
+              <p className="text-center text-ink-2 mt-4">
+                <Link to="/login" className="text-gem hover:opacity-80">
                   Back to Login
                 </Link>
               </p>

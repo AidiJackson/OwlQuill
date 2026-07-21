@@ -77,7 +77,7 @@ export default function ConversationsList() {
             </p>
             <Link
               to="/characters"
-              className="mt-2 px-5 py-2 bg-gem hover:bg-gem/90 text-gray-950 text-sm font-semibold rounded-lg transition-colors"
+              className="mt-2 px-5 py-2 bg-gem hover:bg-gem/90 text-gem-ink text-sm font-semibold rounded-lg transition-colors"
             >
               Find characters
             </Link>

@@ -676,7 +676,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
     <div className="flex flex-col min-h-0 flex-1">
 
       {/* ── Top bar — thin, minimal ────────────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 md:px-5 py-1.5 border-b border-gray-800/40 bg-gray-950/20 flex-wrap">
+      <div className="flex items-center gap-2 px-4 md:px-5 py-1.5 border-b border-edge bg-app flex-wrap">
 
         {/* Story selector — legacy mode only */}
         {!externalStoryId && (
@@ -684,7 +684,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
             <select
               value={currentStoryId}
               onChange={(e) => switchStory(e.target.value)}
-              className="max-w-[160px] h-6 px-1.5 text-[11px] rounded-md bg-transparent border border-gray-800/50 text-gray-600 focus:outline-none focus:border-gray-700 transition"
+              className="max-w-[160px] h-6 px-1.5 text-[11px] rounded-md bg-transparent border border-edge text-ink-3 focus:outline-none focus:border-edge-md transition"
             >
               {displayedRecents.map((id) => (
                 <option key={id} value={id}>{getStoryLabel(id, storyMetaCache)}</option>
@@ -693,23 +693,23 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
             <button
               type="button"
               onClick={newStory}
-              className="h-6 px-2 text-[11px] rounded-md border border-gray-800/40 bg-transparent hover:bg-gray-800/30 text-gray-600 hover:text-gray-400 transition shrink-0"
+              className="h-6 px-2 text-[11px] rounded-md border border-edge bg-transparent hover:bg-surface-elevated text-ink-3 hover:text-ink-2 transition shrink-0"
             >
               + New
             </button>
-            <div className="w-px h-3.5 bg-gray-800/40 mx-0.5 shrink-0" />
+            <div className="w-px h-3.5 bg-surface-elevated mx-0.5 shrink-0" />
           </>
         )}
 
         {/* Story title — named story mode */}
         {externalStoryId && (
           <>
-            <span className="text-[11px] text-gray-600 truncate max-w-[160px]">
+            <span className="text-[11px] text-ink-3 truncate max-w-[160px]">
               {storyTitle && !isUuidLike(storyTitle)
                 ? storyTitle
                 : deriveReadableTitle(storyRecord?.premise)}
             </span>
-            <div className="w-px h-3.5 bg-gray-800/40 mx-0.5 shrink-0" />
+            <div className="w-px h-3.5 bg-surface-elevated mx-0.5 shrink-0" />
           </>
         )}
 
@@ -723,8 +723,8 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 onClick={() => void loadChapter(currentStoryId, c.chapter_number)}
                 className={`h-6 px-2.5 text-[11px] rounded-md transition ${
                   currentChapter?.chapter_number === c.chapter_number
-                    ? 'bg-gray-800/60 text-gray-200 font-medium'
-                    : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800/30'
+                    ? 'bg-surface-elevated text-ink font-medium'
+                    : 'text-ink-3 hover:text-ink-2 hover:bg-surface-elevated'
                 }`}
               >
                 {c.chapter_number}
@@ -745,8 +745,8 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                   onClick={() => setMode(m)}
                   className={`h-6 px-2.5 text-[11px] rounded-md capitalize transition ${
                     mode === m
-                      ? 'bg-gray-800/60 text-gray-200 font-medium'
-                      : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800/30'
+                      ? 'bg-surface-elevated text-ink font-medium'
+                      : 'text-ink-3 hover:text-ink-2 hover:bg-surface-elevated'
                   }`}
                 >
                   {m}
@@ -755,16 +755,16 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
             </div>
           )}
           {/* Surface mode toggle — Night / Paper */}
-          <div className="flex items-center rounded-md border border-gray-800/50 overflow-hidden text-[11px]">
+          <div className="flex items-center rounded-md border border-edge overflow-hidden text-[11px]">
             <button
               type="button"
               onClick={() => setSurfaceMode('night')}
-              className={`px-2 h-6 transition ${surfaceMode === 'night' ? 'bg-gray-800/60 text-gray-200' : 'text-gray-600 hover:text-gray-400'}`}
+              className={`px-2 h-6 transition ${surfaceMode === 'night' ? 'bg-surface-elevated text-ink' : 'text-ink-3 hover:text-ink-2'}`}
             >Night</button>
             <button
               type="button"
               onClick={() => setSurfaceMode('paper')}
-              className={`px-2 h-6 transition ${surfaceMode === 'paper' ? 'bg-[#E8E0D0] text-[#1C1917]' : 'text-gray-600 hover:text-gray-400'}`}
+              className={`px-2 h-6 transition ${surfaceMode === 'paper' ? 'bg-[#E8E0D0] text-[#1C1917]' : 'text-ink-3 hover:text-ink-2'}`}
             >Paper</button>
           </div>
         </div>
@@ -782,7 +782,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
               <div className="mb-6">
                 <h2 className="font-serif text-2xl font-medium text-ink leading-tight">{storyRecord.title}</h2>
                 {(storyRecord.genre || protagonist) && (
-                  <div className="flex items-center gap-1.5 mt-1.5 text-[11px] text-gray-500">
+                  <div className="flex items-center gap-1.5 mt-1.5 text-[11px] text-ink-3">
                     {storyRecord.genre && <span className="capitalize">{storyRecord.genre}</span>}
                     {storyRecord.genre && protagonist && <span>·</span>}
                     {protagonist && (
@@ -790,7 +790,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                         {protagonist.avatar_url ? (
                           <img src={protagonist.avatar_url} alt={protagonist.name} className="w-4 h-4 rounded-full object-cover shrink-0" />
                         ) : (
-                          <span className="w-4 h-4 rounded-full bg-gray-800/60 shrink-0 flex items-center justify-center text-[8px] text-gray-500 font-medium">{protagonist.name[0]}</span>
+                          <span className="w-4 h-4 rounded-full bg-surface-elevated shrink-0 flex items-center justify-center text-[8px] text-ink-3 font-medium">{protagonist.name[0]}</span>
                         )}
                         {protagonist.name}
                       </span>
@@ -798,7 +798,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                   </div>
                 )}
                 {storyRecord.premise && (
-                  <p className="text-[13px] text-gray-500 mt-2.5 leading-relaxed">{storyRecord.premise}</p>
+                  <p className="text-[13px] text-ink-3 mt-2.5 leading-relaxed">{storyRecord.premise}</p>
                 )}
               </div>
             )}
@@ -813,13 +813,13 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     className="w-8 h-8 rounded-full object-cover shrink-0"
                   />
                 ) : (
-                  <div className="w-8 h-8 rounded-full bg-gray-800/60 shrink-0 flex items-center justify-center text-[12px] text-gray-500 font-medium">
+                  <div className="w-8 h-8 rounded-full bg-surface-elevated shrink-0 flex items-center justify-center text-[12px] text-ink-3 font-medium">
                     {protagonist.name[0]}
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-gray-200 leading-tight truncate">{protagonist.name}</p>
-                  <p className="text-[11px] text-gray-500 leading-tight truncate">{protagonist.role || 'Protagonist'}</p>
+                  <p className="text-[13px] font-medium text-ink leading-tight truncate">{protagonist.name}</p>
+                  <p className="text-[11px] text-ink-3 leading-tight truncate">{protagonist.role || 'Protagonist'}</p>
                 </div>
               </div>
             )}
@@ -835,29 +835,29 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 className={`w-full resize-none rounded-2xl p-4 text-[14px] focus:outline-none transition leading-relaxed ${
                   surfaceMode === 'paper'
                     ? 'bg-[#F5F0E8] border border-[#A09382]/30 text-[#1C1917] placeholder-[#9D8E7D] focus:border-[#A09382]/60'
-                    : 'bg-gray-900/50 border border-gray-700/40 text-gray-200 placeholder-gray-600 focus:border-gray-600/60'
+                    : 'bg-surface border border-edge-md text-ink placeholder:text-ink-3 focus:border-edge-md'
                 }`}
               />
             </div>
 
             {/* Support characters — collapsible */}
             <details className="group mt-5">
-              <summary className="text-[10px] font-mono text-gray-600 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
-                <span className="inline-block text-gray-700 transition-transform duration-150 group-open:rotate-90">{'\u203A'}</span>
-                Supporting characters{supportChars.length > 0 && <span className="text-gray-700 normal-case tracking-normal">({supportChars.length})</span>}
+              <summary className="text-[10px] font-mono text-ink-3 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
+                <span className="inline-block text-ink-3 transition-transform duration-150 group-open:rotate-90">{'\u203A'}</span>
+                Supporting characters{supportChars.length > 0 && <span className="text-ink-3 normal-case tracking-normal">({supportChars.length})</span>}
               </summary>
               <div className="mt-3 space-y-3">
                 {supportChars.length > 0 && (
                   <ul className="space-y-1.5">
                     {supportChars.map((c) => (
-                      <li key={c.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-900/20">
-                        <span className="text-[12px] text-gray-300 flex-1 truncate">
+                      <li key={c.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface">
+                        <span className="text-[12px] text-ink-2 flex-1 truncate">
                           {c.name}{c.age ? `, ${c.age}` : ''}{c.personality ? ` — ${c.personality}` : ''}
                         </span>
                         <button
                           type="button"
                           onClick={() => setSupportChars((p) => p.filter((x) => x.id !== c.id))}
-                          className="text-[11px] text-gray-700 hover:text-red-400 transition shrink-0"
+                          className="text-[11px] text-ink-3 hover:text-red-400 transition shrink-0"
                         >
                           ✕
                         </button>
@@ -874,14 +874,14 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                       onChange={(e) => setNewSupportName(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSupportChar(); } }}
                       placeholder="Name"
-                      className="flex-1 min-w-[100px] h-8 px-2.5 text-[12px] rounded-lg bg-gray-900/30 border border-gray-800/50 text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition"
+                      className="flex-1 min-w-[100px] h-8 px-2.5 text-[12px] rounded-lg bg-surface border border-edge text-ink-2 placeholder-gray-700 focus:outline-none focus:border-edge-md transition"
                     />
                     <input
                       type="text"
                       value={newSupportAge}
                       onChange={(e) => setNewSupportAge(e.target.value)}
                       placeholder="Age"
-                      className="w-14 h-8 px-2.5 text-[12px] rounded-lg bg-gray-900/30 border border-gray-800/50 text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition"
+                      className="w-14 h-8 px-2.5 text-[12px] rounded-lg bg-surface border border-edge text-ink-2 placeholder-gray-700 focus:outline-none focus:border-edge-md transition"
                     />
                   </div>
                   <div className="flex gap-1.5">
@@ -891,13 +891,13 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                       onChange={(e) => setNewSupportPersonality(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSupportChar(); } }}
                       placeholder="Personality / role"
-                      className="flex-1 min-w-[140px] h-8 px-2.5 text-[12px] rounded-lg bg-gray-900/30 border border-gray-800/50 text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition"
+                      className="flex-1 min-w-[140px] h-8 px-2.5 text-[12px] rounded-lg bg-surface border border-edge text-ink-2 placeholder-gray-700 focus:outline-none focus:border-edge-md transition"
                     />
                     <button
                       type="button"
                       onClick={addSupportChar}
                       disabled={!newSupportName.trim()}
-                      className="h-8 px-3 text-[12px] rounded-lg border border-gray-700/50 text-gray-400 hover:text-gray-200 hover:border-gray-600 transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                      className="h-8 px-3 text-[12px] rounded-lg border border-edge-md text-ink-2 hover:text-ink hover:border-edge-md transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                     >
                       + Add
                     </button>
@@ -908,13 +908,13 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
             {/* Generation settings — collapsible */}
             <details className="group mt-4">
-              <summary className="text-[10px] font-mono text-gray-600 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
-                <span className="inline-block text-gray-700 transition-transform duration-150 group-open:rotate-90">{'\u203A'}</span>
+              <summary className="text-[10px] font-mono text-ink-3 uppercase tracking-widest cursor-pointer list-none flex items-center gap-1.5 select-none">
+                <span className="inline-block text-ink-3 transition-transform duration-150 group-open:rotate-90">{'\u203A'}</span>
                 Generation settings
               </summary>
               <div className="mt-4 space-y-4">
                 <div className="space-y-2">
-                  <p className="text-[10px] text-gray-700 tracking-wider">Direction</p>
+                  <p className="text-[10px] text-ink-3 tracking-wider">Direction</p>
                   <div className="flex flex-wrap gap-1.5">
                     {[
                       { value: 'advance_plot',     label: 'Advance' },
@@ -931,7 +931,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                         className={`text-[11px] px-2.5 py-1 rounded-md border transition ${
                           slControls.direction === value
                             ? 'bg-gem-soft border-gem/50 text-gem'
-                            : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
+                            : 'border-edge text-ink-3 hover:border-edge-md hover:text-ink-2'
                         }`}
                       >
                         {label}
@@ -947,11 +947,11 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     { label: 'Boundary', key: 'boundary' as const, options: ['sfw', 'fade_to_black', 'sensual'] },
                   ].map(({ label, key, options }) => (
                     <div key={key} className="space-y-1">
-                      <p className="text-[10px] text-gray-700 tracking-wider">{label}</p>
+                      <p className="text-[10px] text-ink-3 tracking-wider">{label}</p>
                       <select
                         value={slControls[key]}
                         onChange={(e) => setSlControls((p) => ({ ...p, [key]: e.target.value }))}
-                        className="w-full h-7 px-1.5 text-[11px] rounded-md bg-gray-900/30 border border-gray-800/50 text-gray-400 focus:outline-none focus:border-gray-700 transition capitalize"
+                        className="w-full h-7 px-1.5 text-[11px] rounded-md bg-surface border border-edge text-ink-2 focus:outline-none focus:border-edge-md transition capitalize"
                       >
                         {options.map((o) => (
                           <option key={o} value={o}>{o.replace('_', ' ')}</option>
@@ -972,7 +972,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 type="button"
                 onClick={() => void handleGenerate()}
                 disabled={isGenerating}
-                className="w-full py-4 rounded-2xl bg-gem hover:bg-gem/90 active:bg-gem/80 text-gray-950 font-semibold text-[15px] tracking-wide shadow-[0_4px_24px_var(--accent-glow)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-4 rounded-2xl bg-gem hover:bg-gem/90 active:bg-gem/80 text-gem-ink font-semibold text-[15px] tracking-wide shadow-[0_4px_24px_var(--accent-glow)] transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Write Opening Chapter →
               </button>
@@ -994,10 +994,10 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
             {currentChapter ? (
               <div className="mb-8">
                 <div className="flex items-baseline justify-between">
-                  <span className={`font-mono text-[11px] uppercase tracking-[0.14em] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#7A6E5F]' : 'text-gray-500'}`}>
+                  <span className={`font-mono text-[11px] uppercase tracking-[0.14em] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#7A6E5F]' : 'text-ink-3'}`}>
                     Chapter {currentChapter.chapter_number}
                   </span>
-                  <span className={`text-[11px] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#9D8E7D]' : 'text-gray-700'}`}>{currentChapter.words} words</span>
+                  <span className={`text-[11px] transition-colors duration-200 ${surfaceMode === 'paper' ? 'text-[#9D8E7D]' : 'text-ink-3'}`}>{currentChapter.words} words</span>
                 </div>
 
                 {/* Prompt reveal */}
@@ -1006,13 +1006,13 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     <button
                       type="button"
                       onClick={() => setPromptRevealOpen((p) => !p)}
-                      className="flex items-center gap-1.5 text-[11px] text-gray-700 hover:text-gray-500 transition"
+                      className="flex items-center gap-1.5 text-[11px] text-ink-3 hover:text-ink-3 transition"
                     >
                       <span className={`transition-transform duration-150 text-[10px] ${promptRevealOpen ? 'rotate-90' : ''}`}>{'\u203A'}</span>
                       Prompt
                     </button>
                     {promptRevealOpen && (
-                      <p className="mt-1.5 pl-3 text-[11px] text-gray-600 leading-relaxed border-l border-gray-800/40">
+                      <p className="mt-1.5 pl-3 text-[11px] text-ink-3 leading-relaxed border-l border-edge">
                         {currentChapter.prompt_text}
                       </p>
                     )}
@@ -1021,7 +1021,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
               </div>
             ) : isLoadingChapters ? (
               <div className="mb-8">
-                <div className="h-3 w-24 bg-gray-800/60 rounded-full animate-pulse" />
+                <div className="h-3 w-24 bg-surface-elevated rounded-full animate-pulse" />
               </div>
             ) : null}
 
@@ -1032,12 +1032,12 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                   {[92, 100, 88, 100, 72, 100, 96, 100, 64, 100, 84, 100].map((w, i) => (
                     <div
                       key={i}
-                      className="h-[2px] bg-gray-800 rounded-full animate-pulse"
+                      className="h-[2px] bg-surface-elevated rounded-full animate-pulse"
                       style={{ width: `${w}%`, animationDelay: `${i * 80}ms` }}
                     />
                   ))}
                 </div>
-                <p className="text-center text-[12px] text-gray-600 tracking-wide mt-10">Writing chapter{'\u2026'}</p>
+                <p className="text-center text-[12px] text-ink-3 tracking-wide mt-10">Writing chapter{'\u2026'}</p>
               </div>
             ) : isLoadingChapter ? (
               <div className="py-16">
@@ -1045,19 +1045,19 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                   {[100, 88, 100, 72, 96, 100].map((w, i) => (
                     <div
                       key={i}
-                      className="h-[2px] bg-gray-800 rounded-full animate-pulse"
+                      className="h-[2px] bg-surface-elevated rounded-full animate-pulse"
                       style={{ width: `${w}%`, animationDelay: `${i * 80}ms` }}
                     />
                   ))}
                 </div>
               </div>
             ) : currentChapter ? (
-              <p className={`font-serif text-[17px] leading-[1.85] whitespace-pre-wrap tracking-[0.005em] transition-colors duration-200 animate-[fadeIn_0.25s_ease] ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-gray-100'}`}>
+              <p className={`font-serif text-[17px] leading-[1.85] whitespace-pre-wrap tracking-[0.005em] transition-colors duration-200 animate-[fadeIn_0.25s_ease] ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-ink'}`}>
                 {currentChapter.generated_text}
               </p>
             ) : (
               <div className="py-24 text-center">
-                <p className="text-gray-700 text-sm">No chapters yet</p>
+                <p className="text-ink-3 text-sm">No chapters yet</p>
                 <p className="text-gray-800 text-[12px] mt-2 leading-relaxed max-w-[320px] mx-auto">
                   Add guidance on the right, then generate your opening chapter.
                 </p>
@@ -1066,29 +1066,29 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
             {/* ── Beat System / CTA — below text ─────────────────────────── */}
             {!isLoadingChapters && (
-              <div className="mt-16 pt-10 border-t border-gray-700/20 space-y-4">
+              <div className="mt-16 pt-10 border-t border-edge-md space-y-4">
 
                 {chapters.length > 0 ? (
                   <>
                     {/* Guidance — inline above continuation buttons */}
                     <div className="space-y-1.5">
-                      <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Guidance</p>
+                      <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">Guidance</p>
                       <textarea
                         value={promptInput}
                         onChange={(e) => setPromptInput(e.target.value)}
                         placeholder="A beat, dialogue, rough notes..."
                         rows={3}
-                        className="w-full resize-none rounded-lg bg-gray-900/30 border border-gray-800/50 p-2.5 text-[12px] text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition leading-relaxed"
+                        className="w-full resize-none rounded-lg bg-surface border border-edge p-2.5 text-[12px] text-ink-2 placeholder-gray-700 focus:outline-none focus:border-edge-md transition leading-relaxed"
                       />
                     </div>
 
                     {/* Section label + generation status */}
                     <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">
+                      <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">
                         What happens next?
                       </p>
                       {isGenerating && (
-                        <span className="flex items-center gap-1.5 text-[11px] text-gray-500 tracking-wide">
+                        <span className="flex items-center gap-1.5 text-[11px] text-ink-3 tracking-wide">
                           <span className="inline-block w-1.5 h-1.5 rounded-full bg-gem/70 animate-pulse" />
                           Writing next beat&hellip;
                         </span>
@@ -1102,13 +1102,13 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                         type="button"
                         onClick={() => handleBeatAction(action)}
                         disabled={isGenerating}
-                        className="w-full group flex items-center justify-between px-4 py-3.5 rounded-xl border border-gem/30 bg-gem-soft/60 hover:bg-gem-soft hover:border-gem/45 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="w-full group flex items-center justify-between px-4 py-3.5 rounded-xl border border-gem/30 bg-gem/[0.06] hover:bg-gem-soft hover:border-gem/45 transition disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <div className="text-left">
                           <span className="block text-[14px] font-semibold text-gem transition leading-tight">
                             {action.label}
                           </span>
-                          <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">
+                          <span className="block text-[11px] text-ink-3 mt-0.5 leading-snug">
                             {action.hint}
                           </span>
                         </div>
@@ -1124,12 +1124,12 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                           type="button"
                           onClick={() => handleBeatAction(action)}
                           disabled={isGenerating}
-                          className="group flex flex-col gap-0.5 px-3 py-2.5 rounded-xl border border-gray-800/50 bg-gray-900/15 hover:border-gray-700/60 hover:bg-gray-800/25 active:bg-gray-800/35 transition text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="group flex flex-col gap-0.5 px-3 py-2.5 rounded-xl border border-edge bg-surface hover:border-edge-md hover:bg-surface-elevated active:bg-surface-elevated transition text-left disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          <span className="text-[12px] font-medium text-gray-300 group-hover:text-gray-100 transition leading-tight">
+                          <span className="text-[12px] font-medium text-ink-2 group-hover:text-ink transition leading-tight">
                             {action.label}
                           </span>
-                          <span className="text-[10px] text-gray-600 leading-snug">
+                          <span className="text-[10px] text-ink-3 leading-snug">
                             {action.hint}
                           </span>
                         </button>
@@ -1144,12 +1144,12 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                           type="button"
                           onClick={() => handleBeatAction(action)}
                           disabled={isGenerating}
-                          className="flex-1 group flex flex-col gap-0.5 px-3 py-2 rounded-lg border border-gray-800/30 hover:border-gray-700/45 hover:bg-gray-900/15 active:bg-gray-900/25 transition text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="flex-1 group flex flex-col gap-0.5 px-3 py-2 rounded-lg border border-edge hover:border-edge-md hover:bg-surface active:bg-surface transition text-left disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          <span className="text-[11px] font-medium text-gray-500 group-hover:text-gray-400 transition leading-tight">
+                          <span className="text-[11px] font-medium text-ink-3 group-hover:text-ink-2 transition leading-tight">
                             {action.label}
                           </span>
-                          <span className="text-[10px] text-gray-700 leading-snug">
+                          <span className="text-[10px] text-ink-3 leading-snug">
                             {action.hint}
                           </span>
                         </button>
@@ -1162,7 +1162,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                         type="button"
                         onClick={() => void handleGenerate()}
                         disabled={isGenerating}
-                        className="text-[12px] text-gray-600 hover:text-gray-400 transition disabled:opacity-40"
+                        className="text-[12px] text-ink-3 hover:text-ink-2 transition disabled:opacity-40"
                       >
                         {isGenerating ? 'Writing\u2026' : 'Write full chapter \u2192'}
                       </button>
@@ -1174,7 +1174,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     type="button"
                     onClick={() => void handleGenerate()}
                     disabled={isGenerating}
-                    className="w-full py-3 rounded-2xl bg-gem hover:bg-gem/90 active:bg-gem/80 text-gray-950 font-semibold text-sm tracking-wide shadow-[0_4px_20px_var(--accent-glow)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full py-3 rounded-2xl bg-gem hover:bg-gem/90 active:bg-gem/80 text-gem-ink font-semibold text-sm tracking-wide shadow-[0_4px_20px_var(--accent-glow)] transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isGenerating ? 'Writing\u2026' : 'Write Opening Chapter'}
                   </button>
@@ -1205,7 +1205,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
               <div className="mt-4 flex items-center gap-2">
                 {confirmAction === 'delete' ? (
                   <>
-                    <span className="text-[11px] text-gray-600 self-center">Delete this chapter?</span>
+                    <span className="text-[11px] text-ink-3 self-center">Delete this chapter?</span>
                     <button
                       type="button"
                       onClick={() => void handleDelete()}
@@ -1216,14 +1216,14 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     <button
                       type="button"
                       onClick={() => setConfirmAction(null)}
-                      className="px-2.5 py-0.5 text-[11px] rounded-md border border-gray-800/40 text-gray-600 hover:text-gray-400 transition"
+                      className="px-2.5 py-0.5 text-[11px] rounded-md border border-edge text-ink-3 hover:text-ink-2 transition"
                     >
                       Cancel
                     </button>
                   </>
                 ) : confirmAction === 'regenerate' ? (
                   <>
-                    <span className="text-[11px] text-gray-600 self-center">Replace with new generation?</span>
+                    <span className="text-[11px] text-ink-3 self-center">Replace with new generation?</span>
                     <button
                       type="button"
                       onClick={() => void handleRegenerate()}
@@ -1234,7 +1234,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     <button
                       type="button"
                       onClick={() => setConfirmAction(null)}
-                      className="px-2.5 py-0.5 text-[11px] rounded-md border border-gray-800/40 text-gray-600 hover:text-gray-400 transition"
+                      className="px-2.5 py-0.5 text-[11px] rounded-md border border-edge text-ink-3 hover:text-ink-2 transition"
                     >
                       Cancel
                     </button>
@@ -1244,14 +1244,14 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     <button
                       type="button"
                       onClick={() => setConfirmAction('delete')}
-                      className="px-2.5 py-0.5 text-[11px] rounded-md text-gray-700 hover:text-red-400 transition"
+                      className="px-2.5 py-0.5 text-[11px] rounded-md text-ink-3 hover:text-red-400 transition"
                     >
                       Delete chapter
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmAction('regenerate')}
-                      className="px-2.5 py-0.5 text-[11px] rounded-md text-gray-700 hover:text-amber-400 transition"
+                      className="px-2.5 py-0.5 text-[11px] rounded-md text-ink-3 hover:text-amber-400 transition"
                     >
                       Regenerate
                     </button>
@@ -1264,19 +1264,19 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
         </div>
 
         {/* ── Right panel — guidance controls ──────────────────────────── */}
-        <div className="w-full md:w-[260px] shrink-0 border-t md:border-t-0 md:border-l border-gray-800/40 overflow-y-auto px-4 py-5 space-y-5">
+        <div className="w-full md:w-[260px] shrink-0 border-t md:border-t-0 md:border-l border-edge overflow-y-auto px-4 py-5 space-y-5">
 
           {/* Suggestions */}
           {suggestions.length > 0 && (
             <div className="space-y-2">
-              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Suggestions</p>
+              <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">Suggestions</p>
               <ul className="space-y-1.5">
                 {suggestions.map((s, i) => (
                   <li key={i}>
                     <button
                       type="button"
                       onClick={() => setPromptInput(s)}
-                      className="text-left w-full flex gap-2 text-[12px] text-gray-400 hover:text-gem leading-relaxed transition group"
+                      className="text-left w-full flex gap-2 text-[12px] text-ink-2 hover:text-gem leading-relaxed transition group"
                     >
                       <span className="mt-0.5 shrink-0 text-gem/50 group-hover:text-gem transition">{'\u203A'}</span>
                       <span>{s}</span>
@@ -1290,20 +1290,20 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           {/* Guidance — only shown before first chapter; after that it moves inline above continuation buttons */}
           {chapters.length === 0 && (
             <div className="space-y-1.5">
-              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Guidance</p>
+              <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">Guidance</p>
               <textarea
                 value={promptInput}
                 onChange={(e) => setPromptInput(e.target.value)}
                 placeholder="A beat, dialogue, rough notes..."
                 rows={3}
-                className="w-full resize-none rounded-lg bg-gray-900/30 border border-gray-800/50 p-2.5 text-[12px] text-gray-300 placeholder-gray-700 focus:outline-none focus:border-gray-700 transition leading-relaxed"
+                className="w-full resize-none rounded-lg bg-surface border border-edge p-2.5 text-[12px] text-ink-2 placeholder-gray-700 focus:outline-none focus:border-edge-md transition leading-relaxed"
               />
             </div>
           )}
 
           {/* Direction chips */}
           <div className="space-y-2">
-            <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Direction</p>
+            <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">Direction</p>
             {(
               [
                 { group: 'Emotion',    chips: [{ value: 'sad_moment', label: 'Sad' }, { value: 'quiet_reflection', label: 'Reflective' }] },
@@ -1313,7 +1313,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
               ] as { group: string; chips: { value: string; label: string }[] }[]
             ).map(({ group, chips }) => (
               <div key={group} className="space-y-1">
-                <p className="text-[10px] text-gray-700 tracking-wider">{group}</p>
+                <p className="text-[10px] text-ink-3 tracking-wider">{group}</p>
                 <div className="flex flex-wrap gap-1">
                   {chips.map(({ value, label }) => (
                     <button
@@ -1323,7 +1323,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                       className={`text-[11px] px-2 py-0.5 rounded-md border transition ${
                         slControls.direction === value
                           ? 'bg-gem-soft border-gem/50 text-gem'
-                          : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
+                          : 'border-edge text-ink-3 hover:border-edge-md hover:text-ink-2'
                       }`}
                     >
                       {label}
@@ -1337,7 +1337,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           {/* Tone + Pacing — two columns */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Tone</p>
+              <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">Tone</p>
               <div className="flex flex-col gap-1">
                 {(['light','moderate','intense'] as const).map((v) => (
                   <button
@@ -1347,7 +1347,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     className={`py-1 text-[11px] rounded-md border transition capitalize ${
                       slControls.tone_intensity === v
                         ? 'bg-gem-soft border-gem/50 text-gem'
-                        : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
+                        : 'border-edge text-ink-3 hover:border-edge-md hover:text-ink-2'
                     }`}
                   >
                     {v}
@@ -1356,7 +1356,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
               </div>
             </div>
             <div className="space-y-1.5">
-              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Pacing</p>
+              <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">Pacing</p>
               <div className="flex flex-col gap-1">
                 {(['slow','balanced','fast'] as const).map((v) => (
                   <button
@@ -1366,7 +1366,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     className={`py-1 text-[11px] rounded-md border transition capitalize ${
                       slControls.pacing === v
                         ? 'bg-gem-soft border-gem/50 text-gem'
-                        : 'border-gray-800/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
+                        : 'border-edge text-ink-3 hover:border-edge-md hover:text-ink-2'
                     }`}
                   >
                     {v}
@@ -1379,11 +1379,11 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           {/* Boundary + Length — two columns */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Boundary</p>
+              <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">Boundary</p>
               <select
                 value={slControls.boundary}
                 onChange={(e) => setSlControls((p) => ({ ...p, boundary: e.target.value }))}
-                className="w-full h-7 px-1.5 text-[11px] rounded-md bg-gray-900/30 border border-gray-800/50 text-gray-400 focus:outline-none focus:border-gray-700 transition"
+                className="w-full h-7 px-1.5 text-[11px] rounded-md bg-surface border border-edge text-ink-2 focus:outline-none focus:border-edge-md transition"
               >
                 <option value="sfw">SFW</option>
                 <option value="fade_to_black">Fade to black</option>
@@ -1391,11 +1391,11 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
               </select>
             </div>
             <div className="space-y-1.5">
-              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Length</p>
+              <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">Length</p>
               <select
                 value={slControls.length}
                 onChange={(e) => setSlControls((p) => ({ ...p, length: e.target.value }))}
-                className="w-full h-7 px-1.5 text-[11px] rounded-md bg-gray-900/30 border border-gray-800/50 text-gray-400 focus:outline-none focus:border-gray-700 transition"
+                className="w-full h-7 px-1.5 text-[11px] rounded-md bg-surface border border-edge text-ink-2 focus:outline-none focus:border-edge-md transition"
               >
                 <option value="short">Short</option>
                 <option value="medium">Medium</option>
@@ -1407,8 +1407,8 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
           {/* Story state bars — compact, at bottom */}
           <div className="space-y-2 pt-2">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Story State</p>
-              {isLoadingState && <span className="text-[10px] text-gray-700">{'\u2026'}</span>}
+              <p className="text-[10px] font-mono text-ink-3 uppercase tracking-widest">Story State</p>
+              {isLoadingState && <span className="text-[10px] text-ink-3">{'\u2026'}</span>}
             </div>
             {storyState ? (
               <div className="space-y-2">
@@ -1422,10 +1422,10 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 ).map(({ label, value, dim }) => (
                   <div key={label} className={dim ? 'opacity-30' : undefined}>
                     <div className="flex justify-between mb-0.5">
-                      <span className="text-[10px] text-gray-600">{label}</span>
-                      <span className="text-[10px] text-gray-700">{Math.round(value * 100)}%</span>
+                      <span className="text-[10px] text-ink-3">{label}</span>
+                      <span className="text-[10px] text-ink-3">{Math.round(value * 100)}%</span>
                     </div>
-                    <div className="h-0.5 bg-gray-800/60 rounded-full overflow-hidden">
+                    <div className="h-0.5 bg-surface-elevated rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gem/50 rounded-full transition-[width] duration-500 ease-out"
                         style={{ width: `${value * 100}%` }}
@@ -1433,15 +1433,15 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                     </div>
                   </div>
                 ))}
-                <div className="pt-1.5 border-t border-gray-800/30 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                  <span className="text-gray-700">Tone</span>
-                  <span className="text-gray-500">{storyState.tone}</span>
-                  <span className="text-gray-700">Pacing</span>
-                  <span className="text-gray-500">{storyState.pacing}</span>
+                <div className="pt-1.5 border-t border-edge grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                  <span className="text-ink-3">Tone</span>
+                  <span className="text-ink-3">{storyState.tone}</span>
+                  <span className="text-ink-3">Pacing</span>
+                  <span className="text-ink-3">{storyState.pacing}</span>
                 </div>
               </div>
             ) : (
-              <p className="text-[11px] text-gray-700">
+              <p className="text-[11px] text-ink-3">
                 {isLoadingState ? 'Loading\u2026' : 'No state yet.'}
               </p>
             )}

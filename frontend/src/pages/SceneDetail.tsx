@@ -75,7 +75,7 @@ export default function SceneDetail() {
   if (loading) {
     return (
       <div className="p-8">
-        <p className="text-gray-400">Loading scene...</p>
+        <p className="text-ink-2">Loading scene...</p>
       </div>
     );
   }
@@ -83,7 +83,7 @@ export default function SceneDetail() {
   if (!scene) {
     return (
       <div className="p-8">
-        <p className="text-gray-400">Scene not found</p>
+        <p className="text-ink-2">Scene not found</p>
         <button onClick={() => navigate(-1)} className="btn btn-secondary mt-4">
           Go Back
         </button>
@@ -96,13 +96,13 @@ export default function SceneDetail() {
       {/* Scene header */}
       <div className="card mb-6">
         <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl font-bold">{scene.title}</h1>
+          <h1 className="font-serif text-3xl font-medium tracking-[-0.02em] text-ink">{scene.title}</h1>
           {visibilityBadge(scene.visibility)}
         </div>
         {scene.description && (
-          <p className="text-gray-300 text-sm whitespace-pre-wrap">{scene.description}</p>
+          <p className="text-ink-2 text-sm whitespace-pre-wrap">{scene.description}</p>
         )}
-        <p className="text-xs text-gray-500 mt-2">
+        <p className="text-xs text-ink-3 mt-2">
           Created {new Date(scene.created_at).toLocaleDateString()}
         </p>
       </div>
@@ -111,24 +111,24 @@ export default function SceneDetail() {
       <div className="space-y-3 mb-6">
         {posts.length === 0 ? (
           <div className="card text-center">
-            <p className="text-gray-400">No turns yet. Write the opening below.</p>
+            <p className="text-ink-2">No turns yet. Write the opening below.</p>
           </div>
         ) : (
           posts.map((p) => (
             <div key={p.id} className="card">
               <div className="flex items-center gap-2 mb-2">
                 {p.character_name ? (
-                  <span className="text-sm font-medium text-emerald-400">{p.character_name}</span>
+                  <span className="text-sm font-medium text-gem">{p.character_name}</span>
                 ) : (
                   // Identity-first: no character means no public identity —
                   // account usernames never render on a public surface.
-                  <span className="text-sm text-gray-400">Wanderer</span>
+                  <span className="text-sm text-ink-2">Wanderer</span>
                 )}
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-ink-3">
                   {new Date(p.created_at).toLocaleString()}
                 </span>
               </div>
-              <p className="text-gray-300 whitespace-pre-wrap leading-relaxed mt-1">{p.content}</p>
+              <p className="text-ink-2 whitespace-pre-wrap leading-relaxed mt-1">{p.content}</p>
             </div>
           ))
         )}

@@ -211,7 +211,7 @@ export default function ConversationThread() {
           <button
             onClick={handleSend}
             disabled={!body.trim() || sending}
-            className="p-2.5 rounded-xl bg-gem hover:bg-gem/90 text-gray-950 transition-colors disabled:opacity-40 flex-shrink-0"
+            className="p-2.5 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink transition-colors disabled:opacity-40 flex-shrink-0"
           >
             <Send className="w-4 h-4" />
           </button>

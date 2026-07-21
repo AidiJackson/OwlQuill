@@ -181,7 +181,7 @@ export default function RealmDetail() {
 
   const getPostTypeBadge = (contentType: string) => {
     const badges = {
-      ic: { label: 'IC', className: 'bg-emerald-600 text-white' },
+      ic: { label: 'IC', className: 'bg-gem text-white' },
       ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
       narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' },
     };
@@ -210,7 +210,7 @@ export default function RealmDetail() {
 
   const getSourceTypePill = (sourceType?: string | null) => {
     const pills: Record<string, { label: string; className: string }> = {
-      user:         { label: '✍️ User Written', className: 'text-gray-400/80  border-gray-700/60  bg-gray-800/40'    },
+      user:         { label: '✍️ User Written', className: 'text-ink-2/80  border-edge-md  bg-surface-elevated'    },
       ai_assisted:  { label: '✨ AI Assisted',  className: 'text-purple-400/80 border-purple-800/50 bg-purple-950/30' },
       ai_generated: { label: '🤖 AI Generated', className: 'text-blue-400/70  border-blue-800/40  bg-blue-950/20'   },
     };
@@ -225,7 +225,7 @@ export default function RealmDetail() {
   if (loading) {
     return (
       <div className="p-8">
-        <p className="text-gray-400">Loading...</p>
+        <p className="text-ink-2">Loading...</p>
       </div>
     );
   }
@@ -233,7 +233,7 @@ export default function RealmDetail() {
   if (!realm) {
     return (
       <div className="p-8">
-        <p className="text-gray-400">Realm not found</p>
+        <p className="text-ink-2">Realm not found</p>
         <button onClick={() => navigate('/realms')} className="btn btn-secondary mt-4">
           Back to Realms
         </button>
@@ -265,11 +265,11 @@ export default function RealmDetail() {
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl font-bold">{realm.name}</h1>
-              {realm.tagline && <p className="text-emerald-400 italic mt-1">{realm.tagline}</p>}
+              <h1 className="font-serif text-4xl sm:text-5xl font-medium tracking-[-0.02em] text-ink">{realm.name}</h1>
+              {realm.tagline && <p className="text-gem italic mt-1">{realm.tagline}</p>}
             </div>
             <div className="flex items-center gap-4">
-              <span className={`px-3 py-1 text-sm rounded ${realm.is_public ? 'bg-green-600' : 'bg-gray-600'}`}>
+              <span className={`px-3 py-1 text-sm rounded ${realm.is_public ? 'bg-green-600' : 'bg-surface-overlay'}`}>
                 {realm.is_public ? 'Public' : 'Private'}
               </span>
               {!realm.is_commons && (
@@ -281,13 +281,13 @@ export default function RealmDetail() {
           </div>
 
           {realm.description && (
-            <p className="text-gray-300 mb-4 whitespace-pre-wrap">{realm.description}</p>
+            <p className="text-ink-2 mb-4 whitespace-pre-wrap">{realm.description}</p>
           )}
 
           {realm.genre && (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">Genre:</span>
-              <span className="text-sm text-emerald-300">{realm.genre}</span>
+              <span className="text-sm text-ink-3">Genre:</span>
+              <span className="text-sm text-gem">{realm.genre}</span>
             </div>
           )}
         </div>
@@ -369,19 +369,19 @@ export default function RealmDetail() {
 
         {scenes.length === 0 ? (
           <div className="card text-center">
-            <p className="text-gray-400 text-sm">No scenes yet. Create one to start a collaborative story!</p>
+            <p className="text-ink-2 text-sm">No scenes yet. Create one to start a collaborative story!</p>
           </div>
         ) : (
           <div className="space-y-2">
             {scenes.map((s) => (
               <div
                 key={s.id}
-                className="card flex items-center justify-between cursor-pointer hover:border-emerald-500 transition-colors"
+                className="card flex items-center justify-between cursor-pointer hover:border-gem/50 transition-colors"
                 onClick={() => navigate(`/scenes/${s.id}`)}
               >
                 <div>
                   <span className="font-semibold">{s.title}</span>
-                  <span className="text-xs text-gray-500 ml-2">
+                  <span className="text-xs text-ink-3 ml-2">
                     {s.post_count} {s.post_count === 1 ? 'turn' : 'turns'}
                   </span>
                 </div>
@@ -400,10 +400,10 @@ export default function RealmDetail() {
 
       {/* First-post nudge — shown to members who haven't posted yet */}
       {user && !loading && isMember && !hasOwnPost && (
-        <div className="border border-gray-800 rounded-lg bg-gray-900/50 px-4 py-4 mb-6 space-y-3">
+        <div className="border border-edge rounded-lg bg-surface px-4 py-4 mb-6 space-y-3">
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-gray-200">Get started</p>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm font-semibold text-ink">Get started</p>
+            <p className="text-sm text-ink-2">
               You've joined this Realm. Introduce your character or start a scene.
             </p>
           </div>
@@ -511,7 +511,7 @@ export default function RealmDetail() {
                   <label className="block text-sm font-medium mb-2">Posting as</label>
                   {characters.length === 1 ? (
                     // Single character — display-only, clearly selected
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800/60 border border-gray-700 text-sm select-none w-fit">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-elevated border border-edge-md text-sm select-none w-fit">
                       {characters[0].avatar_url ? (
                         <img
                           src={characters[0].avatar_url}
@@ -519,11 +519,11 @@ export default function RealmDetail() {
                           className="w-5 h-5 rounded object-cover flex-shrink-0"
                         />
                       ) : (
-                        <div className="w-5 h-5 rounded bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[9px] font-semibold text-emerald-400 flex-shrink-0">
+                        <div className="w-5 h-5 rounded bg-gem-soft border border-gem/50 flex items-center justify-center text-[9px] font-semibold text-gem flex-shrink-0">
                           {characters[0].name.charAt(0)}
                         </div>
                       )}
-                      <span className="text-emerald-400 font-medium">{characters[0].name}</span>
+                      <span className="text-gem font-medium">{characters[0].name}</span>
                     </div>
                   ) : (
                     // Multi-character — explicit dropdown required
@@ -549,13 +549,13 @@ export default function RealmDetail() {
               )}
 
               {attachedImage && (
-                <div className="flex items-center gap-3 p-2 rounded-lg bg-gray-800/50 border border-gray-700">
+                <div className="flex items-center gap-3 p-2 rounded-lg bg-surface-elevated border border-edge-md">
                   <img
                     src={attachedImage.url}
                     alt={attachedImage.prompt_summary || 'Attached image'}
                     className="w-12 h-16 rounded object-cover"
                   />
-                  <span className="text-xs text-gray-400 flex-1 truncate">
+                  <span className="text-xs text-ink-2 flex-1 truncate">
                     {attachedImage.prompt_summary || 'Attached image'}
                   </span>
                   <button
@@ -612,8 +612,8 @@ export default function RealmDetail() {
         <h2 className="text-2xl font-bold mb-4">Posts</h2>
         {posts.length === 0 ? (
           <div className="card text-center">
-            <p className="text-gray-400">No posts yet in this realm.</p>
-            <p className="text-sm text-gray-500 mt-2">Be the first to post!</p>
+            <p className="text-ink-2">No posts yet in this realm.</p>
+            <p className="text-sm text-ink-3 mt-2">Be the first to post!</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -634,23 +634,23 @@ export default function RealmDetail() {
                             <img
                               src={post.character_avatar_url}
                               alt={post.character_name}
-                              className="w-7 h-7 rounded-md object-cover border border-gray-700 group-hover:border-emerald-500/50 transition-colors"
+                              className="w-7 h-7 rounded-md object-cover border border-edge-md group-hover:border-gem/50 transition-colors"
                             />
                           ) : (
-                            <div className="w-7 h-7 rounded-md bg-emerald-600/20 border border-emerald-500/20 flex items-center justify-center text-[11px] font-semibold text-emerald-400 flex-shrink-0">
+                            <div className="w-7 h-7 rounded-md bg-gem-soft border border-gem/50 flex items-center justify-center text-[11px] font-semibold text-gem flex-shrink-0">
                               {post.character_name.charAt(0)}
                             </div>
                           )}
-                          <span className="text-sm font-medium text-emerald-400 group-hover:text-emerald-300 transition-colors">
+                          <span className="text-sm font-medium text-gem group-hover:text-gem transition-colors">
                             {post.character_name}
                           </span>
                         </Link>
                       ) : (
                         <div className="flex items-center gap-1.5 mr-0.5 flex-shrink-0">
-                          <div className="w-7 h-7 rounded-md bg-gray-700 border border-gray-600 flex items-center justify-center text-[11px] font-medium text-gray-500 flex-shrink-0">
+                          <div className="w-7 h-7 rounded-md bg-surface-overlay border border-edge-md flex items-center justify-center text-[11px] font-medium text-ink-3 flex-shrink-0">
                             ✦
                           </div>
-                          <span className="text-sm text-gray-400">{author.label}</span>
+                          <span className="text-sm text-ink-2">{author.label}</span>
                         </div>
                       )}
                       {getPostTypeBadge(post.content_type)}
@@ -658,7 +658,7 @@ export default function RealmDetail() {
                       {getSourceTypePill(post.source_type)}
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-ink-3">
                         {new Date(post.created_at).toLocaleDateString()}
                       </span>
                       {(post.author_user_id === user?.id || user?.is_admin) && (
@@ -669,7 +669,7 @@ export default function RealmDetail() {
 
                   {/* Post content */}
                   {post.title && <h3 className="text-xl font-semibold mb-2">{post.title}</h3>}
-                  <p className="text-gray-300 whitespace-pre-wrap leading-relaxed mt-1"><MentionText text={post.content} mentions={post.mentions} /></p>
+                  <p className="text-ink-2 whitespace-pre-wrap leading-relaxed mt-1"><MentionText text={post.content} mentions={post.mentions} /></p>
 
                   {post.image_url && (
                     <img
@@ -691,7 +691,7 @@ export default function RealmDetail() {
                           joinSent[post.id]
                             ? 'bg-green-700 text-green-200 cursor-default'
                             : joinLoading[post.id]
-                              ? 'bg-gray-700 text-gray-400 cursor-wait'
+                              ? 'bg-surface-overlay text-ink-2 cursor-wait'
                               : 'bg-teal-700 text-white hover:bg-teal-600 transition-colors'
                         }`}
                       >

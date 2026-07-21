@@ -32,26 +32,26 @@ export default function ImageNew() {
   return (
     <div className="min-h-screen">
       {/* Top bar */}
-      <div className="border-b border-gray-800 bg-gray-900/50">
+      <div className="border-b border-edge bg-surface">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Link to="/images" className="text-gray-400 hover:text-gray-200 transition-colors">
+          <Link to="/images" className="text-ink-2 hover:text-ink transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </Link>
-          <span className="text-sm font-medium text-gray-300">Generate image</span>
+          <span className="text-sm font-medium text-ink-2">Generate image</span>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
         {result ? (
           <>
-            <div className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 max-w-xs">
+            <div className="rounded-lg border border-edge overflow-hidden bg-surface max-w-xs">
               <img
                 src={result.url}
                 alt={result.prompt_summary || 'Generated image'}
                 className="w-full aspect-[2/3] object-cover"
               />
             </div>
-            <p className="text-sm text-gray-300">Image saved to your library.</p>
+            <p className="text-sm text-ink-2">Image saved to your library.</p>
             <div className="flex items-center gap-3">
               <button onClick={handleGenerateAnother} className="btn btn-primary text-sm">
                 Generate another
@@ -76,10 +76,10 @@ export default function ImageNew() {
               disabled={generating}
             />
             <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-ink-3">
                 Be specific. No celebrity likenesses. No real people.
               </p>
-              <span className="text-xs text-gray-500">{prompt.length}/250</span>
+              <span className="text-xs text-ink-3">{prompt.length}/250</span>
             </div>
 
             <div className="flex items-center gap-3">

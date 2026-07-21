@@ -155,30 +155,30 @@ export default function EditorStudio() {
   const jobOutcome = describeEditorJob(job);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="min-h-screen bg-app text-ink">
       <div className="max-w-3xl mx-auto px-4 py-8">
-        <Link to="/" className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-gray-200 mb-6">
+        <Link to="/" className="inline-flex items-center gap-2 text-sm text-ink-2 hover:text-ink mb-6">
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
 
         <div className="flex items-center gap-3 mb-2">
           <Wand2 className="w-6 h-6 text-violet-400" />
-          <h1 className="text-2xl font-semibold tracking-tight">Editor Studio</h1>
+          <h1 className="font-serif text-3xl font-medium tracking-[-0.02em] text-ink">Editor Studio</h1>
           <span className="text-[11px] font-semibold uppercase tracking-wide text-violet-300 border border-violet-800/60 bg-violet-900/30 rounded-full px-2 py-0.5">
             Beta
           </span>
         </div>
-        <p className="text-sm text-gray-400 mb-8">
+        <p className="text-sm text-ink-2 mb-8">
           Transform an existing character image — same character, new scene or outfit. Upload 1–
           {EDITOR_MAX_SOURCE_IMAGES} source images and describe the change.
         </p>
 
         {/* Character select */}
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">Character</label>
+        <label className="block text-sm font-medium text-ink-2 mb-1.5">Character</label>
         <select
           value={characterId ?? ''}
           onChange={(e) => setCharacterId(e.target.value ? Number(e.target.value) : null)}
-          className="w-full mb-6 bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-600"
+          className="w-full mb-6 bg-surface border border-edge rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-600"
         >
           <option value="" disabled>
             Select a character…
@@ -191,8 +191,8 @@ export default function EditorStudio() {
         </select>
 
         {/* Source images: drag/drop uploader */}
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">
-          Source images <span className="text-gray-500">(1–{EDITOR_MAX_SOURCE_IMAGES})</span>
+        <label className="block text-sm font-medium text-ink-2 mb-1.5">
+          Source images <span className="text-ink-3">(1–{EDITOR_MAX_SOURCE_IMAGES})</span>
         </label>
         <div
           onDragOver={(e) => {
@@ -207,14 +207,14 @@ export default function EditorStudio() {
           }}
           onClick={() => fileInputRef.current?.click()}
           className={`mb-3 border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
-            dragOver ? 'border-violet-500 bg-violet-900/10' : 'border-gray-800 hover:border-gray-700 bg-gray-900/50'
+            dragOver ? 'border-violet-500 bg-violet-900/10' : 'border-edge hover:border-edge-md bg-surface'
           }`}
         >
-          <UploadCloud className="w-6 h-6 mx-auto mb-2 text-gray-500" />
-          <p className="text-sm text-gray-400">
+          <UploadCloud className="w-6 h-6 mx-auto mb-2 text-ink-3" />
+          <p className="text-sm text-ink-2">
             Drag &amp; drop images here, or <span className="text-violet-400">browse</span>
           </p>
-          <p className="text-xs text-gray-600 mt-1">PNG, JPEG, or WebP</p>
+          <p className="text-xs text-ink-3 mt-1">PNG, JPEG, or WebP</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -230,7 +230,7 @@ export default function EditorStudio() {
         {files.length > 0 && (
           <div className="flex gap-3 mb-6">
             {files.map((f, i) => (
-              <div key={`${f.name}-${i}`} className="relative w-24 h-24 rounded-lg overflow-hidden border border-gray-800">
+              <div key={`${f.name}-${i}`} className="relative w-24 h-24 rounded-lg overflow-hidden border border-edge">
                 <img src={previews[i]} alt={f.name} className="w-full h-full object-cover" />
                 <button
                   type="button"
@@ -238,7 +238,7 @@ export default function EditorStudio() {
                     e.stopPropagation();
                     removeFile(i);
                   }}
-                  className="absolute top-1 right-1 bg-black/70 rounded-full p-0.5 text-gray-300 hover:text-white"
+                  className="absolute top-1 right-1 bg-black/70 rounded-full p-0.5 text-ink-2 hover:text-white"
                   aria-label={`Remove ${f.name}`}
                 >
                   <X className="w-3.5 h-3.5" />
@@ -249,19 +249,19 @@ export default function EditorStudio() {
         )}
 
         {/* Prompt */}
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">Prompt</label>
+        <label className="block text-sm font-medium text-ink-2 mb-1.5">Prompt</label>
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={3}
           placeholder="e.g. Summer in a different scene on the beach wearing a blue bikini."
-          className="w-full mb-6 bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:border-violet-600"
+          className="w-full mb-6 bg-surface border border-edge rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:border-violet-600"
         />
 
         {/* Strength slider */}
         <div className="flex items-center justify-between mb-1.5">
-          <label className="text-sm font-medium text-gray-300">Transformation strength</label>
-          <span className="text-sm text-gray-400 tabular-nums">{strength.toFixed(2)}</span>
+          <label className="text-sm font-medium text-ink-2">Transformation strength</label>
+          <span className="text-sm text-ink-2 tabular-nums">{strength.toFixed(2)}</span>
         </div>
         <input
           type="range"
@@ -273,7 +273,7 @@ export default function EditorStudio() {
           className="w-full mb-1 accent-violet-500"
           aria-label="Transformation strength"
         />
-        <div className="flex justify-between text-xs text-gray-600 mb-6">
+        <div className="flex justify-between text-xs text-ink-3 mb-6">
           <span>Subtle (preserve more)</span>
           <span>Stronger change</span>
         </div>
@@ -281,8 +281,8 @@ export default function EditorStudio() {
         {/* Provider selector — admin only */}
         {isAdmin && (
           <>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Provider <span className="text-gray-500">(admin)</span>
+            <label className="block text-sm font-medium text-ink-2 mb-1.5">
+              Provider <span className="text-ink-3">(admin)</span>
             </label>
             <select
               value={provider}
@@ -290,7 +290,7 @@ export default function EditorStudio() {
                 setProvider(e.target.value as typeof provider);
                 saveEditorProvider(localStorage, e.target.value);
               }}
-              className="w-full mb-6 bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-600"
+              className="w-full mb-6 bg-surface border border-edge rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-600"
             >
               {EDITOR_PROVIDERS.map((p) => (
                 <option key={p} value={p}>
@@ -357,7 +357,7 @@ export default function EditorStudio() {
             )}
             {(jobOutcome.kind === 'success' || jobOutcome.kind === 'needs_review') && (
               <div>
-                <h2 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                <h2 className="text-sm font-medium text-ink-2 mb-3 flex items-center gap-2">
                   <ImageIcon className="w-4 h-4 text-violet-400" /> Result
                   {jobOutcome.kind === 'needs_review' && (
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-300 border border-amber-800/60 bg-amber-900/30 rounded-full px-2 py-0.5">
@@ -372,11 +372,11 @@ export default function EditorStudio() {
                   <img
                     src={jobOutcome.imageUrl}
                     alt={job?.prompt ?? 'Editor result'}
-                    className="w-full rounded-xl border border-gray-800"
+                    className="w-full rounded-xl border border-edge"
                   />
                 )}
                 <div className="mt-3 flex items-center justify-between text-sm">
-                  <span className="text-gray-500">
+                  <span className="text-ink-3">
                     Saved to the character's image library
                     {job?.image_id ? ` (image #${job.image_id})` : ''}.
                   </span>
@@ -400,18 +400,18 @@ export default function EditorStudio() {
             so a saved image never shows as a silent/false failure. */}
         {result?.success && (
           <div className="mt-8">
-            <h2 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+            <h2 className="text-sm font-medium text-ink-2 mb-3 flex items-center gap-2">
               <ImageIcon className="w-4 h-4 text-violet-400" /> Result
             </h2>
             {resolveEditorImageUrl(result) && (
               <img
                 src={resolveEditorImageUrl(result)!}
                 alt={result.prompt}
-                className="w-full rounded-xl border border-gray-800"
+                className="w-full rounded-xl border border-edge"
               />
             )}
             <div className="mt-3 flex items-center justify-between text-sm">
-              <span className="text-gray-500">
+              <span className="text-ink-3">
                 Saved to the character's image library
                 {result.image ? ` (image #${result.image.id})` : ''}.
               </span>

@@ -86,7 +86,7 @@ export default function StoryLab() {
 
   const modeCardNewStory = isDiamond
     ? 'border-emerald-200 bg-emerald-50/50 hover:border-emerald-400 hover:bg-emerald-50 shadow-sm'
-    : 'border-gem/25 bg-gem-soft/60 hover:border-gem/40 hover:bg-gem-soft';
+    : 'border-gem/25 bg-gem/[0.06] hover:border-gem/40 hover:bg-gem-soft';
 
   function modeCardActive(accent: 'emerald' | 'violet') {
     if (isDiamond) {

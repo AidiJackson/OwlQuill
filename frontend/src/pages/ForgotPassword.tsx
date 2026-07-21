@@ -52,8 +52,8 @@ export default function ForgotPassword() {
       <div className="max-w-md w-full">
         <div className="flex flex-col items-center gap-4 mb-6">
           <img src="/brand/ficshon-mark-v1.png" alt="Ficshon" className="h-12 w-12 rounded-xl object-contain" />
-          <h1 className="text-3xl font-semibold tracking-tight">Ficshon</h1>
-          <p className="text-gray-400">Roleplay-first social network</p>
+          <h1 className="font-serif text-4xl font-semibold tracking-tight text-ink">Ficshon</h1>
+          <p className="text-ink-2">Roleplay-first social network</p>
         </div>
 
         <div className="card">
@@ -77,8 +77,8 @@ export default function ForgotPassword() {
                 </div>
               )}
 
-              <p className="text-center text-gray-400 mt-4">
-                <Link to="/login" className="text-emerald-500 hover:text-emerald-400">
+              <p className="text-center text-ink-2 mt-4">
+                <Link to="/login" className="text-gem hover:opacity-80">
                   Back to Login
                 </Link>
               </p>
@@ -91,7 +91,7 @@ export default function ForgotPassword() {
                 </div>
               )}
 
-              <p className="text-gray-400 text-sm mb-4">
+              <p className="text-ink-2 text-sm mb-4">
                 Enter your email address and we'll send you a link to reset your password.
               </p>
 
@@ -112,9 +112,9 @@ export default function ForgotPassword() {
                 </button>
               </form>
 
-              <p className="text-center text-gray-400 mt-4">
+              <p className="text-center text-ink-2 mt-4">
                 Remember your password?{' '}
-                <Link to="/login" className="text-emerald-500 hover:text-emerald-400">
+                <Link to="/login" className="text-gem hover:opacity-80">
                   Login
                 </Link>
               </p>

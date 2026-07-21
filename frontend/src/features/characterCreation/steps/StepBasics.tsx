@@ -16,17 +16,17 @@ export default function StepBasics({ data, onChange, onNext }: Props) {
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <div className="mx-auto w-12 h-12 rounded-full bg-emerald-600/20 flex items-center justify-center">
-          <User className="w-6 h-6 text-emerald-400" />
+        <div className="mx-auto w-12 h-12 rounded-full bg-gem-soft flex items-center justify-center">
+          <User className="w-6 h-6 text-gem" />
         </div>
-        <h2 className="text-xl font-semibold text-gray-100">Create Your Character</h2>
-        <p className="text-sm text-gray-400">Start with the basics — you can always refine later.</p>
+        <h2 className="text-xl font-semibold text-ink">Create Your Character</h2>
+        <p className="text-sm text-ink-2">Start with the basics — you can always refine later.</p>
       </div>
 
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1">
-            Name <span className="text-emerald-400">*</span>
+          <label className="block text-sm font-medium text-ink-2 mb-1">
+            Name <span className="text-gem">*</span>
           </label>
           <input
             className="input"
@@ -39,7 +39,7 @@ export default function StepBasics({ data, onChange, onNext }: Props) {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Species</label>
+            <label className="block text-sm font-medium text-ink-2 mb-1">Species</label>
             <input
               className="input"
               placeholder="e.g. Human, Elf"
@@ -48,7 +48,7 @@ export default function StepBasics({ data, onChange, onNext }: Props) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Age</label>
+            <label className="block text-sm font-medium text-ink-2 mb-1">Age</label>
             <input
               className="input"
               placeholder="e.g. 26, Young Adult"
@@ -59,7 +59,7 @@ export default function StepBasics({ data, onChange, onNext }: Props) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1">
+          <label className="block text-sm font-medium text-ink-2 mb-1">
             Gender Presentation
           </label>
           <input

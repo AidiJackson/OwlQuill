@@ -135,14 +135,14 @@ export default function SceneGeneratorPanel({
   };
 
   return (
-    <div className="border border-gray-800 rounded-lg bg-gray-900/50 p-4 space-y-3">
+    <div className="border border-edge rounded-lg bg-surface p-4 space-y-3">
       <div className="flex items-center gap-2">
-        <ImageIcon className="w-4 h-4 text-emerald-400" />
-        <h3 className="text-sm font-medium text-gray-300">
+        <ImageIcon className="w-4 h-4 text-gem" />
+        <h3 className="text-sm font-medium text-ink-2">
           {isCover ? 'Cover Generator' : 'Image Generator'}
         </h3>
         {isCover && (
-          <span className="text-xs text-gray-500 ml-1">— wide banner format</span>
+          <span className="text-xs text-ink-3 ml-1">— wide banner format</span>
         )}
       </div>
 
@@ -165,9 +165,9 @@ export default function SceneGeneratorPanel({
       <div className="flex flex-wrap items-center gap-4">
         {/* Character selector */}
         <div className="flex items-center gap-2 min-w-0">
-          <label className="text-sm text-gray-400 shrink-0">Character</label>
+          <label className="text-sm text-ink-2 shrink-0">Character</label>
           <select
-            className="bg-gray-800 border border-gray-700 rounded-md text-sm text-gray-300 px-3 py-1.5 disabled:opacity-50 focus:outline-none focus:border-gray-600"
+            className="bg-surface-elevated border border-edge-md rounded-md text-sm text-ink-2 px-3 py-1.5 disabled:opacity-50 focus:outline-none focus:border-edge-md"
             value={selectedCharacterId ?? 'none'}
             onChange={(e) =>
               setSelectedCharacterId(e.target.value === 'none' ? null : Number(e.target.value))
@@ -187,7 +187,7 @@ export default function SceneGeneratorPanel({
             OpenAI (option1) is admin-only, internal testing.
             The experimental FLUX/Together providers are hidden — see header note. */}
         {SHOW_PROVIDER_TOGGLE && (
-          <div className="flex items-center gap-1 rounded-md border border-gray-700 overflow-hidden text-xs">
+          <div className="flex items-center gap-1 rounded-md border border-edge-md overflow-hidden text-xs">
             <button
               type="button"
               onClick={() => setProviderOption('option2')}
@@ -195,8 +195,8 @@ export default function SceneGeneratorPanel({
               title="Google — the recommended Canon image provider"
               className={`px-3 py-1 transition-colors ${
                 providerOption === 'option2'
-                  ? 'bg-emerald-700 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-emerald-900/40 hover:text-emerald-300'
+                  ? 'bg-gem text-white'
+                  : 'bg-surface-elevated text-ink-2 hover:bg-gem-soft hover:text-gem'
               }`}
             >
               Canon · Recommended
@@ -210,7 +210,7 @@ export default function SceneGeneratorPanel({
                 className={`px-3 py-1 transition-colors ${
                   providerOption === 'option1'
                     ? 'bg-amber-700 text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-amber-900/40 hover:text-amber-300'
+                    : 'bg-surface-elevated text-ink-2 hover:bg-amber-900/40 hover:text-amber-300'
                 }`}
               >
                 OpenAI · Admin
@@ -225,7 +225,7 @@ export default function SceneGeneratorPanel({
                 className={`px-3 py-1 transition-colors ${
                   providerOption === 'option6'
                     ? 'bg-sky-700 text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-sky-900/40 hover:text-sky-300'
+                    : 'bg-surface-elevated text-ink-2 hover:bg-sky-900/40 hover:text-sky-300'
                 }`}
               >
                 Grok · Admin
@@ -250,7 +250,7 @@ export default function SceneGeneratorPanel({
       )}
 
       <div className="flex items-center justify-between">
-        <span className={`text-xs ${prompt.length >= MAX_PROMPT_LENGTH ? 'text-red-400' : 'text-gray-500'}`}>
+        <span className={`text-xs ${prompt.length >= MAX_PROMPT_LENGTH ? 'text-red-400' : 'text-ink-3'}`}>
           {prompt.length} / {MAX_PROMPT_LENGTH}
         </span>
         <button
@@ -289,11 +289,11 @@ export default function SceneGeneratorPanel({
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             onClick={() => setShowAdultNudge(false)}
           />
-          <div className="relative z-10 w-full max-w-md bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl p-6 space-y-4">
-            <h2 className="text-base font-semibold text-gray-100">
+          <div className="relative z-10 w-full max-w-md bg-app border border-edge rounded-2xl shadow-2xl p-6 space-y-4">
+            <h2 className="text-base font-semibold text-ink">
               Looks like adult-adjacent content
             </h2>
-            <p className="text-sm leading-relaxed text-gray-300">
+            <p className="text-sm leading-relaxed text-ink-2">
               This looks like adult-adjacent content. For stronger identity consistency in
               swimwear, lingerie, underwear, and mature scenes, try our upcoming 18+ Studio.
             </p>

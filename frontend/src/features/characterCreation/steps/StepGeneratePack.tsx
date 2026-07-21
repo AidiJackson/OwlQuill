@@ -242,13 +242,13 @@ export default function StepGeneratePack({
 
   const renderSection = (title: string, slots: string[]) => (
     <div className="space-y-2">
-      <h3 className="text-sm font-medium text-gray-300">{title}</h3>
+      <h3 className="text-sm font-medium text-ink-2">{title}</h3>
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
         {slots.map((slot) => {
           const card = cardBySlot.get(slot);
           const url = card?.url ? resolveImageUrl(card.url) : null;
           return (
-            <div key={slot} className="rounded-lg overflow-hidden border border-gray-800">
+            <div key={slot} className="rounded-lg overflow-hidden border border-edge">
               {url ? (
                 <button
                   type="button"
@@ -261,12 +261,12 @@ export default function StepGeneratePack({
                   </div>
                 </button>
               ) : (
-                <div className="w-full aspect-[2/3] bg-gray-800 flex items-center justify-center">
-                  <span className="text-[10px] text-gray-600">—</span>
+                <div className="w-full aspect-[2/3] bg-surface-elevated flex items-center justify-center">
+                  <span className="text-[10px] text-ink-3">—</span>
                 </div>
               )}
-              <div className="px-1.5 py-1 text-center bg-gray-900">
-                <span className="text-[11px] text-gray-400">{V2_SLOT_LABELS[slot] || slot}</span>
+              <div className="px-1.5 py-1 text-center bg-surface">
+                <span className="text-[11px] text-ink-2">{V2_SLOT_LABELS[slot] || slot}</span>
               </div>
             </div>
           );
@@ -278,20 +278,20 @@ export default function StepGeneratePack({
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <div className="mx-auto w-12 h-12 rounded-full bg-emerald-600/20 flex items-center justify-center">
-          <ImageIcon className="w-6 h-6 text-emerald-400" />
+        <div className="mx-auto w-12 h-12 rounded-full bg-gem-soft flex items-center justify-center">
+          <ImageIcon className="w-6 h-6 text-gem" />
         </div>
-        <h2 className="text-xl font-semibold text-gray-100">Generate Identity Pack</h2>
-        <p className="text-sm text-gray-400">
+        <h2 className="text-xl font-semibold text-ink">Generate Identity Pack</h2>
+        <p className="text-sm text-ink-2">
           We'll create your character's full visual canon — face, body, and details.
         </p>
       </div>
 
       {/* Body Identity (applied to the whole pack) */}
-      <div className="border border-gray-800 rounded-lg px-4 py-4 space-y-4">
-        <p className="text-sm font-medium text-gray-300">Body Identity</p>
+      <div className="border border-edge rounded-lg px-4 py-4 space-y-4">
+        <p className="text-sm font-medium text-ink-2">Body Identity</p>
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-gray-400">Height</span>
+          <span className="text-xs font-medium text-ink-2">Height</span>
           <div className="flex gap-2">
             {BODY_HEIGHT_OPTIONS.map((opt) => (
               <button
@@ -300,8 +300,8 @@ export default function StepGeneratePack({
                 onClick={() => onBodyMorphologyChange({ ...bodyMorphology, height: opt.value })}
                 className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
                   bodyMorphology.height === opt.value
-                    ? 'bg-emerald-600 border-emerald-500 text-white'
-                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+                    ? 'bg-gem border-gem/50 text-white'
+                    : 'bg-surface-elevated border-edge-md text-ink-2 hover:border-edge-md'
                 }`}
               >
                 {opt.label}
@@ -310,7 +310,7 @@ export default function StepGeneratePack({
           </div>
         </div>
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-gray-400">Build</span>
+          <span className="text-xs font-medium text-ink-2">Build</span>
           <div className="flex flex-wrap gap-2">
             {BODY_BUILD_OPTIONS.map((opt) => (
               <button
@@ -319,8 +319,8 @@ export default function StepGeneratePack({
                 onClick={() => onBodyMorphologyChange({ ...bodyMorphology, build: opt.value })}
                 className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
                   bodyMorphology.build === opt.value
-                    ? 'bg-emerald-600 border-emerald-500 text-white'
-                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'
+                    ? 'bg-gem border-gem/50 text-white'
+                    : 'bg-surface-elevated border-edge-md text-ink-2 hover:border-edge-md'
                 }`}
               >
                 {opt.label}
@@ -331,10 +331,10 @@ export default function StepGeneratePack({
       </div>
 
       <div className="text-center space-y-1">
-        <p className="text-sm font-medium text-gray-300">
+        <p className="text-sm font-medium text-ink-2">
           Locking facial identity first — outfits come next.
         </p>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-ink-3">
           This pack creates your character's visual canon (13 reference cards).
         </p>
       </div>
@@ -359,13 +359,13 @@ export default function StepGeneratePack({
 
       {jobActive && (
         <div className="max-w-sm mx-auto space-y-2" aria-live="polite">
-          <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+          <div className="h-1.5 rounded-full bg-surface-elevated overflow-hidden">
             <div
-              className="h-full bg-emerald-500 rounded-full transition-all duration-700"
+              className="h-full bg-gem rounded-full transition-all duration-700"
               style={{ width: `${Math.max(2, job?.progress_percent ?? 0)}%` }}
             />
           </div>
-          <p className="text-xs text-gray-400 text-center">
+          <p className="text-xs text-ink-2 text-center">
             {job?.progress_message || 'Waiting to start…'}
             {' '}— you can safely leave this page; generation continues in the background.
           </p>
@@ -374,7 +374,7 @@ export default function StepGeneratePack({
 
       {notice && !error && (
         <div className="text-center">
-          <p className="text-sm text-emerald-300 bg-emerald-600/10 border border-emerald-700/40 rounded-lg px-4 py-2">
+          <p className="text-sm text-gem bg-gem-soft border border-gem/30 rounded-lg px-4 py-2">
             {notice}
           </p>
         </div>
@@ -382,10 +382,10 @@ export default function StepGeneratePack({
 
       {error && (
         <div className="text-center space-y-2">
-          <p className="text-sm text-gray-400 bg-gray-800/60 rounded-lg px-4 py-2">{error}</p>
+          <p className="text-sm text-ink-2 bg-surface-elevated rounded-lg px-4 py-2">{error}</p>
           <button
             type="button"
-            className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+            className="text-xs text-gem hover:opacity-80 transition-colors"
             onClick={handleRetry}
             disabled={busy}
           >
@@ -397,8 +397,8 @@ export default function StepGeneratePack({
       {busy && (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {Array.from({ length: 13 }).map((_, i) => (
-            <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
-              <div className="w-full aspect-[2/3] bg-gray-800 animate-pulse" />
+            <div key={i} className="rounded-lg overflow-hidden border border-edge">
+              <div className="w-full aspect-[2/3] bg-surface-elevated animate-pulse" />
             </div>
           ))}
         </div>
@@ -410,21 +410,21 @@ export default function StepGeneratePack({
           {renderSection('Body', BODY_ORDER)}
           {pack.marks.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-gray-300">Details</h3>
+              <h3 className="text-sm font-medium text-ink-2">Details</h3>
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {pack.marks.map((m) => {
                   const url = m.detail_crop_url ? resolveImageUrl(m.detail_crop_url) : null;
                   return (
-                    <div key={m.mark_id} className="rounded-lg overflow-hidden border border-gray-800">
+                    <div key={m.mark_id} className="rounded-lg overflow-hidden border border-edge">
                       {url ? (
                         <button type="button" onClick={() => setEnlarged(url)} className="block w-full">
                           <img src={url} alt={m.label} className="w-full aspect-[2/3] object-cover" />
                         </button>
                       ) : (
-                        <div className="w-full aspect-[2/3] bg-gray-800" />
+                        <div className="w-full aspect-[2/3] bg-surface-elevated" />
                       )}
-                      <div className="px-1.5 py-1 text-center bg-gray-900">
-                        <span className="text-[11px] text-gray-400 truncate block">{m.label}</span>
+                      <div className="px-1.5 py-1 text-center bg-surface">
+                        <span className="text-[11px] text-ink-2 truncate block">{m.label}</span>
                       </div>
                     </div>
                   );

@@ -17,7 +17,7 @@ export default function Characters() {
   if (!authUser) {
     return (
       <div className="flex justify-center py-16">
-        <div className="w-8 h-8 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-gem/50 border-t-gem rounded-full animate-spin" />
       </div>
     );
   }
@@ -209,7 +209,7 @@ function CharacterManagement() {
   return (
     <div className="max-w-4xl mx-auto p-8">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">My Characters</h1>
+        <h1 className="font-serif text-4xl font-medium tracking-[-0.02em] text-ink">My Characters</h1>
         {hasUnlimitedCharacters ? (
           // Founder (admin/seeder): always show create actions, no beta-limit badge
           <div className="flex gap-2">
@@ -228,7 +228,7 @@ function CharacterManagement() {
           </div>
         ) : characters.length === 0 && cooldownInfo ? (
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 bg-gray-800 px-3 py-1.5 rounded-full">
+            <span className="text-xs text-ink-3 bg-surface-elevated px-3 py-1.5 rounded-full">
               Beta limit: 1 character per account
             </span>
             <span className="text-xs text-amber-400 bg-amber-400/10 px-3 py-1.5 rounded-full">
@@ -252,7 +252,7 @@ function CharacterManagement() {
           </div>
         ) : (
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500 bg-gray-800 px-3 py-1.5 rounded-full">
+            <span className="text-xs text-ink-3 bg-surface-elevated px-3 py-1.5 rounded-full">
               Beta limit: 1 character per account
             </span>
             {draftCharacters.length > 0 ? (
@@ -277,7 +277,7 @@ function CharacterManagement() {
       {/* Search */}
       <div className="mb-6 space-y-3">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-3" />
           <input
             className="input pl-10"
             placeholder="Search characters..."
@@ -287,20 +287,20 @@ function CharacterManagement() {
         </div>
 
         {searchLoading && (
-          <p className="text-sm text-gray-500">Searching…</p>
+          <p className="text-sm text-ink-3">Searching…</p>
         )}
 
         {!searchLoading && hasSearched && searchResults.length === 0 && (
-          <p className="text-sm text-gray-500">No characters found.</p>
+          <p className="text-sm text-ink-3">No characters found.</p>
         )}
 
         {searchResults.length > 0 && (
-          <div className="border border-gray-800 rounded-lg divide-y divide-gray-800 bg-gray-900">
+          <div className="border border-edge rounded-lg divide-y divide-edge bg-surface">
             {searchResults.filter((r) => !draftIds.has(r.id)).map((r) => (
               <Link
                 key={r.id}
                 to={`/characters/${r.id}`}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-gray-800/60 transition-colors"
+                className="flex items-center gap-3 px-4 py-3 hover:bg-surface-elevated transition-colors"
               >
                 {r.avatar_url ? (
                   <img
@@ -310,12 +310,12 @@ function CharacterManagement() {
                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                   />
                 ) : (
-                  <div className="w-9 h-9 rounded-lg bg-gray-800 flex-shrink-0" />
+                  <div className="w-9 h-9 rounded-lg bg-surface-elevated flex-shrink-0" />
                 )}
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-100 truncate">{r.name}</p>
+                  <p className="text-sm font-medium text-ink truncate">{r.name}</p>
                   {(r.species || r.short_bio) && (
-                    <p className="text-xs text-gray-500 truncate">
+                    <p className="text-xs text-ink-3 truncate">
                       {r.species ? `${r.species} · ` : ''}{r.short_bio || ''}
                     </p>
                   )}
@@ -402,7 +402,7 @@ function CharacterManagement() {
                   type="button"
                   onClick={handleGenerateBio}
                   disabled={generatingBio}
-                  className="text-sm text-emerald-500 hover:text-emerald-400 disabled:opacity-50"
+                  className="text-sm text-gem hover:opacity-80 disabled:opacity-50"
                 >
                   {generatingBio ? 'Generating...' : '✨ AI Suggest Bio'}
                 </button>
@@ -442,9 +442,9 @@ function CharacterManagement() {
 
       {/* Empty-state guidance — only shown when data is settled and no characters exist */}
       {!loading && characters.length === 0 && (
-        <div className="border border-gray-800 rounded-lg bg-gray-900/50 px-6 py-8 mb-6 text-center space-y-3">
-          <p className="text-base font-semibold text-gray-200">Create your first character</p>
-          <p className="text-sm text-gray-400 max-w-sm mx-auto">
+        <div className="border border-edge rounded-lg bg-surface px-6 py-8 mb-6 text-center space-y-3">
+          <p className="text-base font-semibold text-ink">Create your first character</p>
+          <p className="text-sm text-ink-2 max-w-sm mx-auto">
             Characters unlock identity-locked scenes, posting, and roleplay.
           </p>
           <div className="pt-1">
@@ -463,7 +463,7 @@ function CharacterManagement() {
           <Link
             key={character.id}
             to={`/characters/${character.id}`}
-            className="card flex gap-4 hover:border-gray-600 transition-colors no-underline text-inherit"
+            className="card flex gap-4 hover:border-edge-md transition-colors no-underline text-inherit"
           >
             {character.portrait_url && (
               <div className="flex-shrink-0">
@@ -480,19 +480,19 @@ function CharacterManagement() {
             <div className="flex-1">
               <h3 className="text-xl font-semibold">{character.name}</h3>
               {(character.species || character.role || character.era) && (
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-ink-2">
                   {[character.species, character.role, character.era].filter(Boolean).join(' • ')}
                 </p>
               )}
               {character.short_bio && (
-                <p className="text-gray-300 mt-2">{character.short_bio}</p>
+                <p className="text-ink-2 mt-2">{character.short_bio}</p>
               )}
               {character.tags && (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {character.tags.split(',').map((tag, i) => (
                     <span
                       key={i}
-                      className="px-2 py-1 bg-emerald-900 text-emerald-300 text-xs rounded"
+                      className="px-2 py-1 bg-gem-soft text-gem text-xs rounded"
                     >
                       {tag.trim()}
                     </span>
@@ -506,7 +506,7 @@ function CharacterManagement() {
 
       {draftCharacters.length > 0 && (
         <div className="mt-10">
-          <h2 className="text-xl font-semibold mb-4 text-gray-300">Draft Characters</h2>
+          <h2 className="text-xl font-semibold mb-4 text-ink-2">Draft Characters</h2>
           <div className="grid gap-3">
             {draftCharacters.map((character) => (
               <div key={character.id} className="card flex items-center gap-4">
@@ -518,9 +518,9 @@ function CharacterManagement() {
                     </span>
                   </div>
                   {character.species && (
-                    <p className="text-sm text-gray-400">{character.species}</p>
+                    <p className="text-sm text-ink-2">{character.species}</p>
                   )}
-                  <p className="text-xs text-gray-500 mt-1">Finish setup to unlock identity.</p>
+                  <p className="text-xs text-ink-3 mt-1">Finish setup to unlock identity.</p>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
                   <button

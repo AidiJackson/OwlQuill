@@ -344,25 +344,25 @@ export default function Images() {
   return (
     <div className="min-h-screen">
       {/* Top bar */}
-      <div className="border-b border-gray-800 bg-gray-900/50">
+      <div className="border-b border-edge bg-surface">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Link to="/" className="text-gray-400 hover:text-gray-200 transition-colors">
+          <Link to="/" className="text-ink-2 hover:text-ink transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </Link>
-          <span className="text-sm font-medium text-gray-300">Image Library</span>
+          <span className="text-sm font-medium text-ink-2">Image Library</span>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
         {/* Onboarding nudge — shown when arriving from character creation */}
         {onboardingCharId != null && (
-          <div className="bg-emerald-600/10 border border-emerald-600/20 rounded-lg px-4 py-3 space-y-1">
-            <p className="text-sm font-semibold text-emerald-300">
+          <div className="bg-gem-soft border border-gem/50 rounded-lg px-4 py-3 space-y-1">
+            <p className="text-sm font-semibold text-gem">
               {myCharacters.find((c) => c.id === onboardingCharId)?.name
                 ? `Bring ${myCharacters.find((c) => c.id === onboardingCharId)!.name} to life`
                 : 'Bring your character to life'}
             </p>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-ink-2">
               Generate your first image, then set it as a profile picture or cover.
             </p>
           </div>
@@ -392,7 +392,7 @@ export default function Images() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-fuchsia-200">18+ Studio</p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-xs text-ink-2 mt-0.5">
               Use stronger identity-locking for swimwear, lingerie, underwear, and mature character scenes.
             </p>
           </div>
@@ -415,14 +415,14 @@ export default function Images() {
               <p className="text-xs text-amber-400">
                 You've used all {quota.limit} images for this week.
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-ink-3">
                 {quota.reset_at
                   ? `Your allowance resets ${formatResetTime(quota.reset_at)}.`
                   : 'Your allowance resets weekly.'}
               </p>
             </div>
           ) : (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-ink-3">
               {quota.remaining} of {quota.limit} image{quota.limit !== 1 ? 's' : ''} remaining this week
             </p>
           )
@@ -435,7 +435,7 @@ export default function Images() {
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-gray-400">Loading...</div>
+          <div className="flex items-center justify-center py-16 text-ink-2">Loading...</div>
         ) : images.length === 0 ? (
           <EmptyState
             message={
@@ -459,7 +459,7 @@ export default function Images() {
             {images.map((img) => (
               <button
                 key={img.id}
-                className="rounded-lg border border-gray-800 overflow-hidden bg-gray-900 hover:border-gray-600 transition-colors cursor-pointer text-left"
+                className="rounded-lg border border-edge overflow-hidden bg-surface hover:border-edge-md transition-colors cursor-pointer text-left"
                 onClick={() => openLightbox(img)}
                 title="Click to view or use this image"
               >
@@ -472,7 +472,7 @@ export default function Images() {
                 />
                 {img.prompt_summary && (
                   <div className="px-2 py-1.5">
-                    <p className="text-xs text-gray-400 truncate">{img.prompt_summary}</p>
+                    <p className="text-xs text-ink-2 truncate">{img.prompt_summary}</p>
                   </div>
                 )}
               </button>
@@ -514,7 +514,7 @@ export default function Images() {
                     {myCharacters.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
-                          className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                          className="text-xs px-3 py-1.5 rounded bg-gem hover:bg-gem/90 text-gem-ink transition-colors"
                           onClick={enterCoverEdit}
                         >
                           Set as cover
@@ -535,7 +535,7 @@ export default function Images() {
                       )}
                       <div className="flex items-center justify-between">
                         <button
-                          className="text-xs text-gray-400 hover:text-gray-200 transition-colors flex items-center gap-1"
+                          className="text-xs text-ink-2 hover:text-ink transition-colors flex items-center gap-1"
                           onClick={() => setReportStep(reportStep === 'form' ? 'idle' : 'form')}
                         >
                           <Flag className="w-3 h-3" />
@@ -552,8 +552,8 @@ export default function Images() {
                       </div>
 
                       {reportStep === 'form' && (
-                        <div className="border border-gray-700 rounded-lg p-3 space-y-2 bg-gray-900">
-                          <p className="text-xs font-medium text-gray-300">Report this image</p>
+                        <div className="border border-edge-md rounded-lg p-3 space-y-2 bg-surface">
+                          <p className="text-xs font-medium text-ink-2">Report this image</p>
                           <textarea
                             className="textarea w-full text-sm"
                             rows={2}
@@ -565,13 +565,13 @@ export default function Images() {
                           {reportError && <p className="text-xs text-red-400">{reportError}</p>}
                           <div className="flex gap-2 justify-end">
                             <button
-                              className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                              className="text-xs text-ink-2 hover:text-ink transition-colors"
                               onClick={() => setReportStep('idle')}
                             >
                               Cancel
                             </button>
                             <button
-                              className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-white transition-colors disabled:opacity-50"
+                              className="text-xs px-3 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-white transition-colors disabled:opacity-50"
                               disabled={reportSubmitting || !reportReason.trim()}
                               onClick={handleSubmitReport}
                             >
@@ -582,7 +582,7 @@ export default function Images() {
                       )}
 
                       {reportStep === 'done' && (
-                        <p className="text-xs text-emerald-400">Report submitted. Thank you.</p>
+                        <p className="text-xs text-gem">Report submitted. Thank you.</p>
                       )}
                     </div>
                   </div>
@@ -590,15 +590,15 @@ export default function Images() {
 
                 {/* ── AVATAR EDIT MODE ── drag + zoom */}
                 {lbMode === 'avatarEdit' && (
-                  <div className="space-y-3 bg-gray-900 rounded-lg p-4">
-                    <p className="text-sm font-medium text-gray-200">Set as profile picture</p>
+                  <div className="space-y-3 bg-surface rounded-lg p-4">
+                    <p className="text-sm font-medium text-ink">Set as profile picture</p>
 
                     {/* Character selector */}
                     {myCharacters.length > 1 && (
                       <div className="flex items-center gap-2">
-                        <label className="text-xs text-gray-400 shrink-0">For character</label>
+                        <label className="text-xs text-ink-2 shrink-0">For character</label>
                         <select
-                          className="flex-1 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 px-3 py-1.5 focus:outline-none"
+                          className="flex-1 bg-surface-elevated border border-edge-md rounded-md text-sm text-ink px-3 py-1.5 focus:outline-none"
                           value={assignCharId ?? ''}
                           onChange={(e) => setAssignCharId(e.target.value ? Number(e.target.value) : null)}
                         >
@@ -614,7 +614,7 @@ export default function Images() {
                     <div className="flex flex-col items-center gap-3">
                       <div
                         ref={avatarFrameRef}
-                        className="relative w-40 h-40 rounded-full overflow-hidden border-2 border-gray-600 select-none"
+                        className="relative w-40 h-40 rounded-full overflow-hidden border-2 border-edge-md select-none"
                         style={{ cursor: avatarScale > 1.001 ? 'grab' : 'default', touchAction: 'none' }}
                         onMouseDown={(e) => { e.preventDefault(); startAvatarDrag(e.clientX, e.clientY); }}
                         onTouchStart={(e) => { e.preventDefault(); startAvatarDrag(e.touches[0].clientX, e.touches[0].clientY); }}
@@ -633,7 +633,7 @@ export default function Images() {
 
                       {/* Zoom slider — avatar only */}
                       <div className="flex items-center gap-2 w-48">
-                        <span className="text-xs text-gray-400 shrink-0">Zoom</span>
+                        <span className="text-xs text-ink-2 shrink-0">Zoom</span>
                         <input
                           type="range"
                           min="1"
@@ -641,11 +641,11 @@ export default function Images() {
                           step="0.01"
                           value={avatarScale}
                           onChange={(e) => setAvatarScale(parseFloat(e.target.value))}
-                          className="flex-1 accent-emerald-500"
+                          className="flex-1 accent-[rgb(var(--gem))]"
                           onMouseDown={(e) => e.stopPropagation()}
                           onTouchStart={(e) => e.stopPropagation()}
                         />
-                        <span className="text-xs text-gray-400 w-7 shrink-0">{avatarScale.toFixed(1)}×</span>
+                        <span className="text-xs text-ink-2 w-7 shrink-0">{avatarScale.toFixed(1)}×</span>
                       </div>
                     </div>
 
@@ -653,7 +653,7 @@ export default function Images() {
 
                     <div className="flex items-center gap-2 justify-end">
                       <button
-                        className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-white transition-colors disabled:opacity-50"
+                        className="text-xs px-3 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-white transition-colors disabled:opacity-50"
                         onClick={() => setLbMode('view')}
                         disabled={avatarSaving}
                       >
@@ -686,7 +686,7 @@ export default function Images() {
             <div className="max-w-[1000px] mx-auto px-4 sm:px-8 py-6 space-y-4">
               {/* Header */}
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-gray-200">Set as cover</p>
+                <p className="text-sm font-medium text-ink">Set as cover</p>
                 <button
                   className="p-1.5 rounded-full bg-black/40 text-white hover:bg-black/60"
                   onClick={() => setLbMode('view')}
@@ -698,9 +698,9 @@ export default function Images() {
               {/* Character selector */}
               {myCharacters.length > 1 && (
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-gray-400 shrink-0">For character</label>
+                  <label className="text-xs text-ink-2 shrink-0">For character</label>
                   <select
-                    className="flex-1 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 px-3 py-1.5 focus:outline-none"
+                    className="flex-1 bg-surface-elevated border border-edge-md rounded-md text-sm text-ink px-3 py-1.5 focus:outline-none"
                     value={assignCharId ?? ''}
                     onChange={(e) => setAssignCharId(e.target.value ? Number(e.target.value) : null)}
                   >
@@ -738,14 +738,14 @@ export default function Images() {
 
               <div className="flex items-center gap-2 justify-end">
                 <button
-                  className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-white transition-colors disabled:opacity-50"
+                  className="text-xs px-3 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-white transition-colors disabled:opacity-50"
                   onClick={() => setLbMode('view')}
                   disabled={coverSaving}
                 >
                   Cancel
                 </button>
                 <button
-                  className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  className="text-xs px-3 py-1.5 rounded bg-gem hover:bg-gem/90 text-gem-ink transition-colors disabled:opacity-50 flex items-center gap-1.5"
                   disabled={coverSaving || assignCharId === null}
                   onClick={handleSaveCover}
                 >
@@ -785,11 +785,11 @@ interface EmptyStateProps {
 function EmptyState({ message, primaryAction, secondaryAction }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center text-center py-16 space-y-4">
-      <div className="w-14 h-14 rounded-full bg-emerald-900/40 border border-emerald-600/20 flex items-center justify-center">
-        <Image className="w-7 h-7 text-emerald-400" />
+      <div className="w-14 h-14 rounded-full bg-gem-soft border border-gem/50 flex items-center justify-center">
+        <Image className="w-7 h-7 text-gem" />
       </div>
-      <h2 className="text-lg font-semibold text-gray-200">No images yet</h2>
-      <p className="text-sm text-gray-400 max-w-sm">{message}</p>
+      <h2 className="text-lg font-semibold text-ink">No images yet</h2>
+      <p className="text-sm text-ink-2 max-w-sm">{message}</p>
       {(primaryAction || secondaryAction) && (
         <div className="flex items-center gap-2 pt-1">
           {primaryAction && (

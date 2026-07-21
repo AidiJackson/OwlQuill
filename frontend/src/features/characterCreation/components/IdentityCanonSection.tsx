@@ -74,12 +74,12 @@ export default function IdentityCanonSection({ characterId }: Props) {
   const renderGroup = (title: string, tiles: CanonTile[]) =>
     tiles.length > 0 && (
       <div className="space-y-2">
-        <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wide">{title}</h3>
+        <h3 className="text-xs font-medium text-ink-2 uppercase tracking-wide">{title}</h3>
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {tiles.map((tile) => {
             const url = resolveImageUrl(tile.url);
             return (
-              <div key={tile.key} className="rounded-lg overflow-hidden border border-gray-800">
+              <div key={tile.key} className="rounded-lg overflow-hidden border border-edge">
                 <button
                   type="button"
                   onClick={() => setEnlarged(url)}
@@ -94,8 +94,8 @@ export default function IdentityCanonSection({ characterId }: Props) {
                     <ZoomIn className="w-3 h-3" />
                   </div>
                 </button>
-                <div className="px-1.5 py-1 text-center bg-gray-900">
-                  <span className="text-[11px] text-gray-400 truncate block">{tile.label}</span>
+                <div className="px-1.5 py-1 text-center bg-surface">
+                  <span className="text-[11px] text-ink-2 truncate block">{tile.label}</span>
                 </div>
               </div>
             );
@@ -105,10 +105,10 @@ export default function IdentityCanonSection({ characterId }: Props) {
     );
 
   return (
-    <div className="border-t border-gray-800 pt-6 space-y-4">
+    <div className="border-t border-edge pt-6 space-y-4">
       <div>
-        <h2 className="text-sm font-medium text-gray-300">Identity Canon</h2>
-        <p className="text-xs text-gray-500 mt-0.5">
+        <h2 className="text-sm font-medium text-ink-2">Identity Canon</h2>
+        <p className="text-xs text-ink-3 mt-0.5">
           The character's locked visual reference set.
         </p>
       </div>

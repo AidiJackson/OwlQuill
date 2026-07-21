@@ -57,22 +57,22 @@ export default function PostComposer({ open, onClose, preloadedImage }: Props) {
       <div className="fixed inset-0 bg-black/60 z-50" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
         <div
-          className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-lg shadow-xl space-y-4 p-5"
+          className="bg-surface border border-edge rounded-xl w-full max-w-lg shadow-xl space-y-4 p-5"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-200">New Post</h3>
+            <h3 className="text-sm font-semibold text-ink">New Post</h3>
             <button
               type="button"
               onClick={onClose}
-              className="text-gray-500 hover:text-gray-300 p-1 rounded transition-colors"
+              className="text-ink-3 hover:text-ink-2 p-1 rounded transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {preloadedImage && (
-            <div className="rounded-lg overflow-hidden border border-gray-800 bg-black flex items-center justify-center max-h-56">
+            <div className="rounded-lg overflow-hidden border border-edge bg-black flex items-center justify-center max-h-56">
               <img
                 src={resolveImageUrl(preloadedImage.url)}
                 alt="Attached image"
@@ -100,8 +100,8 @@ export default function PostComposer({ open, onClose, preloadedImage }: Props) {
                 onClick={() => setContentType(t)}
                 className={`text-xs px-2.5 py-1 rounded transition-colors ${
                   contentType === t
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                    ? 'bg-gem text-white'
+                    : 'bg-surface-elevated text-ink-2 hover:bg-surface-overlay hover:text-ink'
                 }`}
               >
                 {t.toUpperCase()}

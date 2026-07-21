@@ -85,8 +85,8 @@ export default function StorySpaceDetail() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="space-y-3 w-64">
-          <div className="h-5 bg-gray-800 rounded animate-pulse w-48" />
-          <div className="h-3 bg-gray-800 rounded animate-pulse w-64" />
+          <div className="h-5 bg-surface-elevated rounded animate-pulse w-48" />
+          <div className="h-3 bg-surface-elevated rounded animate-pulse w-64" />
         </div>
       </div>
     );
@@ -95,7 +95,7 @@ export default function StorySpaceDetail() {
   if (spaceError) {
     return (
       <div className="max-w-xl mx-auto px-6 py-10">
-        <Link to="/spaces" className="text-sm text-gray-500 hover:text-gray-300 transition-colors mb-6 inline-block">
+        <Link to="/spaces" className="text-sm text-ink-3 hover:text-ink-2 transition-colors mb-6 inline-block">
           ← Story Spaces
         </Link>
         <div className="rounded-xl bg-red-900/20 border border-red-700/40 px-4 py-3 text-sm text-red-400">
@@ -110,10 +110,10 @@ export default function StorySpaceDetail() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Top bar */}
-      <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-gray-800/80 bg-gray-950/60 backdrop-blur-sm min-h-0">
+      <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2.5 border-b border-edge bg-app backdrop-blur-sm min-h-0">
         <Link
           to="/spaces"
-          className="text-gray-600 hover:text-gray-400 transition-colors p-1 rounded-lg hover:bg-gray-800"
+          className="text-ink-3 hover:text-ink-2 transition-colors p-1 rounded-lg hover:bg-surface-elevated"
           aria-label="Back to Story Spaces"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -121,15 +121,15 @@ export default function StorySpaceDetail() {
           </svg>
         </Link>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-100 truncate">{space?.name}</p>
+          <p className="text-sm font-semibold text-ink truncate">{space?.name}</p>
           {activeChannel && (
-            <p className="text-[11px] text-gray-600 leading-none mt-0.5 truncate">
+            <p className="text-[11px] text-ink-3 leading-none mt-0.5 truncate">
               {activeChannel.name}
             </p>
           )}
         </div>
         <div className="flex-shrink-0 flex items-center gap-2">
-          <span className="text-[10px] text-gray-700 flex items-center gap-1">
+          <span className="text-[10px] text-ink-3 flex items-center gap-1">
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
@@ -138,7 +138,7 @@ export default function StorySpaceDetail() {
           {spaceId && (
             <Link
               to={`/spaces/${spaceId}/publish`}
-              className="px-3 py-1 rounded-lg bg-emerald-700/30 hover:bg-emerald-700/50 border border-emerald-700/40 text-emerald-400 text-xs font-medium transition-colors"
+              className="px-3 py-1 rounded-lg bg-gem hover:bg-gem border border-gem/30 text-gem text-xs font-medium transition-colors"
             >
               Publish
             </Link>
@@ -149,7 +149,7 @@ export default function StorySpaceDetail() {
       {/* Body: channel sidebar + post area */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Channel sidebar */}
-        <aside className="w-44 flex-shrink-0 border-r border-gray-800/80 overflow-y-auto bg-gray-950">
+        <aside className="w-44 flex-shrink-0 border-r border-edge overflow-y-auto bg-app">
           {space && (
             <ChannelList
               channels={space.channels}

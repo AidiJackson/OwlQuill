@@ -42,7 +42,7 @@ function StepDots({ current, total }: { current: number; total: number }) {
         <div
           key={i}
           className={`h-1.5 rounded-full transition-all duration-200 ${
-            i === current ? 'w-5 bg-emerald-500' : i < current ? 'w-1.5 bg-emerald-700/60' : 'w-1.5 bg-gray-700'
+            i === current ? 'w-5 bg-gem' : i < current ? 'w-1.5 bg-gem' : 'w-1.5 bg-surface-overlay'
           }`}
         />
       ))}
@@ -184,13 +184,13 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
       />
 
       {/* Panel */}
-      <div className="relative z-10 w-full max-w-md bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="relative z-10 w-full max-w-md bg-app border border-edge rounded-2xl shadow-2xl flex flex-col overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-800/60">
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-edge">
           <div>
-            <h2 className="text-base font-semibold text-gray-100">New Story</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <h2 className="font-serif text-lg font-medium text-ink">New Story</h2>
+            <p className="text-xs text-ink-3 mt-0.5">
               {step === 0 && 'Give your story an identity'}
               {step === 1 && 'Set the world (optional)'}
               {step === 2 && 'Add characters (optional)'}
@@ -208,7 +208,7 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
               {/* Cover color + title row */}
               <div className="flex items-start gap-3">
                 <div
-                  className="w-10 h-10 rounded-xl shrink-0 border border-gray-700/60 mt-0.5"
+                  className="w-10 h-10 rounded-xl shrink-0 border border-edge-md mt-0.5"
                   style={{ backgroundColor: coverColor }}
                 />
                 <div className="flex-1">
@@ -219,15 +219,15 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
                     placeholder="Story title"
                     maxLength={200}
                     autoFocus
-                    className="w-full bg-transparent text-gray-100 text-base font-semibold placeholder-gray-600 focus:outline-none border-b border-gray-800 pb-1.5 focus:border-gray-600 transition"
+                    className="w-full bg-transparent text-ink text-base font-semibold placeholder:text-ink-3 focus:outline-none border-b border-edge pb-1.5 focus:border-edge-md transition"
                   />
-                  <p className="text-[10px] text-gray-700 mt-1">{title.length}/200</p>
+                  <p className="text-[10px] text-ink-3 mt-1">{title.length}/200</p>
                 </div>
               </div>
 
               {/* Cover color picker */}
               <div>
-                <p className="text-xs text-gray-500 mb-2">Cover color</p>
+                <p className="text-xs text-ink-3 mb-2">Cover color</p>
                 <div className="flex gap-2">
                   {COVER_COLORS.map((c) => (
                     <button
@@ -235,7 +235,7 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
                       type="button"
                       onClick={() => setCoverColor(c)}
                       className={`w-6 h-6 rounded-lg border-2 transition ${
-                        coverColor === c ? 'border-emerald-400 scale-110' : 'border-transparent hover:border-gray-600'
+                        coverColor === c ? 'border-gem/50 scale-110' : 'border-transparent hover:border-edge-md'
                       }`}
                       style={{ backgroundColor: c }}
                     />
@@ -245,7 +245,7 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
 
               {/* Genre */}
               <div>
-                <p className="text-xs text-gray-500 mb-2">Genre</p>
+                <p className="text-xs text-ink-3 mb-2">Genre</p>
                 <div className="flex flex-wrap gap-1.5">
                   {GENRES.map((g) => (
                     <button
@@ -254,8 +254,8 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
                       onClick={() => setGenre(genre === g.toLowerCase() ? '' : g.toLowerCase())}
                       className={`px-2.5 py-1 text-xs rounded-lg border transition ${
                         genre === g.toLowerCase()
-                          ? 'bg-emerald-600/30 border-emerald-500/60 text-emerald-300'
-                          : 'bg-gray-900/40 border-gray-700/60 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                          ? 'bg-gem-soft border-gem/50 text-gem'
+                          : 'bg-surface border-edge-md text-ink-2 hover:border-edge-md hover:text-ink-2'
                       }`}
                     >
                       {g}
@@ -266,14 +266,14 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
 
               {/* Premise */}
               <div>
-                <p className="text-xs text-gray-500 mb-2">Opening premise <span className="text-gray-700">(optional)</span></p>
+                <p className="text-xs text-ink-3 mb-2">Opening premise <span className="text-ink-3">(optional)</span></p>
                 <textarea
                   value={premise}
                   onChange={(e) => setPremise(e.target.value)}
                   placeholder="What's the spark? A sentence or two is fine."
                   rows={3}
                   maxLength={1000}
-                  className="w-full resize-none rounded-xl bg-gray-900/60 border border-gray-800/70 p-3 text-sm text-gray-200 placeholder-gray-700 focus:outline-none focus:border-gray-600 transition leading-relaxed"
+                  className="w-full resize-none rounded-xl bg-surface border border-edge p-3 text-sm text-ink placeholder-gray-700 focus:outline-none focus:border-edge-md transition leading-relaxed"
                 />
               </div>
             </>
@@ -282,7 +282,7 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
           {/* ── Step 1: World ─────────────────────────────────────────────── */}
           {step === 1 && (
             <>
-              <p className="text-xs text-gray-500 leading-relaxed">
+              <p className="text-xs text-ink-3 leading-relaxed">
                 Bind your story to one of your realms to pull in its lore and setting.
               </p>
 
@@ -291,17 +291,17 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
                 value={realmSearch}
                 onChange={(e) => setRealmSearch(e.target.value)}
                 placeholder="Search realms…"
-                className="w-full rounded-xl bg-gray-900/60 border border-gray-800/70 px-3 py-2 text-sm text-gray-200 placeholder-gray-700 focus:outline-none focus:border-gray-600 transition"
+                className="w-full rounded-xl bg-surface border border-edge px-3 py-2 text-sm text-ink placeholder-gray-700 focus:outline-none focus:border-edge-md transition"
               />
 
               {loadingRealms ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-10 bg-gray-900/60 rounded-xl animate-pulse" />
+                    <div key={i} className="h-10 bg-surface rounded-xl animate-pulse" />
                   ))}
                 </div>
               ) : filteredRealms.length === 0 ? (
-                <p className="text-xs text-gray-600 text-center py-4">
+                <p className="text-xs text-ink-3 text-center py-4">
                   {realms.length === 0 ? 'No realms yet — you can skip this.' : 'No matching realms.'}
                 </p>
               ) : (
@@ -312,8 +312,8 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
                     onClick={() => setSelectedRealm(null)}
                     className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm transition ${
                       selectedRealm === null
-                        ? 'border-emerald-500/50 bg-emerald-900/20 text-emerald-300'
-                        : 'border-gray-800/60 bg-gray-900/40 text-gray-500 hover:border-gray-700 hover:text-gray-400'
+                        ? 'border-gem/50 bg-gem-soft text-gem'
+                        : 'border-edge bg-surface text-ink-3 hover:border-edge-md hover:text-ink-2'
                     }`}
                   >
                     Original world (no realm)
@@ -325,15 +325,15 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
                       onClick={() => setSelectedRealm(r)}
                       className={`w-full text-left px-3 py-2.5 rounded-xl border transition ${
                         selectedRealm?.id === r.id
-                          ? 'border-emerald-500/50 bg-emerald-900/20'
-                          : 'border-gray-800/60 bg-gray-900/40 hover:border-gray-700'
+                          ? 'border-gem/50 bg-gem-soft'
+                          : 'border-edge bg-surface hover:border-edge-md'
                       }`}
                     >
-                      <p className={`text-sm font-medium ${selectedRealm?.id === r.id ? 'text-emerald-300' : 'text-gray-300'}`}>
+                      <p className={`text-sm font-medium ${selectedRealm?.id === r.id ? 'text-gem' : 'text-ink-2'}`}>
                         {r.name}
                       </p>
                       {r.tagline && (
-                        <p className="text-[11px] text-gray-600 mt-0.5 truncate">{r.tagline}</p>
+                        <p className="text-[11px] text-ink-3 mt-0.5 truncate">{r.tagline}</p>
                       )}
                     </button>
                   ))}
@@ -345,18 +345,18 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
           {/* ── Step 2: Cast ──────────────────────────────────────────────── */}
           {step === 2 && (
             <>
-              <p className="text-xs text-gray-500 leading-relaxed">
+              <p className="text-xs text-ink-3 leading-relaxed">
                 Add up to {MAX_CAST} of your characters. Their voice and traits will inform the story.
               </p>
 
               {loadingChars ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-12 bg-gray-900/60 rounded-xl animate-pulse" />
+                    <div key={i} className="h-12 bg-surface rounded-xl animate-pulse" />
                   ))}
                 </div>
               ) : characters.length === 0 ? (
-                <p className="text-xs text-gray-600 text-center py-4">
+                <p className="text-xs text-ink-3 text-center py-4">
                   No characters yet — you can skip this.
                 </p>
               ) : (
@@ -372,30 +372,30 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
                         onClick={() => toggleCast(c.id)}
                         className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${
                           selected
-                            ? 'border-emerald-500/50 bg-emerald-900/20'
+                            ? 'border-gem/50 bg-gem-soft'
                             : disabled
-                              ? 'border-gray-800/40 bg-gray-900/20 opacity-40 cursor-not-allowed'
-                              : 'border-gray-800/60 bg-gray-900/40 hover:border-gray-700'
+                              ? 'border-edge bg-surface opacity-40 cursor-not-allowed'
+                              : 'border-edge bg-surface hover:border-edge-md'
                         }`}
                       >
                         {/* Avatar */}
-                        <div className="w-8 h-8 rounded-full shrink-0 bg-gray-800 overflow-hidden flex items-center justify-center">
+                        <div className="w-8 h-8 rounded-full shrink-0 bg-surface-elevated overflow-hidden flex items-center justify-center">
                           {c.avatar_url ? (
                             <img src={c.avatar_url} alt={c.name} className="w-full h-full object-cover" />
                           ) : (
-                            <span className="text-xs text-gray-500">{c.name[0]}</span>
+                            <span className="text-xs text-ink-3">{c.name[0]}</span>
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium truncate ${selected ? 'text-emerald-300' : 'text-gray-300'}`}>
+                          <p className={`text-sm font-medium truncate ${selected ? 'text-gem' : 'text-ink-2'}`}>
                             {c.name}
                           </p>
                           {c.short_bio && (
-                            <p className="text-[11px] text-gray-600 truncate">{c.short_bio}</p>
+                            <p className="text-[11px] text-ink-3 truncate">{c.short_bio}</p>
                           )}
                         </div>
                         {selected && (
-                          <span className="text-emerald-500 text-xs shrink-0">✓</span>
+                          <span className="text-gem text-xs shrink-0">✓</span>
                         )}
                       </button>
                     );
@@ -404,7 +404,7 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
               )}
 
               {castIds.length > 0 && (
-                <p className="text-[11px] text-gray-600">
+                <p className="text-[11px] text-ink-3">
                   {castIds.length}/{MAX_CAST} characters selected
                 </p>
               )}
@@ -419,11 +419,11 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-800/60 flex items-center justify-between gap-3">
+        <div className="px-6 py-4 border-t border-edge flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={step === 0 ? onCancel : () => setStep((s) => s - 1)}
-            className="px-4 py-2 text-sm rounded-xl border border-gray-700/60 bg-gray-900/40 hover:bg-gray-800/50 hover:border-gray-600 text-gray-400 hover:text-gray-300 transition"
+            className="px-4 py-2 text-sm rounded-xl border border-edge-md bg-surface hover:bg-surface-elevated hover:border-edge-md text-ink-2 hover:text-ink-2 transition"
           >
             {step === 0 ? 'Cancel' : '← Back'}
           </button>
@@ -433,7 +433,7 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
               type="button"
               disabled={step === 0 && !canAdvanceStep1}
               onClick={() => setStep((s) => s + 1)}
-              className="px-5 py-2 text-sm rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-5 py-2 text-sm rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Next →
             </button>
@@ -442,7 +442,7 @@ export default function CreateStoryModal({ onCreated, onCancel }: Props) {
               type="button"
               disabled={submitting || !canAdvanceStep1}
               onClick={() => void handleCreate()}
-              className="px-5 py-2 text-sm rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-5 py-2 text-sm rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {submitting ? 'Creating…' : 'Create Story →'}
             </button>

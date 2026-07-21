@@ -67,17 +67,17 @@ function CreateSpaceModal({ onCreated, onCancel }: CreateModalProps) {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
 
       {/* Panel */}
-      <div className="relative z-10 w-full max-w-md bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="relative z-10 w-full max-w-md bg-app border border-edge rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-800/60">
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-edge">
           <div>
-            <h2 className="text-base font-semibold text-gray-100">New Story Space</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Private — invite only</p>
+            <h2 className="text-base font-semibold text-ink">New Story Space</h2>
+            <p className="text-xs text-ink-3 mt-0.5">Private — invite only</p>
           </div>
           <button
             type="button"
             onClick={onCancel}
-            className="text-gray-600 hover:text-gray-400 transition-colors p-1 rounded-lg hover:bg-gray-800"
+            className="text-ink-3 hover:text-ink-2 transition-colors p-1 rounded-lg hover:bg-surface-elevated"
             aria-label="Close"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -90,7 +90,7 @@ function CreateSpaceModal({ onCreated, onCancel }: CreateModalProps) {
         <form onSubmit={handleSubmit}>
           <div className="px-6 py-5 space-y-4">
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5">
+              <label className="block text-xs font-medium text-ink-2 mb-1.5">
                 Name <span className="text-red-500">*</span>
               </label>
               <input
@@ -101,20 +101,20 @@ function CreateSpaceModal({ onCreated, onCancel }: CreateModalProps) {
                 placeholder="e.g. Ashenveil Chronicles"
                 maxLength={100}
                 required
-                className="w-full rounded-xl bg-gray-900/60 border border-gray-800/70 px-3 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-emerald-700/60 transition"
+                className="w-full rounded-xl bg-surface border border-edge px-3 py-2.5 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:border-gem/30 transition"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5">
-                Description <span className="text-gray-600">(optional)</span>
+              <label className="block text-xs font-medium text-ink-2 mb-1.5">
+                Description <span className="text-ink-3">(optional)</span>
               </label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="What's this space for?"
                 rows={3}
-                className="w-full resize-none rounded-xl bg-gray-900/60 border border-gray-800/70 px-3 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-emerald-700/60 transition leading-relaxed"
+                className="w-full resize-none rounded-xl bg-surface border border-edge px-3 py-2.5 text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:border-gem/30 transition leading-relaxed"
               />
             </div>
 
@@ -126,18 +126,18 @@ function CreateSpaceModal({ onCreated, onCancel }: CreateModalProps) {
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-gray-800/60 flex items-center justify-end gap-3">
+          <div className="px-6 py-4 border-t border-edge flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={onCancel}
-              className="px-4 py-2 text-sm rounded-xl border border-gray-700/60 bg-gray-900/40 hover:bg-gray-800/50 hover:border-gray-600 text-gray-400 hover:text-gray-300 transition"
+              className="px-4 py-2 text-sm rounded-xl border border-edge-md bg-surface hover:bg-surface-elevated hover:border-edge-md text-ink-2 hover:text-ink-2 transition"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || !name.trim()}
-              className="px-5 py-2 text-sm rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-5 py-2 text-sm rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {submitting ? 'Creating…' : 'Create Space'}
             </button>
@@ -154,21 +154,21 @@ function SpaceCard({ space, onOpen }: { space: StorySpaceListItem; onOpen: () =>
   const isOwner = space.your_role === 'owner';
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex flex-col gap-3 hover:border-gray-700 transition-colors">
+    <div className="bg-surface border border-edge rounded-xl p-5 flex flex-col gap-3 hover:border-edge-md transition-colors">
       {/* Top row */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <h3 className="text-base font-semibold text-gray-100 truncate">{space.name}</h3>
+          <h3 className="text-base font-semibold text-ink truncate">{space.name}</h3>
           {space.description && (
-            <p className="text-sm text-gray-400 mt-1 line-clamp-2">{space.description}</p>
+            <p className="text-sm text-ink-2 mt-1 line-clamp-2">{space.description}</p>
           )}
         </div>
         {/* Role badge */}
         <span
           className={`flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border ${
             isOwner
-              ? 'bg-emerald-900/40 border-emerald-700/60 text-emerald-400'
-              : 'bg-gray-800 border-gray-700 text-gray-500'
+              ? 'bg-gem-soft border-gem/30 text-gem'
+              : 'bg-surface-elevated border-edge-md text-ink-3'
           }`}
         >
           {isOwner ? 'Owner' : 'Member'}
@@ -176,7 +176,7 @@ function SpaceCard({ space, onOpen }: { space: StorySpaceListItem; onOpen: () =>
       </div>
 
       {/* Meta row */}
-      <div className="flex items-center gap-3 text-xs text-gray-600">
+      <div className="flex items-center gap-3 text-xs text-ink-3">
         <span className="flex items-center gap-1">
           {/* Lock icon */}
           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -184,7 +184,7 @@ function SpaceCard({ space, onOpen }: { space: StorySpaceListItem; onOpen: () =>
           </svg>
           Private · Invite only
         </span>
-        <span className="text-gray-700">·</span>
+        <span className="text-ink-3">·</span>
         <span className="flex items-center gap-1">
           {/* Members icon */}
           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -198,7 +198,7 @@ function SpaceCard({ space, onOpen }: { space: StorySpaceListItem; onOpen: () =>
       <div className="pt-1">
         <button
           onClick={onOpen}
-          className="px-4 py-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-medium transition-colors"
+          className="px-4 py-1.5 text-sm rounded-lg bg-gem hover:bg-gem/90 text-gem-ink font-medium transition-colors"
         >
           Open
         </button>
@@ -244,14 +244,14 @@ export default function StorySpaces() {
       <div className="mb-8">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-100">Story Spaces</h1>
-            <p className="text-sm text-gray-500 mt-1">
+            <h1 className="font-serif text-4xl font-medium tracking-[-0.02em] text-ink">Story Spaces</h1>
+            <p className="text-sm text-ink-3 mt-1">
               Private places to write, plan, and publish with chosen partners.
             </p>
           </div>
           <button
             onClick={() => setShowCreate(true)}
-            className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-sm font-semibold transition-colors"
+            className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink text-sm font-semibold transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -265,10 +265,10 @@ export default function StorySpaces() {
       {loading && (
         <div className="grid gap-4">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl p-5 animate-pulse">
-              <div className="h-4 bg-gray-800 rounded w-48 mb-3" />
-              <div className="h-3 bg-gray-800 rounded w-full mb-2" />
-              <div className="h-3 bg-gray-800 rounded w-2/3" />
+            <div key={i} className="bg-surface border border-edge rounded-xl p-5 animate-pulse">
+              <div className="h-4 bg-surface-elevated rounded w-48 mb-3" />
+              <div className="h-3 bg-surface-elevated rounded w-full mb-2" />
+              <div className="h-3 bg-surface-elevated rounded w-2/3" />
             </div>
           ))}
         </div>
@@ -290,18 +290,18 @@ export default function StorySpaces() {
       {/* Empty state */}
       {!loading && !error && spaces.length === 0 && (
         <div className="text-center py-20 space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-gray-900 border border-gray-800 flex items-center justify-center mx-auto">
-            <svg className="w-6 h-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <div className="w-14 h-14 rounded-2xl bg-surface border border-edge flex items-center justify-center mx-auto">
+            <svg className="w-6 h-6 text-ink-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
             </svg>
           </div>
           <div>
-            <p className="text-gray-400 font-medium">No spaces yet</p>
-            <p className="text-sm text-gray-600 mt-1">Create one or wait for an invite from a collaborator.</p>
+            <p className="text-ink-2 font-medium">No spaces yet</p>
+            <p className="text-sm text-ink-3 mt-1">Create one or wait for an invite from a collaborator.</p>
           </div>
           <button
             onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-colors"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink text-sm font-semibold transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />

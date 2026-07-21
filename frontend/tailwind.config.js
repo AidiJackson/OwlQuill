@@ -28,6 +28,7 @@ export default {
           soft:    'var(--accent-soft)',
           border:  'var(--accent-border)',
           glow:    'var(--accent-glow)',
+          ink:     'var(--gem-ink)',
         },
         app: 'var(--bg)',
         surface: {

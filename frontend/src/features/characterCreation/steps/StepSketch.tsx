@@ -146,8 +146,8 @@ function NoteRow({ label, value }: { label: string; value: string }) {
   if (!value) return null;
   return (
     <div className="flex gap-2 text-xs">
-      <span className="text-gray-500 w-20 flex-shrink-0">{label}</span>
-      <span className="text-gray-300">{value}</span>
+      <span className="text-ink-3 w-20 flex-shrink-0">{label}</span>
+      <span className="text-ink-2">{value}</span>
     </div>
   );
 }
@@ -338,18 +338,18 @@ export default function StepSketch({
       {/* Header */}
       <div className="text-center">
         <div className="flex items-center justify-center gap-2 mb-1">
-          <PenLine className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-lg font-semibold text-gray-100">Sketch</h2>
+          <PenLine className="w-5 h-5 text-gem" />
+          <h2 className="text-lg font-semibold text-ink">Sketch</h2>
         </div>
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-ink-2">
           We've briefed the artist. Now let's see if you recognise them.
         </p>
       </div>
 
       {/* Artist notes summary card */}
       {hasNotes && (
-        <div className="rounded-lg border border-gray-800 bg-gray-900/60 px-4 py-3 space-y-1.5">
-          <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-2">
+        <div className="rounded-lg border border-edge bg-surface px-4 py-3 space-y-1.5">
+          <p className="text-xs text-ink-3 uppercase tracking-wider font-medium mb-2">
             Sketch Artist Notes
           </p>
           <NoteRow label="Gender" value={genderLabel} />
@@ -365,7 +365,7 @@ export default function StepSketch({
 
       {/* Style selector */}
       <div>
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Sketch Style</p>
+        <p className="text-xs text-ink-3 uppercase tracking-wider mb-2">Sketch Style</p>
         <div className="grid grid-cols-3 gap-2">
           {SKETCH_STYLES.map((s) => (
             <button
@@ -373,8 +373,8 @@ export default function StepSketch({
               onClick={() => setSelectedStyle(s.value as SketchStyle)}
               className={`p-3 rounded-lg border text-left transition-colors ${
                 selectedStyle === s.value
-                  ? 'border-emerald-500 bg-emerald-900/30 text-emerald-300'
-                  : 'border-gray-700 bg-gray-800/50 text-gray-400 hover:border-gray-600'
+                  ? 'border-gem/50 bg-gem-soft text-gem'
+                  : 'border-edge-md bg-surface-elevated text-ink-2 hover:border-edge-md'
               }`}
             >
               <p className="text-sm font-medium">{s.label}</p>
@@ -386,7 +386,7 @@ export default function StepSketch({
 
       {/* Lead-in copy before first generation */}
       {!sketch && !loading && (
-        <p className="text-sm text-gray-500 text-center italic">
+        <p className="text-sm text-ink-3 text-center italic">
           "Alright… let's see if I've captured them."
         </p>
       )}
@@ -395,7 +395,7 @@ export default function StepSketch({
       <button
         onClick={handleGenerate}
         disabled={loading || sketchBlocked}
-        className="flex items-center justify-center gap-2 w-full py-3 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex items-center justify-center gap-2 w-full py-3 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? (
           <>
@@ -420,7 +420,7 @@ export default function StepSketch({
       {/* Sketch result */}
       {sketch && (
         <div className="flex flex-col items-center gap-4">
-          <div className="w-full max-w-xs rounded-xl overflow-hidden border border-gray-700 shadow-lg">
+          <div className="w-full max-w-xs rounded-xl overflow-hidden border border-edge-md shadow-lg">
             <img
               src={resolveImageUrl(sketch.image_url)}
               alt={`${sketch.style} character sketch`}
@@ -428,12 +428,12 @@ export default function StepSketch({
             />
           </div>
 
-          <p className="text-sm text-gray-300 font-medium">Do you recognise them?</p>
+          <p className="text-sm text-ink-2 font-medium">Do you recognise them?</p>
 
           {/* Confirm button */}
           <button
             onClick={handleConfirm}
-            className="flex items-center justify-center gap-2 w-full max-w-xs py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
+            className="flex items-center justify-center gap-2 w-full max-w-xs py-3 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink font-medium transition-colors"
           >
             <CheckCircle className="w-4 h-4" />
             Yes — that's them
@@ -445,13 +445,13 @@ export default function StepSketch({
       <div className="flex gap-3">
         <button
           onClick={onBack}
-          className="flex-1 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600 text-sm transition-colors"
+          className="flex-1 py-2 rounded-lg border border-edge-md text-ink-2 hover:text-ink hover:border-edge-md text-sm transition-colors"
         >
           Back
         </button>
         <button
           onClick={() => onConfirmed(sketch?.image_id ?? 0)}
-          className="flex-1 py-2 rounded-lg border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-600 text-sm transition-colors"
+          className="flex-1 py-2 rounded-lg border border-edge-md text-ink-3 hover:text-ink-2 hover:border-edge-md text-sm transition-colors"
         >
           Skip for now
         </button>

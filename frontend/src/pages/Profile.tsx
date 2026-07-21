@@ -64,8 +64,8 @@ export default function Profile() {
   return (
     <div className="max-w-2xl mx-auto p-6 sm:p-8">
       <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold">My Account</h1>
-        <p className="flex items-center gap-1.5 text-sm text-gray-500 mt-1">
+        <h1 className="font-serif text-4xl font-medium tracking-[-0.02em] text-ink">My Account</h1>
+        <p className="flex items-center gap-1.5 text-sm text-ink-3 mt-1">
           <Lock className="w-3.5 h-3.5" />
           Private — only you can see this page. Your public identity on Ficshon is a character.
         </p>
@@ -74,21 +74,21 @@ export default function Profile() {
       {/* Avatar */}
       <div className="card mb-6">
         <div className="flex items-center gap-5 mb-5">
-          <div className="w-20 h-20 rounded-2xl overflow-hidden bg-gray-800 border border-gray-700 flex-shrink-0">
+          <div className="w-20 h-20 rounded-2xl overflow-hidden bg-surface-elevated border border-edge-md flex-shrink-0">
             {user.avatar_url ? (
               <img src={user.avatar_url} alt="Account avatar" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-2xl text-gray-500">
+              <div className="w-full h-full flex items-center justify-center text-2xl text-ink-3">
                 {user.username.charAt(0).toUpperCase()}
               </div>
             )}
           </div>
           <div>
             <h2 className="text-lg font-semibold">Account avatar</h2>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-ink-3">
               Pick a sigil for your account.
-              {saving && <RefreshCw className="inline w-3.5 h-3.5 ml-2 animate-spin text-gray-400" />}
-              {savedFlash && <span className="text-emerald-400 ml-2 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" />Saved</span>}
+              {saving && <RefreshCw className="inline w-3.5 h-3.5 ml-2 animate-spin text-ink-2" />}
+              {savedFlash && <span className="text-gem ml-2 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" />Saved</span>}
             </p>
             {error && <p className="text-sm text-red-400 mt-1">{error}</p>}
           </div>
@@ -105,13 +105,13 @@ export default function Profile() {
                 title={preset.label}
                 className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all disabled:opacity-60 ${
                   selected
-                    ? 'border-emerald-500 shadow-lg shadow-emerald-500/20'
-                    : 'border-transparent hover:border-gray-600'
+                    ? 'border-gem/50 shadow-lg shadow-[var(--accent-glow)]'
+                    : 'border-transparent hover:border-edge-md'
                 }`}
               >
                 <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
                 {selected && (
-                  <span className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
+                  <span className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-gem flex items-center justify-center">
                     <Check className="w-3 h-3 text-white" />
                   </span>
                 )}
@@ -125,15 +125,15 @@ export default function Profile() {
       <div className="card mb-6 space-y-4">
         <h2 className="text-lg font-semibold">Account details</h2>
         <div>
-          <p className="text-sm text-gray-500">Username</p>
+          <p className="text-sm text-ink-3">Username</p>
           <p className="text-base">{user.username}</p>
         </div>
         <div>
-          <p className="text-sm text-gray-500">Email</p>
+          <p className="text-sm text-ink-3">Email</p>
           <p className="text-base">{user.email}</p>
         </div>
         <div>
-          <p className="text-sm text-gray-500">Member since</p>
+          <p className="text-sm text-ink-3">Member since</p>
           <p className="text-base">{joinDate}</p>
         </div>
       </div>
@@ -141,7 +141,7 @@ export default function Profile() {
       {/* Security */}
       <div className="card space-y-3">
         <h2 className="text-lg font-semibold">Security</h2>
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-ink-2">
           To change your password, sign out and use “Forgot password” on the
           login screen — a reset link will be emailed to you.
         </p>

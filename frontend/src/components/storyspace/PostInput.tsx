@@ -49,7 +49,7 @@ export default function PostInput({ onSend, disabled = false, channelType }: Pro
       {error && (
         <p className="text-xs text-red-400 mb-2 px-1">{error}</p>
       )}
-      <div className="flex items-end gap-2 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 focus-within:border-gray-700 transition-colors">
+      <div className="flex items-end gap-2 bg-surface border border-edge rounded-xl px-3 py-2 focus-within:border-edge-md transition-colors">
         <textarea
           ref={textareaRef}
           value={content}
@@ -63,7 +63,7 @@ export default function PostInput({ onSend, disabled = false, channelType }: Pro
           disabled={disabled || sending}
           placeholder={placeholder}
           rows={1}
-          className="flex-1 bg-transparent text-sm text-gray-200 placeholder-gray-600 resize-none focus:outline-none leading-relaxed min-h-[1.5rem] max-h-40 disabled:opacity-50"
+          className="flex-1 bg-transparent text-sm text-ink placeholder:text-ink-3 resize-none focus:outline-none leading-relaxed min-h-[1.5rem] max-h-40 disabled:opacity-50"
           style={{ height: '1.5rem' }}
         />
         <button
@@ -71,7 +71,7 @@ export default function PostInput({ onSend, disabled = false, channelType }: Pro
           onClick={() => void handleSend()}
           disabled={!canSend}
           aria-label="Send"
-          className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white"
+          className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed bg-gem hover:bg-gem/90 text-gem-ink"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 2L11 13" />
@@ -79,7 +79,7 @@ export default function PostInput({ onSend, disabled = false, channelType }: Pro
           </svg>
         </button>
       </div>
-      <p className="text-[10px] text-gray-700 mt-1 px-1">
+      <p className="text-[10px] text-ink-3 mt-1 px-1">
         Enter to send · Shift+Enter for new line
       </p>
     </div>

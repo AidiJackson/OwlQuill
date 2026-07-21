@@ -26,8 +26,8 @@ export default function Login() {
       <div className="max-w-md w-full">
         <div className="flex flex-col items-center gap-4 mb-6">
           <img src="/brand/ficshon-mark-v1.png" alt="Ficshon" className="h-12 w-12 rounded-xl object-contain" />
-          <h1 className="text-3xl font-semibold tracking-tight">Ficshon</h1>
-          <p className="text-gray-400">Roleplay-first social network</p>
+          <h1 className="font-serif text-4xl font-semibold tracking-tight text-ink">Ficshon</h1>
+          <p className="text-ink-2">Roleplay-first social network</p>
         </div>
 
         <div className="card">
@@ -68,14 +68,14 @@ export default function Login() {
           </form>
 
           <p className="text-center mt-3">
-            <Link to="/forgot-password" className="text-sm text-gray-400 hover:text-emerald-400">
+            <Link to="/forgot-password" className="text-sm text-ink-2 hover:text-gem">
               Forgot password?
             </Link>
           </p>
 
-          <p className="text-center text-gray-400 mt-4">
+          <p className="text-center text-ink-2 mt-4">
             Don't have an account?{' '}
-            <Link to="/register" className="text-emerald-500 hover:text-emerald-400">
+            <Link to="/register" className="text-gem hover:opacity-80">
               Register
             </Link>
           </p>

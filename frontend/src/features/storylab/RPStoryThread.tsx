@@ -37,17 +37,17 @@ function TurnCard({
     <div className={`flex ${isCharacter ? 'justify-end' : 'justify-start'} mb-4`}>
       <div className={`max-w-[85%] rounded-xl p-4 border ${
         isCharacter
-          ? 'border-emerald-700/50 bg-emerald-950/40'
-          : 'border-gray-700/50 bg-gray-900/60'
+          ? 'border-gem/30 bg-gem/[0.06]'
+          : 'border-edge-md bg-black/20'
       } ${theme === 'dark' ? 'text-white' : ''}`}>
         <div className="flex items-center gap-2 mb-2">
           <span className={`text-xs font-semibold tracking-wide uppercase ${
-            isCharacter ? 'text-emerald-400' : 'text-gray-400'
+            isCharacter ? 'text-gem' : 'text-ink-2'
           }`}>
             {label}
           </span>
           {isCharacter && turn.generated && (
-            <span className="text-[10px] text-gray-600 bg-gray-800 px-1.5 py-0.5 rounded">AI</span>
+            <span className="text-[10px] text-ink-3 bg-surface-elevated px-1.5 py-0.5 rounded">AI</span>
           )}
           {IS_INTERNAL && turn.godmod_detected && (
             <span className="text-[10px] text-amber-400 bg-amber-950/50 px-1.5 py-0.5 rounded">
@@ -57,7 +57,7 @@ function TurnCard({
         </div>
         <div className={`whitespace-pre-wrap text-sm leading-relaxed ${
           theme === 'dark'
-            ? (isCharacter ? 'text-emerald-50' : 'text-gray-200')
+            ? (isCharacter ? 'text-emerald-50' : 'text-ink')
             : (isCharacter ? 'text-emerald-900' : 'text-gray-800')
         }`}>
           {turn.content}
@@ -191,15 +191,15 @@ export default function RPStoryThread({ threadId }: Props) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <span className="text-gray-500 text-sm">Loading…</span>
+      <div className="min-h-screen bg-app flex items-center justify-center">
+        <span className="text-ink-3 text-sm">Loading…</span>
       </div>
     );
   }
 
   if (error || !thread) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="min-h-screen bg-app flex items-center justify-center">
         <span className="text-red-400 text-sm">{error || 'Thread not found.'}</span>
       </div>
     );
@@ -209,20 +209,20 @@ export default function RPStoryThread({ threadId }: Props) {
   const charName = selectedChar?.name || 'Your Character';
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+    <div className="min-h-screen bg-app text-ink flex flex-col">
 
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-gray-950/95 backdrop-blur border-b border-gray-800/50 px-4 py-3">
+      <div className="sticky top-0 z-10 bg-app backdrop-blur border-b border-edge px-4 py-3">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
           <button
             onClick={() => navigate('/rp-stories')}
-            className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
+            className="text-ink-3 hover:text-ink-2 text-sm transition-colors"
           >
             ← Threads
           </button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-base font-semibold text-gray-100 truncate">{thread.title}</h1>
-            <p className="text-xs text-gray-500">
+            <h1 className="font-serif text-lg font-medium text-ink truncate">{thread.title}</h1>
+            <p className="text-xs text-ink-3">
               {partnerLabel} · {thread.turn_count} turn{thread.turn_count !== 1 ? 's' : ''} ·{' '}
               {charName}
             </p>
@@ -234,8 +234,8 @@ export default function RPStoryThread({ threadId }: Props) {
               title="Dark reading panel"
               className={`w-7 h-7 rounded-md border text-xs font-bold transition-colors ${
                 theme === 'dark'
-                  ? 'border-emerald-600 text-emerald-400 bg-emerald-950/40'
-                  : 'border-gray-700 text-gray-500 hover:border-gray-500'
+                  ? 'border-gem/50 text-gem bg-gem/[0.06]'
+                  : 'border-edge-md text-ink-3 hover:border-gray-500'
               }`}
             >
               ◾
@@ -246,7 +246,7 @@ export default function RPStoryThread({ threadId }: Props) {
               className={`w-7 h-7 rounded-md border text-xs font-bold transition-colors ${
                 theme === 'light'
                   ? 'border-gray-300 text-gray-900 bg-white'
-                  : 'border-gray-700 text-gray-400 hover:border-gray-500'
+                  : 'border-edge-md text-ink-2 hover:border-gray-500'
               }`}
             >
               ◽
@@ -255,7 +255,7 @@ export default function RPStoryThread({ threadId }: Props) {
           {thread.status === 'active' && (
             <button
               onClick={handleArchive}
-              className="text-gray-600 hover:text-gray-400 text-xs transition-colors shrink-0"
+              className="text-ink-3 hover:text-ink-2 text-xs transition-colors shrink-0"
             >
               Archive
             </button>
@@ -265,8 +265,8 @@ export default function RPStoryThread({ threadId }: Props) {
 
       {/* Thread archived banner */}
       {thread.status === 'archived' && (
-        <div className="bg-gray-900/70 border-b border-gray-700/40 px-4 py-2 text-center">
-          <span className="text-xs text-gray-500">This thread is archived — read-only.</span>
+        <div className="bg-surface border-b border-edge-md px-4 py-2 text-center">
+          <span className="text-xs text-ink-3">This thread is archived — read-only.</span>
         </div>
       )}
 
@@ -274,7 +274,7 @@ export default function RPStoryThread({ threadId }: Props) {
       <div className={`flex-1 px-4 py-6 ${theme === 'light' ? 'bg-gray-100' : ''}`}>
         <div className="max-w-3xl mx-auto">
           {thread.turns.length === 0 && (
-            <p className="text-center text-gray-600 text-sm py-12">No turns yet.</p>
+            <p className="text-center text-ink-3 text-sm py-12">No turns yet.</p>
           )}
           {thread.turns.map(turn => (
             <TurnCard
@@ -291,19 +291,19 @@ export default function RPStoryThread({ threadId }: Props) {
 
       {/* Action area — only when active */}
       {thread.status === 'active' && (
-        <div className="border-t border-gray-800/60 bg-gray-950/95 backdrop-blur">
+        <div className="border-t border-edge bg-app backdrop-blur">
           <div className="max-w-3xl mx-auto px-4 py-5 space-y-5">
 
             {/* Draft area */}
             {draft && (
-              <div className="rounded-xl border border-emerald-700/40 bg-emerald-950/20 p-4 space-y-3">
+              <div className="rounded-xl border border-gem/30 bg-gem/[0.06] p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wide">
+                  <span className="text-xs font-semibold text-gem uppercase tracking-wide">
                     {charName} — Draft
                   </span>
                   <div className="flex gap-2 text-xs">
                     {IS_INTERNAL && (
-                      <span className="text-gray-600">{draft.model_used} · {draft.generation_time_ms}ms</span>
+                      <span className="text-ink-3">{draft.model_used} · {draft.generation_time_ms}ms</span>
                     )}
                     {draft.godmod_detected && !IS_INTERNAL && (
                       <span className="text-amber-400">Your character stayed in control.</span>
@@ -317,7 +317,7 @@ export default function RPStoryThread({ threadId }: Props) {
                   value={draftText}
                   onChange={e => setDraftText(e.target.value)}
                   rows={8}
-                  className="w-full rounded-lg bg-black/40 border border-gray-700/50 text-gray-100 text-sm p-3 resize-y focus:outline-none focus:border-emerald-600/50 leading-relaxed"
+                  className="w-full rounded-lg bg-black/40 border border-edge-md text-ink text-sm p-3 resize-y focus:outline-none focus:border-gem/50 leading-relaxed"
                 />
                 {IS_INTERNAL && draft.godmod_warnings.length > 0 && (
                   <div className="text-xs text-amber-400/80 space-y-0.5">
@@ -328,20 +328,20 @@ export default function RPStoryThread({ threadId }: Props) {
                   <button
                     onClick={handleSave}
                     disabled={saving || !draftText.trim()}
-                    className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white text-sm font-medium transition-colors"
+                    className="px-4 py-2 rounded-lg bg-gem hover:bg-gem disabled:opacity-40 text-white text-sm font-medium transition-colors"
                   >
                     {saving ? 'Saving…' : 'Save Reply'}
                   </button>
                   <button
                     onClick={handleGenerate}
                     disabled={generating}
-                    className="px-4 py-2 rounded-lg border border-gray-700 hover:border-gray-500 text-gray-300 text-sm transition-colors"
+                    className="px-4 py-2 rounded-lg border border-edge-md hover:border-gray-500 text-ink-2 text-sm transition-colors"
                   >
                     Regenerate
                   </button>
                   <button
                     onClick={() => { setDraft(null); setDraftText(''); }}
-                    className="px-4 py-2 rounded-lg border border-gray-800 hover:border-gray-600 text-gray-500 text-sm transition-colors"
+                    className="px-4 py-2 rounded-lg border border-edge hover:border-edge-md text-ink-3 text-sm transition-colors"
                   >
                     Discard
                   </button>
@@ -351,17 +351,17 @@ export default function RPStoryThread({ threadId }: Props) {
 
             {/* Generate controls — show when last turn is partner */}
             {!draft && lastTurnIsPartner && thread.selected_character_id && (
-              <div className="rounded-xl border border-gray-800/50 bg-gray-900/40 p-4 space-y-3">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              <div className="rounded-xl border border-edge bg-surface p-4 space-y-3">
+                <p className="text-xs font-semibold text-ink-2 uppercase tracking-wide">
                   Generate {charName}'s Reply
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <div>
-                    <label className="text-xs text-gray-500 block mb-1">Length</label>
+                    <label className="text-xs text-ink-3 block mb-1">Length</label>
                     <select
                       value={responseLength}
                       onChange={e => setResponseLength(e.target.value as RPReplyResponseLength)}
-                      className="bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 px-2 py-1.5 focus:outline-none focus:border-emerald-600"
+                      className="bg-surface-elevated border border-edge-md rounded-lg text-sm text-ink px-2 py-1.5 focus:outline-none focus:border-gem/50"
                     >
                       <option value="short">Short</option>
                       <option value="match">Match</option>
@@ -370,11 +370,11 @@ export default function RPStoryThread({ threadId }: Props) {
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500 block mb-1">Intensity</label>
+                    <label className="text-xs text-ink-3 block mb-1">Intensity</label>
                     <select
                       value={intensity}
                       onChange={e => setIntensity(e.target.value as RPReplyIntensity)}
-                      className="bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 px-2 py-1.5 focus:outline-none focus:border-emerald-600"
+                      className="bg-surface-elevated border border-edge-md rounded-lg text-sm text-ink px-2 py-1.5 focus:outline-none focus:border-gem/50"
                     >
                       <option value="standard">Standard</option>
                       <option value="mature">Mature</option>
@@ -388,13 +388,13 @@ export default function RPStoryThread({ threadId }: Props) {
                   placeholder="Optional guidance for this reply…"
                   rows={2}
                   maxLength={2000}
-                  className="w-full rounded-lg bg-gray-800/60 border border-gray-700/50 text-gray-200 text-sm p-2.5 resize-none focus:outline-none focus:border-emerald-600/50 placeholder-gray-600"
+                  className="w-full rounded-lg bg-surface-elevated border border-edge-md text-ink text-sm p-2.5 resize-none focus:outline-none focus:border-gem/50 placeholder:text-ink-3"
                 />
                 {genError && <p className="text-red-400 text-xs">{genError}</p>}
                 <button
                   onClick={handleGenerate}
                   disabled={generating}
-                  className="w-full py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white text-sm font-medium transition-colors"
+                  className="w-full py-2.5 rounded-lg bg-gem hover:bg-gem disabled:opacity-40 text-white text-sm font-medium transition-colors"
                 >
                   {generating ? 'Generating…' : `Generate ${charName}'s Reply`}
                 </button>
@@ -402,15 +402,15 @@ export default function RPStoryThread({ threadId }: Props) {
             )}
 
             {!draft && lastTurnIsPartner && !thread.selected_character_id && (
-              <p className="text-center text-gray-600 text-xs py-2">
+              <p className="text-center text-ink-3 text-xs py-2">
                 No character selected for this thread. Create a new thread with a character to generate replies.
               </p>
             )}
 
             {/* Add partner turn — show when last turn is character (or thread is new with no character turns yet after saving) */}
             {!draft && lastTurnIsCharacter && (
-              <div className="rounded-xl border border-gray-800/50 bg-gray-900/30 p-4 space-y-3">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              <div className="rounded-xl border border-edge bg-surface p-4 space-y-3">
+                <p className="text-xs font-semibold text-ink-3 uppercase tracking-wide">
                   Paste {partnerLabel}'s Reply
                 </p>
                 <textarea
@@ -419,13 +419,13 @@ export default function RPStoryThread({ threadId }: Props) {
                   placeholder={`Paste ${partnerLabel}'s next reply here…`}
                   rows={5}
                   maxLength={20000}
-                  className="w-full rounded-lg bg-gray-800/60 border border-gray-700/50 text-gray-200 text-sm p-3 resize-y focus:outline-none focus:border-gray-600/70 placeholder-gray-600 leading-relaxed"
+                  className="w-full rounded-lg bg-surface-elevated border border-edge-md text-ink text-sm p-3 resize-y focus:outline-none focus:border-edge-md placeholder:text-ink-3 leading-relaxed"
                 />
                 {partnerError && <p className="text-red-400 text-xs">{partnerError}</p>}
                 <button
                   onClick={handleAddPartnerTurn}
                   disabled={addingPartner || !partnerInput.trim()}
-                  className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white text-sm font-medium transition-colors"
+                  className="px-4 py-2 rounded-lg bg-surface-overlay hover:bg-surface-overlay disabled:opacity-40 text-white text-sm font-medium transition-colors"
                 >
                   {addingPartner ? 'Saving…' : `Add ${partnerLabel}'s Reply`}
                 </button>

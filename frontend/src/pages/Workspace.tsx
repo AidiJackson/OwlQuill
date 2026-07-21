@@ -829,9 +829,9 @@ export default function Workspace() {
     return (
       <div className="shrink-0 mt-3 border border-edge rounded-xl bg-surface">
         <div className="px-3 py-2 border-b border-edge flex items-center justify-between">
-          <span className="text-xs font-semibold text-gray-300">Live Checks</span>
+          <span className="text-xs font-semibold text-ink-2">Live Checks</span>
           {checks.length > 0 && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-ink-3">
               {checks.length} {checks.length === 1 ? 'issue' : 'issues'}
             </span>
           )}
@@ -839,7 +839,7 @@ export default function Workspace() {
         {checks.length === 0 ? (
           <div className="px-3 py-2 text-xs text-gem">{'\u2705'} No issues detected</div>
         ) : (
-          <ul className="divide-y divide-gray-800">
+          <ul className="divide-y divide-edge">
             {checks.map((s) => {
               const maxLen = s.kind === 'paragraph' ? 140 : 120;
               const snippet = s.matchText.length > maxLen
@@ -850,10 +850,10 @@ export default function Workspace() {
                   <button
                     type="button"
                     onClick={() => handleSuggestionClick(s.id, s.kind, s.matchText, 'review')}
-                    className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-800/60 transition-colors"
+                    className="w-full text-left px-3 py-2 text-xs text-ink-2 hover:bg-surface-elevated transition-colors"
                   >
                     <div>{snippet}</div>
-                    <div className="mt-1 text-[11px] text-gray-500">{labelFor(s.id)}</div>
+                    <div className="mt-1 text-[11px] text-ink-3">{labelFor(s.id)}</div>
                   </button>
                 </li>
               );
@@ -900,7 +900,7 @@ export default function Workspace() {
 
   function renderPreview(text: string) {
     if (!text.trim()) {
-      return <p className="text-gray-500 text-sm">Nothing to preview yet.</p>;
+      return <p className="text-ink-3 text-sm">Nothing to preview yet.</p>;
     }
 
     // Escape HTML first for safety
@@ -910,7 +910,7 @@ export default function Workspace() {
       .replace(/>/g, '&gt;');
 
     // Scene breaks
-    escaped = escaped.replace(/^---$/gm, `<hr class="${surfaceMode === 'paper' ? 'border-stone-400' : 'border-gray-700'} my-6" />`);
+    escaped = escaped.replace(/^---$/gm, `<hr class="${surfaceMode === 'paper' ? 'border-stone-400' : 'border-edge-md'} my-6" />`);
 
     // Headers
     escaped = escaped.replace(/^## (.*)$/gm, '<h2 class="text-xl font-semibold mt-6 mb-2">$1</h2>');
@@ -926,7 +926,7 @@ export default function Workspace() {
     const htmlParas = escaped.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
 
     if (!htmlParas.length) {
-      return <span className="text-gray-500">Nothing to preview yet.</span>;
+      return <span className="text-ink-3">Nothing to preview yet.</span>;
     }
 
     // All actionable suggestions drive underlines + active highlight
@@ -1019,9 +1019,9 @@ export default function Workspace() {
 
   function renderSidebarContent(variant: 'desktop' | 'drawer') {
     const drawerSelectors = variant === 'drawer' ? (
-      <div className="space-y-3 border-b border-gray-800 pb-4 mb-1">
+      <div className="space-y-3 border-b border-edge pb-4 mb-1">
         <div className="space-y-1">
-          <p className="text-xs text-gray-500">Character</p>
+          <p className="text-xs text-ink-3">Character</p>
           <select
             value={characterId}
             onChange={(e) => setCharacterId(Number(e.target.value))}
@@ -1033,7 +1033,7 @@ export default function Workspace() {
           </select>
         </div>
         <div className="space-y-1">
-          <p className="text-xs text-gray-500">Posting to</p>
+          <p className="text-xs text-ink-3">Posting to</p>
           <select
             value={selectedRealmId ?? ''}
             onChange={(e) => setSelectedRealmId(e.target.value ? Number(e.target.value) : null)}
@@ -1054,50 +1054,50 @@ export default function Workspace() {
           {drawerSelectors}
           <div className="space-y-4">
           {/* Stats card */}
-          <div className="border border-gray-800 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Writing stats</p>
+          <div className="border border-edge rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-ink-2 uppercase tracking-wide">Writing stats</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-              <span className="text-gray-500">Words</span>
-              <span className="text-gray-200">{review.words}</span>
-              <span className="text-gray-500">Sentences</span>
-              <span className="text-gray-200">{review.sentences}</span>
-              <span className="text-gray-500">Paragraphs</span>
-              <span className="text-gray-200">{review.paragraphs}</span>
-              <span className="text-gray-500">Avg sentence</span>
-              <span className="text-gray-200">{Math.round(review.avgSentenceWords)} words</span>
-              <span className="text-gray-500">Readability</span>
-              <span className="text-gray-200">
+              <span className="text-ink-3">Words</span>
+              <span className="text-ink">{review.words}</span>
+              <span className="text-ink-3">Sentences</span>
+              <span className="text-ink">{review.sentences}</span>
+              <span className="text-ink-3">Paragraphs</span>
+              <span className="text-ink">{review.paragraphs}</span>
+              <span className="text-ink-3">Avg sentence</span>
+              <span className="text-ink">{Math.round(review.avgSentenceWords)} words</span>
+              <span className="text-ink-3">Readability</span>
+              <span className="text-ink">
                 {review.readabilityLabel}
                 {review.readabilityScore !== null && (
-                  <span className="text-gray-500"> ({Math.round(review.readabilityScore)})</span>
+                  <span className="text-ink-3"> ({Math.round(review.readabilityScore)})</span>
                 )}
               </span>
             </div>
           </div>
 
           {/* Suggestions card */}
-          <div className="border border-gray-800 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Suggestions</p>
+          <div className="border border-edge rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-ink-2 uppercase tracking-wide">Suggestions</p>
             {review.suggestions.length === 0 ? (
-              <p className="text-sm text-gray-500">No suggestions right now.</p>
+              <p className="text-sm text-ink-3">No suggestions right now.</p>
             ) : (
               <ul className="space-y-1">
                 {review.suggestions.map((s) => (
                   <li
                     key={s.id}
                     onClick={() => handleSuggestionClick(s.id, s.kind, s.matchText)}
-                    className={`flex items-start justify-between gap-2 text-sm text-gray-300 py-2 px-2 rounded-lg transition-colors ${
+                    className={`flex items-start justify-between gap-2 text-sm text-ink-2 py-2 px-2 rounded-lg transition-colors ${
                       s.kind !== 'info' && s.matchText
-                        ? 'cursor-pointer hover:bg-gray-800'
+                        ? 'cursor-pointer hover:bg-surface-elevated'
                         : ''
                     }`}
                   >
                     <div className="flex gap-2 min-w-0">
-                      <span className="text-gray-600 select-none mt-0.5 shrink-0">&bull;</span>
+                      <span className="text-ink-3 select-none mt-0.5 shrink-0">&bull;</span>
                       <span className="flex flex-col gap-0.5">
                         <span>{s.text}</span>
                         {suggestionLabel(s.id) && (
-                          <span className="text-[11px] text-gray-500">{suggestionLabel(s.id)}</span>
+                          <span className="text-[11px] text-ink-3">{suggestionLabel(s.id)}</span>
                         )}
                       </span>
                     </div>
@@ -1115,25 +1115,25 @@ export default function Workspace() {
               </ul>
             )}
             {fixStatus && (
-              <p className="text-xs text-gray-400 pt-1">{fixStatus.msg}</p>
+              <p className="text-xs text-ink-2 pt-1">{fixStatus.msg}</p>
             )}
           </div>
 
           {/* Grammar & Spelling card */}
-          <div className="border border-gray-800 rounded-xl p-4 space-y-2">
+          <div className="border border-edge rounded-xl p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Grammar & Spelling</p>
+              <p className="text-xs font-semibold text-ink-2 uppercase tracking-wide">Grammar & Spelling</p>
               {grammar.status === 'loading' && (
-                <span className="text-xs text-gray-500">Checking…</span>
+                <span className="text-xs text-ink-3">Checking…</span>
               )}
               {grammar.status === 'ok' && visibleGrammarMatches.length > 0 && (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-ink-3">
                   {visibleGrammarMatches.length} {visibleGrammarMatches.length === 1 ? 'issue' : 'issues'}
                 </span>
               )}
             </div>
             {grammar.status === 'loading' && (
-              <p className="text-sm text-gray-500">Analyzing your writing…</p>
+              <p className="text-sm text-ink-3">Analyzing your writing…</p>
             )}
             {grammar.status === 'error' && (
               <p className="text-sm text-red-400">{grammar.error}</p>
@@ -1144,16 +1144,16 @@ export default function Workspace() {
             {grammar.status === 'ok' && visibleGrammarMatches.length > 0 && (
               <ul className="space-y-2">
                 {visibleGrammarMatches.map((m, i) => (
-                  <li key={i} className="text-sm border border-gray-800 rounded-lg p-2 space-y-1">
+                  <li key={i} className="text-sm border border-edge rounded-lg p-2 space-y-1">
                     <button
                       type="button"
                       onClick={() => jumpToRange(m.offset, m.length)}
-                      className="text-left text-gray-200 hover:text-gem transition-colors w-full"
+                      className="text-left text-ink hover:text-gem transition-colors w-full"
                     >
                       {m.shortMessage || m.message}
                     </button>
                     {m.rule.category && (
-                      <p className="text-xs text-gray-500">{m.rule.category}</p>
+                      <p className="text-xs text-ink-3">{m.rule.category}</p>
                     )}
                     <div className="flex flex-wrap gap-1 pt-1">
                       {m.replacements.slice(0, 3).map((r, ri) => (
@@ -1169,7 +1169,7 @@ export default function Workspace() {
                       <button
                         type="button"
                         onClick={() => ignoreGrammarMatch(m)}
-                        className="text-xs px-2 py-0.5 rounded-md bg-gray-800/60 border border-gray-700 text-gray-400 hover:text-gray-200 transition"
+                        className="text-xs px-2 py-0.5 rounded-md bg-surface-elevated border border-edge-md text-ink-2 hover:text-ink transition"
                       >
                         Ignore
                       </button>
@@ -1191,12 +1191,12 @@ export default function Workspace() {
 
         {publishSuccess ? (
           /* ── Post success panel ─────────────────────────────────── */
-          <div className="rounded-xl border border-gem/25 bg-gem-soft/60 p-4 space-y-3">
+          <div className="rounded-xl border border-gem/25 bg-gem/[0.06] p-4 space-y-3">
             <div className="space-y-1">
               <p className="text-sm font-semibold text-gem">Published</p>
-              <p className="text-xs text-gray-400 leading-relaxed">
+              <p className="text-xs text-ink-2 leading-relaxed">
                 Your post is live on{' '}
-                <span className="text-gray-300">
+                <span className="text-ink-2">
                   {publishDestination === '/' ? 'Commons' : selectedRealmName ?? 'the realm'}
                 </span>.
               </p>
@@ -1205,14 +1205,14 @@ export default function Workspace() {
               <button
                 type="button"
                 onClick={() => navigate(publishDestination)}
-                className="w-full py-2 px-3 rounded-lg bg-gem hover:bg-gem/90 text-gray-950 text-xs font-semibold transition"
+                className="w-full py-2 px-3 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink text-xs font-semibold transition"
               >
                 View post
               </button>
               <button
                 type="button"
                 onClick={() => setPublishSuccess(false)}
-                className="w-full py-1.5 px-3 rounded-lg text-gray-500 hover:text-gray-300 text-xs transition"
+                className="w-full py-1.5 px-3 rounded-lg text-ink-3 hover:text-ink-2 text-xs transition"
               >
                 Write another
               </button>
@@ -1222,28 +1222,28 @@ export default function Workspace() {
           /* ── Publish controls ───────────────────────────────────── */
           <>
             {/* Identity summary */}
-            <div className="rounded-lg bg-gray-900/40 border border-gray-800/60 px-3 py-2.5 space-y-1.5">
+            <div className="rounded-lg bg-surface border border-edge px-3 py-2.5 space-y-1.5">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider">To</span>
-                <span className="text-xs text-gray-300 text-right">{selectedRealmName ?? 'Commons'}</span>
+                <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">To</span>
+                <span className="text-xs text-ink-2 text-right">{selectedRealmName ?? 'Commons'}</span>
               </div>
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider">As</span>
+                <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">As</span>
                 <span className="text-xs text-right">
                   {selectedCharName ? (
                     <>
-                      <span className="text-gray-300">{selectedCharName}</span>
+                      <span className="text-ink-2">{selectedCharName}</span>
                       <span className="text-gem/80 font-semibold"> · IC</span>
                     </>
                   ) : (
-                    <span className="text-gray-500">You · OOC</span>
+                    <span className="text-ink-3">You · OOC</span>
                   )}
                 </span>
               </div>
               {hasText && (
-                <div className="flex items-baseline justify-between gap-2 pt-0.5 border-t border-gray-800/50">
-                  <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider">Words</span>
-                  <span className="text-[11px] text-gray-500">
+                <div className="flex items-baseline justify-between gap-2 pt-0.5 border-t border-edge">
+                  <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">Words</span>
+                  <span className="text-[11px] text-ink-3">
                     {body.trim().split(/\s+/).filter(Boolean).length}
                   </span>
                 </div>
@@ -1255,7 +1255,7 @@ export default function Workspace() {
               type="button"
               onClick={handlePublishToCommons}
               disabled={publishing || !body.trim()}
-              className="w-full py-2.5 px-4 rounded-xl bg-gem hover:bg-gem/90 text-gray-950 font-semibold text-sm tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2.5 px-4 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold text-sm tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {publishing
                 ? 'Publishing\u2026'
@@ -1289,7 +1289,7 @@ export default function Workspace() {
           </>
         )}
 
-        <div className="border-t border-gray-800 pt-3 space-y-2">
+        <div className="border-t border-edge pt-3 space-y-2">
           <button
             type="button"
             onClick={async () => {
@@ -1315,10 +1315,10 @@ export default function Workspace() {
             Go to Home &amp; paste
           </button>
           {copyStatus === 'copied' && (
-            <p className="text-xs text-gray-400">Copied.</p>
+            <p className="text-xs text-ink-2">Copied.</p>
           )}
           {copyStatus === 'failed' && (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-ink-3">
               {body.trim()
                 ? 'Copy failed \u2014 select text and copy manually.'
                 : 'Nothing to copy yet.'}
@@ -1326,26 +1326,26 @@ export default function Workspace() {
           )}
         </div>
 
-        <div className="border-t border-gray-800 pt-3">
+        <div className="border-t border-edge pt-3">
           <button
             type="button"
             onClick={clearDraft}
-            className="w-full text-left px-2 py-1.5 text-xs text-gray-600 hover:text-red-400 hover:bg-red-950/20 rounded-lg transition-colors"
+            className="w-full text-left px-2 py-1.5 text-xs text-ink-3 hover:text-red-400 hover:bg-red-950/20 rounded-lg transition-colors"
           >
             Clear draft
           </button>
         </div>
 
         {/* StoryLab CTA */}
-        <div className="border border-gray-800 rounded-xl p-4 space-y-3 bg-gray-900/30">
+        <div className="border border-edge rounded-xl p-4 space-y-3 bg-surface">
           <div className="space-y-0.5">
-            <p className="text-xs font-semibold text-gray-300">Collaborate with StoryLab</p>
-            <p className="text-xs text-gray-500">Co-create scenes with the engine in a dedicated space.</p>
+            <p className="text-xs font-semibold text-ink-2">Collaborate with StoryLab</p>
+            <p className="text-xs text-ink-3">Co-create scenes with the engine in a dedicated space.</p>
           </div>
           <button
             type="button"
             onClick={() => navigate('/storylab')}
-            className="w-full py-1.5 px-4 rounded-lg border border-gem/30 bg-gem-soft/60 hover:bg-gem-soft text-gem text-xs font-medium transition"
+            className="w-full py-1.5 px-4 rounded-lg border border-gem/30 bg-gem/[0.06] hover:bg-gem-soft text-gem text-xs font-medium transition"
           >
             Open StoryLab
           </button>
@@ -1518,12 +1518,12 @@ export default function Workspace() {
           <div className="hidden lg:flex items-center gap-3">
             {/* Character / role selector */}
             <div className={`flex items-center gap-1.5 rounded-lg px-2 py-1 transition-colors ${
-              selectedCharName ? 'bg-gem-soft/60 border border-gem/25' : ''
+              selectedCharName ? 'bg-gem/[0.06] border border-gem/25' : ''
             }`}>
               {selectedCharName && (
                 <span className="w-1.5 h-1.5 rounded-full bg-gem/80 shrink-0" />
               )}
-              <span className="text-[10px] font-medium text-gray-600 uppercase tracking-wider select-none">As</span>
+              <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider select-none">As</span>
               <select
                 value={characterId}
                 onChange={(e) => setCharacterId(Number(e.target.value))}
@@ -1537,8 +1537,8 @@ export default function Workspace() {
               </select>
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border select-none transition-colors ${
                 selectedCharName
-                  ? 'text-gem border-gem/30 bg-gem-soft/60'
-                  : 'text-gray-600 border-gray-800/60 bg-transparent'
+                  ? 'text-gem border-gem/30 bg-gem/[0.06]'
+                  : 'text-ink-3 border-edge bg-transparent'
               }`}>
                 {selectedCharName ? 'IC' : 'OOC'}
               </span>
@@ -1558,34 +1558,34 @@ export default function Workspace() {
               ))}
             </select>
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-ink-3">
             {getSaveLabel()}
           </p>
           {formatFlash && <span className="text-xs text-gem">{formatFlash}</span>}
           {/* Surface mode toggle — Night / Paper */}
-          <div className="flex items-center rounded-md border border-gray-700 overflow-hidden text-xs">
+          <div className="flex items-center rounded-md border border-edge-md overflow-hidden text-xs">
             <button
               type="button"
               onClick={() => setSurfaceMode('night')}
-              className={`px-2 py-1 transition ${surfaceMode === 'night' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`px-2 py-1 transition ${surfaceMode === 'night' ? 'bg-surface-overlay text-white' : 'text-ink-3 hover:text-ink-2'}`}
             >Night</button>
             <button
               type="button"
               onClick={() => setSurfaceMode('paper')}
-              className={`px-2 py-1 transition ${surfaceMode === 'paper' ? 'bg-[#E8E0D0] text-[#1C1917]' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`px-2 py-1 transition ${surfaceMode === 'paper' ? 'bg-[#E8E0D0] text-[#1C1917]' : 'text-ink-3 hover:text-ink-2'}`}
             >Paper</button>
           </div>
           <button
             type="button"
             onClick={() => setFocusMode((v) => !v)}
-            className="text-xs px-2 py-1 rounded-md border border-gray-700 hover:bg-gray-800"
+            className="text-xs px-2 py-1 rounded-md border border-edge-md hover:bg-surface-elevated"
           >
             {focusMode ? 'Exit focus' : 'Focus'}
           </button>
           <button
             type="button"
             onClick={clearDraft}
-            className="text-xs px-2 py-1 rounded-md border border-gray-700 text-gray-500 hover:text-red-400 hover:border-red-800 hover:bg-red-950/30 transition-colors"
+            className="text-xs px-2 py-1 rounded-md border border-edge-md text-ink-3 hover:text-red-400 hover:border-red-800 hover:bg-red-950/30 transition-colors"
           >
             Clear draft
           </button>
@@ -1642,13 +1642,13 @@ export default function Workspace() {
 
           {/* Ambient status row — write mode, fades in once body has content */}
           {mode === 'write' && (
-            <div className={`flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 flex-shrink-0 ${hasText ? 'opacity-100 transition-opacity duration-200' : 'opacity-0 pointer-events-none h-0 overflow-hidden'}`}>
+            <div className={`flex flex-wrap items-center justify-between gap-2 text-xs text-ink-3 flex-shrink-0 ${hasText ? 'opacity-100 transition-opacity duration-200' : 'opacity-0 pointer-events-none h-0 overflow-hidden'}`}>
               <div className="flex flex-wrap items-center gap-2">
                 {selectedCharName && (
                   <>
                     <span className="flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-gem/70 shrink-0" />
-                      <span className="text-gray-300 font-medium">{selectedCharName}</span>
+                      <span className="text-ink-2 font-medium">{selectedCharName}</span>
                     </span>
                     <span className="text-gem/80 text-[10px] font-mono uppercase tracking-wider">IC</span>
                     <span>·</span>
@@ -1661,14 +1661,14 @@ export default function Workspace() {
                 <span>Readability: {review.readabilityLabel === 'N/A' ? '\u2014' : review.readabilityLabel}</span>
               </div>
               {!body.trim() ? (
-                <span className="px-2 py-1 rounded-md bg-gray-900 border border-gray-800 text-gray-600">
+                <span className="px-2 py-1 rounded-md bg-surface border border-edge text-ink-3">
                   Start writing
                 </span>
               ) : (review.longSentenceCount + review.passiveCount) > 0 ? (
                 <button
                   type="button"
                   onClick={() => { setMode('review'); setShowPanel(false); }}
-                  className="px-2 py-1 rounded-md bg-gray-900 border border-gray-800 text-amber-300 hover:text-amber-200 hover:border-gray-700 transition-colors"
+                  className="px-2 py-1 rounded-md bg-surface border border-edge text-amber-300 hover:text-amber-200 hover:border-edge-md transition-colors"
                 >
                   {'\u26a0\ufe0f '}
                   {[
@@ -1715,7 +1715,7 @@ export default function Workspace() {
               Scene break
             </button>
           </div>
-          <p id="writespace-editor-hints" className="text-xs text-gray-500 flex-shrink-0">
+          <p id="writespace-editor-hints" className="text-xs text-ink-3 flex-shrink-0">
             Formatting is Markdown — use the toolbar, then Preview to see it.
           </p>
 
@@ -1727,17 +1727,17 @@ export default function Workspace() {
                   <span className="text-gem font-medium">{selectedCharName}</span>
                   <span className="text-gem/60 text-[10px] font-mono uppercase tracking-wider">IC</span>
                 </div>
-                <p className="text-gray-600 text-xs">Start your scene — in character.</p>
+                <p className="text-ink-3 text-xs">Start your scene — in character.</p>
               </div>
             ) : (
-              <p className="text-gray-500 text-sm text-center mt-8">
+              <p className="text-ink-3 text-sm text-center mt-8">
                 Start writing — tools will appear automatically.
               </p>
             )
           )}
 
           {mode === 'review' && (
-            <p className="text-xs text-gray-500 flex-shrink-0">
+            <p className="text-xs text-ink-3 flex-shrink-0">
               Suggestions appear in the side panel.
             </p>
           )}
@@ -1880,7 +1880,7 @@ export default function Workspace() {
         <button
           onClick={handlePublishToCommons}
           disabled={publishing || !body.trim()}
-          className="flex-1 text-sm h-11 rounded-xl bg-gem hover:bg-gem/90 text-gray-950 font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 text-sm h-11 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Publish
         </button>

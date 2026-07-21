@@ -25,7 +25,7 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
 
   const renderSection = (title: string, slots: string[], selectable: boolean) => (
     <div className="space-y-2">
-      <h3 className="text-sm font-medium text-gray-300">{title}</h3>
+      <h3 className="text-sm font-medium text-ink-2">{title}</h3>
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
         {slots.map((slot) => {
           const idx = indexOfSlot(slot);
@@ -38,13 +38,13 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
               type="button"
               onClick={() => selectable && idx >= 0 && onSelect(idx)}
               className={`rounded-lg overflow-hidden border-2 transition-all relative group ${
-                isSelected ? 'border-emerald-500 ring-2 ring-emerald-500/30' : 'border-gray-800 hover:border-gray-600'
+                isSelected ? 'border-gem/50 ring-2 ring-gem/40' : 'border-edge hover:border-edge-md'
               } ${selectable ? 'cursor-pointer' : 'cursor-default'}`}
             >
               {url ? (
                 <img src={url} alt={V2_SLOT_LABELS[slot] || slot} className="w-full aspect-[2/3] object-cover" />
               ) : (
-                <div className="w-full aspect-[2/3] bg-gray-800" />
+                <div className="w-full aspect-[2/3] bg-surface-elevated" />
               )}
               {url && (
                 <div
@@ -55,13 +55,13 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
                 </div>
               )}
               {isSelected && (
-                <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-emerald-600 text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">
+                <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-gem text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">
                   <Check className="w-2.5 h-2.5" />
                   Primary
                 </div>
               )}
-              <div className="px-1.5 py-1 text-center bg-gray-900">
-                <span className="text-[11px] text-gray-400">{V2_SLOT_LABELS[slot] || slot}</span>
+              <div className="px-1.5 py-1 text-center bg-surface">
+                <span className="text-[11px] text-ink-2">{V2_SLOT_LABELS[slot] || slot}</span>
               </div>
             </button>
           );
@@ -73,8 +73,8 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <h2 className="text-xl font-semibold text-gray-100">Review Your Identity Pack</h2>
-        <p className="text-sm text-gray-400">
+        <h2 className="text-xl font-semibold text-ink">Review Your Identity Pack</h2>
+        <p className="text-sm text-ink-2">
           Your full visual canon. Pick a face card as your primary portrait — tap any image to enlarge.
         </p>
       </div>
@@ -83,21 +83,21 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
       {renderSection('Body', BODY_ORDER, false)}
       {pack.marks.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-medium text-gray-300">Details</h3>
+          <h3 className="text-sm font-medium text-ink-2">Details</h3>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
             {pack.marks.map((m) => {
               const url = m.detail_crop_url ? resolveImageUrl(m.detail_crop_url) : null;
               return (
-                <div key={m.mark_id} className="rounded-lg overflow-hidden border border-gray-800">
+                <div key={m.mark_id} className="rounded-lg overflow-hidden border border-edge">
                   {url ? (
                     <button type="button" onClick={() => setEnlarged(url)} className="block w-full">
                       <img src={url} alt={m.label} className="w-full aspect-[2/3] object-cover" />
                     </button>
                   ) : (
-                    <div className="w-full aspect-[2/3] bg-gray-800" />
+                    <div className="w-full aspect-[2/3] bg-surface-elevated" />
                   )}
-                  <div className="px-1.5 py-1 text-center bg-gray-900">
-                    <span className="text-[11px] text-gray-400 truncate block">{m.label}</span>
+                  <div className="px-1.5 py-1 text-center bg-surface">
+                    <span className="text-[11px] text-ink-2 truncate block">{m.label}</span>
                   </div>
                 </div>
               );

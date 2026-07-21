@@ -90,7 +90,7 @@ export default function MessageNew() {
           <p className="text-sm text-ink-2">
             You need at least one character to send messages.
           </p>
-          <Link to="/characters/new" className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors">
+          <Link to="/characters/new" className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors">
             Create a character
           </Link>
         </div>

@@ -201,7 +201,7 @@ export default function CommentSection({ postId, characters = [], defaultExpande
               <button
                 onClick={handleSubmit}
                 disabled={!content.trim() || submitting}
-                className="px-3 py-1 rounded-lg text-sm font-semibold bg-gem text-gray-950 hover:bg-gem/90 transition-colors disabled:opacity-40"
+                className="px-3 py-1 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors disabled:opacity-40"
               >
                 {submitting ? 'Posting...' : 'Comment'}
               </button>

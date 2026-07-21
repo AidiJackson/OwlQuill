@@ -58,7 +58,7 @@ export default function StoryLabSession() {
   return (
     <div className="min-h-screen bg-app text-ink flex flex-col">
       {/* Story header bar */}
-      <div className="flex items-center gap-3 px-4 md:px-6 py-4 border-b border-edge bg-app/60 backdrop-blur-sm">
+      <div className="flex items-center gap-3 px-4 md:px-6 py-4 border-b border-edge bg-app backdrop-blur-sm">
         <button
           type="button"
           onClick={() => navigate('/storylab')}

@@ -46,8 +46,8 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
   if (locking) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20">
-        <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
-        <p className="text-gray-400 text-sm">Locking identity…</p>
+        <Loader2 className="w-8 h-8 text-gem animate-spin" />
+        <p className="text-ink-2 text-sm">Locking identity…</p>
       </div>
     );
   }
@@ -66,33 +66,33 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <div className="mx-auto w-14 h-14 rounded-full bg-emerald-500/20 flex items-center justify-center">
-          <ShieldCheck className="w-7 h-7 text-emerald-400" />
+        <div className="mx-auto w-14 h-14 rounded-full bg-gem-soft flex items-center justify-center">
+          <ShieldCheck className="w-7 h-7 text-gem" />
         </div>
-        <h2 className="text-xl font-semibold text-gray-100">Identity Locked</h2>
-        <p className="text-sm text-gray-400">
+        <h2 className="text-xl font-semibold text-ink">Identity Locked</h2>
+        <p className="text-sm text-ink-2">
           {basics.name ? `${basics.name}'s` : "Your character's"} visual identity is now locked and saved.
         </p>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <div className="bg-surface border border-edge rounded-xl p-4">
         <div className="flex items-start gap-4">
           {frontImg ? (
-            <div className="w-24 rounded-lg overflow-hidden border border-gray-700 flex-shrink-0">
+            <div className="w-24 rounded-lg overflow-hidden border border-edge-md flex-shrink-0">
               <img src={resolveImageUrl(frontImg)} alt="Front portrait" className="w-full aspect-[2/3] object-cover" />
             </div>
           ) : (
-            <div className="w-24 rounded-lg border border-gray-700 bg-gray-800 aspect-[2/3] flex-shrink-0" />
+            <div className="w-24 rounded-lg border border-edge-md bg-surface-elevated aspect-[2/3] flex-shrink-0" />
           )}
 
           <div className="flex-1 min-w-0 space-y-1.5 pt-1">
-            {basics.name && <p className="text-sm font-semibold text-gray-100 truncate">{basics.name}</p>}
-            {basics.species && <p className="text-xs text-gray-400 capitalize">{basics.species}</p>}
-            <p className="text-xs text-emerald-400 font-medium">Visual identity confirmed</p>
+            {basics.name && <p className="text-sm font-semibold text-ink truncate">{basics.name}</p>}
+            {basics.species && <p className="text-xs text-ink-2 capitalize">{basics.species}</p>}
+            <p className="text-xs text-gem font-medium">Visual identity confirmed</p>
           </div>
 
           {bodyImg && (
-            <div className="w-16 rounded-lg overflow-hidden border border-gray-700 flex-shrink-0">
+            <div className="w-16 rounded-lg overflow-hidden border border-edge-md flex-shrink-0">
               <img src={resolveImageUrl(bodyImg)} alt="Full body" className="w-full aspect-[2/3] object-cover" />
             </div>
           )}

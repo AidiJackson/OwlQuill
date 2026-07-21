@@ -110,22 +110,22 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
   // ── Theme tokens ────────────────────────────────────────────────────────────
   const isDiamond = theme === 'diamond';
 
-  const labelCls = isDiamond ? 'text-gray-700' : 'text-gray-300';
-  const subLabelCls = isDiamond ? 'text-gray-400' : 'text-gray-600';
+  const labelCls = isDiamond ? 'text-gray-700' : 'text-ink-2';
+  const subLabelCls = isDiamond ? 'text-gray-400' : 'text-ink-3';
 
   const inputCls = isDiamond
     ? 'w-full bg-white border border-gray-200 rounded-2xl px-4 py-3.5 text-sm text-gray-900 placeholder-gray-400 resize-y focus:outline-none focus:border-emerald-400 transition leading-relaxed'
-    : 'w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3.5 text-sm text-gray-100 placeholder-gray-700 resize-y focus:outline-none focus:border-gray-600 transition leading-relaxed';
+    : 'w-full bg-surface border border-edge rounded-2xl px-4 py-3.5 text-sm text-ink placeholder:text-ink-3 resize-y focus:outline-none focus:border-gem/40 transition leading-relaxed';
 
   const selectCls = isDiamond
     ? 'w-full bg-white border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-emerald-400 transition'
-    : 'w-full bg-gray-900/70 border border-gray-800 rounded-2xl px-4 py-3 text-sm text-gray-100 focus:outline-none focus:border-gray-600 transition';
+    : 'w-full bg-surface border border-edge rounded-2xl px-4 py-3 text-sm text-ink focus:outline-none focus:border-gem/40 transition';
 
-  const advancedPanelCls = isDiamond ? 'border-gray-200' : 'border-gray-800/50';
+  const advancedPanelCls = isDiamond ? 'border-gray-200' : 'border-edge';
   const advancedBtnCls = isDiamond
     ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-100/50'
-    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-900/30';
-  const advancedInnerBorderCls = isDiamond ? 'border-gray-200/70' : 'border-gray-800/40';
+    : 'text-ink-3 hover:text-ink-2 hover:bg-surface-elevated';
+  const advancedInnerBorderCls = isDiamond ? 'border-gray-200/70' : 'border-edge';
   const advancedLabelCls = isDiamond
     ? 'text-xs font-medium text-gray-400 uppercase tracking-wide'
     : 'text-xs font-medium text-gray-500 uppercase tracking-wide';
@@ -138,12 +138,12 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
           : 'border-orange-400/60 bg-orange-50/50 text-orange-700';
       }
       return accent === 'emerald'
-        ? 'border-emerald-600/60 bg-emerald-950/30 text-emerald-300'
+        ? 'border-gem/50 bg-gem/[0.06] text-gem'
         : 'border-orange-600/60 bg-orange-950/30 text-orange-200';
     }
     return isDiamond
       ? 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
-      : 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300';
+      : 'border-edge text-ink-3 hover:border-edge-md hover:text-ink-2';
   }
 
   const outputTextareaCls = isDiamond

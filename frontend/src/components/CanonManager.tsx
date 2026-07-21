@@ -98,7 +98,7 @@ interface Props {
 function LockBadge({ locked }: { locked: boolean }) {
   if (locked) {
     return (
-      <span className="flex items-center gap-1 text-xs text-emerald-400 font-medium">
+      <span className="flex items-center gap-1 text-xs text-gem font-medium">
         <CheckCircle2 className="w-3 h-3" />
         Locked
       </span>
@@ -340,7 +340,7 @@ function FaceCanonSection({
           onChange={e => setDescription(e.target.value)}
           rows={2}
           disabled={canon.face_locked && !isAdmin}
-          className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+          className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:ring-1 focus:ring-gem/40 disabled:opacity-50"
           placeholder="e.g. sharp angular jaw, dark brown eyes, olive skin"
         />
         <button
@@ -371,7 +371,7 @@ function FaceCanonSection({
       )}
 
       {canon.face_locked && (
-        <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-900/20 px-3 py-2 rounded-lg border border-emerald-800/40">
+        <div className="flex items-center gap-2 text-xs text-gem bg-gem-soft px-3 py-2 rounded-lg border border-gem/30">
           <Shield className="w-3 h-3" />
           Face Canon is locked. Scene images cannot alter this.
         </div>
@@ -530,7 +530,7 @@ function BodyCanonSection({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-white">Permanent Body Markings</p>
-          <p className="text-xs text-emerald-600/80">Locked body truth — not accessories</p>
+          <p className="text-xs text-gem/80">Locked body truth — not accessories</p>
         </div>
 
         {(!body?.permanent_body_marks || body.permanent_body_marks.length === 0) && (
@@ -623,7 +623,7 @@ function BodyCanonSection({
                   value={markForm.label}
                   onChange={e => setMarkForm(f => ({ ...f, label: e.target.value }))}
                   placeholder="Label (e.g. Left gothic script sleeve)"
-                  className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:ring-1 focus:ring-gem/40"
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <select
@@ -722,7 +722,7 @@ function BodyCanonSection({
       )}
 
       {canon.body_locked && (
-        <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-900/20 px-3 py-2 rounded-lg border border-emerald-800/40">
+        <div className="flex items-center gap-2 text-xs text-gem bg-gem-soft px-3 py-2 rounded-lg border border-gem/30">
           <Shield className="w-3 h-3" />
           Body Canon is locked. Permanent markings are anatomical truth.
         </div>
@@ -942,7 +942,7 @@ function SceneImagesSection({
           onChange={e => setPrompt(e.target.value)}
           rows={2}
           placeholder='e.g. "Leonardo standing on a beach in daylight"'
-          className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:ring-1 focus:ring-gem/40"
         />
         <button
           onClick={handleGenerate}
@@ -1009,18 +1009,18 @@ export default function CanonManager({ characterId, isOwner, isAdmin }: Props) {
         <div className="flex items-center gap-3 text-xs">
           <span className={`px-2 py-0.5 rounded-full font-medium ${
             canon.status === 'locked'
-              ? 'bg-emerald-900/40 text-emerald-400'
+              ? 'bg-gem-soft text-gem'
               : 'bg-zinc-700/60 text-zinc-400'
           }`}>
             Canon: {canon.status}
           </span>
           <span className={`px-2 py-0.5 rounded-full ${
-            canon.face_locked ? 'bg-emerald-900/30 text-emerald-400' : 'bg-zinc-700/40 text-zinc-500'
+            canon.face_locked ? 'bg-gem-soft text-gem' : 'bg-zinc-700/40 text-zinc-500'
           }`}>
             Face: {canon.face_locked ? 'locked' : 'draft'}
           </span>
           <span className={`px-2 py-0.5 rounded-full ${
-            canon.body_locked ? 'bg-emerald-900/30 text-emerald-400' : 'bg-zinc-700/40 text-zinc-500'
+            canon.body_locked ? 'bg-gem-soft text-gem' : 'bg-zinc-700/40 text-zinc-500'
           }`}>
             Body: {canon.body_locked ? 'locked' : 'draft'}
           </span>
@@ -1035,7 +1035,7 @@ export default function CanonManager({ characterId, isOwner, isAdmin }: Props) {
             onClick={() => setTab(t.id)}
             className={`px-3 py-2 text-xs font-medium transition-colors rounded-t-lg ${
               tab === t.id
-                ? 'text-white border-b-2 border-emerald-500 -mb-px'
+                ? 'text-white border-b-2 border-gem/50 -mb-px'
                 : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >

@@ -66,7 +66,7 @@ export default function ImageCard({
   };
 
   return (
-    <div className="relative group rounded-lg overflow-hidden border border-gray-800 bg-gray-900 hover:border-gray-600 transition-colors">
+    <div className="relative group rounded-lg overflow-hidden border border-edge bg-surface hover:border-edge-md transition-colors">
       <button
         type="button"
         className="block w-full cursor-pointer"
@@ -96,7 +96,7 @@ export default function ImageCard({
               type="button"
               disabled={actionBusy !== null}
               onClick={handleUseInPost}
-              className="flex-1 text-xs px-2 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors truncate disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 text-xs px-2 py-1.5 rounded bg-gem hover:bg-gem/90 text-gem-ink transition-colors truncate disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {actionBusy === 'useInPost' ? 'Saving…' : 'Use in Post'}
             </button>
@@ -106,7 +106,7 @@ export default function ImageCard({
               type="button"
               disabled={actionBusy !== null}
               onClick={handleSetAsCover}
-              className="flex-1 text-xs px-2 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors truncate disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 text-xs px-2 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-ink transition-colors truncate disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {actionBusy === 'setCover' ? 'Saving…' : 'Set as Cover'}
             </button>
@@ -124,13 +124,13 @@ export default function ImageCard({
                 <ChevronDown className="w-3 h-3" />
               </button>
               {anchorMenuOpen && (
-                <div className="absolute bottom-full mb-1 right-0 z-20 min-w-max bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden">
+                <div className="absolute bottom-full mb-1 right-0 z-20 min-w-max bg-surface-elevated border border-edge-md rounded-lg shadow-xl overflow-hidden">
                   {bodyAnchorOptions!.map((opt) => (
                     <button
                       key={opt.value}
                       type="button"
                       onClick={(e) => handleAnchorOption(e, opt.value)}
-                      className="block w-full text-left text-xs px-3 py-2 text-gray-200 hover:bg-gray-700 transition-colors whitespace-nowrap"
+                      className="block w-full text-left text-xs px-3 py-2 text-ink hover:bg-surface-overlay transition-colors whitespace-nowrap"
                     >
                       {opt.label}
                     </button>

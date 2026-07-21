@@ -76,7 +76,7 @@ function NotificationItem({
       className={`flex items-start gap-3 px-3 py-3.5 -mx-3 rounded-xl cursor-pointer transition-colors ${
         notif.is_read
           ? 'hover:bg-surface-elevated'
-          : 'bg-gem-soft/60 hover:bg-gem-soft'
+          : 'bg-gem/[0.06] hover:bg-gem-soft'
       }`}
     >
       {!notif.is_read && (
