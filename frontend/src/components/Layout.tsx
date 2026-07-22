@@ -307,10 +307,10 @@ export default function Layout() {
 
       {user && (
         <div className="mt-auto pt-6 space-y-2">
-          {/* Gem accent picker + light/dark toggle — cosmetic, every account */}
+          {/* Permanent appearance section — gem picker + light/dark toggle */}
           <div className="flex items-center gap-2 px-3.5 pb-1">
             <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-ink-3 select-none mr-auto">
-              Theme
+              Appearance
             </span>
             {themeControls}
           </div>
@@ -574,7 +574,7 @@ export default function Layout() {
                   <div className="my-1.5 border-t border-edge" />
                   <div className="flex items-center gap-2 px-3 py-2">
                     <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-ink-3 select-none mr-auto">
-                      Theme
+                      Appearance
                     </span>
                     {themeControls}
                   </div>
@@ -597,8 +597,12 @@ export default function Layout() {
   return (
     <div className="min-h-screen flex bg-app">
       {/* Desktop sidebar — every route except the cinematic Character Home */}
+      {/* sticky + h-screen pins the sidebar to the viewport while the body
+          scrolls; without an explicit height it stretches to full document
+          height and the bottom Appearance/switcher block becomes unreachable
+          on long pages */}
       {!isCinematic && (
-        <aside className="hidden md:flex md:flex-col w-64 bg-surface border-r border-edge p-4">
+        <aside className="hidden md:flex md:flex-col w-64 md:sticky md:top-0 md:h-screen md:overflow-y-auto bg-surface border-r border-edge p-4">
           {sidebarContent}
         </aside>
       )}
@@ -613,7 +617,7 @@ export default function Layout() {
 
       {/* Mobile slide-in sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-surface border-r border-edge p-4 flex flex-col transform transition-transform duration-200 ease-in-out md:hidden ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto bg-surface border-r border-edge p-4 flex flex-col transform transition-transform duration-200 ease-in-out md:hidden ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
