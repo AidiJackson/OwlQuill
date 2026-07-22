@@ -43,6 +43,10 @@ export default function Layout() {
   const [createOpen, setCreateOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
 
+  // Shown under the sidebar Profile item when a multi-character account
+  // clicks Profile with no active character selected
+  const [profileHint, setProfileHint] = useState('');
+
   const isFounder = !!(user?.is_admin || user?.is_seeder);
   // Wanderers (no characters, not founders) only browse — creator tools that
   // need a character are hidden entirely, never shown disabled.
@@ -129,6 +133,31 @@ export default function Layout() {
   const isNotifications = p.startsWith('/notifications');
   const isProfile       = isCreator ? (!!activeChar && p === ownerProfilePath) : p === '/profile';
   const isChars         = p.startsWith('/characters') && !isProfile;
+
+  // Creator Profile click. With an active character the Link navigates
+  // normally. A multi-character account with nothing selected has no
+  // resolvable profile — the /characters fallback is a silent no-op when
+  // already there — so surface the existing selection flow instead:
+  // founders get the character switcher, others a brief prompt.
+  const handleProfileClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (activeChar) {
+      closeSidebar();
+      setAccountOpen(false);
+      return;
+    }
+    e.preventDefault();
+    setAccountOpen(false);
+    if (isFounder) {
+      setSwitcherOpen(true);
+    } else {
+      setProfileHint('Choose a character first.');
+      window.setTimeout(() => setProfileHint(''), 3000);
+      if (p !== '/characters') {
+        closeSidebar();
+        navigate('/characters');
+      }
+    }
+  };
 
   // Mode toggle + gem dots — shared by the sidebar footer and the cinematic
   // top bar's account menu so both shells drive the same theme store.
@@ -285,14 +314,19 @@ export default function Layout() {
             CHARACTER's public profile. Wanderers have no public identity —
             they get a private My Account page instead. */}
         {isCreator ? (
-          <Link
-            to={ownerProfilePath}
-            className={navCls(isProfile)}
-            onClick={closeSidebar}
-          >
-            <CircleUser className={iconCls} strokeWidth={1.6} />
-            Profile
-          </Link>
+          <>
+            <Link
+              to={ownerProfilePath}
+              className={navCls(isProfile)}
+              onClick={handleProfileClick}
+            >
+              <CircleUser className={iconCls} strokeWidth={1.6} />
+              Profile
+            </Link>
+            {profileHint && (
+              <p className="px-3.5 pt-1 text-xs text-ink-3">{profileHint}</p>
+            )}
+          </>
         ) : (
           <Link
             to="/profile"
@@ -559,7 +593,7 @@ export default function Layout() {
                 <div className="absolute top-full right-0 mt-2 z-50 w-56 bg-surface-overlay border border-edge-md rounded-xl shadow-2xl shadow-black/60 py-1.5">
                   {isCreator ? (
                     <>
-                      <Link to={ownerProfilePath} className={menuItemCls} onClick={() => setAccountOpen(false)}>
+                      <Link to={ownerProfilePath} className={menuItemCls} onClick={handleProfileClick}>
                         <CircleUser className={iconCls} strokeWidth={1.6} />Profile
                       </Link>
                       <Link to="/profile" className={menuItemCls} onClick={() => setAccountOpen(false)}>
