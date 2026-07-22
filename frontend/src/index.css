@@ -124,23 +124,29 @@ button:focus {
 }
 .prose p + p { margin-top: 1.4em; }
 
-/* Cinematic cover fade (Character Home, realm headers) */
+/* Cinematic cover fade (Character Home hero). The fade starts late so the
+   photograph stays visible through the establishing shot, then completes into
+   the page background just before the hero's lower boundary (the tabs). */
 .cover-gradient {
   background: linear-gradient(
     to bottom,
-    transparent 30%,
-    rgb(8 8 9 / 0.5) 65%,
-    var(--bg) 100%
+    transparent 42%,
+    rgb(8 8 9 / 0.45) 68%,
+    var(--bg) 96%
   );
 }
 [data-mode="light"] .cover-gradient {
   background: linear-gradient(
     to bottom,
-    transparent 30%,
-    rgb(245 245 247 / 0.5) 65%,
-    var(--bg) 100%
+    transparent 42%,
+    rgb(245 245 247 / 0.45) 68%,
+    var(--bg) 96%
   );
 }
+
+/* Keeps hero text legible over the partially faded cover in both modes */
+.hero-text-glow { text-shadow: 0 2px 40px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3); }
+[data-mode="light"] .hero-text-glow { text-shadow: 0 2px 28px rgba(255, 255, 255, 0.7), 0 1px 3px rgba(255, 255, 255, 0.55); }
 
 .hide-scrollbar { scrollbar-width: none; }
 .hide-scrollbar::-webkit-scrollbar { display: none; }
