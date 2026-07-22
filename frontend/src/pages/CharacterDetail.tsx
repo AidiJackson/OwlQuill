@@ -345,8 +345,12 @@ export default function CharacterDetail() {
 
             {/* Identity band — avatar lower-left, stats & controls beside it */}
             <div className="flex items-end gap-4 sm:gap-6 mt-6 sm:mt-9">
-              <div className="relative flex-shrink-0">
-                <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-2xl overflow-hidden border-[3px] border-app shadow-[0_0_0_1px_var(--border-md),0_8px_28px_rgba(0,0,0,0.4)] bg-surface-elevated">
+              <div className="flex-shrink-0">
+                {/* `relative` is load-bearing: the absolutely-positioned image
+                    must use this overflow-hidden box as its containing block,
+                    or a scaled avatar (avatar_scale > 1) escapes the clip and
+                    spills over the stats and tabs */}
+                <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-2xl overflow-hidden border-[3px] border-app shadow-[0_0_0_1px_var(--border-md),0_8px_28px_rgba(0,0,0,0.4)] bg-surface-elevated">
                   {character.avatar_url ? (
                     <img
                       src={character.avatar_url}
@@ -378,18 +382,6 @@ export default function CharacterDetail() {
                       <span className="block font-serif text-xl sm:text-2xl font-medium text-ink-3 leading-tight">—</span>
                       <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Followers</span>
                     </span>
-                    {isOwner && (
-                      /* Manage closes the statistics row — a secondary control
-                         inside the identity cluster, not a floating element at
-                         the hero's far edge */
-                      <button
-                        onClick={() => setActiveTab('manage')}
-                        className="bg-surface-elevated border border-edge hover:border-edge-md text-ink-2 hover:text-ink px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all"
-                      >
-                        <Sparkles className="w-4 h-4" />
-                        Manage
-                      </button>
-                    )}
                   </div>
 
                   {!isOwner && (

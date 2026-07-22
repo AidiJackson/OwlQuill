@@ -88,6 +88,7 @@ function App() {
           <Route path="/spaces/:spaceId/publish" element={<StorySpacePublish />} />
           <Route path="/stories/:storyId" element={<PublishedStoryReader />} />
           <Route path="/characters" element={<Characters />} />
+          <Route path="/characters/:id" element={<CharacterDetail />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/storylab" element={<StoryLab />} />
           <Route path="/storylab/:storyId" element={<StoryLabSession />} />
@@ -102,15 +103,6 @@ function App() {
           element={
             <ProtectedRoute>
               <CharacterCreationFlow />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/characters/:id"
-          element={
-            <ProtectedRoute>
-              <CharacterDetail />
             </ProtectedRoute>
           }
         />
