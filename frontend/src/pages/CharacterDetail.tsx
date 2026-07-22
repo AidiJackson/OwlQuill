@@ -326,59 +326,74 @@ export default function CharacterDetail() {
           {/* Establishing space — pure cover, no content competes with the image */}
           <div className="h-[32vh] min-h-[190px] sm:h-[46vh] sm:min-h-[360px] lg:h-[52vh] max-h-[640px]" />
 
-          {/* Title — the character's name IS the headline */}
-          {metaLine && (
-            <span className="hero-text-glow block font-mono text-[11px] uppercase tracking-[0.14em] text-ink-2 mb-2">
-              {metaLine}
-            </span>
-          )}
-          <h1
-            className="hero-text-glow font-serif font-semibold text-ink leading-[0.98] tracking-[-0.02em] break-words"
-            style={{ fontSize: 'clamp(36px, 6.5vw, 72px)' }}
-          >
-            {character.name}
-          </h1>
+          {/* Identity composition — avatar, name and stats share one left
+              rail, pulled toward the hero's left margin on wide viewports so
+              the avatar anchors the lower-left corner of the hero */}
+          <div className="xl:-ml-10 2xl:-ml-16">
+            {/* Title — the character's name IS the headline */}
+            {metaLine && (
+              <span className="hero-text-glow block font-mono text-[11px] uppercase tracking-[0.14em] text-ink-2 mb-2">
+                {metaLine}
+              </span>
+            )}
+            <h1
+              className="hero-text-glow font-serif font-semibold text-ink leading-[0.98] tracking-[-0.02em] break-words"
+              style={{ fontSize: 'clamp(36px, 6.5vw, 72px)' }}
+            >
+              {character.name}
+            </h1>
 
-          {/* Identity band — avatar anchored lower-left, stats & actions beside it */}
-          <div className="flex items-end gap-4 sm:gap-6 mt-6 sm:mt-9">
-            <div className="relative flex-shrink-0">
-              <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-2xl overflow-hidden border-[3px] border-app shadow-[0_0_0_1px_var(--border-md),0_8px_28px_rgba(0,0,0,0.4)] bg-surface-elevated">
-                {character.avatar_url ? (
-                  <img
-                    src={character.avatar_url}
-                    alt={character.name}
-                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                    style={avatarScale > 1.001 ? {
-                      transformOrigin: 'center center',
-                      transform: `scale(${avatarScale}) translate(${(0.5 - avatarPosX) * (avatarScale - 1) / avatarScale * 100}%, ${(0.5 - avatarPosY) * (avatarScale - 1) / avatarScale * 100}%)`,
-                    } : undefined}
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center font-serif text-3xl font-semibold text-gem bg-gem-soft">
-                    {character.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Stats + action buttons */}
-            <div className="flex-1 min-w-0 pb-1 sm:pb-2">
-              <div className="flex items-end justify-between gap-3 flex-wrap">
-                <div className="flex flex-wrap items-center gap-5 sm:gap-8 min-w-0">
-                  <span className="text-center">
-                    <span className="block font-serif text-xl sm:text-2xl font-medium text-ink leading-tight">{timeline.length}</span>
-                    <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Posts</span>
-                  </span>
-                  <span className="text-center" title="Follower counts are coming soon">
-                    <span className="block font-serif text-xl sm:text-2xl font-medium text-ink-3 leading-tight">—</span>
-                    <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Followers</span>
-                  </span>
+            {/* Identity band — avatar lower-left, stats & controls beside it */}
+            <div className="flex items-end gap-4 sm:gap-6 mt-6 sm:mt-9">
+              <div className="relative flex-shrink-0">
+                <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-2xl overflow-hidden border-[3px] border-app shadow-[0_0_0_1px_var(--border-md),0_8px_28px_rgba(0,0,0,0.4)] bg-surface-elevated">
+                  {character.avatar_url ? (
+                    <img
+                      src={character.avatar_url}
+                      alt={character.name}
+                      className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                      style={avatarScale > 1.001 ? {
+                        transformOrigin: 'center center',
+                        transform: `scale(${avatarScale}) translate(${(0.5 - avatarPosX) * (avatarScale - 1) / avatarScale * 100}%, ${(0.5 - avatarPosY) * (avatarScale - 1) / avatarScale * 100}%)`,
+                      } : undefined}
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-serif text-3xl font-semibold text-gem bg-gem-soft">
+                      {character.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
                 </div>
+              </div>
 
-                <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Stats + controls */}
+              <div className="flex-1 min-w-0 pb-1 sm:pb-2">
+                <div className="flex items-end justify-between gap-3 flex-wrap">
+                  <div className="flex flex-wrap items-center gap-5 sm:gap-8 min-w-0">
+                    <span className="text-center">
+                      <span className="block font-serif text-xl sm:text-2xl font-medium text-ink leading-tight">{timeline.length}</span>
+                      <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Posts</span>
+                    </span>
+                    <span className="text-center" title="Follower counts are coming soon">
+                      <span className="block font-serif text-xl sm:text-2xl font-medium text-ink-3 leading-tight">—</span>
+                      <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Followers</span>
+                    </span>
+                    {isOwner && (
+                      /* Manage closes the statistics row — a secondary control
+                         inside the identity cluster, not a floating element at
+                         the hero's far edge */
+                      <button
+                        onClick={() => setActiveTab('manage')}
+                        className="bg-surface-elevated border border-edge hover:border-edge-md text-ink-2 hover:text-ink px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        Manage
+                      </button>
+                    )}
+                  </div>
+
                   {!isOwner && (
-                    <>
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       {/* Messaging is character-to-character — only viewers who
                           own a character can open a conversation. */}
                       {(currentUser?.character_count ?? 0) > 0 && (
@@ -397,22 +412,13 @@ export default function CharacterDetail() {
                         <UserPlus className="w-4 h-4 flex-shrink-0" />
                         Follow
                       </button>
-                    </>
-                  )}
-                  {isOwner && (
-                    <button
-                      onClick={() => setActiveTab('manage')}
-                      className="bg-surface-elevated border border-edge hover:border-edge-md text-ink-2 hover:text-ink px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-all"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                      Manage
-                    </button>
+                    </div>
                   )}
                 </div>
+                {followHint && (
+                  <p className="text-xs text-ink-3 mt-2">{followHint}</p>
+                )}
               </div>
-              {followHint && (
-                <p className="text-xs text-ink-3 mt-2">{followHint}</p>
-              )}
             </div>
           </div>
 
