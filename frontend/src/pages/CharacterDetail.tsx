@@ -4,7 +4,6 @@ import {
   Feather,
   RefreshCw,
   MessageSquare,
-  UserPlus,
   Trash2,
   X,
   Check,
@@ -43,9 +42,6 @@ export default function CharacterDetail() {
   const justCreated = searchParams.get('created') === '1';
 
   const [activeTab, setActiveTab] = useState<Tab>('timeline');
-
-  // Follow is a placeholder in this phase — no backend, no fake state.
-  const [followHint, setFollowHint] = useState('');
 
   // Manage Character Canon modal — hosts the CanonManager (single source of identity truth)
   const [showCanonModal, setShowCanonModal] = useState(false);
@@ -378,10 +374,10 @@ export default function CharacterDetail() {
                       <span className="block font-serif text-xl sm:text-2xl font-medium text-ink leading-tight">{timeline.length}</span>
                       <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Posts</span>
                     </span>
-                    <span className="text-center" title="Follower counts are coming soon">
-                      <span className="block font-serif text-xl sm:text-2xl font-medium text-ink-3 leading-tight">—</span>
-                      <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Followers</span>
-                    </span>
+                    {/* Follower stat intentionally omitted: Follow is not yet a
+                        real, persistent system, so there is no stored count to
+                        show. Re-introduce here alongside the Follow control when
+                        the backend lands — see the action-row insertion point. */}
                   </div>
 
                   {!isOwner && (
@@ -397,19 +393,13 @@ export default function CharacterDetail() {
                           Message
                         </button>
                       )}
-                      <button
-                        className="bg-gem hover:bg-gem/90 text-gem-ink px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-semibold transition-all"
-                        onClick={() => setFollowHint('Following is coming soon.')}
-                      >
-                        <UserPlus className="w-4 h-4 flex-shrink-0" />
-                        Follow
-                      </button>
+                      {/* Follow control insertion point. Deliberately not
+                          rendered until Follow is functional end-to-end
+                          (persistence + API + notifications). A dead stub that
+                          only flips local text is worse than its absence. */}
                     </div>
                   )}
                 </div>
-                {followHint && (
-                  <p className="text-xs text-ink-3 mt-2">{followHint}</p>
-                )}
               </div>
             </div>
           </div>

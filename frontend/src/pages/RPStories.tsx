@@ -240,7 +240,7 @@ export default function RPStories() {
             <button
               type="submit"
               disabled={creating || !starter.trim()}
-              className="w-full py-3 rounded-xl bg-gem hover:bg-gem disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+              className="w-full py-3 rounded-xl bg-gem hover:bg-gem disabled:opacity-40 text-gem-ink text-sm font-semibold transition-colors"
             >
               {creating ? 'Creating…' : 'Start RP Story Thread'}
             </button>

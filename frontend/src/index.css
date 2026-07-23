@@ -45,8 +45,10 @@
   --accent-glow:   rgb(var(--gem) / 0.18);
 }
 
-/* Light mode — infrastructure only for now; the toggle is not exposed
-   until pages are token-clean (redesign final phase). */
+/* Light mode — now a supported product theme. Pages are token-clean; the
+   light/dark toggle is live in every shell. Note: StoryLab's Diamond/Obsidian
+   and the RP writing panes carry their own self-contained paper/dark theme
+   axis, intentionally independent of this global mode. */
 [data-mode="light"] {
   --bg:            #f5f5f7;
   --surface:       #ffffff;

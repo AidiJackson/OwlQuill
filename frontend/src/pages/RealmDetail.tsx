@@ -181,7 +181,7 @@ export default function RealmDetail() {
 
   const getPostTypeBadge = (contentType: string) => {
     const badges = {
-      ic: { label: 'IC', className: 'bg-gem text-white' },
+      ic: { label: 'IC', className: 'bg-gem text-gem-ink' },
       ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
       narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' },
     };

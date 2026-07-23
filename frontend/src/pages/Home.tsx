@@ -11,6 +11,7 @@ import ReactionBar from '@/components/ReactionBar';
 import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
 import MentionText from '@/components/MentionText';
+import HappeningInFicshon from '@/components/HappeningInFicshon';
 
 const WORKSPACE_PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
 
@@ -690,40 +691,11 @@ export default function Home() {
 
         {/* ── Right panel — live data only ─────────────────────────── */}
         <aside className="hidden lg:block lg:sticky lg:top-10 self-start space-y-9 pt-2">
-          {characters.length > 0 && (
-            <section>
-              <h3 className="text-[11px] font-mono uppercase tracking-[0.1em] text-ink-3 mb-4">
-                Your Characters
-              </h3>
-              <div className="space-y-1">
-                {characters.map((c) => (
-                  <Link
-                    key={c.id}
-                    to={`/characters/${c.id}`}
-                    className="flex items-center gap-2.5 px-2 py-1.5 -mx-2 rounded-xl hover:bg-surface-elevated transition-colors"
-                  >
-                    {c.avatar_url ? (
-                      <img
-                        src={c.avatar_url}
-                        alt={c.name}
-                        className="w-9 h-9 rounded-full object-cover border border-edge-md flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="w-9 h-9 rounded-full bg-gem-soft flex items-center justify-center text-sm font-semibold text-gem flex-shrink-0">
-                        {c.name.charAt(0)}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-medium text-ink leading-tight truncate">{c.name}</div>
-                      {c.species && (
-                        <div className="text-[11px] text-ink-3 leading-tight truncate">{c.species}</div>
-                      )}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          )}
+          {/* Public, character-first activity — replaces the old account-centric
+              "Your Characters" list. Shown to every audience so the Commons stays
+              focused on the fictional world, not account management. Collapses
+              quietly if the feed is empty or failed to load. */}
+          <HappeningInFicshon posts={posts} realms={realms} loading={loading} />
 
           {sidePanelRealms.length > 0 && (
             <section>

@@ -55,7 +55,7 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
                 </div>
               )}
               {isSelected && (
-                <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-gem text-white text-[10px] font-medium px-1.5 py-0.5 rounded-full">
+                <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-gem text-gem-ink text-[10px] font-medium px-1.5 py-0.5 rounded-full">
                   <Check className="w-2.5 h-2.5" />
                   Primary
                 </div>

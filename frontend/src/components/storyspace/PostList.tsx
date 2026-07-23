@@ -43,9 +43,11 @@ function Avatar({ url, name }: { url?: string; name: string }) {
 }
 
 function PostItem({ post }: { post: StorySpacePost }) {
-  const displayName = post.character_name ?? `@${post.author_username}`;
-  const avatarName = post.character_name ?? post.author_username;
+  // Character-first: the character is the only public identity. A post with no
+  // character renders as an unlinked "Wanderer" — never the account username.
   const isCharacter = Boolean(post.character_name);
+  const displayName = post.character_name ?? 'Wanderer';
+  const avatarName = displayName;
 
   return (
     <article className="group py-3 border-b border-edge last:border-0">
@@ -59,9 +61,6 @@ function PostItem({ post }: { post: StorySpacePost }) {
         >
           {displayName}
         </span>
-        {isCharacter && (
-          <span className="text-xs text-ink-3 leading-none">via @{post.author_username}</span>
-        )}
         <SourcePill sourceType={post.source_type} />
         <span className="ml-auto text-[11px] text-ink-3 group-hover:text-ink-3 transition-colors leading-none flex-shrink-0">
           {formatTimestamp(post.created_at)}

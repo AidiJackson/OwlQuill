@@ -17,9 +17,14 @@ export default function Register() {
 
     try {
       await register(email, username, password, inviteCode.trim().toUpperCase());
-      // New users go straight to character creation — skips the cold empty feed
-      // and gets them to Ficshon's magic moment (character identity) immediately.
-      navigate('/characters/new');
+      // Identity-first, role-aware landing: a new account is a Wanderer until it
+      // owns a character, so we drop them into The Commons — where they can
+      // browse characters, realms and public activity — rather than force-feeding
+      // a character-creation workflow. The Commons surfaces a clear, gated
+      // "Create your character" entry point for those who want to become a
+      // Character Owner. (Founder/seeder accounts are provisioned via scripts,
+      // not this form.)
+      navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
     }

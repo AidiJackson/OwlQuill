@@ -516,9 +516,70 @@ def test_member_can_post_to_story_channel(client):
     data = resp.json()
     assert data["content"] == "Once upon a time..."
     assert data["content_type"] == "ic"
-    assert data["author_username"] == "spacetest1"
+    # Account username is never part of a Story Space post payload — characters
+    # are the only public identity here (see test_story_space_post_* below).
+    assert "author_username" not in data
     assert data["channel_id"] == ch["id"]
     assert data["space_id"] == space["id"]
+
+
+def test_story_space_post_never_exposes_account_username(client):
+    """Regression: the human account username must not leak through a Story
+    Space post payload — not for a characterless ("Wanderer") post, not for a
+    character-attributed post, and not to the author themselves.
+    """
+    token = _make_user(client, 1)
+    space = _create_space(client, token)
+    ch = _get_channel(client, token, space, "story")
+    char = _create_character(client, token, name="MyHero")
+
+    # characterless post
+    plain = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "narrator", "content_type": "narration"},
+        headers=auth_headers(token),
+    ).json()
+    # character-attributed post
+    char_post = client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "in character", "content_type": "ic", "character_id": char["id"]},
+        headers=auth_headers(token),
+    ).json()
+
+    import json
+    for data in (plain, char_post):
+        assert "author_username" not in data
+        assert "spacetest1" not in json.dumps(data)
+
+
+def test_story_space_post_username_unrecoverable_by_other_member(client):
+    """A second authenticated member of the space cannot recover the first
+    member's account username through the channel post listing.
+    """
+    owner = _make_user(client, 1)
+    space = _create_space(client, owner)
+    ch = _get_channel(client, owner, space, "story")
+    char = _create_character(client, owner, name="Hero")
+    client.post(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        json={"content": "scene", "content_type": "ic", "character_id": char["id"]},
+        headers=auth_headers(owner),
+    )
+    # invite a second member and read the channel as them
+    other = _make_user(client, 2)
+    client.post(
+        f"/story-spaces/{space['id']}/invites",
+        json={"username": "spacetest2"},
+        headers=auth_headers(owner),
+    )
+    listing = client.get(
+        f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
+        headers=auth_headers(other),
+    )
+    assert listing.status_code == 200
+    body = listing.text
+    assert "spacetest1" not in body
+    assert "author_username" not in body
 
 
 def test_member_can_post_to_chat_channel(client):

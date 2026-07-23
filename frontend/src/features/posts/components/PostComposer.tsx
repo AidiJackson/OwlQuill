@@ -100,7 +100,7 @@ export default function PostComposer({ open, onClose, preloadedImage }: Props) {
                 onClick={() => setContentType(t)}
                 className={`text-xs px-2.5 py-1 rounded transition-colors ${
                   contentType === t
-                    ? 'bg-gem text-white'
+                    ? 'bg-gem text-gem-ink'
                     : 'bg-surface-elevated text-ink-2 hover:bg-surface-overlay hover:text-ink'
                 }`}
               >

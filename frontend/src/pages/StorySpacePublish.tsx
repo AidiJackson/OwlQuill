@@ -188,7 +188,7 @@ export default function StorySpacePublish() {
             <div className="rounded-xl border border-edge overflow-hidden divide-y divide-edge">
               {posts.map((post) => {
                 const isSelected = selected.has(post.id);
-                const displayName = post.character_name ?? `@${post.author_username}`;
+                const displayName = post.character_name ?? 'Wanderer';
                 return (
                   <label
                     key={post.id}
@@ -232,7 +232,7 @@ export default function StorySpacePublish() {
             <button
               type="submit"
               disabled={submitting || !title.trim() || selected.size === 0}
-              className="px-5 py-2 rounded-lg bg-gem hover:bg-gem disabled:bg-surface-overlay disabled:text-ink-3 text-white text-sm font-medium transition-colors"
+              className="px-5 py-2 rounded-lg bg-gem hover:bg-gem disabled:bg-surface-overlay disabled:text-ink-3 text-gem-ink text-sm font-medium transition-colors"
             >
               {submitting ? 'Publishing…' : 'Publish Story'}
             </button>

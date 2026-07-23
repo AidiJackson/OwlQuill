@@ -300,7 +300,7 @@ export default function StepGeneratePack({
                 onClick={() => onBodyMorphologyChange({ ...bodyMorphology, height: opt.value })}
                 className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
                   bodyMorphology.height === opt.value
-                    ? 'bg-gem border-gem/50 text-white'
+                    ? 'bg-gem border-gem/50 text-gem-ink'
                     : 'bg-surface-elevated border-edge-md text-ink-2 hover:border-edge-md'
                 }`}
               >
@@ -319,7 +319,7 @@ export default function StepGeneratePack({
                 onClick={() => onBodyMorphologyChange({ ...bodyMorphology, build: opt.value })}
                 className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
                   bodyMorphology.build === opt.value
-                    ? 'bg-gem border-gem/50 text-white'
+                    ? 'bg-gem border-gem/50 text-gem-ink'
                     : 'bg-surface-elevated border-edge-md text-ink-2 hover:border-edge-md'
                 }`}
               >

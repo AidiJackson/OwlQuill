@@ -282,7 +282,7 @@ def _to_post_read(post: StorySpacePost) -> StorySpacePostRead:
         space_id=post.space_id,
         channel_id=post.channel_id,
         author_user_id=post.author_user_id,
-        author_username=post.author.username,
+        # Account username intentionally omitted — see StorySpacePostRead.
         character_id=post.character_id,
         character_name=character_name,
         character_avatar_url=character_avatar_url,

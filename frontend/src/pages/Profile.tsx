@@ -112,7 +112,7 @@ export default function Profile() {
                 <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
                 {selected && (
                   <span className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-gem flex items-center justify-center">
-                    <Check className="w-3 h-3 text-white" />
+                    <Check className="w-3 h-3 text-gem-ink" />
                   </span>
                 )}
               </button>

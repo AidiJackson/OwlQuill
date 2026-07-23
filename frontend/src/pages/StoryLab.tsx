@@ -74,7 +74,7 @@ export default function StoryLab() {
     : 'min-h-screen bg-app text-ink flex flex-col';
 
   const heading = isDiamond ? 'text-gray-900' : 'text-ink';
-  const sub = isDiamond ? 'text-gray-500' : 'text-gray-500';
+  const sub = isDiamond ? 'text-ink-3' : 'text-ink-3';
 
   const modeCardBase = isDiamond
     ? 'group text-left p-5 rounded-2xl border bg-white shadow-sm transition-all'
@@ -100,12 +100,12 @@ export default function StoryLab() {
   }
 
   const modeTitle = isDiamond ? 'text-gray-900' : 'text-ink';
-  const modeSub = isDiamond ? 'text-gray-500' : 'text-gray-500';
+  const modeSub = isDiamond ? 'text-ink-3' : 'text-ink-3';
   const modeActiveBadgeEmerald = isDiamond ? 'text-emerald-600' : 'text-gem';
   const modeActiveBadgeViolet = isDiamond ? 'text-violet-600' : 'text-violet-400';
 
-  const sectionHdr = isDiamond ? 'text-gray-500' : 'text-gray-600';
-  const sectionChevron = isDiamond ? 'text-gray-400' : 'text-gray-600';
+  const sectionHdr = isDiamond ? 'text-ink-3' : 'text-ink-3';
+  const sectionChevron = isDiamond ? 'text-ink-2' : 'text-ink-3';
 
   const storyCardCls = isDiamond
     ? 'group w-full text-left flex items-center gap-4 px-4 py-4 rounded-2xl border border-gray-200 bg-white shadow-sm hover:border-emerald-300 hover:shadow-md transition'
@@ -115,8 +115,8 @@ export default function StoryLab() {
     ? 'text-sm font-medium text-gray-800 truncate group-hover:text-gray-900 transition leading-snug'
     : 'text-sm font-medium text-ink truncate transition leading-snug';
 
-  const storyGenre = isDiamond ? 'text-xs text-gray-400 mt-0.5 capitalize' : 'text-xs text-gray-600 mt-0.5 capitalize';
-  const storyArrow = isDiamond ? 'text-gray-400 group-hover:text-emerald-500 transition' : 'text-gray-700 group-hover:text-gray-400 transition';
+  const storyGenre = isDiamond ? 'text-xs text-ink-2 mt-0.5 capitalize' : 'text-xs text-ink-3 mt-0.5 capitalize';
+  const storyArrow = isDiamond ? 'text-ink-2 group-hover:text-emerald-500 transition' : 'text-gray-700 group-hover:text-ink-2 transition';
 
   const divider = isDiamond ? 'border-gray-200' : 'border-edge';
   const skeletonBg = isDiamond ? 'bg-gray-200/60' : 'bg-surface-elevated';
@@ -136,14 +136,14 @@ export default function StoryLab() {
           </div>
 
           {/* Diamond / Obsidian toggle */}
-          <div className={`flex items-center gap-0.5 rounded-xl border p-0.5 mt-1 shrink-0 ${isDiamond ? 'border-gray-200 bg-gray-100' : 'border-gray-800 bg-gray-900'}`}>
+          <div className={`flex items-center gap-0.5 rounded-xl border p-0.5 mt-1 shrink-0 ${isDiamond ? 'border-gray-200 bg-gray-100' : 'border-edge bg-surface'}`}>
             <button
               type="button"
               onClick={() => setTheme('diamond')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 isDiamond
                   ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200'
-                  : 'text-gray-600 hover:text-gray-400'
+                  : 'text-ink-3 hover:text-ink-2'
               }`}
             >
               Diamond
@@ -153,8 +153,8 @@ export default function StoryLab() {
               onClick={() => setTheme('obsidian')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 !isDiamond
-                  ? 'bg-gray-800 text-gray-100 shadow-sm ring-1 ring-gray-700'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-surface-elevated text-ink shadow-sm ring-1 ring-gray-700'
+                  : 'text-ink-3 hover:text-gray-700'
               }`}
             >
               Obsidian

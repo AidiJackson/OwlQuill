@@ -106,7 +106,7 @@ function ChipRow({
             onClick={() => handleClick(option)}
             className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
               selected
-                ? 'bg-gem border-gem/50 text-white'
+                ? 'bg-gem border-gem/50 text-gem-ink'
                 : disabled
                 ? 'bg-surface border-edge text-ink-3 cursor-not-allowed'
                 : 'bg-surface-elevated border-edge-md text-ink-2 hover:border-edge-md'
@@ -140,7 +140,7 @@ function LabeledChipRow({
             onClick={() => onChange(selected ? '' : opt.value)}
             className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
               selected
-                ? 'bg-gem border-gem/50 text-white'
+                ? 'bg-gem border-gem/50 text-gem-ink'
                 : 'bg-surface-elevated border-edge-md text-ink-2 hover:border-edge-md'
             }`}
           >
@@ -419,7 +419,7 @@ function GroupQ5({ spec, propagate, set, traits, toggleTrait }: {
               onClick={() => toggleTrait(trait)}
               className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
                 traits.includes(trait)
-                  ? 'bg-gem border-gem/50 text-white'
+                  ? 'bg-gem border-gem/50 text-gem-ink'
                   : 'bg-surface-elevated border-edge-md text-ink-2 hover:border-edge-md'
               }`}
             >

@@ -195,7 +195,7 @@ export default function SceneGeneratorPanel({
               title="Google — the recommended Canon image provider"
               className={`px-3 py-1 transition-colors ${
                 providerOption === 'option2'
-                  ? 'bg-gem text-white'
+                  ? 'bg-gem text-gem-ink'
                   : 'bg-surface-elevated text-ink-2 hover:bg-gem-soft hover:text-gem'
               }`}
             >

@@ -30,8 +30,8 @@ function storedGem(): Gem {
 }
 
 function storedMode(): ThemeMode {
-  // Light mode is infrastructure-only until pages are token-clean; anything
-  // other than an explicit 'light' resolves to dark.
+  // Light mode is a supported product theme. Dark remains the default when no
+  // explicit preference is stored; an explicit 'light' is honoured.
   return localStorage.getItem(MODE_KEY) === 'light' ? 'light' : 'dark';
 }
 

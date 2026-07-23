@@ -86,7 +86,7 @@ export default function CharacterDirectory() {
       ) : visible.length === 0 ? (
         <div className="rounded-2xl p-12 sm:p-16 text-center bg-surface border border-edge">
           <Feather className="w-12 h-12 text-ink-3 mx-auto mb-4" />
-          <h3 className="text-white text-lg font-semibold mb-1">
+          <h3 className="text-ink text-lg font-semibold mb-1">
             {showingSearch ? 'No characters found' : 'No characters yet'}
           </h3>
           <p className="text-ink-3 text-sm">
@@ -123,17 +123,17 @@ export default function CharacterDirectory() {
                     <img
                       src={ch.avatar_url}
                       alt={ch.name}
-                      className="w-14 h-14 rounded-xl object-cover border-2 border-gray-900 bg-surface-elevated flex-shrink-0 group-hover:border-gem/50 transition-colors"
+                      className="w-14 h-14 rounded-xl object-cover border-2 border-surface bg-surface-elevated flex-shrink-0 group-hover:border-gem/50 transition-colors"
                       loading="lazy"
                       decoding="async"
                     />
                   ) : (
-                    <div className="w-14 h-14 rounded-xl bg-surface-elevated border-2 border-gray-900 flex items-center justify-center flex-shrink-0">
+                    <div className="w-14 h-14 rounded-xl bg-surface-elevated border-2 border-surface flex items-center justify-center flex-shrink-0">
                       <span className="text-lg font-bold text-gem">{ch.name.charAt(0)}</span>
                     </div>
                   )}
                   <div className="min-w-0 flex-1 pb-0.5">
-                    <h4 className="font-semibold text-white truncate group-hover:text-gem transition-colors">
+                    <h4 className="font-semibold text-ink truncate group-hover:text-gem transition-colors">
                       {ch.name}
                     </h4>
                     {ch.species && (

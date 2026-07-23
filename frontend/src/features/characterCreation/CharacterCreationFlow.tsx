@@ -235,7 +235,7 @@ export default function CharacterCreationFlow() {
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
                   i === step
-                    ? 'bg-gem text-white'
+                    ? 'bg-gem text-gem-ink'
                     : i < step
                       ? 'bg-gem-soft text-gem'
                       : 'bg-surface-elevated text-ink-3'

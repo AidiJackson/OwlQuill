@@ -214,7 +214,7 @@ export default function Layout() {
           onClick={closeSidebar}
         >
           <HomeIcon className={iconCls} strokeWidth={1.6} />
-          Home
+          Commons
         </Link>
         <Link
           to="/realms"

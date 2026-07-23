@@ -1567,7 +1567,7 @@ export default function Workspace() {
             <button
               type="button"
               onClick={() => setSurfaceMode('night')}
-              className={`px-2 py-1 transition ${surfaceMode === 'night' ? 'bg-surface-overlay text-white' : 'text-ink-3 hover:text-ink-2'}`}
+              className={`px-2 py-1 transition ${surfaceMode === 'night' ? 'bg-surface-overlay text-ink' : 'text-ink-3 hover:text-ink-2'}`}
             >Night</button>
             <button
               type="button"

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
-import { useAuthStore } from '@/lib/store';
 import type { PublishedStory } from '@/lib/types';
 
 function formatDate(iso: string): string {
@@ -14,7 +13,6 @@ function formatDate(iso: string): string {
 
 export default function PublishedStoryReader() {
   const { storyId } = useParams<{ storyId: string }>();
-  const currentUser = useAuthStore((state) => state.user);
 
   const [story, setStory] = useState<PublishedStory | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,7 +52,7 @@ export default function PublishedStoryReader() {
     return (
       <div className="max-w-[680px] mx-auto px-6 py-10">
         <Link to="/" className="text-sm text-ink-3 hover:text-ink-2 transition-colors mb-6 inline-block">
-          ← Home
+          ← The Commons
         </Link>
         <div className="rounded-xl bg-red-900/20 border border-red-700/40 px-4 py-3 text-sm text-red-400">
           {error || 'Story not found.'}
@@ -63,11 +61,9 @@ export default function PublishedStoryReader() {
     );
   }
 
-  const publisherLabel =
-    currentUser?.id === story.publisher_user_id
-      ? `@${currentUser.username}`
-      : null;
-
+  // Published stories are a public surface. Segments are attributed to their
+  // character snapshots; the human account username is never shown as a byline —
+  // not even to the publisher viewing their own story.
   const publishedDate = story.published_at ?? story.created_at;
 
   // ── Story layout ─────────────────────────────────────────────────────────────
@@ -87,9 +83,6 @@ export default function PublishedStoryReader() {
         )}
 
         <div className="flex items-center justify-center gap-3 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3 flex-wrap">
-          {publisherLabel && (
-            <span>{publisherLabel}</span>
-          )}
           <span>{formatDate(publishedDate)}</span>
           <span aria-hidden="true">·</span>
           <span>{story.segment_count} {story.segment_count === 1 ? 'segment' : 'segments'}</span>

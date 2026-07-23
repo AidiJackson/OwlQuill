@@ -151,24 +151,24 @@ function CanonImageSlot({
 
   return (
     <div className="space-y-1.5">
-      <p className="text-xs text-zinc-400">{label}</p>
-      <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 overflow-hidden aspect-square flex items-center justify-center relative">
+      <p className="text-xs text-ink-2">{label}</p>
+      <div className="rounded-lg border border-edge-md bg-surface-elevated overflow-hidden aspect-square flex items-center justify-center relative">
         {url ? (
           <img src={url} alt={label} className="w-full h-full object-cover" />
         ) : (
-          <div className="flex flex-col items-center gap-2 text-zinc-600">
+          <div className="flex flex-col items-center gap-2 text-ink-3">
             <Image className="w-6 h-6" />
             <span className="text-xs">Empty</span>
           </div>
         )}
         {busy && (
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-            <Loader2 className="w-5 h-5 text-white animate-spin" />
+            <Loader2 className="w-5 h-5 text-ink animate-spin" />
           </div>
         )}
       </div>
       {isAdmin && (
-        <label className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white cursor-pointer transition-colors">
+        <label className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-ink cursor-pointer transition-colors">
           <Upload className="w-3 h-3" />
           {url ? 'Replace' : 'Upload'}
           <input
@@ -224,23 +224,23 @@ function MarkImageSlot({
 
   return (
     <div className="space-y-1.5">
-      <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 overflow-hidden aspect-square w-32 flex items-center justify-center relative">
+      <div className="rounded-lg border border-edge-md bg-surface-elevated overflow-hidden aspect-square w-32 flex items-center justify-center relative">
         {url ? (
           <img src={url} alt={`${mark.label} marking`} className="w-full h-full object-cover" />
         ) : (
-          <div className="flex flex-col items-center gap-1.5 text-zinc-600">
+          <div className="flex flex-col items-center gap-1.5 text-ink-3">
             <Image className="w-5 h-5" />
             <span className="text-xs">No image</span>
           </div>
         )}
         {busy && (
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-            <Loader2 className="w-5 h-5 text-white animate-spin" />
+            <Loader2 className="w-5 h-5 text-ink animate-spin" />
           </div>
         )}
       </div>
       {isAdmin && (
-        <label className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white cursor-pointer transition-colors">
+        <label className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-ink cursor-pointer transition-colors">
           <Upload className="w-3 h-3" />
           {url ? 'Replace marking image' : 'Upload marking image'}
           <input
@@ -303,8 +303,8 @@ function FaceCanonSection({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-white">Core Face Identity</h3>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <h3 className="text-sm font-semibold text-ink">Core Face Identity</h3>
+          <p className="text-xs text-ink-3 mt-0.5">
             Face Canon controls the character&apos;s face identity. Scene images cannot change this.
           </p>
         </div>
@@ -334,19 +334,19 @@ function FaceCanonSection({
 
       {/* Face description */}
       <div className="space-y-1.5">
-        <label className="text-xs text-zinc-400">Face description (for prompt)</label>
+        <label className="text-xs text-ink-2">Face description (for prompt)</label>
         <textarea
           value={description}
           onChange={e => setDescription(e.target.value)}
           rows={2}
           disabled={canon.face_locked && !isAdmin}
-          className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:ring-1 focus:ring-gem/40 disabled:opacity-50"
+          className="w-full text-xs bg-surface-elevated border border-edge-md rounded-lg px-3 py-2 text-ink resize-none focus:outline-none focus:ring-1 focus:ring-gem/40 disabled:opacity-50"
           placeholder="e.g. sharp angular jaw, dark brown eyes, olive skin"
         />
         <button
           onClick={saveDescription}
           disabled={savingDesc}
-          className="text-xs text-zinc-400 hover:text-white transition-colors"
+          className="text-xs text-ink-2 hover:text-ink transition-colors"
         >
           {savingDesc ? 'Saving…' : 'Save description'}
         </button>
@@ -365,7 +365,7 @@ function FaceCanonSection({
             Lock Face Canon
           </button>
           {!face?.face_front_image_url && (
-            <p className="text-xs text-zinc-500 mt-1">Upload a front face image first.</p>
+            <p className="text-xs text-ink-3 mt-1">Upload a front face image first.</p>
           )}
         </div>
       )}
@@ -492,8 +492,8 @@ function BodyCanonSection({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-white">Body Canon</h3>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <h3 className="text-sm font-semibold text-ink">Body Canon</h3>
+          <p className="text-xs text-ink-3 mt-0.5">
             Body Canon controls anatomy, proportions, scars, birthmarks, tattoos, and permanent body markings.
           </p>
         </div>
@@ -529,20 +529,20 @@ function BodyCanonSection({
       {/* Permanent body marks */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-white">Permanent Body Markings</p>
+          <p className="text-xs font-medium text-ink">Permanent Body Markings</p>
           <p className="text-xs text-gem/80">Locked body truth — not accessories</p>
         </div>
 
         {(!body?.permanent_body_marks || body.permanent_body_marks.length === 0) && (
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-ink-3">
             No permanent markings yet. Tattoos, scars, and birthmarks added here are locked body truth.
           </p>
         )}
 
         {body?.permanent_body_marks?.map(mark => (
-          <div key={mark.id} className="border border-zinc-700 rounded-lg bg-zinc-800/30 overflow-hidden">
+          <div key={mark.id} className="border border-edge-md rounded-lg bg-surface-elevated overflow-hidden">
             <button
-              className="w-full flex items-center justify-between p-2.5 text-left hover:bg-zinc-700/20"
+              className="w-full flex items-center justify-between p-2.5 text-left hover:bg-surface-overlay"
               onClick={() => {
                 const s = new Set(expandedMarks);
                 s.has(mark.id) ? s.delete(mark.id) : s.add(mark.id);
@@ -554,28 +554,28 @@ function BodyCanonSection({
                   <img
                     src={mark.detail_crop_url || mark.reference_image_url || ''}
                     alt=""
-                    className="w-6 h-6 rounded object-cover border border-zinc-600 shrink-0"
+                    className="w-6 h-6 rounded object-cover border border-edge-md shrink-0"
                   />
                 ) : (
-                  <span className="w-6 h-6 rounded bg-zinc-700/60 flex items-center justify-center shrink-0">
-                    <Image className="w-3 h-3 text-zinc-500" />
+                  <span className="w-6 h-6 rounded bg-surface-overlay flex items-center justify-center shrink-0">
+                    <Image className="w-3 h-3 text-ink-3" />
                   </span>
                 )}
-                <span className="text-xs font-medium bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded shrink-0">
+                <span className="text-xs font-medium bg-surface-overlay text-ink-2 px-1.5 py-0.5 rounded shrink-0">
                   {TYPE_LABELS[mark.type] ?? mark.type}
                 </span>
-                <span className="text-xs text-white truncate">{mark.label}</span>
-                <span className="text-xs text-zinc-500 shrink-0">{SIDE_LABELS[mark.side]}</span>
+                <span className="text-xs text-ink truncate">{mark.label}</span>
+                <span className="text-xs text-ink-3 shrink-0">{SIDE_LABELS[mark.side]}</span>
               </div>
               <div className="flex items-center gap-2">
                 {expandedMarks.has(mark.id)
-                  ? <ChevronDown className="w-3 h-3 text-zinc-500" />
-                  : <ChevronRight className="w-3 h-3 text-zinc-500" />
+                  ? <ChevronDown className="w-3 h-3 text-ink-3" />
+                  : <ChevronRight className="w-3 h-3 text-ink-3" />
                 }
               </div>
             </button>
             {expandedMarks.has(mark.id) && (
-              <div className="px-2.5 pb-2.5 space-y-2 border-t border-zinc-700/50">
+              <div className="px-2.5 pb-2.5 space-y-2 border-t border-edge-md">
                 <div className="pt-2">
                   <MarkImageSlot
                     mark={mark}
@@ -585,9 +585,9 @@ function BodyCanonSection({
                   />
                 </div>
                 {mark.description && mark.description !== mark.label && (
-                  <p className="text-xs text-zinc-400">{mark.description}</p>
+                  <p className="text-xs text-ink-2">{mark.description}</p>
                 )}
-                <p className="text-xs text-zinc-500">Region: {mark.body_region}</p>
+                <p className="text-xs text-ink-3">Region: {mark.body_region}</p>
                 {!canon.body_locked && (
                   <button
                     onClick={() => handleRemoveMark(mark.id)}
@@ -612,24 +612,24 @@ function BodyCanonSection({
           {!showAddMark ? (
               <button
                 onClick={() => { resetMarkForm(); setMarkError(''); setShowAddMark(true); }}
-                className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white transition-colors"
+                className="flex items-center gap-1 text-xs text-ink-2 hover:text-ink transition-colors"
               >
                 <Plus className="w-3 h-3" /> Add permanent marking
               </button>
             ) : (
-              <div className="border border-zinc-700 rounded-lg p-3 space-y-2 bg-zinc-800/30">
-                <p className="text-xs font-medium text-white">Add Permanent Body Mark</p>
+              <div className="border border-edge-md rounded-lg p-3 space-y-2 bg-surface-elevated">
+                <p className="text-xs font-medium text-ink">Add Permanent Body Mark</p>
                 <input
                   value={markForm.label}
                   onChange={e => setMarkForm(f => ({ ...f, label: e.target.value }))}
                   placeholder="Label (e.g. Left gothic script sleeve)"
-                  className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white focus:outline-none focus:ring-1 focus:ring-gem/40"
+                  className="w-full text-xs bg-surface-elevated border border-edge-md rounded px-2.5 py-1.5 text-ink focus:outline-none focus:ring-1 focus:ring-gem/40"
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <select
                     value={markForm.type}
                     onChange={e => setMarkForm(f => ({ ...f, type: e.target.value }))}
-                    className="text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-white"
+                    className="text-xs bg-surface-elevated border border-edge-md rounded px-2 py-1.5 text-ink"
                   >
                     <option value="tattoo">Tattoo</option>
                     <option value="scar">Scar</option>
@@ -641,7 +641,7 @@ function BodyCanonSection({
                   <select
                     value={markForm.side}
                     onChange={e => setMarkForm(f => ({ ...f, side: e.target.value }))}
-                    className="text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-white"
+                    className="text-xs bg-surface-elevated border border-edge-md rounded px-2 py-1.5 text-ink"
                   >
                     <option value="left">Left side</option>
                     <option value="right">Right side</option>
@@ -653,11 +653,11 @@ function BodyCanonSection({
                   value={markForm.body_region}
                   onChange={e => setMarkForm(f => ({ ...f, body_region: e.target.value }))}
                   placeholder="Body region (e.g. left_full_arm)"
-                  className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white focus:outline-none"
+                  className="w-full text-xs bg-surface-elevated border border-edge-md rounded px-2.5 py-1.5 text-ink focus:outline-none"
                 />
                 {/* Image is the primary truth for the marking. */}
                 {isAdmin && (
-                  <label className="flex items-center gap-1.5 text-xs text-zinc-300 hover:text-white cursor-pointer border border-dashed border-zinc-600 rounded px-2.5 py-2 transition-colors">
+                  <label className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-ink cursor-pointer border border-dashed border-edge-md rounded px-2.5 py-2 transition-colors">
                     <Upload className="w-3 h-3 shrink-0" />
                     <span className="truncate">
                       {markFile ? markFile.name : 'Marking image (required) — the visual truth'}
@@ -675,9 +675,9 @@ function BodyCanonSection({
                   onChange={e => setMarkForm(f => ({ ...f, description: e.target.value }))}
                   placeholder="Notes (optional) — the uploaded image is the primary truth"
                   rows={2}
-                  className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white resize-none focus:outline-none"
+                  className="w-full text-xs bg-surface-elevated border border-edge-md rounded px-2.5 py-1.5 text-ink resize-none focus:outline-none"
                 />
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-ink-3">
                   Required: label, body region{isAdmin ? ', marking image' : ''}.
                 </p>
                 {markError && <p className="text-xs text-red-400">{markError}</p>}
@@ -693,7 +693,7 @@ function BodyCanonSection({
                   </button>
                   <button
                     onClick={() => { setShowAddMark(false); resetMarkForm(); setMarkError(''); }}
-                    className="text-xs text-zinc-500 hover:text-white"
+                    className="text-xs text-ink-3 hover:text-ink"
                   >
                     Cancel
                   </button>
@@ -716,7 +716,7 @@ function BodyCanonSection({
             Lock Body Canon
           </button>
           {!body?.body_front_image_url && (
-            <p className="text-xs text-zinc-500 mt-1">Upload a body front image first.</p>
+            <p className="text-xs text-ink-3 mt-1">Upload a body front image first.</p>
           )}
         </div>
       )}
@@ -784,29 +784,29 @@ function AccessoriesSection({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-white">Removable Accessories</h3>
-        <p className="text-xs text-zinc-500 mt-0.5">
+        <h3 className="text-sm font-semibold text-ink">Removable Accessories</h3>
+        <p className="text-xs text-ink-3 mt-0.5">
           Accessories only appear when requested. They are not body canon.
         </p>
       </div>
 
       {canon.accessories.length === 0 && !showAdd && (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-ink-3">
           No accessories. Add mask, chain, jewellery, weapons, etc. — they only appear when the scene prompt requests them.
         </p>
       )}
 
       {canon.accessories.map(acc => (
-        <div key={acc.id} className="border border-zinc-700 rounded-lg bg-zinc-800/30 p-2.5 space-y-1.5">
+        <div key={acc.id} className="border border-edge-md rounded-lg bg-surface-elevated p-2.5 space-y-1.5">
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-xs font-medium text-white">{acc.label}</span>
-              <span className="ml-2 text-xs text-zinc-500">{acc.type}</span>
+              <span className="text-xs font-medium text-ink">{acc.label}</span>
+              <span className="ml-2 text-xs text-ink-3">{acc.type}</span>
             </div>
             <button
               onClick={() => handleRemove(acc.id)}
               disabled={removing === acc.id}
-              className="text-zinc-500 hover:text-red-400 transition-colors"
+              className="text-ink-3 hover:text-red-400 transition-colors"
             >
               {removing === acc.id
                 ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -814,11 +814,11 @@ function AccessoriesSection({
               }
             </button>
           </div>
-          <p className="text-xs text-zinc-400">{acc.description}</p>
+          <p className="text-xs text-ink-2">{acc.description}</p>
           {acc.trigger_keywords.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {acc.trigger_keywords.map(kw => (
-                <span key={kw} className="text-xs bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded">
+                <span key={kw} className="text-xs bg-surface-overlay text-ink-2 px-1.5 py-0.5 rounded">
                   {kw}
                 </span>
               ))}
@@ -830,23 +830,23 @@ function AccessoriesSection({
       {!showAdd ? (
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white transition-colors"
+          className="flex items-center gap-1 text-xs text-ink-2 hover:text-ink transition-colors"
         >
           <Plus className="w-3 h-3" /> Add accessory
         </button>
       ) : (
-        <div className="border border-zinc-700 rounded-lg p-3 space-y-2 bg-zinc-800/30">
-          <p className="text-xs font-medium text-white">Add Removable Accessory</p>
+        <div className="border border-edge-md rounded-lg p-3 space-y-2 bg-surface-elevated">
+          <p className="text-xs font-medium text-ink">Add Removable Accessory</p>
           <input
             value={form.label}
             onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
             placeholder="Label (e.g. Venetian mask)"
-            className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white focus:outline-none"
+            className="w-full text-xs bg-surface-elevated border border-edge-md rounded px-2.5 py-1.5 text-ink focus:outline-none"
           />
           <select
             value={form.type}
             onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
-            className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-white"
+            className="w-full text-xs bg-surface-elevated border border-edge-md rounded px-2 py-1.5 text-ink"
           >
             <option value="mask">Mask</option>
             <option value="jewellery">Jewellery</option>
@@ -860,13 +860,13 @@ function AccessoriesSection({
             onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
             placeholder="Prompt description (injected when triggered)"
             rows={2}
-            className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white resize-none focus:outline-none"
+            className="w-full text-xs bg-surface-elevated border border-edge-md rounded px-2.5 py-1.5 text-ink resize-none focus:outline-none"
           />
           <input
             value={form.trigger_keywords}
             onChange={e => setForm(f => ({ ...f, trigger_keywords: e.target.value }))}
             placeholder="Trigger keywords (comma-separated, e.g. mask, masked)"
-            className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-white focus:outline-none"
+            className="w-full text-xs bg-surface-elevated border border-edge-md rounded px-2.5 py-1.5 text-ink focus:outline-none"
           />
           {err && <p className="text-xs text-red-400">{err}</p>}
           <div className="flex gap-2">
@@ -877,7 +877,7 @@ function AccessoriesSection({
             >
               {adding ? 'Adding…' : 'Add Accessory'}
             </button>
-            <button onClick={() => setShowAdd(false)} className="text-xs text-zinc-500 hover:text-white">
+            <button onClick={() => setShowAdd(false)} className="text-xs text-ink-3 hover:text-ink">
               Cancel
             </button>
           </div>
@@ -924,8 +924,8 @@ function SceneImagesSection({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-white">Scene Images</h3>
-        <p className="text-xs text-zinc-500 mt-0.5">
+        <h3 className="text-sm font-semibold text-ink">Scene Images</h3>
+        <p className="text-xs text-ink-3 mt-0.5">
           Scene images are outputs only. They do not change canon.
         </p>
       </div>
@@ -942,7 +942,7 @@ function SceneImagesSection({
           onChange={e => setPrompt(e.target.value)}
           rows={2}
           placeholder='e.g. "Leonardo standing on a beach in daylight"'
-          className="w-full text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white resize-none focus:outline-none focus:ring-1 focus:ring-gem/40"
+          className="w-full text-xs bg-surface-elevated border border-edge-md rounded-lg px-3 py-2 text-ink resize-none focus:outline-none focus:ring-1 focus:ring-gem/40"
         />
         <button
           onClick={handleGenerate}
@@ -956,9 +956,9 @@ function SceneImagesSection({
       </div>
 
       {lastImage && (
-        <div className="rounded-lg overflow-hidden border border-zinc-700">
+        <div className="rounded-lg overflow-hidden border border-edge-md">
           <img src={lastImage.url} alt="Generated scene" className="w-full" />
-          <div className="px-3 py-2 bg-zinc-800/50 text-xs text-zinc-400">
+          <div className="px-3 py-2 bg-surface-elevated text-xs text-ink-2">
             Scene image #{lastImage.id} — not canon
           </div>
         </div>
@@ -1010,17 +1010,17 @@ export default function CanonManager({ characterId, isOwner, isAdmin }: Props) {
           <span className={`px-2 py-0.5 rounded-full font-medium ${
             canon.status === 'locked'
               ? 'bg-gem-soft text-gem'
-              : 'bg-zinc-700/60 text-zinc-400'
+              : 'bg-surface-overlay text-ink-2'
           }`}>
             Canon: {canon.status}
           </span>
           <span className={`px-2 py-0.5 rounded-full ${
-            canon.face_locked ? 'bg-gem-soft text-gem' : 'bg-zinc-700/40 text-zinc-500'
+            canon.face_locked ? 'bg-gem-soft text-gem' : 'bg-surface-overlay text-ink-3'
           }`}>
             Face: {canon.face_locked ? 'locked' : 'draft'}
           </span>
           <span className={`px-2 py-0.5 rounded-full ${
-            canon.body_locked ? 'bg-gem-soft text-gem' : 'bg-zinc-700/40 text-zinc-500'
+            canon.body_locked ? 'bg-gem-soft text-gem' : 'bg-surface-overlay text-ink-3'
           }`}>
             Body: {canon.body_locked ? 'locked' : 'draft'}
           </span>
@@ -1028,15 +1028,15 @@ export default function CanonManager({ characterId, isOwner, isAdmin }: Props) {
       )}
 
       {/* Tab nav */}
-      <div className="flex gap-1 border-b border-zinc-700/60 pb-0">
+      <div className="flex gap-1 border-b border-edge-md pb-0">
         {TABS.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
             className={`px-3 py-2 text-xs font-medium transition-colors rounded-t-lg ${
               tab === t.id
-                ? 'text-white border-b-2 border-gem/50 -mb-px'
-                : 'text-zinc-500 hover:text-zinc-300'
+                ? 'text-ink border-b-2 border-gem/50 -mb-px'
+                : 'text-ink-3 hover:text-ink-2'
             }`}
           >
             {t.label}
@@ -1045,7 +1045,7 @@ export default function CanonManager({ characterId, isOwner, isAdmin }: Props) {
       </div>
 
       {loading && (
-        <div className="flex items-center gap-2 text-xs text-zinc-500 py-4">
+        <div className="flex items-center gap-2 text-xs text-ink-3 py-4">
           <Loader2 className="w-3 h-3 animate-spin" /> Loading canon…
         </div>
       )}

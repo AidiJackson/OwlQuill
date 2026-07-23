@@ -111,7 +111,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
   const isDiamond = theme === 'diamond';
 
   const labelCls = isDiamond ? 'text-gray-700' : 'text-ink-2';
-  const subLabelCls = isDiamond ? 'text-gray-400' : 'text-ink-3';
+  const subLabelCls = isDiamond ? 'text-ink-2' : 'text-ink-3';
 
   const inputCls = isDiamond
     ? 'w-full bg-white border border-gray-200 rounded-2xl px-4 py-3.5 text-sm text-gray-900 placeholder-gray-400 resize-y focus:outline-none focus:border-emerald-400 transition leading-relaxed'
@@ -123,12 +123,12 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
 
   const advancedPanelCls = isDiamond ? 'border-gray-200' : 'border-edge';
   const advancedBtnCls = isDiamond
-    ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-100/50'
+    ? 'text-ink-3 hover:text-gray-700 hover:bg-gray-100/50'
     : 'text-ink-3 hover:text-ink-2 hover:bg-surface-elevated';
   const advancedInnerBorderCls = isDiamond ? 'border-gray-200/70' : 'border-edge';
   const advancedLabelCls = isDiamond
-    ? 'text-xs font-medium text-gray-400 uppercase tracking-wide'
-    : 'text-xs font-medium text-gray-500 uppercase tracking-wide';
+    ? 'text-xs font-medium text-ink-2 uppercase tracking-wide'
+    : 'text-xs font-medium text-ink-3 uppercase tracking-wide';
 
   function smallBtnCls(active: boolean, accent: 'emerald' | 'orange' = 'emerald') {
     if (active) {
@@ -142,13 +142,13 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
         : 'border-orange-600/60 bg-orange-950/30 text-orange-200';
     }
     return isDiamond
-      ? 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
+      ? 'border-gray-200 text-ink-2 hover:border-gray-300 hover:text-ink-3'
       : 'border-edge text-ink-3 hover:border-edge-md hover:text-ink-2';
   }
 
   const outputTextareaCls = isDiamond
     ? 'w-full bg-white border border-gray-300 rounded-2xl px-4 py-4 text-sm text-gray-900 resize-y focus:outline-none focus:border-gray-400 transition leading-relaxed'
-    : 'w-full bg-gray-900/70 border border-gray-700 rounded-2xl px-4 py-4 text-sm text-gray-100 resize-y focus:outline-none focus:border-gray-500 transition leading-relaxed';
+    : 'w-full bg-gray-900/70 border border-edge-md rounded-2xl px-4 py-4 text-sm text-ink resize-y focus:outline-none focus:border-gray-500 transition leading-relaxed';
 
   const partnerFilled = partnerReply.trim().length > 0;
   const partnerHeaderCls = isDiamond
@@ -156,10 +156,10 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
     : 'w-full flex items-center justify-between px-4 py-3 text-sm rounded-2xl border transition group';
   const partnerHeaderIdleCls = isDiamond
     ? 'border-gray-200 bg-white hover:border-gray-300'
-    : 'border-gray-800 bg-gray-900/40 hover:border-gray-700';
+    : 'border-edge bg-gray-900/40 hover:border-edge-md';
   const partnerHeaderOpenCls = isDiamond
     ? 'border-emerald-300 bg-emerald-50/30 rounded-b-none'
-    : 'border-gray-700 bg-gray-900/60 rounded-b-none';
+    : 'border-edge-md bg-gray-900/60 rounded-b-none';
 
   async function handleGenerate() {
     if (!partnerReply.trim()) return;
@@ -293,7 +293,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
             )}
           </div>
           <svg
-            className={`w-4 h-4 transition-transform duration-200 ${partnerReplyOpen ? 'rotate-180' : ''} ${isDiamond ? 'text-gray-400' : 'text-gray-600'}`}
+            className={`w-4 h-4 transition-transform duration-200 ${partnerReplyOpen ? 'rotate-180' : ''} ${isDiamond ? 'text-ink-2' : 'text-ink-3'}`}
             fill="none"
             stroke="currentColor"
             strokeWidth={2}
@@ -304,7 +304,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
         </button>
 
         {partnerReplyOpen && (
-          <div className={`border border-t-0 rounded-2xl rounded-t-none px-4 pt-3 pb-4 ${isDiamond ? 'border-emerald-300 bg-emerald-50/20' : 'border-gray-700 bg-gray-900/40'}`}>
+          <div className={`border border-t-0 rounded-2xl rounded-t-none px-4 pt-3 pb-4 ${isDiamond ? 'border-emerald-300 bg-emerald-50/20' : 'border-edge-md bg-gray-900/40'}`}>
             <textarea
               value={partnerReply}
               onChange={(e) => setPartnerReply(e.target.value)}
@@ -379,7 +379,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
           className={`w-full flex items-center justify-between px-4 py-3 text-sm transition ${advancedBtnCls}`}
         >
           <span className="font-medium">Advanced options</span>
-          <span className={`select-none ${isDiamond ? 'text-gray-400' : 'text-gray-700'}`}>{showAdvanced ? '▲' : '▼'}</span>
+          <span className={`select-none ${isDiamond ? 'text-ink-2' : 'text-gray-700'}`}>{showAdvanced ? '▲' : '▼'}</span>
         </button>
 
         {showAdvanced && (
@@ -468,11 +468,11 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
                   Internal — Bake-off
                 </span>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Model profile</label>
+                  <label className="text-xs font-medium text-ink-3 uppercase tracking-wide">Model profile</label>
                   <select
                     value={modelProfile}
                     onChange={(e) => setModelProfile(e.target.value)}
-                    className="w-full bg-gray-900/60 border border-violet-800/40 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-600/60 transition"
+                    className="w-full bg-gray-900/60 border border-violet-800/40 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-violet-600/60 transition"
                   >
                     {RP_MODEL_OPTIONS.map((opt) => (
                       <option key={opt.profile} value={opt.profile}>{opt.label}</option>
@@ -480,11 +480,11 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Story style</label>
+                  <label className="text-xs font-medium text-ink-3 uppercase tracking-wide">Story style</label>
                   <select
                     value={styleArchetype}
                     onChange={(e) => setStyleArchetype(e.target.value as RPStyleArchetype)}
-                    className="w-full bg-gray-900/60 border border-violet-800/40 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-600/60 transition"
+                    className="w-full bg-gray-900/60 border border-violet-800/40 rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:border-violet-600/60 transition"
                   >
                     {ARCHETYPE_OPTIONS.map((opt) => (
                       <option key={opt.val} value={opt.val}>{opt.label}</option>
@@ -509,8 +509,8 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
         disabled={loading || !partnerReply.trim()}
         className={`w-full py-3.5 rounded-2xl font-semibold text-sm tracking-wide transition-colors ${
           isDiamond
-            ? 'bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-200 disabled:text-gray-400 text-white'
-            : 'bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-600 text-white'
+            ? 'bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-200 disabled:text-ink-2 text-white'
+            : 'bg-emerald-700 hover:bg-emerald-600 disabled:bg-surface-elevated disabled:text-ink-3 text-white'
         }`}
       >
         {loading ? 'Generating…' : 'Generate Reply'}
@@ -574,7 +574,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
               <button
                 type="button"
                 onClick={handleCopy}
-                className={`text-xs transition px-2.5 py-1.5 rounded-lg border ${isDiamond ? 'text-gray-500 hover:text-gray-700 border-gray-200 hover:border-gray-300' : 'text-gray-500 hover:text-gray-300 border-gray-800 hover:border-gray-600'}`}
+                className={`text-xs transition px-2.5 py-1.5 rounded-lg border ${isDiamond ? 'text-ink-3 hover:text-gray-700 border-gray-200 hover:border-gray-300' : 'text-ink-3 hover:text-ink-2 border-edge hover:border-edge-md'}`}
               >
                 {copied ? 'Copied' : 'Copy'}
               </button>
@@ -590,21 +590,21 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
 
           {/* Internal diagnostics */}
           {IS_INTERNAL && (modelUsed || generationTimeMs > 0 || detectedStage || continuationScore !== null) && (
-            <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-600 px-1">
-              {modelUsed && <span><span className="text-gray-700">model</span> <span className="text-gray-500 font-mono">{modelUsed}</span></span>}
-              {generationTimeMs > 0 && <span><span className="text-gray-700">time</span> <span className="text-gray-500">{generationTimeMs.toLocaleString()}ms</span></span>}
-              {detectedStage && <span><span className="text-gray-700">stage</span> <span className="text-gray-500">{detectedStage}</span></span>}
+            <div className="flex flex-wrap items-center gap-4 text-[11px] text-ink-3 px-1">
+              {modelUsed && <span><span className="text-gray-700">model</span> <span className="text-ink-3 font-mono">{modelUsed}</span></span>}
+              {generationTimeMs > 0 && <span><span className="text-gray-700">time</span> <span className="text-ink-3">{generationTimeMs.toLocaleString()}ms</span></span>}
+              {detectedStage && <span><span className="text-gray-700">stage</span> <span className="text-ink-3">{detectedStage}</span></span>}
               {continuationScore !== null && (
                 <span>
                   <span className="text-gray-700">cont.</span>{' '}
-                  <span className={continuationScore >= 0.65 ? 'text-emerald-600/80' : continuationScore >= 0.40 ? 'text-gray-500' : 'text-amber-600/80'}>
+                  <span className={continuationScore >= 0.65 ? 'text-emerald-600/80' : continuationScore >= 0.40 ? 'text-ink-3' : 'text-amber-600/80'}>
                     {continuationScore.toFixed(2)}
                   </span>
                 </span>
               )}
               <span>
                 <span className="text-gray-700">warns</span>{' '}
-                <span className={warnings.length + pacingWarnings.length + styleWarnings.length > 0 ? 'text-amber-600/80' : 'text-gray-500'}>
+                <span className={warnings.length + pacingWarnings.length + styleWarnings.length > 0 ? 'text-amber-600/80' : 'text-ink-3'}>
                   {warnings.length + pacingWarnings.length + styleWarnings.length}
                 </span>
               </span>
@@ -613,7 +613,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
 
           {/* Godmod gate — internal only */}
           {IS_INTERNAL && godmodDetected !== null && (
-            <div className={`border rounded-xl p-3 space-y-2 ${godmodDetected ? 'border-red-800/50 bg-red-950/20' : 'border-gray-800/40 bg-gray-900/20'}`}>
+            <div className={`border rounded-xl p-3 space-y-2 ${godmodDetected ? 'border-red-800/50 bg-red-950/20' : 'border-edge bg-gray-900/20'}`}>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-semibold text-red-500/80 uppercase tracking-widest">Godmod Gate</span>
                 <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
@@ -623,7 +623,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
                 }`}>
                   {godmodDetected ? 'violation in output' : godmodSeverity === 'soft' ? 'soft (advisory)' : 'clean'}
                 </span>
-                {godmodSeverity && <span className="text-[10px] text-gray-600 font-mono">{godmodSeverity}</span>}
+                {godmodSeverity && <span className="text-[10px] text-ink-3 font-mono">{godmodSeverity}</span>}
               </div>
               {godmodWarnings.length > 0 && (
                 <div className="space-y-1">
@@ -677,7 +677,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
                   {multiBeatDetected !== null && (
                     <span>
                       <span className="text-violet-700/80">multi-beat</span>{' '}
-                      <span className={multiBeatDetected ? 'text-emerald-400/80' : 'text-gray-600'}>{multiBeatDetected ? 'detected' : 'no'}</span>
+                      <span className={multiBeatDetected ? 'text-emerald-400/80' : 'text-ink-3'}>{multiBeatDetected ? 'detected' : 'no'}</span>
                     </span>
                   )}
                   {beatCompletionMode && beatCompletionMode !== 'single' && <span><span className="text-violet-700/80">mode</span> <span className="text-emerald-400/70">{beatCompletionMode}</span></span>}

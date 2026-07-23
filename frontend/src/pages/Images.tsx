@@ -571,7 +571,7 @@ export default function Images() {
                               Cancel
                             </button>
                             <button
-                              className="text-xs px-3 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-white transition-colors disabled:opacity-50"
+                              className="text-xs px-3 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-ink transition-colors disabled:opacity-50"
                               disabled={reportSubmitting || !reportReason.trim()}
                               onClick={handleSubmitReport}
                             >
@@ -653,7 +653,7 @@ export default function Images() {
 
                     <div className="flex items-center gap-2 justify-end">
                       <button
-                        className="text-xs px-3 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-white transition-colors disabled:opacity-50"
+                        className="text-xs px-3 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-ink transition-colors disabled:opacity-50"
                         onClick={() => setLbMode('view')}
                         disabled={avatarSaving}
                       >
@@ -738,7 +738,7 @@ export default function Images() {
 
               <div className="flex items-center gap-2 justify-end">
                 <button
-                  className="text-xs px-3 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-white transition-colors disabled:opacity-50"
+                  className="text-xs px-3 py-1.5 rounded bg-surface-overlay hover:bg-surface-overlay text-ink transition-colors disabled:opacity-50"
                   onClick={() => setLbMode('view')}
                   disabled={coverSaving}
                 >

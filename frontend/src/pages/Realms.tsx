@@ -205,7 +205,7 @@ export default function Realms() {
             onClick={() => setSelectedGenre(null)}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
               selectedGenre === null
-                ? 'bg-gem border-gem/50 text-white'
+                ? 'bg-gem border-gem/50 text-gem-ink'
                 : 'bg-transparent border-edge-md text-ink-2 hover:border-gray-500 hover:text-ink'
             }`}
           >
@@ -217,7 +217,7 @@ export default function Realms() {
               onClick={() => setSelectedGenre(genre)}
               className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                 selectedGenre?.toLowerCase() === genre.toLowerCase()
-                  ? 'bg-gem border-gem/50 text-white'
+                  ? 'bg-gem border-gem/50 text-gem-ink'
                   : 'bg-transparent border-edge-md text-ink-2 hover:border-gray-500 hover:text-ink'
               }`}
             >

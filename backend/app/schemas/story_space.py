@@ -48,8 +48,12 @@ class StorySpacePostRead(BaseModel):
     id: int
     space_id: int
     channel_id: int
+    # author_user_id is a numeric ownership handle (never a public human name);
+    # it is retained for is-author/edit checks. The account USERNAME is
+    # deliberately NOT part of this payload — Story Spaces are collaborative
+    # surfaces and characters are the only public identity here. A post with no
+    # character renders as an unlinked "Wanderer" on the client.
     author_user_id: int
-    author_username: str
     character_id: Optional[int] = None
     character_name: Optional[str] = None
     character_avatar_url: Optional[str] = None

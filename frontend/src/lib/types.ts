@@ -351,7 +351,8 @@ export interface StorySpacePost {
   space_id: number;
   channel_id: number;
   author_user_id: number;
-  author_username: string;
+  // Account username is never sent for Story Space posts — characters are the
+  // only public identity; characterless posts render as an unlinked "Wanderer".
   character_id?: number;
   character_name?: string;
   character_avatar_url?: string;

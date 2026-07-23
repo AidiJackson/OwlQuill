@@ -328,7 +328,7 @@ export default function RPStoryThread({ threadId }: Props) {
                   <button
                     onClick={handleSave}
                     disabled={saving || !draftText.trim()}
-                    className="px-4 py-2 rounded-lg bg-gem hover:bg-gem disabled:opacity-40 text-white text-sm font-medium transition-colors"
+                    className="px-4 py-2 rounded-lg bg-gem hover:bg-gem disabled:opacity-40 text-gem-ink text-sm font-medium transition-colors"
                   >
                     {saving ? 'Saving…' : 'Save Reply'}
                   </button>
@@ -394,7 +394,7 @@ export default function RPStoryThread({ threadId }: Props) {
                 <button
                   onClick={handleGenerate}
                   disabled={generating}
-                  className="w-full py-2.5 rounded-lg bg-gem hover:bg-gem disabled:opacity-40 text-white text-sm font-medium transition-colors"
+                  className="w-full py-2.5 rounded-lg bg-gem hover:bg-gem disabled:opacity-40 text-gem-ink text-sm font-medium transition-colors"
                 >
                   {generating ? 'Generating…' : `Generate ${charName}'s Reply`}
                 </button>
@@ -425,7 +425,7 @@ export default function RPStoryThread({ threadId }: Props) {
                 <button
                   onClick={handleAddPartnerTurn}
                   disabled={addingPartner || !partnerInput.trim()}
-                  className="px-4 py-2 rounded-lg bg-surface-overlay hover:bg-surface-overlay disabled:opacity-40 text-white text-sm font-medium transition-colors"
+                  className="px-4 py-2 rounded-lg bg-surface-overlay hover:bg-surface-overlay disabled:opacity-40 text-ink text-sm font-medium transition-colors"
                 >
                   {addingPartner ? 'Saving…' : `Add ${partnerLabel}'s Reply`}
                 </button>
