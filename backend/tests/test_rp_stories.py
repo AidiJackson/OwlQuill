@@ -1,6 +1,6 @@
 """Tests for RP Story Thread endpoints."""
 
-from tests.conftest import get_auth_token, auth_headers
+from tests.conftest import get_auth_token, auth_headers, ensure_character
 
 _PARTNER_STARTER = (
     "||Mira didn't look up when the door opened. She was seated at the edge of the low "
@@ -28,6 +28,10 @@ def _create_character(client, token: str, name: str = "Lennox") -> int:
 
 
 def _create_thread(client, token: str, char_id: int | None = None) -> dict:
+    # Creating an RP thread is a creator mutation, so the acting account must
+    # own a character. Idempotent — callers that already built one (to pass as
+    # selected_character_id) get that same character back, not a second one.
+    ensure_character(client, token)
     body = {
         "partner_starter": _PARTNER_STARTER,
         "partner_label": "Mira",
@@ -67,6 +71,7 @@ def test_create_rp_story_auto_title(client):
 
 def test_create_rp_story_with_explicit_title(client):
     token = get_auth_token(client)
+    ensure_character(client, token)  # inlines the POST, so it needs its own entitlement setup
     resp = client.post(
         "/rp-stories",
         json={"partner_starter": _PARTNER_STARTER, "title": "The Cold Cup"},

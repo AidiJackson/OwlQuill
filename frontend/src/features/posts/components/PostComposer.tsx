@@ -2,13 +2,13 @@ import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Realm } from '@/lib/types';
-import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
+import type { CharacterGalleryImage } from '@/lib/types';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  preloadedImage?: CharacterImageRead | null;
+  preloadedImage?: CharacterGalleryImage | null;
 }
 
 export default function PostComposer({ open, onClose, preloadedImage }: Props) {

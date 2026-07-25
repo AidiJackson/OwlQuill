@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.entitlements import require_creator
 from app.models.user import User
 from app.models.character import Character
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
@@ -31,7 +32,7 @@ def _pick_character(db: Session, user: User) -> Character:
     if not chars:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You need to create a character before generating images.",
+            detail="Image generation belongs to characters — generate from a character you own.",
         )
     # Prefer a visually-locked character
     for c in chars:
@@ -49,7 +50,11 @@ def get_image_quota(
     return get_quota_status(current_user, db)
 
 
-@router.post("/generate", response_model=CharacterImageRead)
+@router.post(
+    "/generate",
+    response_model=CharacterImageRead,
+    dependencies=[Depends(require_creator)],
+)
 def generate_library_image(
     body: ImageGenerateRequest,
     current_user: User = Depends(get_current_user),

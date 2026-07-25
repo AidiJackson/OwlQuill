@@ -6,7 +6,7 @@ write to user A's stories, state, chapters, or GenerationLog data.
 """
 import pytest
 
-from tests.conftest import auth_headers, get_auth_token
+from tests.conftest import auth_headers, get_auth_token, ensure_character
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -32,6 +32,13 @@ def two_users(client):
     """
     token_a = get_auth_token(client, email="sec_a@test.com", username="sec_user_a")
     token_b = get_auth_token(client, email="sec_b@test.com", username="sec_user_b")
+    # BOTH users need a character. A creates the story, so A obviously does —
+    # but B must be a creator too, otherwise the "blocked for wrong user" tests
+    # would pass because B is a Wanderer rather than because B doesn't own the
+    # story. That would silently gut what this module exists to check: these
+    # are OWNERSHIP tests, not entitlement tests.
+    ensure_character(client, token_a, name="Sec Alpha")
+    ensure_character(client, token_b, name="Sec Beta")
     hdrs_a = auth_headers(token_a)
     hdrs_b = auth_headers(token_b)
     story_id_a = _create_story(client, hdrs_a)

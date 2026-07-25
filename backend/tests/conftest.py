@@ -170,6 +170,34 @@ def auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def ensure_character(client, token: str, name: str = "Fixture Character") -> int:
+    """Give this account an owned character, idempotently. Returns its id.
+
+    Creator mutations — StoryLab stories, Story Spaces, RP threads, image
+    generation — are gated by ``app.core.entitlements.require_creator``, which
+    derives the creator entitlement from character ownership. A fixture that
+    registers a bare account and immediately posts to one of those routes is
+    acting as a WANDERER, and a 403 is the endpoint working correctly.
+
+    Call this for any fixture user that is meant to be a creator. Do NOT call it
+    for a user whose test is specifically asserting the Wanderer 403 — that
+    account must stay characterless for the assertion to mean anything.
+
+    Idempotent: returns the existing character when the account already owns
+    one, so repeat calls don't trip the one-character-per-account limit.
+    """
+    existing = client.get("/characters/", headers=auth_headers(token))
+    if existing.status_code == 200 and existing.json():
+        return existing.json()[0]["id"]
+    resp = client.post(
+        "/characters/",
+        json={"name": name, "species": "human"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, f"Fixture character creation failed: {resp.text}"
+    return resp.json()["id"]
+
+
 def make_admin(email: str) -> None:
     """Promote an existing test user to admin (is_admin=True).
 

@@ -1,14 +1,17 @@
-import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
+import type { CharacterGalleryImage } from '@/lib/types';
 import ImageCard, { type BodyAnchorOption } from './ImageCard';
 
 interface Props {
-  images: CharacterImageRead[];
+  /** Typed to the PUBLIC-safe shape: the grid renders galleries for viewers
+   *  who never receive prompts or provider metadata. An owner-shaped
+   *  CharacterImageRead still assigns here, so owner surfaces are unaffected. */
+  images: CharacterGalleryImage[];
   onImageClick?: (index: number) => void;
-  onUseInPost?: (image: CharacterImageRead) => void;
-  onSetAsCover?: (image: CharacterImageRead) => void;
+  onUseInPost?: (image: CharacterGalleryImage) => void;
+  onSetAsCover?: (image: CharacterGalleryImage) => void;
   /** Owner-only body anchor assignment options forwarded to each card. */
   bodyAnchorOptions?: BodyAnchorOption[];
-  onBodyAnchorAssign?: (image: CharacterImageRead, value: string) => void | Promise<void>;
+  onBodyAnchorAssign?: (image: CharacterGalleryImage, value: string) => void | Promise<void>;
   /** Renders a pulsing placeholder tile as the first cell while a scene is generating. */
   showPlaceholder?: boolean;
   /** ID of the most-recently generated image — receives a fade-in transition. */

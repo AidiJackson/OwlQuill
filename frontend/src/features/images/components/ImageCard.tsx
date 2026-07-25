@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
-import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
+import type { CharacterGalleryImage } from '@/lib/types';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 
 export interface BodyAnchorOption {
@@ -9,13 +9,16 @@ export interface BodyAnchorOption {
 }
 
 interface Props {
-  image: CharacterImageRead;
+  /** Public-safe shape — the card reads only id/kind/url, never prompt or
+   *  provider, so it renders correctly for a viewer the server gave nothing
+   *  else to. */
+  image: CharacterGalleryImage;
   onClick?: () => void;
-  onUseInPost?: (image: CharacterImageRead) => void | Promise<void>;
-  onSetAsCover?: (image: CharacterImageRead) => void | Promise<void>;
+  onUseInPost?: (image: CharacterGalleryImage) => void | Promise<void>;
+  onSetAsCover?: (image: CharacterGalleryImage) => void | Promise<void>;
   /** Owner-only body anchor assignment options. When provided, renders a dropdown. */
   bodyAnchorOptions?: BodyAnchorOption[];
-  onBodyAnchorAssign?: (image: CharacterImageRead, value: string) => void | Promise<void>;
+  onBodyAnchorAssign?: (image: CharacterGalleryImage, value: string) => void | Promise<void>;
 }
 
 export default function ImageCard({

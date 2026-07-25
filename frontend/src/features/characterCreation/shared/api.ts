@@ -63,12 +63,12 @@ export function resolveImageUrl(url: string): string {
 }
 
 // ── Character Image List ────────────────────────────────────────────
-
-export async function listCharacterImages(
-  characterId: number,
-): Promise<CharacterImageRead[]> {
-  return request(`/characters/${characterId}/images`);
-}
+//
+// Deliberately absent: a `listCharacterImages` helper. GET /characters/{id}/images
+// is viewer-aware — it returns the owner's working set or the curated public
+// gallery depending on who asks — and typing it as CharacterImageRead[] told a
+// lie to every public viewer. It lives on apiClient as listCharacterImages(),
+// returning CharacterGalleryImage[], and there is one client for it, not two.
 
 export async function setCharacterAvatar(
   characterId: number,

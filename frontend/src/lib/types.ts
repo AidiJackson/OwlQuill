@@ -312,6 +312,36 @@ export interface LibraryImage {
   created_at: string;
 }
 
+// A character image as exposed to the PUBLIC — the curated gallery shape.
+// Mirrors backend CharacterImagePublic: no prompt, provider, seed, metadata,
+// status or visibility. The owner/admin variant is LibraryImage above.
+export interface CharacterImagePublic {
+  id: number;
+  character_id: number;
+  kind: string;
+  url: string;
+  created_at: string;
+}
+
+// What GET /characters/{id}/images actually returns — the endpoint is
+// VIEWER-AWARE, so the shape depends on who is asking. Owners and admins get
+// the working fields; everyone else gets CharacterImagePublic and nothing more.
+//
+// The owner-only fields are therefore OPTIONAL, and deliberately so: any code
+// that wants a prompt or provider has to acknowledge it might not be there,
+// which is exactly the question the server already answered. Do not "fix" this
+// by widening them to required — that would let a component render a field the
+// server never sent for a public viewer.
+export type CharacterGalleryImage = CharacterImagePublic & {
+  status?: string;
+  visibility?: string;
+  file_path?: string;
+  provider?: string;
+  prompt_summary?: string;
+  seed?: string;
+  metadata_json?: Record<string, unknown>;
+};
+
 // User images (profile covers, etc.)
 
 export interface UserImageRead {

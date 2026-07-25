@@ -9,7 +9,7 @@ from datetime import datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, ensure_character
 
 # ── invite seeding ────────────────────────────────────────────────────────────
 
@@ -53,6 +53,12 @@ def _make_user(client: TestClient, n: int) -> str:
 
 
 def _create_space(client: TestClient, token: str, name: str = "Test Space", **kwargs) -> dict:
+    # Creating a space is a creator mutation (require_creator), so the acting
+    # account must own a character. Attached here rather than to _make_user
+    # because accounts are capped at ONE character: a test that builds its own
+    # named character must create it BEFORE its space, so this call finds that
+    # character and adds nothing.
+    ensure_character(client, token)
     resp = client.post(
         "/story-spaces/",
         json={"name": name, **kwargs},
@@ -72,6 +78,7 @@ def _get_my_user_id(client: TestClient, token: str) -> int:
 
 def test_create_space_returns_201(client):
     token = _make_user(client, 1)
+    ensure_character(client, token)  # inlines the POST, so it needs its own entitlement setup
     resp = client.post(
         "/story-spaces/",
         json={"name": "My Space"},
@@ -529,9 +536,11 @@ def test_story_space_post_never_exposes_account_username(client):
     character-attributed post, and not to the author themselves.
     """
     token = _make_user(client, 1)
+    # Built before the space: accounts are capped at one character, and
+    # _create_space guarantees one exists, so this must come first to be THE one.
+    char = _create_character(client, token, name="MyHero")
     space = _create_space(client, token)
     ch = _get_channel(client, token, space, "story")
-    char = _create_character(client, token, name="MyHero")
 
     # characterless post
     plain = client.post(
@@ -557,9 +566,9 @@ def test_story_space_post_username_unrecoverable_by_other_member(client):
     member's account username through the channel post listing.
     """
     owner = _make_user(client, 1)
+    char = _create_character(client, owner, name="Hero")  # before the space (one-character cap)
     space = _create_space(client, owner)
     ch = _get_channel(client, owner, space, "story")
-    char = _create_character(client, owner, name="Hero")
     client.post(
         f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",
         json={"content": "scene", "content_type": "ic", "character_id": char["id"]},
@@ -642,6 +651,8 @@ def test_wrong_channel_different_space_returns_404(client):
 def test_invalid_character_ownership_returns_403(client):
     owner = _make_user(client, 1)
     member = _make_user(client, 2)
+    # Create character owned by owner (user 1) — before the space (one-character cap)
+    char = _create_character(client, owner, name="OwnerChar")
     space = _create_space(client, owner)
     ch = _get_channel(client, owner, space, "story")
 
@@ -651,9 +662,6 @@ def test_invalid_character_ownership_returns_403(client):
         json={"username": "spacetest2"},
         headers=auth_headers(owner),
     )
-
-    # Create character owned by owner (user 1)
-    char = _create_character(client, owner, name="OwnerChar")
 
     # member (user 2) tries to post with owner's character
     resp = client.post(
@@ -666,9 +674,9 @@ def test_invalid_character_ownership_returns_403(client):
 
 def test_post_with_own_character_includes_character_fields(client):
     token = _make_user(client, 1)
+    char = _create_character(client, token, name="MyHero")  # before the space (one-character cap)
     space = _create_space(client, token)
     ch = _get_channel(client, token, space, "story")
-    char = _create_character(client, token, name="MyHero")
 
     resp = client.post(
         f"/story-spaces/{space['id']}/channels/{ch['id']}/posts",

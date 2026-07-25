@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.entitlements import require_creator
 from app.core.storage import file_path_to_url, load_image_bytes, save_image
 from app.models.character import Character as CharacterModel
 from app.models.character_image import (
@@ -78,6 +79,7 @@ def _parse_source_image_ids(raw: Optional[str]) -> list[int]:
     "/generate",
     response_model=EditorGenerateResponse,
     summary="Edit/transform existing character images (Editor Studio E1)",
+    dependencies=[Depends(require_creator)],
 )
 async def editor_generate(
     character_id: int = Form(...),
@@ -367,6 +369,7 @@ def _require_admin_and_character(
     response_model=EditorJobRead,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Start an async self_hosted editor transform job (returns 202)",
+    dependencies=[Depends(require_creator)],
 )
 async def editor_job_start(
     character_id: int = Form(...),
@@ -494,6 +497,7 @@ def editor_job_get(
     "/jobs/{job_id}/cancel",
     response_model=EditorJobRead,
     summary="Cancel an active editor job (terminate pod best-effort + mark failed)",
+    dependencies=[Depends(require_creator)],
 )
 def editor_job_cancel(
     job_id: int,

@@ -5,14 +5,13 @@ import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import CharacterDirectory from '@/pages/CharacterDirectory';
 import type { Character, CharacterSearchResult, User } from '@/lib/types';
+import { canUseCreatorTools } from '@/lib/entitlements';
 
 /** One nav item, two experiences: Character Owners get their management
  *  surface; Wanderers get the public character directory. */
 export default function Characters() {
   const authUser = useAuthStore((s) => s.user);
-  const isOwnerExperience = !!(
-    authUser?.is_admin || authUser?.is_seeder || (authUser?.character_count ?? 0) > 0
-  );
+  const isOwnerExperience = canUseCreatorTools(authUser);
 
   if (!authUser) {
     return (

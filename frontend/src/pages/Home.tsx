@@ -12,6 +12,7 @@ import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
 import MentionText from '@/components/MentionText';
 import HappeningInFicshon from '@/components/HappeningInFicshon';
+import { hasActingCharacter } from '@/lib/entitlements';
 
 const WORKSPACE_PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
 
@@ -180,7 +181,7 @@ export default function Home() {
     // Identity-first: the request comes from the CHARACTER (never the account
     // username). Wanderers send an identity-less request.
     const joinChar = user.active_character ?? null;
-    if (!joinChar && (user.character_count ?? 0) > 0) {
+    if (!joinChar && hasActingCharacter(user)) {
       setJoinError(m => ({ ...m, [postId]: 'Choose your active character first (sidebar switcher).' }));
       return;
     }

@@ -1,4 +1,4 @@
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, CharacterGalleryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -275,9 +275,31 @@ class ApiClient {
     });
   }
 
-  // Image library — user-scoped
-  async listMyCharacterImages(): Promise<LibraryImage[]> {
-    return this.request<LibraryImage[]>('/users/me/character-images');
+  // Image library — user-scoped. All options are additive; calling with no
+  // args preserves the original whole-archive behaviour.
+  async listMyCharacterImages(opts?: {
+    characterId?: number;
+    kind?: string[];
+    sort?: 'newest' | 'oldest';
+    limit?: number;
+    offset?: number;
+  }): Promise<LibraryImage[]> {
+    const params = new URLSearchParams();
+    if (opts?.characterId != null) params.set('character_id', String(opts.characterId));
+    if (opts?.kind) opts.kind.forEach((k) => params.append('kind', k));
+    if (opts?.sort) params.set('sort', opts.sort);
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.offset != null) params.set('offset', String(opts.offset));
+    const qs = params.toString();
+    return this.request<LibraryImage[]>(`/users/me/character-images${qs ? `?${qs}` : ''}`);
+  }
+
+  // A character's images as the server chooses to expose them to this viewer:
+  // the full working set for the owner/admin, the curated public gallery for
+  // everyone else. The endpoint decides — the client never asks for "public",
+  // so there is no client-side flag to get wrong.
+  async listCharacterImages(characterId: number): Promise<CharacterGalleryImage[]> {
+    return this.request<CharacterGalleryImage[]>(`/characters/${characterId}/images`);
   }
 
   async setAvatar(imageType: 'character' | 'user', imageId: number): Promise<{ avatar_url: string }> {

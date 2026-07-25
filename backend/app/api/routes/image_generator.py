@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.entitlements import require_creator
 from app.core.storage import save_image, load_image_bytes
 from app.models.user import User
 from app.services.image_quota import check_weekly_quota
@@ -261,6 +262,7 @@ def _verify_and_regenerate(
     "/{character_id}/image-generator/generate",
     response_model=CharacterImageRead,
     summary="Generate an image with optional character identity and provider selection (B17-B19)",
+    dependencies=[Depends(require_creator)],
 )
 def generate_image(
     character_id: int,

@@ -16,6 +16,7 @@ from app.core.dependencies import (
     get_current_user,
     get_current_user_optional,
     get_owned_character as _get_owned_character,
+    user_is_admin,
 )
 from app.core.storage import save_image, file_path_to_url, load_image_bytes
 from app.models.user import User
@@ -23,7 +24,11 @@ from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_dna import CharacterDNA
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
 from app.schemas.character_dna import CharacterDNACreate, CharacterDNARead
-from app.schemas.character_image import CharacterImageRead
+from app.schemas.character_image import (
+    CharacterImageRead,
+    CharacterImagePublic,
+    is_public_gallery_image,
+)
 from app.schemas.character_visual import (
     IdentityPackGenerateRequest,
     IdentityPackGenerateResponse,
@@ -371,28 +376,40 @@ def generate_body_front(character: CharacterModel) -> bytes:
 
 @router.get(
     "/{character_id}/images",
-    response_model=list[CharacterImageRead],
+    response_model=list[CharacterImageRead] | list[CharacterImagePublic],
     summary="List persisted images for a character",
 )
 def list_character_images(
     character_id: int,
     current_user: User | None = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
-) -> list[CharacterImageRead]:
-    """Return all active, non-temporary images for a character.
+):
+    """Return a character's images, scoped to what the viewer may see.
 
-    Public characters are viewable by anyone.  Non-public characters
-    require the caller to be the owner or an admin.
+    The response shape is VIEWER-AWARE, which is what keeps the public Media
+    tab a curated gallery rather than a window into the character's workshop:
+
+    * Owner or admin → the full working set (every ACTIVE non-temp image) with
+      full metadata, because this is their own material.
+    * Everyone else → only gallery-eligible kinds, in the narrow
+      ``CharacterImagePublic`` shape. Identity sketches, anchors and face refs
+      are working references, not gallery pieces; prompts, provider names,
+      seeds, raw metadata and the owning account id never leave the server.
+
+    Public characters are viewable by anyone. Non-public characters require the
+    caller to be the owner or an admin.
     """
     character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not character:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
 
+    is_admin = current_user is not None and user_is_admin(current_user)
+    is_owner = current_user is not None and character.owner_id == current_user.id
+
     if character.visibility != VisibilityEnum.PUBLIC:
         if current_user is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authenticated.")
-        is_admin = current_user.email.lower() in settings.get_admin_emails()
-        if character.owner_id != current_user.id and not is_admin:
+        if not is_owner and not is_admin:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed.")
 
     rows: list[CharacterImage] = (
@@ -405,13 +422,19 @@ def list_character_images(
         .all()
     )
 
-    # Exclude temporary pack previews that were never accepted
-    visible = [
-        r for r in rows
-        if not (r.metadata_json or {}).get("is_temp", False)
-    ]
+    if is_owner or is_admin:
+        # Exclude temporary pack previews that were never accepted
+        return [
+            CharacterImageRead.model_validate(r)
+            for r in rows
+            if not (r.metadata_json or {}).get("is_temp", False)
+        ]
 
-    return [CharacterImageRead.model_validate(r) for r in visible]
+    return [
+        CharacterImagePublic.from_image(r)
+        for r in rows
+        if is_public_gallery_image(r)
+    ]
 
 
 # ── 0b) POST /characters/{id}/images/{image_id}/set-avatar ─────────
@@ -436,7 +459,7 @@ def set_avatar(
     if not character:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
 
-    is_admin = current_user.email.lower() in settings.get_admin_emails()
+    is_admin = user_is_admin(current_user)
     if character.owner_id != current_user.id and not is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed.")
 
@@ -494,7 +517,7 @@ def delete_character_image(
     if not character:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
 
-    is_admin = current_user.email.lower() in settings.get_admin_emails()
+    is_admin = user_is_admin(current_user)
     if character.owner_id != current_user.id and not is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed.")
 

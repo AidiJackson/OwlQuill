@@ -22,6 +22,7 @@ import { useAuthStore } from '@/lib/store';
 import { useThemeStore, GEMS } from '@/lib/theme';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
+import { canUseCreatorTools } from '@/lib/entitlements';
 
 export default function Layout() {
   const { user, logout, setActiveCharacter } = useAuthStore();
@@ -50,7 +51,9 @@ export default function Layout() {
   const isFounder = !!(user?.is_admin || user?.is_seeder);
   // Wanderers (no characters, not founders) only browse — creator tools that
   // need a character are hidden entirely, never shown disabled.
-  const isCreator = isFounder || (user?.character_count ?? 0) > 0;
+  // Entitlement lives in lib/entitlements.ts so the Writer unlock changes one
+  // function, not every call site.
+  const isCreator = canUseCreatorTools(user);
   const activeChar = user?.active_character ?? null;
 
   useEffect(() => {

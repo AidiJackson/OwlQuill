@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, user_is_admin
+from app.core.entitlements import require_creator
 from app.models.character import Character as CharacterModel
 from app.models.realm import Realm, RealmMembership
 from app.models.storylab import (
@@ -477,7 +478,7 @@ def get_state(
     )
 
 
-@router.post("/generate", response_model=StoryLabGenerateResponse)
+@router.post("/generate", response_model=StoryLabGenerateResponse, dependencies=[Depends(require_creator)])
 def generate(
     req: StoryLabGenerateRequest,
     db: Session = Depends(get_db),
@@ -1483,7 +1484,7 @@ def get_chapter(
     return _chapter_to_detail(ch, suggestions)
 
 
-@router.post("/chapters/generate", response_model=ChapterGenerateResponse)
+@router.post("/chapters/generate", response_model=ChapterGenerateResponse, dependencies=[Depends(require_creator)])
 def generate_chapter_endpoint(
     story_id: str = Query(..., description="Story workspace identifier"),
     req: ChapterGenerateRequest = ...,
@@ -1728,7 +1729,7 @@ def delete_chapter(
     db.commit()
 
 
-@router.post("/chapters/{chapter_number}/regenerate", response_model=ChapterGenerateResponse)
+@router.post("/chapters/{chapter_number}/regenerate", response_model=ChapterGenerateResponse, dependencies=[Depends(require_creator)])
 def regenerate_chapter(
     chapter_number: int,
     story_id: str = Query(..., description="Story workspace identifier"),
@@ -1925,7 +1926,7 @@ def _story_to_response(story: StoryModel) -> StoryResponse:
     )
 
 
-@router.post("/stories", response_model=StoryResponse, status_code=201)
+@router.post("/stories", response_model=StoryResponse, status_code=201, dependencies=[Depends(require_creator)])
 def create_story(
     req: StoryCreateRequest,
     db: Session = Depends(get_db),
@@ -2150,7 +2151,7 @@ def _build_rp_character_context(char: "CharacterModel") -> tuple[str, str]:
     return name, "\n".join(lines)
 
 
-@router.post("/rp-reply/generate", response_model=RPReplyGenerateResponse)
+@router.post("/rp-reply/generate", response_model=RPReplyGenerateResponse, dependencies=[Depends(require_creator)])
 def generate_rp_reply_endpoint(
     req: RPReplyGenerateRequest,
     db: Session = Depends(get_db),

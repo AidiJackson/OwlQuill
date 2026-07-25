@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.entitlements import require_creator
 from app.models.character import Character as CharacterModel
 from app.models.rp_story import RPStoryThread, RPStoryTurn
 from app.models.user import User
@@ -71,7 +72,7 @@ def _thread_to_out(thread: RPStoryThread, db: Session) -> RPStoryThreadOut:
 
 # ── create thread ─────────────────────────────────────────────────────────────
 
-@router.post("", response_model=RPStoryThreadDetail, status_code=201)
+@router.post("", response_model=RPStoryThreadDetail, status_code=201, dependencies=[Depends(require_creator)])
 def create_rp_story(
     req: CreateRPStoryRequest,
     current_user: User = Depends(get_current_user),
@@ -186,7 +187,7 @@ def add_partner_turn(
 
 # ── generate reply (draft only) ───────────────────────────────────────────────
 
-@router.post("/{thread_id}/generate-reply", response_model=GenerateThreadReplyResponse)
+@router.post("/{thread_id}/generate-reply", response_model=GenerateThreadReplyResponse, dependencies=[Depends(require_creator)])
 def generate_reply(
     thread_id: int,
     req: GenerateThreadReplyRequest,

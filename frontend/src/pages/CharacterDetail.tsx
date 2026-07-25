@@ -17,12 +17,14 @@ import { apiClient } from '@/lib/apiClient';
 import type { Character, ProfileTimelineItem, User } from '@/lib/types';
 import CanonManager from '@/components/CanonManager';
 import MentionText from '@/components/MentionText';
-import { listCharacterImages, resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
-import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
+import { resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
+import type { CharacterGalleryImage } from '@/lib/types';
 import ImageGrid from '@/features/images/components/ImageGrid';
 import IdentityCanonSection from '@/features/characterCreation/components/IdentityCanonSection';
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import CharacterImagePicker from '@/features/images/components/CharacterImagePicker';
+import { hasActingCharacter } from '@/lib/entitlements';
 
 type Tab = 'timeline' | 'stories' | 'media' | 'mentions' | 'manage';
 
@@ -46,7 +48,7 @@ export default function CharacterDetail() {
   // Manage Character Canon modal — hosts the CanonManager (single source of identity truth)
   const [showCanonModal, setShowCanonModal] = useState(false);
 
-  const [galleryImages, setGalleryImages] = useState<CharacterImageRead[]>([]);
+  const [galleryImages, setGalleryImages] = useState<CharacterGalleryImage[]>([]);
   const [timeline, setTimeline] = useState<ProfileTimelineItem[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(true);
   const [mentions, setMentions] = useState<ProfileTimelineItem[]>([]);
@@ -68,10 +70,13 @@ export default function CharacterDetail() {
 
   // Post composer state
   const [composerOpen, setComposerOpen] = useState(false);
-  const [composerImage, setComposerImage] = useState<CharacterImageRead | null>(null);
+  const [composerImage, setComposerImage] = useState<CharacterGalleryImage | null>(null);
 
   // Cover toast state
   const [coverToast, setCoverToast] = useState('');
+
+  // Owner image-curation picker — opened from the avatar/cover edit controls.
+  const [picker, setPicker] = useState<null | { mode: 'avatar' | 'cover'; repositionOnly: boolean }>(null);
 
   // Delete modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -107,7 +112,7 @@ export default function CharacterDetail() {
     setDeleteError('');
   };
 
-  const handleSetAvatar = async (img: CharacterImageRead) => {
+  const handleSetAvatar = async (img: CharacterGalleryImage) => {
     if (!character) return;
     setSettingAvatar(true);
     setAvatarSet(false);
@@ -126,12 +131,12 @@ export default function CharacterDetail() {
     }
   };
 
-  const handleUseInPost = (image: CharacterImageRead) => {
+  const handleUseInPost = (image: CharacterGalleryImage) => {
     setComposerImage(image);
     setComposerOpen(true);
   };
 
-  const handleSetAsCover = async (image: CharacterImageRead) => {
+  const handleSetAsCover = async (image: CharacterGalleryImage) => {
     if (!character) return;
     try {
       const result = await apiClient.setCharacterCover(character.id, 'character', image.id);
@@ -170,7 +175,7 @@ export default function CharacterDetail() {
         setCharacter(char);
         setCurrentUser(user);
         // Fetch gallery images (non-blocking — don't gate the page on this)
-        listCharacterImages(charId)
+        apiClient.listCharacterImages(charId)
           .then(setGalleryImages)
           .catch(() => {});
         // Character-only timeline (the public profile feed)
@@ -318,6 +323,31 @@ export default function CharacterDetail() {
           <div className="cover-gradient absolute inset-0" />
         </div>
 
+        {/* Owner-only cover controls — subtle, top-right of the hero. The
+            backdrop above is pointer-events-none, so these re-enable clicks. */}
+        {isOwner && (
+          <div className="absolute top-4 right-4 sm:right-8 z-10 flex items-center gap-2 pointer-events-auto">
+            <button
+              onClick={() => setPicker({ mode: 'cover', repositionOnly: false })}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface/80 backdrop-blur border border-edge text-ink-2 hover:text-ink hover:border-gem transition-colors flex items-center gap-1.5 shadow-sm"
+              title={character.cover_url ? 'Change cover image' : `Choose from ${character.name}'s images`}
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              {character.cover_url ? 'Change cover' : 'Add cover'}
+            </button>
+            {character.cover_url && (
+              <button
+                onClick={() => setPicker({ mode: 'cover', repositionOnly: true })}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface/80 backdrop-blur border border-edge text-ink-2 hover:text-ink hover:border-gem transition-colors flex items-center gap-1.5 shadow-sm"
+                title="Reposition cover"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Reposition
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="relative max-w-[1000px] mx-auto px-4 sm:px-8">
           {/* Establishing space — pure cover, no content competes with the image */}
           <div className="h-[32vh] min-h-[190px] sm:h-[46vh] sm:min-h-[360px] lg:h-[52vh] max-h-[640px]" />
@@ -341,7 +371,7 @@ export default function CharacterDetail() {
 
             {/* Identity band — avatar lower-left, stats & controls beside it */}
             <div className="flex items-end gap-4 sm:gap-6 mt-6 sm:mt-9">
-              <div className="flex-shrink-0">
+              <div className="flex-shrink-0 relative">
                 {/* `relative` is load-bearing: the absolutely-positioned image
                     must use this overflow-hidden box as its containing block,
                     or a scaled avatar (avatar_scale > 1) escapes the clip and
@@ -358,12 +388,32 @@ export default function CharacterDetail() {
                       } : undefined}
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
+                  ) : isOwner ? (
+                    /* Owner, no avatar — restrained affordance, not a public-looking placeholder */
+                    <button
+                      onClick={() => setPicker({ mode: 'avatar', repositionOnly: false })}
+                      className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gem-soft/60 hover:bg-gem-soft transition-colors text-gem"
+                    >
+                      <Camera className="w-6 h-6" />
+                      <span className="text-[10px] font-medium leading-tight text-center px-1">Choose image</span>
+                    </button>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center font-serif text-3xl font-semibold text-gem bg-gem-soft">
                       {character.name.charAt(0).toUpperCase()}
                     </div>
                   )}
                 </div>
+                {/* Owner-only avatar edit control — small camera beside the avatar corner */}
+                {isOwner && character.avatar_url && (
+                  <button
+                    onClick={() => setPicker({ mode: 'avatar', repositionOnly: false })}
+                    className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-surface border border-edge-md shadow-md flex items-center justify-center text-ink-2 hover:text-ink hover:border-gem transition-colors"
+                    aria-label="Change profile picture"
+                    title="Change profile picture"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </button>
+                )}
               </div>
 
               {/* Stats + controls */}
@@ -384,7 +434,7 @@ export default function CharacterDetail() {
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {/* Messaging is character-to-character — only viewers who
                           own a character can open a conversation. */}
-                      {(currentUser?.character_count ?? 0) > 0 && (
+                      {hasActingCharacter(currentUser) && (
                         <button
                           className="bg-surface-elevated border border-edge text-ink-2 hover:text-ink hover:border-edge-md px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium transition-all"
                           onClick={() => navigate(`/messages/new?characterId=${id}`)}
@@ -738,6 +788,30 @@ export default function CharacterDetail() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Owner image-curation picker — avatar / cover, scoped to this character */}
+      {picker && isOwner && (
+        <CharacterImagePicker
+          characterId={character.id}
+          characterName={character.name}
+          mode={picker.mode}
+          repositionOnly={picker.repositionOnly}
+          currentImageUrl={picker.mode === 'cover' ? character.cover_url : character.avatar_url}
+          initialPosX={picker.mode === 'cover' ? coverPosX : avatarPosX}
+          initialPosY={picker.mode === 'cover' ? coverPosY : avatarPosY}
+          onCancel={() => setPicker(null)}
+          onConfirmed={(result) => {
+            setCharacter({
+              ...character,
+              ...(result.avatar_url ? { avatar_url: result.avatar_url } : {}),
+              ...(result.cover_url ? { cover_url: result.cover_url } : {}),
+            });
+            setPicker(null);
+            setCoverToast(picker.mode === 'cover' ? 'Cover updated' : 'Profile picture updated');
+            setTimeout(() => { if (mountedRef.current) setCoverToast(''); }, 2500);
+          }}
+        />
       )}
     </div>
   );

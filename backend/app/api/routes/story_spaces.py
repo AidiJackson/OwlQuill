@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.entitlements import require_creator
 from app.models.character import Character
 from app.models.story_space import (
     PublishedStory,
@@ -97,7 +98,7 @@ def _to_read(space: StorySpace, member: StorySpaceMember, member_count: int) -> 
 
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
-@router.post("/", response_model=SpaceRead, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=SpaceRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_creator)])
 def create_space(
     data: SpaceCreate,
     current_user: User = Depends(get_current_user),
@@ -387,7 +388,7 @@ def _to_published_read(story: PublishedStory) -> PublishedStoryRead:
     )
 
 
-@router.post("/{space_id}/publish", response_model=PublishedStoryRead, status_code=status.HTTP_201_CREATED)
+@router.post("/{space_id}/publish", response_model=PublishedStoryRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_creator)])
 def publish_story(
     space_id: int,
     body: PublishRequest,

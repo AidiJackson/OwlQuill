@@ -336,25 +336,80 @@ def set_avatar(
 
 @router.get("/me/character-images", response_model=List[CharacterImageRead])
 def list_my_character_images(
+    character_id: int | None = Query(
+        None, description="Restrict to a single owned character."
+    ),
+    kind: List[str] | None = Query(
+        None, description="Restrict to these image kinds. Repeatable."
+    ),
+    sort: str = Query(
+        "newest", pattern="^(newest|oldest)$", description="Creation-date order."
+    ),
+    limit: int | None = Query(None, ge=1, le=500, description="Max rows to return."),
+    offset: int = Query(0, ge=0, description="Rows to skip, for pagination."),
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list:
-    """List all character images owned by the current user (ACTIVE, non-temp)."""
-    images = (
+    """List character images owned by the current user (ACTIVE, non-temp).
+
+    All parameters are optional and additive: calling this with no arguments
+    returns exactly what it always did, so existing callers are unaffected.
+
+    ``character_id`` is verified against ownership rather than merely added to
+    the WHERE clause — asking for a character you don't own is an error, not an
+    empty list, so the endpoint can't be used to probe which ids exist.
+    """
+    if character_id is not None:
+        character = (
+            db.query(CharacterModel)
+            .filter(CharacterModel.id == character_id)
+            .first()
+        )
+        if not character:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Character not found."
+            )
+        if character.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="That character isn't yours.",
+            )
+
+    query = (
         db.query(CharacterImage)
         .join(CharacterModel, CharacterImage.character_id == CharacterModel.id)
         .filter(
             CharacterModel.owner_id == current_user.id,
             CharacterImage.status == ImageStatusEnum.ACTIVE,
         )
-        .order_by(CharacterImage.created_at.desc())
-        .all()
     )
-    # Filter out temp images (metadata_json.is_temp == true)
-    return [
-        img for img in images
+
+    if character_id is not None:
+        query = query.filter(CharacterImage.character_id == character_id)
+    if kind:
+        query = query.filter(CharacterImage.kind.in_(kind))
+
+    order = (
+        CharacterImage.created_at.asc()
+        if sort == "oldest"
+        else CharacterImage.created_at.desc()
+    )
+    query = query.order_by(order, CharacterImage.id.asc())
+
+    # Temp images are excluded in Python (the flag lives inside a JSON blob, and
+    # the predicate differs across SQLite/Postgres). Paginate AFTER that filter
+    # so a page is never short-changed by rows the caller can't see.
+    images = [
+        img
+        for img in query.all()
         if not (img.metadata_json or {}).get("is_temp", False)
     ]
+
+    if offset:
+        images = images[offset:]
+    if limit is not None:
+        images = images[:limit]
+    return images
 
 
 @router.get("/me/images", response_model=List[UserImageRead])

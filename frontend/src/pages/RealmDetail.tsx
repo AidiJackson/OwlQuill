@@ -10,6 +10,7 @@ import ReactionBar from '@/components/ReactionBar';
 import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
 import MentionText from '@/components/MentionText';
+import { hasActingCharacter } from '@/lib/entitlements';
 
 export default function RealmDetail() {
   const { realmId } = useParams<{ realmId: string }>();
@@ -134,7 +135,7 @@ export default function RealmDetail() {
     // Identity-first: the request comes from the CHARACTER (never the account
     // username). Wanderers send an identity-less request.
     const joinChar = user.active_character ?? null;
-    if (!joinChar && (user.character_count ?? 0) > 0) {
+    if (!joinChar && hasActingCharacter(user)) {
       setJoinError(m => ({ ...m, [postId]: 'Choose your active character first (sidebar switcher).' }));
       return;
     }

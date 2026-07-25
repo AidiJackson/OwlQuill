@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Image, X, Check, Trash2, Flag, Sparkles } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { LibraryImage, Character } from '@/lib/types';
+import type { LibraryImage, Character, User } from '@/lib/types';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
 import { ficDebug } from '@/lib/ficDebug';
+import { useObjectPositionDrag } from '@/features/images/useObjectPositionDrag';
+import { GALLERY_KINDS, GALLERY_KIND_LABELS, isGalleryKind } from '@/features/images/galleryKinds';
 
 type LbMode = 'view' | 'coverEdit' | 'avatarEdit';
+
+// A character filter is either a specific owned character or the deliberate
+// All Characters view (founders/multi-character owners only).
+type CharFilter = number | 'all';
 
 export default function Images() {
   const navigate = useNavigate();
@@ -20,6 +26,16 @@ export default function Images() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [myCharacters, setMyCharacters] = useState<Character[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  // Character-first library controls
+  const [charFilter, setCharFilter] = useState<CharFilter | null>(null); // null until resolved
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [kindFilter, setKindFilter] = useState<string>('all'); // 'all' | one of GALLERY_KINDS
+
+  // Founders / multi-character owners may deliberately choose All Characters.
+  const isFounder = !!(currentUser?.is_admin || currentUser?.is_seeder);
+  const canSeeAllCharacters = isFounder || myCharacters.length > 1;
 
   type QuotaStatus = {
     used: number;
@@ -38,27 +54,20 @@ export default function Images() {
   // Character assignment selector
   const [assignCharId, setAssignCharId] = useState<number | null>(null);
 
-  // Cover editor (drag-to-position only, no zoom)
-  const [coverPosX, setCoverPosX] = useState(0.5);
-  const [coverPosY, setCoverPosY] = useState(0.5);
-  const coverPosXRef = useRef(0.5);
-  const coverPosYRef = useRef(0.5);
-  useEffect(() => { coverPosXRef.current = coverPosX; }, [coverPosX]);
-  useEffect(() => { coverPosYRef.current = coverPosY; }, [coverPosY]);
+  // Cover editor (drag-to-position only, no zoom) and avatar editor (drag +
+  // zoom). Both use the shared hook — the same behaviour the character profile
+  // picker uses, so the two surfaces can never drift apart.
+  const coverDrag = useObjectPositionDrag({ mode: 'objectPosition', debugLabel: 'Images:coverDrag' });
+  const { posX: coverPosX, posY: coverPosY, posXRef: coverPosXRef, posYRef: coverPosYRef } = coverDrag;
   const [coverSaving, setCoverSaving] = useState(false);
   const [coverSaveErr, setCoverSaveErr] = useState('');
   const [coverSaveDone, setCoverSaveDone] = useState(false);
 
-  // Avatar editor (drag + zoom)
-  const [avatarPosX, setAvatarPosX] = useState(0.5);
-  const [avatarPosY, setAvatarPosY] = useState(0.5);
-  const [avatarScale, setAvatarScale] = useState(1.0);
-  const avatarPosXRef = useRef(0.5);
-  const avatarPosYRef = useRef(0.5);
-  const avatarScaleRef = useRef(1.0);
-  useEffect(() => { avatarPosXRef.current = avatarPosX; }, [avatarPosX]);
-  useEffect(() => { avatarPosYRef.current = avatarPosY; }, [avatarPosY]);
-  useEffect(() => { avatarScaleRef.current = avatarScale; }, [avatarScale]);
+  const avatarDrag = useObjectPositionDrag({ mode: 'scaleTranslate', debugLabel: 'Images:avatarDrag' });
+  const {
+    posX: avatarPosX, posY: avatarPosY, scale: avatarScale,
+    posXRef: avatarPosXRef, posYRef: avatarPosYRef, scaleRef: avatarScaleRef,
+  } = avatarDrag;
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarSaveErr, setAvatarSaveErr] = useState('');
   const [avatarSaveDone, setAvatarSaveDone] = useState(false);
@@ -76,17 +85,14 @@ export default function Images() {
   // Refs
   const mountedRef = useRef(true);
   const lbCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragStateRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
-  const activeDragCleanup = useRef<(() => void) | null>(null);
-  const coverFrameRef = useRef<HTMLDivElement | null>(null);
-  const avatarFrameRef = useRef<HTMLDivElement | null>(null);
+  const coverFrameRef = coverDrag.frameRef;
+  const avatarFrameRef = avatarDrag.frameRef;
 
   useEffect(() => {
     mountedRef.current = true;
     ficDebug.mount('Images');
     return () => {
       mountedRef.current = false;
-      activeDragCleanup.current?.();
       if (lbCloseTimerRef.current) {
         clearTimeout(lbCloseTimerRef.current);
         lbCloseTimerRef.current = null;
@@ -119,7 +125,8 @@ export default function Images() {
 
   const closeLightbox = () => {
     ficDebug.modalClose('Images:lightbox');
-    activeDragCleanup.current?.();
+    coverDrag.cleanupDrag();
+    avatarDrag.cleanupDrag();
     setLbVisible(false);
     if (lbCloseTimerRef.current) clearTimeout(lbCloseTimerRef.current);
     lbCloseTimerRef.current = setTimeout(() => {
@@ -140,110 +147,31 @@ export default function Images() {
   };
 
   const enterCoverEdit = () => {
-    const charId = lightboxImage?.character_id != null
-      ? lightboxImage.character_id
-      : (myCharacters[0]?.id ?? null);
+    // Cover/avatar assignment always targets the image's OWN character. There is
+    // deliberately no myCharacters[0] fallback: an image with no character_id
+    // must not be silently pushed onto an unrelated character.
+    const charId = lightboxImage?.character_id ?? null;
     setAssignCharId(charId);
-    setCoverPosX(0.5);
-    setCoverPosY(0.5);
-    setCoverSaveErr('');
+    coverDrag.reset(0.5, 0.5, 1.0);
+    setCoverSaveErr(charId === null ? "This image isn't linked to a character." : '');
     setCoverSaveDone(false);
     setLbMode('coverEdit');
   };
 
   const enterAvatarEdit = () => {
-    const charId = lightboxImage?.character_id != null
-      ? lightboxImage.character_id
-      : (myCharacters[0]?.id ?? null);
+    const charId = lightboxImage?.character_id ?? null;
     setAssignCharId(charId);
-    setAvatarPosX(0.5);
-    setAvatarPosY(0.5);
-    setAvatarScale(1.0);
-    setAvatarSaveErr('');
+    avatarDrag.reset(0.5, 0.5, 1.0);
+    setAvatarSaveErr(charId === null ? "This image isn't linked to a character." : '');
     setAvatarSaveDone(false);
     setLbMode('avatarEdit');
   };
 
-  // Cover drag — object-position approach, works at scale=1 (no zoom)
-  const startCoverDrag = useCallback((clientX: number, clientY: number) => {
-    activeDragCleanup.current?.();
-    ficDebug.dragStart('Images:coverDrag');
-    dragStateRef.current = {
-      startX: clientX,
-      startY: clientY,
-      startPosX: coverPosXRef.current,
-      startPosY: coverPosYRef.current,
-    };
-    const applyMove = (x: number, y: number) => {
-      const container = coverFrameRef.current;
-      if (!dragStateRef.current || !container) return;
-      const dx = (x - dragStateRef.current.startX) / container.offsetWidth;
-      const dy = (y - dragStateRef.current.startY) / container.offsetHeight;
-      setCoverPosX(Math.min(1, Math.max(0, dragStateRef.current.startPosX - dx)));
-      setCoverPosY(Math.min(1, Math.max(0, dragStateRef.current.startPosY - dy)));
-    };
-    const onMouseMove = (ev: MouseEvent) => applyMove(ev.clientX, ev.clientY);
-    const onTouchMove = (ev: TouchEvent) => { ev.preventDefault(); applyMove(ev.touches[0].clientX, ev.touches[0].clientY); };
-    const onEnd = () => {
-      ficDebug.dragEnd('Images:coverDrag');
-      dragStateRef.current = null;
-      activeDragCleanup.current = null;
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onEnd);
-      window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('touchend', onEnd);
-      window.removeEventListener('touchcancel', onEnd);
-    };
-    activeDragCleanup.current = onEnd;
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onEnd);
-    window.addEventListener('touchmove', onTouchMove, { passive: false });
-    window.addEventListener('touchend', onEnd);
-    window.addEventListener('touchcancel', onEnd);
-  }, []);
-
-  // Avatar drag — scale+translate approach, requires zoom > 1 to pan
-  const startAvatarDrag = useCallback((clientX: number, clientY: number) => {
-    activeDragCleanup.current?.();
-    const s = avatarScaleRef.current;
-    if (s <= 1.001) return;
-    dragStateRef.current = {
-      startX: clientX,
-      startY: clientY,
-      startPosX: avatarPosXRef.current,
-      startPosY: avatarPosYRef.current,
-    };
-    const applyMove = (x: number, y: number) => {
-      const container = avatarFrameRef.current;
-      if (!dragStateRef.current || !container) return;
-      const sc = avatarScaleRef.current;
-      if (sc <= 1.001) return;
-      const { offsetWidth: w, offsetHeight: h } = container;
-      const dx = (x - dragStateRef.current.startX) / w;
-      const dy = (y - dragStateRef.current.startY) / h;
-      const dposX = -dx * sc / (sc - 1);
-      const dposY = -dy * sc / (sc - 1);
-      setAvatarPosX(Math.min(1, Math.max(0, dragStateRef.current.startPosX + dposX)));
-      setAvatarPosY(Math.min(1, Math.max(0, dragStateRef.current.startPosY + dposY)));
-    };
-    const onMouseMove = (ev: MouseEvent) => applyMove(ev.clientX, ev.clientY);
-    const onTouchMove = (ev: TouchEvent) => { ev.preventDefault(); applyMove(ev.touches[0].clientX, ev.touches[0].clientY); };
-    const onEnd = () => {
-      dragStateRef.current = null;
-      activeDragCleanup.current = null;
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onEnd);
-      window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('touchend', onEnd);
-      window.removeEventListener('touchcancel', onEnd);
-    };
-    activeDragCleanup.current = onEnd;
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onEnd);
-    window.addEventListener('touchmove', onTouchMove, { passive: false });
-    window.addEventListener('touchend', onEnd);
-    window.addEventListener('touchcancel', onEnd);
-  }, []);
+  // Drag-to-reposition comes from the shared hook (see useObjectPositionDrag):
+  //   cover  → object-position pan, works at scale 1
+  //   avatar → scale+translate pan, only meaningful once zoomed in
+  const startCoverDrag = coverDrag.startDrag;
+  const startAvatarDrag = avatarDrag.startDrag;
 
   const handleSaveCover = async () => {
     if (!lightboxImage || assignCharId === null) return;
@@ -318,28 +246,122 @@ export default function Images() {
     }
   };
 
+  // Bootstrap: characters + current user + quota. The image load is driven
+  // separately by the resolved character filter so it can re-run on change.
   useEffect(() => {
-    apiClient
-      .listMyCharacterImages()
-      .then((imgs) => {
-        if (mountedRef.current)
-          // Include generated images, cover images, and scene_only images (canon Image Generator output).
-          // Exclude internal kinds (anchor, face-ref, identity packs) which cannot be deleted or shared.
-          setImages((imgs as unknown as LibraryImage[]).filter((img) => img.kind === 'generated' || img.kind === 'cover' || img.kind === 'scene_only'));
-      })
-      .catch((err) => setLoadError(err instanceof Error ? err.message : 'Failed to load'))
-      .finally(() => setLoading(false));
-
-    apiClient
-      .getCharacters()
-      .then((chars) => { if (mountedRef.current) setMyCharacters(chars); })
-      .catch(() => {});
+    Promise.all([
+      apiClient.getCharacters().catch(() => [] as Character[]),
+      apiClient.getMe().catch(() => null),
+    ]).then(([chars, user]) => {
+      if (!mountedRef.current) return;
+      setMyCharacters(chars);
+      setCurrentUser(user);
+      // Resolve the default character filter, character-first:
+      //   URL param → active character → sole owned character → All (founders).
+      // Never default to All when a specific character is in context.
+      const founder = !!(user?.is_admin || user?.is_seeder);
+      let resolved: CharFilter;
+      if (onboardingCharId != null && chars.some((c) => c.id === onboardingCharId)) {
+        resolved = onboardingCharId;
+      } else if (user?.active_character?.id && chars.some((c) => c.id === user.active_character!.id)) {
+        resolved = user.active_character.id;
+      } else if (chars.length === 1) {
+        resolved = chars[0].id;
+      } else if (chars.length > 1 && !founder) {
+        resolved = chars[0].id; // ordinary multi-owner lands on their first character, not a wall
+      } else {
+        resolved = 'all';
+      }
+      setCharFilter(resolved);
+    });
 
     apiClient
       .getImageQuota()
       .then((q) => { if (mountedRef.current) setQuota(q); })
       .catch(() => {});
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load images whenever the character filter / sort changes. Character
+  // scoping happens on the SERVER — we never pull the whole archive to filter
+  // in the browser.
+  useEffect(() => {
+    if (charFilter === null) return; // not resolved yet
+    setLoading(true);
+    setLoadError('');
+    const opts = {
+      sort: sortOrder,
+      ...(charFilter !== 'all' ? { characterId: charFilter } : {}),
+    };
+    apiClient
+      .listMyCharacterImages(opts)
+      .then((imgs) => {
+        if (!mountedRef.current) return;
+        // Keep only shareable library kinds — anchors/face-refs/identity packs
+        // are working references, never surfaced here.
+        setImages(imgs.filter((img) => isGalleryKind(img.kind)));
+      })
+      .catch((err) => { if (mountedRef.current) setLoadError(err instanceof Error ? err.message : 'Failed to load'); })
+      .finally(() => { if (mountedRef.current) setLoading(false); });
+  }, [charFilter, sortOrder]);
+
+  // ── Derived view state ───────────────────────────────────────────────
+  const charById = new Map(myCharacters.map((c) => [c.id, c]));
+  const selectedChar = typeof charFilter === 'number' ? charById.get(charFilter) ?? null : null;
+
+  // Kind filter is applied client-side over the already-scoped result set.
+  const displayedImages = kindFilter === 'all'
+    ? images
+    : images.filter((img) => img.kind === kindFilter);
+
+  // In All Characters mode, group by character so the wall stays organised.
+  // Characterless/admin assets get their own clearly-separated section rather
+  // than being silently mixed in.
+  const isAllMode = charFilter === 'all';
+  const groupedImages: { char: Character | null; images: LibraryImage[] }[] = (() => {
+    if (!isAllMode) return [];
+    const byChar = new Map<number, LibraryImage[]>();
+    const orphans: LibraryImage[] = [];
+    for (const img of displayedImages) {
+      const c = charById.get(img.character_id);
+      if (!c) { orphans.push(img); continue; }
+      if (!byChar.has(img.character_id)) byChar.set(img.character_id, []);
+      byChar.get(img.character_id)!.push(img);
+    }
+    const groups: { char: Character | null; images: LibraryImage[] }[] = myCharacters
+      .filter((c) => byChar.has(c.id))
+      .map((c) => ({ char: c, images: byChar.get(c.id)! }));
+    if (orphans.length) groups.push({ char: null, images: orphans });
+    return groups;
+  })();
+
+  /** Shared card renderer — one place, used by both single and grouped views. */
+  const renderCard = (img: LibraryImage) => (
+    <button
+      key={img.id}
+      className="rounded-lg border border-edge overflow-hidden bg-surface hover:border-edge-md transition-colors cursor-pointer text-left"
+      onClick={() => openLightbox(img)}
+      title="Click to view or use this image"
+    >
+      <img
+        src={img.url}
+        alt={img.prompt_summary || 'Generated image'}
+        className="w-full aspect-[2/3] object-cover"
+        loading="lazy"
+        decoding="async"
+      />
+      <div className="px-2 py-1.5 flex items-center gap-1.5">
+        {/* Role badge — real stored kind, not inferred */}
+        {img.kind !== 'generated' && (
+          <span className="text-[10px] font-medium uppercase tracking-wide text-gem/80 shrink-0">
+            {isGalleryKind(img.kind) ? GALLERY_KIND_LABELS[img.kind] : img.kind}
+          </span>
+        )}
+        {img.prompt_summary && (
+          <p className="text-xs text-ink-2 truncate">{img.prompt_summary}</p>
+        )}
+      </div>
+    </button>
+  );
 
   return (
     <div className="min-h-screen">
@@ -434,14 +456,84 @@ export default function Images() {
           </p>
         )}
 
+        {/* Character-first library controls */}
+        {myCharacters.length > 0 && charFilter !== null && (
+          <div className="flex flex-wrap items-center gap-3 pb-1">
+            {/* Selected-character identity — name + avatar, so the workspace
+                always announces whose images these are */}
+            {selectedChar && (
+              <div className="flex items-center gap-2 mr-1">
+                <div className="w-8 h-8 rounded-lg overflow-hidden bg-surface-elevated shrink-0 flex items-center justify-center">
+                  {selectedChar.avatar_url ? (
+                    <img src={selectedChar.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="font-serif text-sm text-gem">{selectedChar.name.charAt(0)}</span>
+                  )}
+                </div>
+                <span className="text-sm font-medium text-ink">{selectedChar.name}</span>
+              </div>
+            )}
+            {isAllMode && (
+              <span className="text-sm font-medium text-ink mr-1">All Characters</span>
+            )}
+
+            {/* Character filter */}
+            <label className="flex items-center gap-1.5 text-xs text-ink-3">
+              Character
+              <select
+                value={String(charFilter)}
+                onChange={(e) => setCharFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                className="bg-surface border border-edge rounded-lg px-2 py-1 text-sm text-ink"
+              >
+                {myCharacters.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+                {canSeeAllCharacters && <option value="all">All Characters</option>}
+              </select>
+            </label>
+
+            {/* Sort */}
+            <label className="flex items-center gap-1.5 text-xs text-ink-3">
+              Sort
+              <select
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value as 'newest' | 'oldest')}
+                className="bg-surface border border-edge rounded-lg px-2 py-1 text-sm text-ink"
+              >
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+            </label>
+
+            {/* Source/type — real stored kinds only */}
+            <label className="flex items-center gap-1.5 text-xs text-ink-3">
+              Type
+              <select
+                value={kindFilter}
+                onChange={(e) => setKindFilter(e.target.value)}
+                className="bg-surface border border-edge rounded-lg px-2 py-1 text-sm text-ink"
+              >
+                <option value="all">All types</option>
+                {GALLERY_KINDS.map((k) => (
+                  <option key={k} value={k}>{GALLERY_KIND_LABELS[k]}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center py-16 text-ink-2">Loading...</div>
-        ) : images.length === 0 ? (
+        ) : displayedImages.length === 0 ? (
           <EmptyState
             message={
-              myCharacters.length > 0
-                ? 'No images yet. Use the generator above to create your first image.'
-                : 'Create a character to generate images.'
+              myCharacters.length === 0
+                ? 'Images belong to characters. Create a character to generate images.'
+                : selectedChar
+                ? `${selectedChar.name} has no images yet. Use the generator above to create the first.`
+                : kindFilter !== 'all'
+                ? 'No images of this type.'
+                : 'No images yet. Use the generator above to create your first image.'
             }
             primaryAction={
               myCharacters.length === 0
@@ -454,29 +546,38 @@ export default function Images() {
                 : undefined
             }
           />
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {images.map((img) => (
-              <button
-                key={img.id}
-                className="rounded-lg border border-edge overflow-hidden bg-surface hover:border-edge-md transition-colors cursor-pointer text-left"
-                onClick={() => openLightbox(img)}
-                title="Click to view or use this image"
-              >
-                <img
-                  src={img.url}
-                  alt={img.prompt_summary || 'Generated image'}
-                  className="w-full aspect-[2/3] object-cover"
-                  loading="lazy"
-                  decoding="async"
-                />
-                {img.prompt_summary && (
-                  <div className="px-2 py-1.5">
-                    <p className="text-xs text-ink-2 truncate">{img.prompt_summary}</p>
-                  </div>
-                )}
-              </button>
+        ) : isAllMode ? (
+          /* All Characters — grouped, each image visibly identifies its character */
+          <div className="space-y-8">
+            {groupedImages.map((group) => (
+              <div key={group.char?.id ?? 'orphans'} className="space-y-3">
+                <div className="flex items-center gap-2 border-b border-edge pb-2">
+                  {group.char ? (
+                    <>
+                      <div className="w-6 h-6 rounded-md overflow-hidden bg-surface-elevated shrink-0 flex items-center justify-center">
+                        {group.char.avatar_url ? (
+                          <img src={group.char.avatar_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="font-serif text-xs text-gem">{group.char.name.charAt(0)}</span>
+                        )}
+                      </div>
+                      <span className="text-sm font-medium text-ink">{group.char.name}</span>
+                    </>
+                  ) : (
+                    <span className="text-sm font-medium text-ink-3">Unassigned assets</span>
+                  )}
+                  <span className="text-xs text-ink-3">· {group.images.length}</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {group.images.map(renderCard)}
+                </div>
+              </div>
             ))}
+          </div>
+        ) : (
+          /* Single character — imagery first, no repeated character label */
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {displayedImages.map(renderCard)}
           </div>
         )}
       </div>
@@ -509,6 +610,23 @@ export default function Images() {
                       alt="Full size"
                       className="w-full rounded-lg max-h-[70vh] object-contain"
                     />
+
+                    {/* Character association — name the character these actions
+                        affect, with a link to its profile. Removes any ambiguity
+                        about which character "Set as cover" targets. */}
+                    {lightboxImage.character_id != null && charById.get(lightboxImage.character_id) && (
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <span className="text-xs text-ink-3">
+                          {charById.get(lightboxImage.character_id)!.name}
+                        </span>
+                        <Link
+                          to={`/characters/${lightboxImage.character_id}`}
+                          className="text-xs text-gem hover:underline"
+                        >
+                          View character profile
+                        </Link>
+                      </div>
+                    )}
 
                     {/* Primary actions */}
                     {myCharacters.length > 0 && (
@@ -640,7 +758,7 @@ export default function Images() {
                           max="3"
                           step="0.01"
                           value={avatarScale}
-                          onChange={(e) => setAvatarScale(parseFloat(e.target.value))}
+                          onChange={(e) => avatarDrag.setScale(parseFloat(e.target.value))}
                           className="flex-1 accent-[rgb(var(--gem))]"
                           onMouseDown={(e) => e.stopPropagation()}
                           onTouchStart={(e) => e.stopPropagation()}
