@@ -333,7 +333,7 @@ def test_assignment_cannot_target_wrong_character(client, db_session):
 
 def test_wanderer_cannot_generate_images(client):
     """A Wanderer (no characters, no flags) is refused by require_creator."""
-    wanderer = get_auth_token(client, email="wanderer@test.com", username="wanderer")
+    wanderer = get_auth_token(client, email="wanderer@test.com", username="wanderer_one")
     resp = client.post(
         "/api/images/generate",
         json={"prompt": "anything"},

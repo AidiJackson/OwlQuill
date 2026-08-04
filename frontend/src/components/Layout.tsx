@@ -54,6 +54,9 @@ export default function Layout() {
   // Entitlement lives in lib/entitlements.ts so the Writer unlock changes one
   // function, not every call site.
   const isCreator = canUseCreatorTools(user);
+  // For a Wanderer the characters page is somewhere to read, not a roster they
+  // manage — the label says so. Same route either way.
+  const charactersLabel = isCreator ? 'Characters' : 'Browse Characters';
   const activeChar = user?.active_character ?? null;
 
   useEffect(() => {
@@ -233,7 +236,7 @@ export default function Layout() {
           onClick={closeSidebar}
         >
           <Users className={iconCls} strokeWidth={1.6} />
-          Characters
+          {charactersLabel}
         </Link>
         {isCreator && (
           <>
@@ -467,7 +470,7 @@ export default function Layout() {
         <nav className="hidden md:flex items-center gap-1 ml-4 min-w-0">
           <Link to="/" className={topLinkCls(isHome)}>Commons</Link>
           <Link to="/realms" className={topLinkCls(isRealms)}>Realms</Link>
-          <Link to="/characters" className={topLinkCls(isChars)}>Characters</Link>
+          <Link to="/characters" className={topLinkCls(isChars)}>{charactersLabel}</Link>
           {isCreator && (
             <div className="relative">
               <button

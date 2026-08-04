@@ -74,7 +74,7 @@ Think: "Notion meets AO3 meets Discord" — functional, beautiful, community-foc
 
 **Elements**:
 - Large OwlQuill logo (owl icon + wordmark)
-- Tagline: "Roleplay-first social network"
+- Tagline: "The social network for fictional characters"
 - Email input field
 - Username input field (register only)
 - Password input field

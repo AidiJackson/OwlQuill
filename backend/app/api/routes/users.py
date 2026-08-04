@@ -3,18 +3,25 @@ import io
 from pathlib import Path
 from typing import List
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from PIL import Image as PILImage
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, computed_field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, user_is_admin
 from app.core.storage import save_image, file_path_to_url
+from app.core.usernames import (
+    UsernameError,
+    username_change_available_at,
+    username_is_taken,
+    validate_username,
+)
 from app.core.admin_seed import auto_join_commons
 from app.models.user import User as UserModel
 from app.models.user_image import UserImage
@@ -26,7 +33,7 @@ from app.models.scene import Scene as SceneModel, SceneVisibilityEnum
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
 from app.schemas.post import Post
 from app.schemas.scene import SceneOut
-from app.schemas.user import User, UserUpdate, PublicUserProfile
+from app.schemas.user import User, UserUpdate, UsernameUpdate, PublicUserProfile
 from app.schemas.character import CharacterSearchResult
 from app.schemas.character_image import CharacterImageRead
 from app.services.identity import build_user_out
@@ -145,6 +152,152 @@ def update_current_user(
     db.commit()
     db.refresh(current_user)
     return build_user_out(db, current_user)
+
+
+@router.patch("/me/username", response_model=User)
+def update_my_username(
+    body: UsernameUpdate,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Change the authenticated account's public (Wanderer) username.
+
+    Scope, deliberately narrow:
+
+    * the internal ``users.id`` is untouched — it is the account's immutable
+      identity and nothing here writes to it;
+    * only ``current_user`` is ever updated, so there is no target-user
+      parameter to abuse;
+    * email is not changeable here at all.
+
+    Existing content keeps resolving to the *current* username: comments and
+    posts store ``author_user_id`` and read the name through the relationship,
+    so a rename is reflected everywhere retroactively with no backfill.
+    """
+    try:
+        username = validate_username(body.username)
+    except UsernameError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    # Re-casing your own name is a no-op, not a cooldown-consuming change.
+    if username == current_user.username:
+        return build_user_out(db, current_user)
+
+    available_at = username_change_available_at(current_user)
+    if available_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "You've changed your username recently. You can change it again "
+                f"after {available_at.isoformat()}Z."
+            ),
+        )
+
+    if username_is_taken(db, username, exclude_user_id=current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That username is already taken.",
+        )
+
+    current_user.username = username
+    current_user.username_changed_at = datetime.utcnow()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Lost a race against a concurrent registration/rename on the same name.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That username is already taken.",
+        )
+    db.refresh(current_user)
+    return build_user_out(db, current_user)
+
+
+@router.post("/me/writer-waitlist", response_model=User)
+def join_writer_waitlist(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Register interest in the Writer Unlock. Grants nothing.
+
+    This is an expression of interest and only that: it writes one timestamp on
+    the caller's own row, and no entitlement anywhere reads it. ``writer_unlocked``
+    stays False and ``can_create_character`` is unaffected, so joining cannot
+    become a back door into character creation.
+
+    Idempotent — re-posting keeps the ORIGINAL join timestamp rather than
+    refreshing it, so a double-click (or an impatient user) cannot inflate the
+    "joined in the last 7 days" figure or reorder the queue.
+    """
+    from app.core.entitlements import can_create_character
+
+    # Anyone who can already create a character has nothing to wait for.
+    if can_create_character(db, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your account can already create a character.",
+        )
+
+    if current_user.writer_waitlist_joined_at is None:
+        current_user.writer_waitlist_joined_at = datetime.utcnow()
+        db.commit()
+        db.refresh(current_user)
+    return build_user_out(db, current_user)
+
+
+@router.delete("/me/writer-waitlist", response_model=User)
+def leave_writer_waitlist(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Withdraw from the Writer waitlist.
+
+    Idempotent in the same way as joining: withdrawing when not on the list is
+    a no-op success, not a 404. Re-joining later records a fresh timestamp,
+    which is correct — it is a new expression of interest.
+    """
+    if current_user.writer_waitlist_joined_at is not None:
+        current_user.writer_waitlist_joined_at = None
+        db.commit()
+        db.refresh(current_user)
+    return build_user_out(db, current_user)
+
+
+class WriterWaitlistStats(BaseModel):
+    """Operator readout for Writer-waitlist demand."""
+    total: int
+    last_7_days: int
+    last_30_days: int
+
+
+@router.get("/admin/writer-waitlist", response_model=WriterWaitlistStats)
+def writer_waitlist_stats(
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> WriterWaitlistStats:
+    """Aggregate Writer-waitlist demand. Admin only.
+
+    Counts only — no usernames, emails or ids — so the readout answers "is there
+    demand" without turning into a roster export.
+    """
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+
+    now = datetime.utcnow()
+    joined = UserModel.writer_waitlist_joined_at
+
+    def _count(since: datetime | None) -> int:
+        q = db.query(UserModel).filter(joined.isnot(None))
+        if since is not None:
+            q = q.filter(joined >= since)
+        return q.count()
+
+    return WriterWaitlistStats(
+        total=_count(None),
+        last_7_days=_count(now - timedelta(days=7)),
+        last_30_days=_count(now - timedelta(days=30)),
+    )
 
 
 class ActiveCharacterUpdate(BaseModel):

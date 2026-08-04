@@ -13,6 +13,7 @@ from sqlalchemy import or_
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.entitlements import can_create_character
 from app.core.storage import save_image, file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
@@ -113,11 +114,26 @@ def create_character(
 ) -> Character:
     """Create a new character.
 
-    Server-side enforcement of the one-character-per-account limit: a normal
-    account may own at most ``_CHARACTER_LIMIT`` (1) character. Seeder/admin
-    accounts (is_seeder_account) are exempt so founder/seeding accounts can hold
-    multiple characters. This is the authoritative gate — the UI hint is advisory.
+    Two authoritative server-side gates, in order:
+
+    1. **Writer entitlement.** A character may only be created by an account
+       that holds the paid Writer Unlock (founder/admin/seeder accounts are
+       exempt). A Wanderer is a complete permanent account type, not an
+       unfinished Writer, so this endpoint refuses it outright — no UI path
+       needs to exist for that refusal to hold.
+    2. **One-character limit.** A normal account may own at most
+       ``_CHARACTER_LIMIT`` (1) character; seeder/admin accounts are exempt so
+       founder/seeding accounts can hold multiple characters.
     """
+    if not can_create_character(db, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Creating a character requires the Writer Unlock. "
+                "Your account is a Wanderer account."
+            ),
+        )
+
     is_exempt = is_seeder_account(current_user)
 
     # Enforce cooldown after character deletion (seeders/admins bypass)

@@ -1,17 +1,27 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
+import { authorLink } from '@/lib/authorLink';
 import type { Comment, Character } from '@/lib/types';
 
 interface CommentSectionProps {
   postId: number;
   characters?: Character[];
   defaultExpanded?: boolean;
+  /** Server-sent count from the parent post, used for the collapsed label so
+   *  an existing comment is announced before the comments are fetched. */
+  commentCount?: number;
 }
 
-export default function CommentSection({ postId, characters = [], defaultExpanded = false }: CommentSectionProps) {
+export default function CommentSection({
+  postId,
+  characters = [],
+  defaultExpanded = false,
+  commentCount,
+}: CommentSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [content, setContent] = useState('');
   const [contentType, setContentType] = useState<'ic' | 'ooc' | 'narration'>('ooc');
@@ -20,6 +30,7 @@ export default function CommentSection({ postId, characters = [], defaultExpande
   const [submitting, setSubmitting] = useState(false);
 
   const activeCharacterId = useAuthStore((s) => s.user?.active_character?.id);
+  const wandererName = useAuthStore((s) => s.user?.username);
 
   // Default the replying identity to the ACTIVE character; single-character
   // accounts resolve automatically. Multi-character with no selection picks explicitly.
@@ -38,7 +49,10 @@ export default function CommentSection({ postId, characters = [], defaultExpande
       setLoading(true);
       apiClient
         .getPostComments(postId)
-        .then(setComments)
+        .then((loadedComments) => {
+          setComments(loadedComments);
+          setLoaded(true);
+        })
         .catch((err) => console.error('Failed to load comments:', err))
         .finally(() => setLoading(false));
     }
@@ -69,6 +83,11 @@ export default function CommentSection({ postId, characters = [], defaultExpande
     }
   };
 
+  // Before the comments are fetched the only truthful count is the server's;
+  // once they are, the fetched list is authoritative (it reflects blocking and
+  // the viewer's own new comment).
+  const shownCount = loaded ? comments.length : commentCount ?? 0;
+
   const getTypeBadge = (type?: string) => {
     if (!type) return null;
     const badges: Record<string, { label: string; className: string }> = {
@@ -91,7 +110,7 @@ export default function CommentSection({ postId, characters = [], defaultExpande
         onClick={() => setExpanded(!expanded)}
         className="text-sm text-ink-2 hover:text-ink transition-colors"
       >
-        {expanded ? 'Hide comments' : `Comments${comments.length > 0 ? ` (${comments.length})` : ''}`}
+        {expanded ? 'Hide comments' : `Comments${shownCount > 0 ? ` (${shownCount})` : ''}`}
       </button>
 
       {expanded && (
@@ -103,31 +122,45 @@ export default function CommentSection({ postId, characters = [], defaultExpande
               {comments.map((comment) => (
                 <div key={comment.id} className="pl-3 border-l-2 border-edge-md">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    {/* Character-first identity, username fallback */}
-                    {comment.character_name ? (
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {comment.character_avatar_url ? (
-                          <img
-                            src={comment.character_avatar_url}
-                            alt={comment.character_name}
-                            className="w-5 h-5 rounded-full object-cover border border-edge-md"
-                          />
-                        ) : (
-                          <div className="w-5 h-5 rounded-full bg-gem-soft flex items-center justify-center text-[9px] font-semibold text-gem flex-shrink-0">
-                            {comment.character_name.charAt(0)}
-                          </div>
-                        )}
-                        <span className="text-sm font-medium text-gem">
-                          {comment.character_name}
-                        </span>
-                      </div>
-                    ) : (
-                      // Identity-first: no character means no public identity —
-                      // account usernames never render on a public surface.
-                      <span className="text-sm text-ink-3 flex-shrink-0">
-                        Wanderer
-                      </span>
-                    )}
+                    {/* One public identity per account type: a Writer's comment
+                        is the character; a Wanderer's is their Wanderer
+                        username and account sigil. Never a bare "Wanderer"
+                        placeholder when the server sent us a real name. */}
+                    {(() => {
+                      const author = authorLink(comment);
+                      const isCharacter = author.kind === 'character';
+                      return (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {author.avatarUrl ? (
+                            <img
+                              src={author.avatarUrl}
+                              alt={author.label}
+                              className="w-5 h-5 rounded-full object-cover border border-edge-md"
+                            />
+                          ) : (
+                            <div
+                              className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold flex-shrink-0 ${
+                                isCharacter
+                                  ? 'bg-gem-soft text-gem'
+                                  : 'bg-surface-elevated border border-edge text-ink-3'
+                              }`}
+                            >
+                              {author.label.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          {/* The author outranks the timestamp: full-strength
+                              ink and a heavier weight against the muted,
+                              secondary date beside it. */}
+                          <span
+                            className={`text-sm font-semibold ${
+                              isCharacter ? 'text-gem' : 'text-ink'
+                            }`}
+                          >
+                            {author.label}
+                          </span>
+                        </div>
+                      );
+                    })()}
                     {getTypeBadge(comment.content_type)}
                     <span className="text-xs font-mono text-ink-3">
                       {new Date(comment.created_at).toLocaleDateString()}
@@ -143,6 +176,14 @@ export default function CommentSection({ postId, characters = [], defaultExpande
 
           {/* Comment composer */}
           <div className="space-y-2">
+            {/* Wanderer replying identity — their public Wanderer username,
+                stated plainly so they know what others will see. */}
+            {characters.length === 0 && wandererName && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-ink-3 flex-shrink-0">Replying as</span>
+                <span className="text-xs text-ink-2 font-medium">{wandererName}</span>
+              </div>
+            )}
             {/* Replying identity */}
             {characters.length > 0 && (
               <div className="flex items-center gap-2">

@@ -20,6 +20,19 @@ class User(Base):
     avatar_url = Column(String, nullable=True)
     cover_url = Column(String, nullable=True)
     next_character_allowed_at = Column(DateTime, nullable=True)
+    # When the account last changed its public username. NULL = never changed.
+    # Drives the change cooldown in app/core/usernames.py.
+    username_changed_at = Column(DateTime, nullable=True)
+    # When the paid Writer Unlock was granted. NULL = Wanderer (a complete,
+    # permanent account type — not an unfinished Writer). Set only by a real
+    # grant path; see app/core/entitlements.py::has_writer_unlock.
+    writer_unlocked_at = Column(DateTime, nullable=True)
+    # When the account asked to be told the Writer Unlock had launched.
+    # NULL = not waiting. Deliberately a separate column from
+    # ``writer_unlocked_at``: interest is not entitlement, and nothing reads
+    # this to decide what an account may do. A timestamp rather than a boolean
+    # so the operator readout can answer "how many joined this week".
+    writer_waitlist_joined_at = Column(DateTime, nullable=True)
     # The owner's currently selected character — their visible Ficshon identity.
     # NULL = no explicit selection; the API falls back to the account's single
     # character when exactly one exists. SET NULL on character delete.

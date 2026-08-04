@@ -87,11 +87,16 @@ export default function MessageNew() {
         </div>
         <div className="max-w-2xl mx-auto px-4 py-16 flex flex-col items-center text-center space-y-4">
           <MessageSquare className="w-8 h-8 text-ink-3" />
+          {/* Messages are character-to-character, so an account with no
+              character has nothing to send them as. Stated as a fact about
+              this surface — not as a prompt to go create one, which for an
+              unpaid Wanderer would be a dead end at the Writer Unlock gate. */}
           <p className="text-sm text-ink-2">
-            You need at least one character to send messages.
+            Messages are sent character to character, so this isn't part of the
+            Wanderer experience.
           </p>
-          <Link to="/characters/new" className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors">
-            Create a character
+          <Link to="/" className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors">
+            Back to the Commons
           </Link>
         </div>
       </div>

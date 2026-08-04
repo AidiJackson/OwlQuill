@@ -27,7 +27,11 @@ class Comment(CommentBase):
     # Optional so the serialization layer can omit the author's identity from
     # character-attributed comments for non-owner viewers (character-first policy).
     author_user_id: Optional[int] = None
+    # Wanderer attribution: the public Wanderer username and account sigil.
+    # Both are omitted for character-attributed comments (see
+    # app.services.seeding.serialize_comment_for_viewer).
     author_username: Optional[str] = None
+    author_avatar_url: Optional[str] = None
     character_name: Optional[str] = None
     character_avatar_url: Optional[str] = None
     created_at: datetime

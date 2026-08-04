@@ -237,7 +237,7 @@ def test_godmod_metadata_preserved(client):
 # ── user cannot access another user's thread ──────────────────────────────────
 
 def test_cannot_access_another_users_thread(client):
-    token_a = get_auth_token(client, email="owner@test.com", username="owner")
+    token_a = get_auth_token(client, email="owner@test.com", username="owner_one")
     token_b = get_auth_token(client, email="intruder@test.com", username="intruder")
 
     thread = _create_thread(client, token_a)

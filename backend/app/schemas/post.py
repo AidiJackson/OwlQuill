@@ -56,5 +56,9 @@ class Post(PostBase):
     created_at: datetime
     updated_at: datetime
     mentions: list[PostMentionRead] = []
+    # Number of comments on the post. Sent with the post so a collapsed comment
+    # section can show a truthful count without first fetching the comments —
+    # otherwise an existing comment is invisible until someone happens to expand.
+    comment_count: int = 0
 
     model_config = {"from_attributes": True}

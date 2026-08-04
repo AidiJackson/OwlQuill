@@ -21,6 +21,16 @@ export interface User {
    *  accounts with no characters (Wanderers). */
   active_character?: ActiveCharacterSummary | null;
   character_count?: number;
+  /** True once the paid Writer Unlock is held. Founders/admins/seeders are
+   *  exempt rather than unlocked, so this stays false for them. */
+  writer_unlocked?: boolean;
+  /** Server-authoritative mirror of the character-creation entitlement. */
+  can_create_character?: boolean;
+  /** When the public username may next be changed (rename cooldown), or null. */
+  username_change_available_at?: string | null;
+  /** When the account joined the Writer waitlist, or null if it has not.
+   *  Interest only — it grants nothing and never affects entitlement. */
+  writer_waitlist_joined_at?: string | null;
   next_character_allowed_at?: string | null;
   created_at: string;
   updated_at: string;
@@ -232,6 +242,9 @@ export interface Post {
   created_at: string;
   updated_at: string;
   mentions?: PostMention[];
+  /** Comment count, sent with the post so a collapsed comment section can show
+   *  a truthful count before the comments themselves are fetched. */
+  comment_count?: number;
 }
 
 export interface Notification {
@@ -246,7 +259,11 @@ export interface Comment {
   id: number;
   post_id: number;
   author_user_id: number;
+  /** Wanderer attribution — the public Wanderer username and account sigil.
+   *  Both are absent on character-attributed (Writer) comments: a Writer's
+   *  public output carries the character and nothing else. */
   author_username?: string;
+  author_avatar_url?: string;
   character_id?: number;
   character_name?: string;
   character_avatar_url?: string;

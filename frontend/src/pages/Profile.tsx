@@ -1,11 +1,14 @@
-import { useState } from 'react';
-import { Lock, Check, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Lock, Check, RefreshCw, ChevronRight, Pencil } from 'lucide-react';
 import { useAuthStore } from '@/lib/store';
 import { apiClient } from '@/lib/apiClient';
+import { canUseCreatorTools } from '@/lib/entitlements';
 
 /** Curated default avatars — small inline SVG sigils, no upload required.
- *  Accounts are private infrastructure; the avatar only ever appears in the
- *  owner's own UI (sidebar/account page), never on a public surface. */
+ *  For a Writer the sigil stays private (their public face is the character);
+ *  for a Wanderer it is the avatar shown beside their public Wanderer
+ *  username on comments. */
 const AVATAR_PRESETS: { id: string; label: string; url: string }[] = [
   ['ember',    'Ember',    '#f59e0b', '#7c2d12', 'M32 14 L38 28 L52 32 L38 36 L32 50 L26 36 L12 32 L26 28 Z'],
   ['tide',     'Tide',     '#38bdf8', '#1e3a8a', 'M12 38 Q22 28 32 38 T52 38 Q42 48 32 42 T12 38 Z'],
@@ -30,11 +33,53 @@ const AVATAR_PRESETS: { id: string; label: string; url: string }[] = [
 }));
 
 export default function Profile() {
+  const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [error, setError] = useState('');
+
+  // A Writer's public identity is their character, so their account username
+  // stays read-only private infrastructure. A Wanderer's username IS their
+  // public identity, so it's theirs to edit.
+  const isWriter = canUseCreatorTools(user);
+
+  const [usernameDraft, setUsernameDraft] = useState(user?.username ?? '');
+  const [savingUsername, setSavingUsername] = useState(false);
+  const [usernameError, setUsernameError] = useState('');
+  const [usernameSaved, setUsernameSaved] = useState(false);
+
+  // Keep the draft in step with the account when /me resolves or changes
+  // elsewhere — but never stomp on what the user is currently typing.
+  useEffect(() => {
+    if (user && !savingUsername) {
+      setUsernameDraft((draft) => (draft === '' ? user.username : draft));
+    }
+  }, [user, savingUsername]);
+
+  const handleSaveUsername = async () => {
+    const next = usernameDraft.trim();
+    if (!user || savingUsername || next === user.username) return;
+    setSavingUsername(true);
+    setUsernameError('');
+    setUsernameSaved(false);
+    try {
+      const updated = await apiClient.updateMyUsername(next);
+      setUser(updated);
+      setUsernameDraft(updated.username);
+      setUsernameSaved(true);
+      setTimeout(() => setUsernameSaved(false), 3000);
+    } catch (err) {
+      // Surface the server's own validation message — it is the authority on
+      // what's allowed, and it explains *why* the name was refused.
+      setUsernameError(
+        err instanceof Error ? err.message : 'Could not update your username.'
+      );
+    } finally {
+      setSavingUsername(false);
+    }
+  };
 
   const handlePickAvatar = async (url: string) => {
     if (saving) return;
@@ -67,7 +112,9 @@ export default function Profile() {
         <h1 className="font-serif text-4xl font-medium tracking-[-0.02em] text-ink">My Account</h1>
         <p className="flex items-center gap-1.5 text-sm text-ink-3 mt-1">
           <Lock className="w-3.5 h-3.5" />
-          Private — only you can see this page. Your public identity on Ficshon is a character.
+          {isWriter
+            ? 'Private — only you can see this page. Your public identity on Ficshon is your character.'
+            : 'Private — only you can see this page. Publicly you appear as your Wanderer username.'}
         </p>
       </div>
 
@@ -84,9 +131,11 @@ export default function Profile() {
             )}
           </div>
           <div>
-            <h2 className="text-lg font-semibold">Account avatar</h2>
+            <h2 className="text-lg font-semibold">Account sigil</h2>
             <p className="text-sm text-ink-3">
-              Pick a sigil for your account.
+              {isWriter
+                ? 'Pick a sigil for your account. Your public content is shown under your character.'
+                : 'Pick a sigil. It appears beside your Wanderer username on comments.'}
               {saving && <RefreshCw className="inline w-3.5 h-3.5 ml-2 animate-spin text-ink-2" />}
               {savedFlash && <span className="text-gem ml-2 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" />Saved</span>}
             </p>
@@ -124,12 +173,77 @@ export default function Profile() {
       {/* Account details */}
       <div className="card mb-6 space-y-4">
         <h2 className="text-lg font-semibold">Account details</h2>
+
         <div>
-          <p className="text-sm text-ink-3">Username</p>
-          <p className="text-base">{user.username}</p>
+          <p className="text-sm text-ink-3">
+            {isWriter ? 'Account username (private)' : 'Wanderer username'}
+          </p>
+          {isWriter ? (
+            // A Writer's public identity is their character; the account
+            // username stays private infrastructure and is shown here only so
+            // support can be asked about it.
+            <p className="text-base">{user.username}</p>
+          ) : (
+            <>
+              <p className="text-xs text-ink-3 mt-0.5 mb-2">
+                This is how you appear publicly — on your comments and
+                reactions.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Reads as an editable field, not a disabled one: page-surface
+                    background, a full-strength border and a pencil sitting in
+                    the field. The old elevated-grey fill made it look locked. */}
+                <div className="relative">
+                  <input
+                    value={usernameDraft}
+                    onChange={(e) => setUsernameDraft(e.target.value)}
+                    disabled={savingUsername}
+                    aria-label="Wanderer username"
+                    className="w-full pl-3 pr-9 py-2 rounded-lg bg-surface border border-edge-md text-base text-ink hover:border-gem/40 focus:outline-none focus:border-gem focus:ring-1 focus:ring-gem/30 transition-colors disabled:opacity-60"
+                  />
+                  <Pencil
+                    className="w-3.5 h-3.5 text-ink-3 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    aria-hidden="true"
+                  />
+                </div>
+                <button
+                  onClick={handleSaveUsername}
+                  disabled={savingUsername || usernameDraft.trim() === user.username}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {savingUsername ? 'Saving…' : 'Save'}
+                </button>
+                {usernameDraft.trim() !== user.username && !savingUsername && (
+                  <button
+                    onClick={() => {
+                      setUsernameDraft(user.username);
+                      setUsernameError('');
+                    }}
+                    className="text-sm text-ink-3 hover:text-ink-2 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+              {usernameError && (
+                <p className="text-sm text-red-400 mt-2">{usernameError}</p>
+              )}
+              {usernameSaved && (
+                <p className="text-sm text-gem mt-2 inline-flex items-center gap-1">
+                  <Check className="w-3.5 h-3.5" />
+                  Username updated
+                </p>
+              )}
+              <p className="text-xs text-ink-3 mt-2">
+                3–24 characters: letters, numbers, and single . _ - between
+                them. You can change it again 14 days after a change.
+              </p>
+            </>
+          )}
         </div>
+
         <div>
-          <p className="text-sm text-ink-3">Email</p>
+          <p className="text-sm text-ink-3">Email (private)</p>
           <p className="text-base">{user.email}</p>
         </div>
         <div>
@@ -137,6 +251,34 @@ export default function Profile() {
           <p className="text-base">{joinDate}</p>
         </div>
       </div>
+
+      {/* Upgrade entry — restrained, and never a shortcut into character
+          creation: it leads to the Writer Unlock gate, which is the only place
+          the entitlement can be obtained.
+
+          The whole card is the control, so it is a real <button>: click,
+          Enter/Space and the focus ring all come from the element rather than
+          being reimplemented on a div. The former "Learn more" button is gone
+          rather than nested inside it — a button inside a button is invalid
+          markup — and survives as the chevron affordance on the right. */}
+      {!isWriter && (
+        <button
+          type="button"
+          onClick={() => navigate('/become-a-writer')}
+          className="card mb-6 w-full text-left flex flex-wrap items-center justify-between gap-3 hover:border-gem/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-gem/50 transition-colors"
+        >
+          <div>
+            <h2 className="text-lg font-semibold">Become a Writer</h2>
+            <p className="text-sm text-ink-2">
+              Unlock one character and Ficshon's creator tools.
+            </p>
+          </div>
+          <span className="flex items-center gap-1 text-sm font-semibold text-ink-2 flex-shrink-0">
+            Learn more
+            <ChevronRight className="w-4 h-4" />
+          </span>
+        </button>
+      )}
 
       {/* Security */}
       <div className="card space-y-3">

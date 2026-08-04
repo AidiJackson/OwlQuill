@@ -1,3 +1,4 @@
+import { rateLimitMessage } from './rateLimit';
 import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, CharacterGalleryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
@@ -37,6 +38,14 @@ class ApiClient {
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        // Throttling is the one status a user is likely to meet head-on, so it
+        // never falls through to the bare `HTTP ${status}` branch below.
+        const throttled = await response.json().catch(() => null);
+        throw new Error(
+          rateLimitMessage((throttled as { detail?: unknown } | null)?.detail)
+        );
+      }
       const error = await response.json().catch(() => ({ detail: 'An error occurred' }));
       throw new Error(error.detail || `HTTP ${response.status}`);
     }
@@ -93,6 +102,27 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+  }
+
+  /** Change the account's public (Wanderer) username. Validation, uniqueness
+   *  and the rename cooldown are enforced server-side; errors surface as the
+   *  API's own message so the user sees why. */
+  async updateMyUsername(username: string): Promise<User> {
+    return this.request<User>('/users/me/username', {
+      method: 'PATCH',
+      body: JSON.stringify({ username }),
+    });
+  }
+
+  /** Register interest in the Writer Unlock. Idempotent, and grants nothing —
+   *  the returned user still has `writer_unlocked: false`. */
+  async joinWriterWaitlist(): Promise<User> {
+    return this.request<User>('/users/me/writer-waitlist', { method: 'POST' });
+  }
+
+  /** Withdraw from the Writer waitlist. Idempotent. */
+  async leaveWriterWaitlist(): Promise<User> {
+    return this.request<User>('/users/me/writer-waitlist', { method: 'DELETE' });
   }
 
   // Active character (the account's visible Ficshon identity)

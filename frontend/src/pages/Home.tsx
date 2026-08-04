@@ -61,20 +61,8 @@ export default function Home() {
     setShowWorkspacePasteHint(false);
   };
 
-  // Welcome banner — shown only when the user has no characters yet.
-  // Dismissed state is session-persistent via localStorage; avoids flashing
-  // by reading the flag synchronously in the useState initialiser.
-  const BANNER_KEY = 'ficshon.dismissed_welcome_banner';
-  const [bannerDismissed, setBannerDismissed] = useState(
-    () => localStorage.getItem(BANNER_KEY) === 'true'
-  );
-  const dismissBanner = () => {
-    localStorage.setItem(BANNER_KEY, 'true');
-    setBannerDismissed(true);
-  };
-  // Only true once data has loaded and we know the count is 0.
-  // Uses the `characters` array already fetched by loadData().
-  const isFirstTimeUser = !loading && characters.length === 0;
+  // (The first-time "create your character" welcome banner was removed: an
+  // account with no character is a Wanderer, not a first-time writer.)
 
   // "Get started" nudge — has a character but no authored posts visible in the feed.
   // Filters the already-fetched `posts` for the current user's id; no extra API call needed.
@@ -279,32 +267,11 @@ export default function Home() {
             The Commons
           </h1>
 
-          {/* First-time user banner — hidden once dismissed or once a character exists */}
-          {isFirstTimeUser && !bannerDismissed && (
-            <div className="flex items-start justify-between gap-4 bg-gem-soft border border-gem/20 rounded-2xl px-5 py-4 mb-6">
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-gem">Welcome to Ficshon</p>
-                <p className="text-sm text-ink-2">
-                  Create your character to start writing, posting, and roleplaying in the world.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => navigate('/characters/new')}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
-                >
-                  Create character
-                </button>
-                <button
-                  onClick={dismissBanner}
-                  className="text-ink-3 hover:text-ink-2 transition-colors"
-                  aria-label="Dismiss welcome banner"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          )}
+          {/* No welcome banner for characterless accounts.
+              A Wanderer is a complete, permanent account type, not a writer
+              waiting to create a character — so the Commons opens on the feed
+              and the discovery experience, with no prompt framing browsing as
+              an unfinished state. The upgrade path lives in My Account. */}
 
           {/* "Get started" nudge — has a character but no own posts yet in the feed */}
           {showGetStartedCard && (
@@ -335,16 +302,11 @@ export default function Home() {
           {/* Quick Post composer for The Commons — posts are authored by
               characters, so the composer only exists once you have one. */}
           {commonsRealm && characters.length === 0 ? (
-            <div className="rounded-2xl border border-edge bg-surface mb-8 text-center py-10 px-6">
-              <p className="font-serif text-lg text-ink mb-1">Create your character to start posting</p>
-              <p className="text-sm text-ink-3 mb-5">On Ficshon, your character is your voice.</p>
-              <button
-                onClick={() => navigate('/characters/new')}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
-              >
-                Create your character
-              </button>
-            </div>
+            // Wanderer: posts are authored by characters, so there is no
+            // composer — and deliberately no replacement prompt either. The
+            // feed below is the experience; nothing here should read as a
+            // setup step the account has skipped.
+            null
           ) : commonsRealm ? (
             <div className="rounded-2xl border border-edge bg-surface mb-8 p-5">
               <h3 className="text-sm font-medium mb-3 text-ink-2">
@@ -535,23 +497,28 @@ export default function Home() {
                 The Commons is your shared space for OOC intros, plotting sessions, writing prompts, and getting to know fellow writers.
               </p>
               <p className="text-sm text-ink-3 mb-6 max-w-lg mx-auto">
-                No need to join a realm first — just start posting.
+                {characters.length > 0
+                  ? 'No need to join a realm first — just start posting.'
+                  : 'Follow the characters and realms you like — new writing lands here.'}
               </p>
               <div className="flex flex-wrap justify-center gap-3">
-                <button
-                  onClick={focusComposer}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
-                >
-                  {characters.length > 0
-                    ? `Post as ${characters[0].name}`
-                    : 'Post in The Commons'}
-                </button>
+                {/* Wanderers get discovery, not a posting call to action —
+                    posting is a Writer capability, and prompting for it here
+                    would be an upsell dressed as an empty state. */}
+                {characters.length > 0 && (
+                  <button
+                    onClick={focusComposer}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
+                  >
+                    {`Post as ${characters[0].name}`}
+                  </button>
+                )}
                 {characters.length === 0 && (
                   <button
-                    onClick={() => navigate('/characters/new')}
-                    className="px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
+                    onClick={() => navigate('/characters')}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors"
                   >
-                    Create Character
+                    Browse Characters
                   </button>
                 )}
                 <button
@@ -594,10 +561,20 @@ export default function Home() {
                             )}
                           </Link>
                         ) : (
+                          // Wanderer (or unattributable) post: the account
+                          // sigil when we have one, the neutral mark otherwise.
                           <div className="flex-shrink-0 mt-0.5">
-                            <div className="w-9 h-9 rounded-full bg-surface-elevated border border-edge flex items-center justify-center text-sm font-medium text-ink-3">
-                              ✦
-                            </div>
+                            {author.avatarUrl ? (
+                              <img
+                                src={author.avatarUrl}
+                                alt={author.label}
+                                className="w-9 h-9 rounded-full object-cover border border-edge"
+                              />
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-surface-elevated border border-edge flex items-center justify-center text-sm font-medium text-ink-3">
+                                ✦
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -682,7 +659,7 @@ export default function Home() {
                     )}
 
                     <ReactionBar postId={post.id} />
-                    <CommentSection postId={post.id} characters={characters} defaultExpanded={joinSent[post.id]} />
+                    <CommentSection postId={post.id} characters={characters} defaultExpanded={joinSent[post.id]} commentCount={post.comment_count} />
                   </article>
                 );
               })}

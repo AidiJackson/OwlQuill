@@ -18,6 +18,30 @@ from app.models.user import User
 from app.services.seeding import is_seeder_account
 
 
+def has_writer_unlock(user: User) -> bool:
+    """Has this account paid for (or been granted) the Writer Unlock?
+
+    The unlock is the ONLY thing that turns a Wanderer into a Writer. It is a
+    stored grant — never inferred from behaviour — so no UI path, redirect or
+    empty state can manufacture it. Founder/admin/seeder accounts are handled
+    separately by the callers below; they are not "unlocked", they are exempt.
+    """
+    return getattr(user, "writer_unlocked_at", None) is not None
+
+
+def can_create_character(db: Session, user: User) -> bool:
+    """May this account create a character at all?
+
+    Distinct from :func:`can_use_creator_tools`: that one asks "may you use the
+    creator workspaces", which an existing Writer passes by owning a character.
+    This asks the *entry* question, and a Wanderer owns no character, so it can
+    never be derived from character ownership — it needs the paid unlock.
+    """
+    if user_is_admin(user) or is_seeder_account(user):
+        return True
+    return has_writer_unlock(user)
+
+
 def can_use_creator_tools(db: Session, user: User) -> bool:
     """May this account use the creator workspaces?
 
@@ -26,11 +50,12 @@ def can_use_creator_tools(db: Session, user: User) -> bool:
     means "this surface isn't part of your experience", never "you haven't
     finished setting up".
 
-    NOTE: the character-count term is an implementation detail of the current
-    rule. Replace it with the Writer entitlement here when that ships; callers
-    stay unchanged.
+    The character-count term is retained so an existing Writer who predates the
+    unlock keeps their workspaces; the unlock is the forward-looking term.
     """
     if user_is_admin(user) or is_seeder_account(user):
+        return True
+    if has_writer_unlock(user):
         return True
     return db.query(Character).filter(Character.owner_id == user.id).count() > 0
 
@@ -62,5 +87,26 @@ def require_creator(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This is a creator workspace. Your account doesn't have access to it.",
+        )
+    return current_user
+
+
+def require_writer_unlock(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """FastAPI dependency enforcing the paid Writer Unlock on a route.
+
+    Used by character creation. Hiding the button is not enforcement — this is
+    the authoritative gate, and it fails closed for every account that has no
+    stored unlock and is not a founder/admin/seeder.
+    """
+    if not can_create_character(db, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Creating a character requires the Writer Unlock. "
+                "Your account is a Wanderer account."
+            ),
         )
     return current_user

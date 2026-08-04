@@ -32,7 +32,8 @@ import Notifications from '@/pages/Notifications';
 import Studio18Plus from '@/pages/Studio18Plus';
 import EditorStudio from '@/pages/EditorStudio';
 import WandererNotice from '@/components/WandererNotice';
-import { canUseCreatorTools } from '@/lib/entitlements';
+import BecomeAWriter from '@/pages/BecomeAWriter';
+import { canCreateCharacter, canUseCreatorTools } from '@/lib/entitlements';
 
 function RouteLogger() {
   const location = useLocation();
@@ -87,6 +88,33 @@ function CreatorRoute({
   return <>{children}</>;
 }
 
+/**
+ * Gate character creation on the Writer entitlement.
+ *
+ * A Wanderer who reaches /characters/new — by typing it, by a stale link, or
+ * by a redirect we missed — gets the upgrade gate, never the creation flow.
+ * The backend refuses `POST /characters/` on the same rule, so this is the
+ * courteous half of the enforcement, not the enforcement itself.
+ */
+function WriterRoute({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const user = useAuthStore((state) => state.user);
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  // Wait for /me before judging entitlement, so a slow fetch doesn't flash the
+  // paywall at a genuine Writer.
+  if (isLoading || !user) {
+    return null;
+  }
+  if (!canCreateCharacter(user)) {
+    return <BecomeAWriter />;
+  }
+  return <>{children}</>;
+}
+
 function App() {
   const fetchUser = useAuthStore((state) => state.fetchUser);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -131,14 +159,15 @@ function App() {
           <Route path="/rp-stories/:threadId" element={<CreatorRoute workspaceName="RP Stories" description="RP Stories is where creators run character-to-character roleplay threads.">{<RPStoryPage />}</CreatorRoute>} />
           <Route path="/scenes/:sceneId" element={<SceneDetail />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/become-a-writer" element={<BecomeAWriter />} />
         </Route>
 
         <Route
           path="/characters/new"
           element={
-            <ProtectedRoute>
+            <WriterRoute>
               <CharacterCreationFlow />
-            </ProtectedRoute>
+            </WriterRoute>
           }
         />
 

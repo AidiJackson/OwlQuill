@@ -256,3 +256,56 @@ def authed_client(client):
             return client
 
     return _AuthedClient()
+
+
+# ── Writer Unlock (paid entitlement) ─────────────────────────────────────────
+
+
+def grant_writer_unlock(email: str) -> None:
+    """Give an existing test account the paid Writer Unlock.
+
+    This is the operator grant — it writes the same ``writer_unlocked_at``
+    column a real purchase would, so a test that uses it exercises the genuine
+    entitlement path rather than a bypass.
+    """
+    from datetime import datetime
+
+    from app.models.user import User
+
+    db = TestingSessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        assert user is not None, f"No such test user: {email}"
+        user.writer_unlocked_at = datetime.utcnow()
+        db.commit()
+    finally:
+        db.close()
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "writer_unlock_enforced: run this test with the real character-creation "
+        "paywall in force (the suite-wide fixture is disabled).",
+    )
+
+
+@pytest.fixture(autouse=True)
+def auto_writer_unlock(request, monkeypatch):
+    """Treat every test account as Writer-unlocked *for character creation only*.
+
+    Most of the suite predates the paid unlock and registers a bare account
+    purely so it can own a character to test something else with. Rather than
+    thread a purchase through a hundred fixtures, this patches the single
+    creation gate — and nothing else, so the creator-workspace entitlement
+    (``require_creator``) and every Wanderer 403 assertion elsewhere are still
+    exercised for real.
+
+    Tests that assert the paywall itself mark themselves
+    ``@pytest.mark.writer_unlock_enforced`` and get the unpatched gate.
+    """
+    if request.node.get_closest_marker("writer_unlock_enforced"):
+        return
+    from app.api.routes import characters as characters_route
+
+    monkeypatch.setattr(characters_route, "can_create_character", lambda db, user: True)

@@ -17,13 +17,12 @@ export default function Register() {
 
     try {
       await register(email, username, password, inviteCode.trim().toUpperCase());
-      // Identity-first, role-aware landing: a new account is a Wanderer until it
-      // owns a character, so we drop them into The Commons — where they can
-      // browse characters, realms and public activity — rather than force-feeding
-      // a character-creation workflow. The Commons surfaces a clear, gated
-      // "Create your character" entry point for those who want to become a
-      // Character Owner. (Founder/seeder accounts are provisioned via scripts,
-      // not this form.)
+      // Identity-first, role-aware landing: a new account is a Wanderer — a
+      // complete, permanent account type — so we drop them into The Commons to
+      // browse characters, realms and public activity. The Commons shows no
+      // character-creation prompt; the upgrade path is the restrained "Become a
+      // Writer" entry in My Account, which leads to the Writer Unlock gate.
+      // (Founder/seeder accounts are provisioned via scripts, not this form.)
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
@@ -36,7 +35,13 @@ export default function Register() {
         <div className="flex flex-col items-center gap-4 mb-6">
           <img src="/brand/ficshon-mark-v1.png" alt="Ficshon" className="h-12 w-12 rounded-xl object-contain" />
           <h1 className="font-serif text-4xl font-semibold tracking-tight text-ink">Ficshon</h1>
-          <p className="text-ink-2">Closed beta — invite required</p>
+          {/* Same tagline as Login; the beta notice stays as a secondary line
+              rather than replacing it, so the positioning reads consistently
+              across every public auth surface. */}
+          <div className="space-y-1 text-center">
+            <p className="text-ink-2">The social network for fictional characters</p>
+            <p className="text-sm text-ink-3">Closed beta — invite required</p>
+          </div>
         </div>
 
         <div className="card">

@@ -31,6 +31,19 @@ class Comment(Base):
         return None
 
     @property
+    def author_avatar_url(self) -> str | None:
+        """The account sigil, used for Wanderer attribution.
+
+        Only ever serialized for characterless (Wanderer) comments — the
+        serialization layer strips it, along with the username, from
+        character-attributed comments so a Writer's public output carries the
+        character and nothing else.
+        """
+        if self.author_user:
+            return self.author_user.avatar_url
+        return None
+
+    @property
     def character_name(self) -> str | None:
         if self.character:
             return self.character.name

@@ -1,10 +1,13 @@
 """Authentication routes."""
 import hashlib
 import secrets
+import time
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -14,6 +17,7 @@ from app.core.database import get_db
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.core.dependencies import get_current_user
 from app.core.admin_seed import auto_join_commons
+from app.core.usernames import UsernameError, username_is_taken, validate_username
 from app.models.user import User as UserModel
 from app.models.password_reset_token import PasswordResetToken
 from app.models.invite_code import InviteCode
@@ -25,8 +29,80 @@ from app.services.email import send_reset_email
 
 router = APIRouter()
 
-# Rate limiter for auth endpoints (in-memory, per-IP)
+# Rate limiter for auth endpoints (in-memory, per-IP, per-endpoint).
+#
+# Key: ``get_remote_address`` reads ``request.client.host``. Behind the Replit
+# edge that value is *not* the proxy — uvicorn's ProxyHeadersMiddleware rewrites
+# it from X-Forwarded-For, taking the right-most entry that is not a trusted
+# host (trusted defaults to 127.0.0.1 only). The edge appends the true peer IP
+# on the right, so a client-supplied X-Forwarded-For prefix is ignored and
+# cannot be used to rotate through fresh buckets. Verified by probing the public
+# origin with rotating spoofed X-Forwarded-For values: the limit still fired.
+#
+# Consequence worth knowing: requests that reach uvicorn without going through
+# the edge (the Vite dev proxy forwarding from 127.0.0.1 with no
+# X-Forwarded-For) all key to "127.0.0.1" and therefore share one bucket. That
+# is a local-development-only path; real browser traffic is keyed per client IP.
 limiter = Limiter(key_func=get_remote_address)
+
+# Message shown to a human who has tripped an auth limiter. Deliberately free of
+# status codes and of any hint about whether the account exists.
+RATE_LIMIT_MESSAGE_LOGIN = (
+    "Too many login attempts. Please wait a few minutes and try again."
+)
+RATE_LIMIT_MESSAGE_GENERIC = (
+    "Too many attempts. Please wait a few minutes and try again."
+)
+
+
+def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Return a readable 429 instead of slowapi's raw default.
+
+    slowapi's stock handler answers ``{"error": "Rate limit exceeded: 5 per 1
+    minute"}`` with no ``Retry-After``. The frontend reads ``detail`` and so fell
+    back to rendering the bare string "HTTP 429". This handler keeps the limit
+    itself untouched and only fixes what the caller is told: a ``detail`` the UI
+    can show verbatim, plus ``Retry-After`` in seconds so the client can say how
+    long the wait is.
+    """
+    path = request.url.path
+    message = (
+        RATE_LIMIT_MESSAGE_LOGIN
+        if path.endswith("/auth/login") or path.endswith("/login")
+        else RATE_LIMIT_MESSAGE_GENERIC
+    )
+
+    headers: dict[str, str] = {}
+    current_limit = getattr(request.state, "view_rate_limit", None)
+    if current_limit:
+        try:
+            reset_at, _remaining = limiter.limiter.get_window_stats(
+                current_limit[0], *current_limit[1]
+            )
+            headers["Retry-After"] = str(max(1, int(reset_at - time.time())))
+        except Exception:  # pragma: no cover - never fail the error response
+            pass
+
+    return JSONResponse(
+        {"detail": message}, status_code=status.HTTP_429_TOO_MANY_REQUESTS, headers=headers
+    )
+
+
+def _clear_rate_limit(request: Request) -> None:
+    """Release this request's limiter allowance.
+
+    Called after a *successful* login so that a legitimate user who mistyped a
+    few times is not left one attempt away from a lockout for the rest of the
+    window. Failed attempts always keep their cost, so brute-force protection is
+    unchanged: the counter only resets when the correct password was supplied.
+    """
+    current_limit = getattr(request.state, "view_rate_limit", None)
+    if not current_limit:
+        return
+    try:
+        limiter.limiter.clear(current_limit[0], *current_limit[1])
+    except Exception:  # pragma: no cover - a failed reset must not fail login
+        pass
 
 
 def _hash_token(token: str) -> str:
@@ -81,8 +157,14 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
             detail="Email already registered"
         )
 
-    existing_user = db.query(UserModel).filter(UserModel.username == user_data.username).first()
-    if existing_user:
+    # Username rules live in app.core.usernames and are shared with the change
+    # endpoint — a name that can't be registered can't be renamed into either.
+    try:
+        username = validate_username(user_data.username)
+    except UsernameError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    if username_is_taken(db, username):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already taken"
@@ -91,9 +173,9 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
     # ── Create user (+ increment invite use_count in same transaction) ────────
     db_user = UserModel(
         email=normalized_email,
-        username=user_data.username,
+        username=username,
         hashed_password=get_password_hash(user_data.password),
-        display_name=user_data.display_name or user_data.username
+        display_name=user_data.display_name or username
     )
     db.add(db_user)
 
@@ -128,6 +210,9 @@ def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Correct credentials: hand the allowance back (see _clear_rate_limit).
+    _clear_rate_limit(request)
 
     access_token = create_access_token(data={"sub": str(user.id)})
     return Token(access_token=access_token)

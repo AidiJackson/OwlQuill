@@ -8,7 +8,6 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
@@ -123,9 +122,11 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.DEBUG else None,
 )
 
-# Add rate limiter state and exception handler
+# Add rate limiter state and exception handler.
+# The handler is ours rather than slowapi's default: same 429, same limits, but
+# a `detail` the UI can display and a Retry-After header (see auth module).
 app.state.limiter = auth.limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, auth.rate_limit_exceeded_handler)
 
 # Configure CORS - uses parsed origins from settings
 app.add_middleware(

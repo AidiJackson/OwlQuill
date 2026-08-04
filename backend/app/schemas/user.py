@@ -18,11 +18,27 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
-    """User update schema."""
+    """User update schema.
+
+    Deliberately excludes ``username`` (see :class:`UsernameUpdate`) and
+    ``email`` — the public identity and the login identity each change through
+    their own validated, rate-limited endpoint, never as a side effect of a
+    profile save.
+    """
     display_name: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
     cover_url: Optional[str] = None
+
+
+class UsernameUpdate(BaseModel):
+    """Body for changing the account's public (Wanderer) username.
+
+    Only the length bounds are declared here; the full rule (character set,
+    reserved names) lives in ``app.core.usernames`` so registration and this
+    endpoint cannot drift apart.
+    """
+    username: str = Field(..., min_length=1, max_length=100)
 
 
 class UserInDB(UserBase):
@@ -58,6 +74,18 @@ class User(UserInDB):
     # Number of characters the account owns. 0 (for non-founders) = Wanderer:
     # browse/react/comment only, no creator tools.
     character_count: int = 0
+    # True once the paid Writer Unlock is held. Founders/admins/seeders are
+    # exempt rather than unlocked, so this stays False for them — read
+    # `can_create_character` for the "may I start the flow" answer.
+    writer_unlocked: bool = False
+    # Authoritative-mirror of app.core.entitlements.can_create_character, so the
+    # client never has to reconstruct the rule from flags.
+    can_create_character: bool = False
+    # When the account may next change its public username (cooldown), or None.
+    username_change_available_at: Optional[datetime] = None
+    # When the account joined the Writer waitlist, or None if it has not.
+    # Interest only — it grants nothing, and `writer_unlocked` stays False.
+    writer_waitlist_joined_at: Optional[datetime] = None
 
 
 class LoginRequest(BaseModel):

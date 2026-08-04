@@ -93,9 +93,17 @@ def serialize_posts_for_viewer(posts, viewer: Optional[User]):
 
 def serialize_comment_for_viewer(comment, viewer: Optional[User]):
     """Serialize a Comment ORM row, applying the same character-first policy as
-    :func:`serialize_post_for_viewer` — a character-attributed comment omits the
-    author's account identity to non-author viewers; characterless comments keep
-    ``@username`` attribution for creator-profile links.
+    :func:`serialize_post_for_viewer`.
+
+    Two public identities, one per account type:
+
+    * **Writer** (character-attributed comment) — the character only. The
+      account username *and* the account sigil are stripped for every viewer
+      but the author, so a Writer's public output never carries the private
+      account identity.
+    * **Wanderer** (characterless comment) — the public Wanderer username and
+      the account sigil are kept, because for a Wanderer that *is* the public
+      identity, not a leak of a private one.
     """
     from app.schemas.comment import Comment as CommentSchema
 
@@ -105,6 +113,7 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User]):
     if is_character_comment and not is_author:
         schema.author_username = None
         schema.author_user_id = None
+        schema.author_avatar_url = None
     return schema
 
 

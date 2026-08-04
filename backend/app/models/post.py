@@ -74,3 +74,28 @@ class Post(Base):
         if self.character:
             return self.character.avatar_url
         return None
+
+
+# ``comment_count`` is attached after the class body because it references the
+# Comment mapper, which cannot be imported at class-definition time.
+#
+# It is a correlated scalar subquery rather than ``len(self.comments)`` on
+# purpose: a feed renders many posts, and the relationship form would emit one
+# extra SELECT per post. This form travels inside the post query itself, so the
+# collapsed "Comments (n)" affordance costs nothing extra per post.
+def _attach_comment_count() -> None:
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import column_property
+
+    from app.models.comment import Comment
+
+    Post.comment_count = column_property(
+        select(func.count(Comment.id))
+        .where(Comment.post_id == Post.id)
+        .correlate_except(Comment)
+        .scalar_subquery(),
+        deferred=False,
+    )
+
+
+_attach_comment_count()

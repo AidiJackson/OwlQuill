@@ -27,8 +27,34 @@ export function canUseCreatorTools(user: MaybeUser): boolean {
   return !!(
     user?.is_admin ||
     user?.is_seeder ||
+    user?.writer_unlocked ||
     (user?.character_count ?? 0) > 0
   );
+}
+
+/**
+ * May this account create a character?
+ *
+ * Not derivable from character ownership — a Wanderer owns none, which is the
+ * whole point — so it depends on the paid Writer Unlock. Founder/admin/seeder
+ * accounts are exempt.
+ *
+ * The server sends `can_create_character` as the authoritative answer; the
+ * flag terms below are the fallback for a payload that predates it. Either
+ * way this is a UI affordance, not access control: `POST /characters/`
+ * enforces the same rule and is the thing that actually decides.
+ */
+export function canCreateCharacter(user: MaybeUser): boolean {
+  if (user?.can_create_character !== undefined) return !!user.can_create_character;
+  return !!(user?.is_admin || user?.is_seeder || user?.writer_unlocked);
+}
+
+/**
+ * Is this a Wanderer — a complete, permanent account type with no character
+ * and no Writer Unlock? Never "an account that hasn't finished signing up".
+ */
+export function isWanderer(user: MaybeUser): boolean {
+  return !!user && !canUseCreatorTools(user) && !canCreateCharacter(user);
 }
 
 /**

@@ -52,12 +52,18 @@ def build_user_out(db: Session, user: UserModel) -> UserSchema:
     """
     from app.core.config import settings
 
+    from app.core.entitlements import can_create_character, has_writer_unlock
+    from app.core.usernames import username_change_available_at
+
     out = UserSchema.model_validate(user)
     out.is_admin = bool(user.is_admin) or (user.email or "").lower() in settings.get_admin_emails()
     out.is_seeder = is_seeder_account(user)
     out.character_count = (
         db.query(Character).filter(Character.owner_id == user.id).count()
     )
+    out.writer_unlocked = has_writer_unlock(user)
+    out.can_create_character = can_create_character(db, user)
+    out.username_change_available_at = username_change_available_at(user)
     active = resolve_active_character(db, user)
     out.active_character = (
         ActiveCharacterSummary.model_validate(active) if active else None

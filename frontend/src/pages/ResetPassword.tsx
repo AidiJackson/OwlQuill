@@ -64,7 +64,7 @@ export default function ResetPassword() {
         <div className="flex flex-col items-center gap-4 mb-6">
           <img src="/brand/ficshon-mark-v1.png" alt="Ficshon" className="h-12 w-12 rounded-xl object-contain" />
           <h1 className="font-serif text-4xl font-semibold tracking-tight text-ink">Ficshon</h1>
-          <p className="text-ink-2">Roleplay-first social network</p>
+          <p className="text-ink-2">The social network for fictional characters</p>
         </div>
 
         <div className="card">
