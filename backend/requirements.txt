@@ -21,6 +21,19 @@ slowapi==0.1.9
 Pillow==12.1.0
 openai>=1.0.0
 
+# Object storage (Cloudflare R2 via the S3 API)
+#
+# Required, not optional: production runs with USE_OBJECT_STORAGE=true, so both
+# app.core.storage.save_image() and _load_from_r2() import boto3 on every image
+# generation. It was previously absent here and only present in the dev-local
+# .pythonlibs, which .replitignore excludes from the deployment — so production
+# installed into .deploy-python without it and every generation died with
+# ModuleNotFoundError: No module named 'boto3'.
+#
+# botocore, jmespath and s3transfer arrive transitively and are not imported
+# directly anywhere, so they are deliberately left unpinned here.
+boto3==1.42.96
+
 # Utilities
 python-dotenv==1.0.1
 

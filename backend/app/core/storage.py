@@ -157,13 +157,28 @@ def _load_from_r2(url: str) -> bytes:
         _log.info("r2_load_success key=%s bytes=%d", key, len(data))
         return data
     except Exception as exc:
-        # Log the full S3 error code and message so operators can act on it.
-        http_status = getattr(getattr(exc, "response", None), "get", lambda *_: None)("Error", {}).get("Code", "?")
+        # Log the S3 error code so operators can act on it. Extracted defensively
+        # on purpose: only botocore's ClientError carries a ``response`` dict, and
+        # the previous one-liner
+        #     getattr(getattr(exc, "response", None), "get", lambda *_: None)("Error", {}).get("Code", "?")
+        # returned None for every other exception type and then called .get on it.
+        # That made the *handler* raise AttributeError("'NoneType' object has no
+        # attribute 'get'"), which replaced the real exception — a
+        # ModuleNotFoundError for boto3 — with a meaningless one at all six
+        # reference loads. Diagnostics must never outrank the error they describe.
+        error_code = "?"
+        response = getattr(exc, "response", None)
+        if isinstance(response, dict):
+            error = response.get("Error")
+            if isinstance(error, dict):
+                error_code = error.get("Code", "?")
         _log.error(
-            "r2_load_failed key=%s error=%r http_code=%s",
-            key, str(exc), http_status,
+            "r2_load_failed key=%s exc_type=%s error=%r error_code=%s",
+            key, type(exc).__name__, str(exc), error_code,
         )
-        raise RuntimeError(f"R2 download failed for key={key!r}: {exc}") from exc
+        raise RuntimeError(
+            f"R2 download failed for key={key!r}: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def _load_from_http(url: str) -> bytes:

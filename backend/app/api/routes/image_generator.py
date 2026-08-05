@@ -374,14 +374,51 @@ def generate_image(
     )
 
     # ── Load reference image bytes (cap at 6) ─────────────────────
+    # Query strings are stripped before logging: a signed storage URL carries its
+    # credential there, and reference URLs are operator diagnostics, not secrets.
+    requested_refs = reference_urls[:6]
+    logger.info(
+        "IMAGE_GEN_REF_LOAD_START character_id=%s refs_requested=%d",
+        character_id, len(requested_refs),
+    )
     ref_bytes: list[bytes] = []
-    for url in reference_urls[:6]:
+    for url in requested_refs:
+        safe_url = url.split("?", 1)[0]
         try:
             b = load_image_bytes(url)
             ref_bytes.append(b)
-            logger.info("IMAGE_GEN_REF_LOADED character_id=%s url=%s bytes=%d", character_id, url, len(b))
+            logger.info(
+                "IMAGE_GEN_REF_LOAD_OK character_id=%s url=%s bytes=%d",
+                character_id, safe_url, len(b),
+            )
         except Exception as exc:
-            logger.warning("IMAGE_GEN_REF_LOAD_FAILED character_id=%s url=%s error=%r", character_id, url, str(exc))
+            # exc_type is logged separately because str(exc) alone hid a
+            # ModuleNotFoundError behind a misleading message once already.
+            logger.warning(
+                "IMAGE_GEN_REF_LOAD_FAILED character_id=%s url=%s exc_type=%s error=%r",
+                character_id, safe_url, type(exc).__name__, str(exc),
+            )
+    logger.info(
+        "IMAGE_GEN_REF_LOAD_SUMMARY character_id=%s refs_requested=%d refs_loaded=%d",
+        character_id, len(requested_refs), len(ref_bytes),
+    )
+
+    # A canon generation whose references ALL failed would silently produce a
+    # generic person wearing none of the character's locked identity — the exact
+    # silent-degradation this route already refuses further down (S24AD). Refuse
+    # it here too, before spending a provider call, rather than returning an
+    # identity-weak image the caller cannot distinguish from a good one. Partial
+    # loads still proceed: some identity grounding beats none.
+    if using_canon and requested_refs and not ref_bytes:
+        logger.error(
+            "IMAGE_GEN_REF_LOAD_ALL_FAILED character_id=%s refs_requested=%d "
+            "fallback_blocked=true",
+            character_id, len(requested_refs),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Character reference images could not be loaded. Please try again.",
+        )
 
     # ── Resolve provider ──────────────────────────────────────────
     try:

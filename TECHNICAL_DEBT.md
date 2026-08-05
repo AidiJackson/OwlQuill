@@ -9,44 +9,62 @@ requires.
 
 ## P0 – Must fix before beta
 
-### Production-only image generation failure
+### Production-only image generation failure — ROOT CAUSE PROVEN, fix pending verification
 
-Canon · Recommended image generation fails on the published app
-(`storyseed-2026.replit.app`) while the identical path succeeds in development.
+**Proven in production** on `POST /api/characters/58/image-generator/generate`
+(`request_id=234f0c783520`): `ModuleNotFoundError: No module named 'boto3'`,
+HTTP 500.
 
-- **Symptom:** the UI shows the bare string `Something went wrong`.
-- **What that proves:** that string is only produced by
-  `frontend/src/features/characterCreation/shared/api.ts:36`, in the branch
-  where the response is non-2xx **and its body fails to parse as JSON**. Every
-  FastAPI `HTTPException` serialises to JSON, and `backend/app/main.py:129`
-  registers no 500 handler, so the response was either an unhandled exception
-  (Starlette's plain-text `Internal Server Error`) or a gateway 502/504.
-- **Ruled out with evidence:** model ID and availability (`gemini-3.1-flash-image`
-  returned HTTP 200 with image bytes in 6.3 s), credentials, response parsing,
-  SPA fallback masking (`main.py:291` is GET-only and returns JSON 404 for
-  `/api`), route registration (unauthenticated POST returns JSON 403), and
-  provider gating.
-- **Also ruled out since:** storage mode is *not* an environment difference.
-  `USE_OBJECT_STORAGE` is unset in both dev and production (`config.py` default
-  `False`; `start-prod.sh` exports only `PYTHONUNBUFFERED`, `PYTHONPATH`,
-  `SERVE_FRONTEND_DIST`), so both write to local disk and the R2 branch of
-  `save_image()` is unreachable. R2 credentials exist but R2 is dormant.
-- **Still open:** which stage throws. Needs a live production reproduction with
-  deployment logs attached — not reproducible from the workspace, as production
-  logs and the production database are unreachable from here.
-- **Remaining candidates:** the Cloud Run target's ephemeral memory-backed
-  filesystem, its request timeout, or its memory ceiling. A Canon generation
-  loads up to six reference images (largest on disk is 3.2 MB), base64-encodes
-  them (×1.33) and builds a JSON payload — several multiplied copies live at
-  once — and may repeat that twice more under face-verify retries
-  (`GOOGLE_IMAGE_TIMEOUT_S=180`, `IDENTITY_FACE_VERIFY_MAX_RETRIES=2`).
-- **Diagnosis is now instrumented.** The next production failure will identify
-  its own stage: the route emits `IMAGE_GEN_START` → `IMAGE_GEN_BYTES_RECEIVED`
-  → `IMAGE_GEN_STORAGE_START` → `IMAGE_GEN_STORAGE_OK` →
-  `IMAGE_GEN_DB_WRITE_START` → `IMAGE_GEN_DB_WRITE_OK`, and any unhandled
-  exception now returns JSON carrying a `request_id` that matches a full
-  server-side traceback. A `START` with no matching `OK` localises the fault
-  without needing a traceback at all.
+Production runs with **`USE_OBJECT_STORAGE=true`** — proven by the traceback
+itself, since boto3 is imported only inside the object-storage branches of
+`app/core/storage.py` (`save_image` line 63, `_r2_client` line 123). boto3 was
+never declared in `backend/requirements.txt`, so the deployment installed into
+`.deploy-python` without it, while dev kept a copy in `.pythonlibs` — which
+`.replitignore` excludes from the deployment. That is the entire dev/prod
+divergence.
+
+A second defect made it unreadable. `_load_from_r2`'s error handler extracted the
+S3 error code with
+`getattr(getattr(exc, "response", None), "get", lambda *_: None)("Error", {}).get("Code", "?")`,
+which yields `None` for any exception without a botocore-style `.response` and
+then calls `.get` on it. The handler itself raised
+`AttributeError: 'NoneType' object has no attribute 'get'`, replacing the real
+`ModuleNotFoundError` at all six reference loads. Diagnostics outranked the error
+they described.
+
+Both are fixed on branch and pending production verification: boto3 is pinned in
+requirements, the error handler extracts defensively and logs `exc_type`, and a
+canon generation whose references *all* fail now returns a safe 503 instead of
+silently producing an identity-weak image.
+
+**Superseded hypotheses**, recorded so they are not re-investigated: Google model
+ID/availability, credentials, response parsing, SPA fallback masking, route
+registration, provider gating, request timeout, container OOM, and the earlier
+claim that production used local filesystem storage. That last one was wrong —
+it came from reading the *workspace* shell environment and `start-prod.sh`, which
+do not carry Replit deployment secrets.
+
+### Lesson for the next environment-specific incident
+
+The original symptom was the bare string `Something went wrong`, produced only by
+`frontend/src/features/characterCreation/shared/api.ts:36` when a non-2xx
+response body fails to parse as JSON. That correctly narrowed the fault to "an
+unhandled exception or a gateway error", but the investigation then stalled for
+several rounds on a wrong premise.
+
+**The wrong premise:** production storage mode was read from the *workspace*
+shell environment and `start-prod.sh`, both of which showed `USE_OBJECT_STORAGE`
+unset, and the conclusion drawn was that production used local filesystem
+storage. It does not — it runs with object storage enabled. Replit **deployment**
+secrets are configured separately from the workspace and are not visible to a
+shell in the workspace, so no amount of local inspection could have shown the
+real value.
+
+**What to do instead:** never infer a deployment's configuration from the
+workspace. Read it from the deployment itself, or make the running app report it
+(a redacted diagnostics endpoint), or prove it from a production traceback as
+happened here. Treat "dev works, production doesn't" as a signal to compare
+*installed dependencies and deployment config*, not application logic.
 
 ### 1.9 GB of generated images ship in every deployment image
 
@@ -60,7 +78,12 @@ is ephemeral — anything written there is also lost on restart.
 
 ### Unhandled exceptions returned unparseable plain-text 500s
 
-**Fixed — pending verification in production.** `backend/app/main.py` registered
+**Fixed and PRODUCTION-VERIFIED.** Confirmed working on the live deployment:
+`request_id=234f0c783520` was returned to the client and matched the logged
+traceback exactly, which is what identified `ModuleNotFoundError: No module named
+'boto3'` and closed the P0 above. The handler did its job on first use.
+
+`backend/app/main.py` registered
 a handler only for `RateLimitExceeded`, so every other unhandled exception got
 Starlette's default plain-text `Internal Server Error`. Frontend clients parse
 error bodies as JSON, so that body failed to parse and any real backend fault
