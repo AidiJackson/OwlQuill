@@ -1,0 +1,32 @@
+........................................................................ [ 85%]
+............                                                             [100%]
+=============================== warnings summary ===============================
+../.pythonlibs/lib/python3.11/site-packages/passlib/utils/__init__.py:854
+  /home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+../.pythonlibs/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151
+  /home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151: UserWarning: Field "model_profile" has conflict with protected namespace "model_".
+  
+  You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+    warnings.warn(
+
+../.pythonlibs/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151
+  /home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151: UserWarning: Field "model_used" has conflict with protected namespace "model_".
+  
+  You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+    warnings.warn(
+
+tests/test_rp_stories.py::test_create_rp_story_with_starter
+  /home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/passlib/handlers/argon2.py:716: DeprecationWarning: Accessing argon2.__version__ is deprecated and will be removed in a future release. Use importlib.metadata directly to query for argon2-cffi's packaging metadata.
+    _argon2_cffi.__version__, max_version)
+
+tests/test_rp_stories.py: 17 warnings
+tests/test_story_spaces.py: 55 warnings
+tests/test_storylab_security.py: 12 warnings
+  /home/runner/workspace/backend/tests/conftest.py:134: SAWarning: Can't sort tables for DROP; an unresolvable foreign key dependency exists between tables: characters, users; and backend does not support ALTER.  To restore at least a partial sort, apply use_alter=True to ForeignKey and ForeignKeyConstraint objects involved in the cycle to mark these as known cycles that will be ignored.
+    Base.metadata.drop_all(bind=engine)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+84 passed, 88 warnings in 181.87s (0:03:01)
+PYTEST_EXIT_CODE=0

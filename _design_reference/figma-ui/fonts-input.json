@@ -1,0 +1,14 @@
+{
+  "fonts": [
+    { "family": "Inter", "style": "Light" },
+    { "family": "Inter", "style": "Regular" },
+    { "family": "Inter", "style": "Medium" },
+    { "family": "Inter", "style": "SemiBold" },
+    { "family": "Playfair Display", "style": "Regular" },
+    { "family": "Playfair Display", "style": "Medium" },
+    { "family": "Playfair Display", "style": "Bold" },
+    { "family": "Playfair Display", "style": "Italic" },
+    { "family": "DM Mono", "style": "Regular" },
+    { "family": "DM Mono", "style": "Light" }
+  ]
+}

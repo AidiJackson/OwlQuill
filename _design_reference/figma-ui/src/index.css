@@ -1,0 +1,154 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=DM+Mono:wght@300;400&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-mono: 'DM Mono', 'Fira Code', monospace;
+}
+
+/* ── Gemstone accent system ─────────────────────────────────── */
+:root                  { --gem: 79, 142, 247; }
+[data-gem="obsidian"]  { --gem: 176, 184, 200; }
+[data-gem="sapphire"]  { --gem: 79, 142, 247; }
+[data-gem="emerald"]   { --gem: 45, 200, 150; }
+[data-gem="amethyst"]  { --gem: 155, 110, 242; }
+[data-gem="ruby"]      { --gem: 224, 85, 112; }
+[data-gem="gold"]      { --gem: 204, 159, 68; }
+
+/* ── Dark mode base (default) ───────────────────────────────── */
+:root {
+  --bg:            #080809;
+  --surface:       #0d0e10;
+  --elevated:      #141618;
+  --overlay:       #1b1e23;
+  --border:        rgba(255, 255, 255, 0.055);
+  --border-md:     rgba(255, 255, 255, 0.10);
+  --text:          #eeeef2;
+  --text-2:        #848896;
+  --text-3:        #4e5060;
+  --accent:        rgb(var(--gem));
+  --accent-soft:   rgba(var(--gem), 0.11);
+  --accent-border: rgba(var(--gem), 0.28);
+  --accent-glow:   rgba(var(--gem), 0.18);
+}
+
+/* ── Light mode ─────────────────────────────────────────────── */
+[data-mode="light"] {
+  --bg:            #f5f5f7;
+  --surface:       #ffffff;
+  --elevated:      #ebebed;
+  --overlay:       #e2e2e5;
+  --border:        rgba(0, 0, 0, 0.07);
+  --border-md:     rgba(0, 0, 0, 0.13);
+  --text:          #111114;
+  --text-2:        #58596a;
+  --text-3:        #9899aa;
+  --accent-soft:   rgba(var(--gem), 0.09);
+  --accent-border: rgba(var(--gem), 0.22);
+  --accent-glow:   rgba(var(--gem), 0.12);
+}
+
+/* ── Global reset ───────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover, *:focus-within {
+  scrollbar-color: rgba(255, 255, 255, 0.07) transparent;
+}
+[data-mode="light"] *:hover,
+[data-mode="light"] *:focus-within {
+  scrollbar-color: rgba(0, 0, 0, 0.08) transparent;
+}
+
+/* ── Selection ──────────────────────────────────────────────── */
+::selection {
+  background: rgba(var(--gem), 0.28);
+  color: var(--text);
+}
+
+/* ── Transitions ────────────────────────────────────────────── */
+a, button {
+  transition: color 120ms ease, background 120ms ease, opacity 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+/* ── Typography helpers ─────────────────────────────────────── */
+.serif        { font-family: var(--font-serif); }
+.mono         { font-family: var(--font-mono); }
+.gem-text     { color: var(--accent); }
+.gem-bg       { background: var(--accent); }
+.gem-glow     { box-shadow: 0 0 0 1px var(--accent-border), 0 4px 24px var(--accent-glow); }
+
+/* ── Input / Textarea base ──────────────────────────────────── */
+input, textarea, select {
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-sans);
+  outline: none;
+}
+input::placeholder, textarea::placeholder {
+  color: var(--text-3);
+}
+
+/* ── Layout helpers ─────────────────────────────────────────── */
+.hide-scrollbar { scrollbar-width: none; }
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ── Prose ──────────────────────────────────────────────────── */
+.prose {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  line-height: 1.8;
+  color: var(--text);
+}
+.prose p + p { margin-top: 1.4em; }
+
+/* ── Glass surface ──────────────────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+}
+[data-mode="light"] .glass {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* ── Cinematic cover gradient ───────────────────────────────── */
+.cover-gradient {
+  background: linear-gradient(
+    to bottom,
+    transparent 30%,
+    rgba(8, 8, 9, 0.5) 65%,
+    var(--bg) 100%
+  );
+}
+[data-mode="light"] .cover-gradient {
+  background: linear-gradient(
+    to bottom,
+    transparent 30%,
+    rgba(245, 245, 247, 0.5) 65%,
+    var(--bg) 100%
+  );
+}

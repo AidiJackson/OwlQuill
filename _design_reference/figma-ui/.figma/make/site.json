@@ -1,0 +1,10 @@
+{
+  "description": "Experience a premium storytelling platform where fictional characters thrive as social identities, fostering emotional connections through immersive narratives.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -1,0 +1,131 @@
+.......................................................F................ [ 85%]
+............                                                             [100%]
+=================================== FAILURES ===================================
+_________________ test_invalid_character_ownership_returns_403 _________________
+tests/test_story_spaces.py:665: in test_invalid_character_ownership_returns_403
+    char = _create_character(client, owner, name="OwnerChar")
+tests/test_story_spaces.py:508: in _create_character
+    assert resp.status_code == 201, f"Character creation failed: {resp.text}"
+E   AssertionError: Character creation failed: {"detail":"Only 1 character per account. Delete your existing character first."}
+E   assert 403 == 201
+E    +  where 403 = <Response [403 Forbidden]>.status_code
+---------------------------- Captured stdout setup -----------------------------
+TEMP DIAG host=? db=? counts_error=OperationalError
+------------------------------ Captured log setup ------------------------------
+ERROR    app.core.admin_seed:admin_seed.py:35 ensure_identity_schema failed: users
+ERROR    app.core.admin_seed:admin_seed.py:115 Failed to ensure admin user: (sqlite3.OperationalError) no such table: users
+[SQL: SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.display_name AS users_display_name, users.bio AS users_bio, users.avatar_url AS users_avatar_url, users.cover_url AS users_cover_url, users.next_character_allowed_at AS users_next_character_allowed_at, users.active_character_id AS users_active_character_id, users.is_admin AS users_is_admin, users.is_seeder AS users_is_seeder, users.is_banned AS users_is_banned, users.banned_at AS users_banned_at, users.ban_reason AS users_ban_reason, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.email = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('admin@owlquill.app', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+ERROR    app.core.admin_seed:admin_seed.py:63 Failed to ensure seeder flags: (sqlite3.OperationalError) no such table: users
+[SQL: SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.display_name AS users_display_name, users.bio AS users_bio, users.avatar_url AS users_avatar_url, users.cover_url AS users_cover_url, users.next_character_allowed_at AS users_next_character_allowed_at, users.active_character_id AS users_active_character_id, users.is_admin AS users_is_admin, users.is_seeder AS users_is_seeder, users.is_banned AS users_is_banned, users.banned_at AS users_banned_at, users.ban_reason AS users_ban_reason, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.email IN (?)]
+[parameters: ('laurenrose-thorpe@hotmail.co.uk',)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+ERROR    app.core.admin_seed:admin_seed.py:162 Failed to ensure Commons realm: (sqlite3.OperationalError) no such table: realms
+[SQL: SELECT realms.id AS realms_id, realms.owner_id AS realms_owner_id, realms.name AS realms_name, realms.slug AS realms_slug, realms.tagline AS realms_tagline, realms.description AS realms_description, realms.genre AS realms_genre, realms.banner_url AS realms_banner_url, realms.is_public AS realms_is_public, realms.is_commons AS realms_is_commons, realms.created_at AS realms_created_at, realms.updated_at AS realms_updated_at 
+FROM realms 
+WHERE realms.is_commons = 1
+ LIMIT ? OFFSET ?]
+[parameters: (1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+ERROR    app.core.starter_seed:starter_seed.py:289 Starter seed failed: (sqlite3.OperationalError) no such table: users
+[SQL: SELECT users.id AS users_id, users.email AS users_email, users.username AS users_username, users.hashed_password AS users_hashed_password, users.display_name AS users_display_name, users.bio AS users_bio, users.avatar_url AS users_avatar_url, users.cover_url AS users_cover_url, users.next_character_allowed_at AS users_next_character_allowed_at, users.active_character_id AS users_active_character_id, users.is_admin AS users_is_admin, users.is_seeder AS users_is_seeder, users.is_banned AS users_is_banned, users.banned_at AS users_banned_at, users.ban_reason AS users_ban_reason, users.created_at AS users_created_at, users.updated_at AS users_updated_at 
+FROM users 
+WHERE users.email = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('admin@owlquill.app', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+ERROR    app.core.invite_seed:invite_seed.py:69 invite_seed: failed to seed invite codes
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 922, in do_execute
+    cursor.execute(statement, parameters)
+sqlite3.OperationalError: no such table: invite_codes
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/runner/workspace/backend/app/core/invite_seed.py", line 48, in seed_invite_codes
+    existing = db.query(InviteCode).filter(InviteCode.code == code_str).first()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2748, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2847, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2308, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2190, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 293, in orm_execute_statement
+    result = conn.execute(
+             ^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1416, in execute
+    return meth(
+           ^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 517, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1639, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1848, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1988, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2344, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 922, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such table: invite_codes
+[SQL: SELECT invite_codes.id AS invite_codes_id, invite_codes.code AS invite_codes_code, invite_codes.is_enabled AS invite_codes_is_enabled, invite_codes.max_uses AS invite_codes_max_uses, invite_codes.use_count AS invite_codes_use_count, invite_codes.note AS invite_codes_note, invite_codes.created_at AS invite_codes_created_at 
+FROM invite_codes 
+WHERE invite_codes.code = ?
+ LIMIT ? OFFSET ?]
+[parameters: ('FICBETA-LAUNCH', 1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING  app.core.style_shop_seed:style_shop_seed.py:256 STYLE-SHOPS-DIAG seed_skipped reason=table_missing error='(sqlite3.OperationalError) no such table: style_presets\n[SQL: SELECT style_presets.slug AS style_presets_slug \nFROM style_presets]\n(Background on this error at: https://sqlalche.me/e/20/e3q8)'
+=============================== warnings summary ===============================
+../.pythonlibs/lib/python3.11/site-packages/passlib/utils/__init__.py:854
+  /home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+../.pythonlibs/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151
+  /home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151: UserWarning: Field "model_profile" has conflict with protected namespace "model_".
+  
+  You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+    warnings.warn(
+
+../.pythonlibs/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151
+  /home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pydantic/_internal/_fields.py:151: UserWarning: Field "model_used" has conflict with protected namespace "model_".
+  
+  You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+    warnings.warn(
+
+tests/test_rp_stories.py::test_create_rp_story_with_starter
+  /home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/passlib/handlers/argon2.py:716: DeprecationWarning: Accessing argon2.__version__ is deprecated and will be removed in a future release. Use importlib.metadata directly to query for argon2-cffi's packaging metadata.
+    _argon2_cffi.__version__, max_version)
+
+tests/test_rp_stories.py: 17 warnings
+tests/test_story_spaces.py: 55 warnings
+tests/test_storylab_security.py: 12 warnings
+  /home/runner/workspace/backend/tests/conftest.py:134: SAWarning: Can't sort tables for DROP; an unresolvable foreign key dependency exists between tables: characters, users; and backend does not support ALTER.  To restore at least a partial sort, apply use_alter=True to ForeignKey and ForeignKeyConstraint objects involved in the cycle to mark these as known cycles that will be ignored.
+    Base.metadata.drop_all(bind=engine)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_story_spaces.py::test_invalid_character_ownership_returns_403
+1 failed, 83 passed, 88 warnings in 182.29s (0:03:02)
+PYTEST_EXIT_CODE=1
