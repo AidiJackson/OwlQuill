@@ -222,6 +222,13 @@ build/
 package-lock.json
 yarn.lock
 
+# Exception: the frontend lockfile MUST be tracked. The [deployment] build step
+# in .replit runs `cd frontend && npm ci`, and `npm ci` fails outright without a
+# lockfile. Leaving it untracked made the deploy depend on whatever happened to
+# be sitting in the Replit workspace rather than on what is committed. Scoped to
+# this one path on purpose — the root and backend lockfiles stay ignored.
+!frontend/package-lock.json
+
 # Claude local settings (machine-specific)
 .claude/settings.local.json
 
