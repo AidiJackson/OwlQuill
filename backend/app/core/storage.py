@@ -1,7 +1,7 @@
-"""Image storage — save PNG bytes to R2 or local disk.
+"""Image storage — save image bytes to R2 or local disk.
 
 Returns a full https:// URL when settings.USE_OBJECT_STORAGE is True (R2),
-or a relative ``static/generated/<uuid>.png`` path otherwise.
+or a relative ``static/generated/<uuid>.<ext>`` path otherwise.
 """
 import os
 import uuid
@@ -9,21 +9,55 @@ from pathlib import Path
 
 _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent / "static" / "generated"
 
+# Magic-byte signatures, checked in order. Providers do not all return PNG —
+# Gemini image models (gemini-3.1-flash-image and friends) answer with
+# ``inlineData.mimeType = image/jpeg`` — so the extension and Content-Type are
+# derived from the bytes themselves rather than assumed. Sniffing here instead
+# of threading a mime argument through the ~33 call sites keeps every caller
+# correct without touching any of them.
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_JPEG_SIGNATURE = b"\xff\xd8\xff"
+_GIF_SIGNATURES = (b"GIF87a", b"GIF89a")
 
-def save_image(png_bytes: bytes) -> str:
-    """Persist PNG bytes and return a storable file_path string.
+
+def detect_image_format(data: bytes) -> tuple[str, str]:
+    """Return ``(extension, content_type)`` for image bytes.
+
+    Unrecognised bytes fall back to PNG, preserving the behaviour every caller
+    relied on before formats were sniffed — an unknown blob is stored exactly as
+    it always was rather than being rejected.
+    """
+    if data.startswith(_PNG_SIGNATURE):
+        return "png", "image/png"
+    if data.startswith(_JPEG_SIGNATURE):
+        return "jpg", "image/jpeg"
+    if data.startswith(_GIF_SIGNATURES):
+        return "gif", "image/gif"
+    # WEBP is "RIFF" + 4 size bytes + "WEBP".
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp", "image/webp"
+    return "png", "image/png"
+
+
+def save_image(image_bytes: bytes) -> str:
+    """Persist image bytes and return a storable file_path string.
+
+    The stored extension and Content-Type follow the actual format of
+    ``image_bytes`` (see :func:`detect_image_format`); bytes are never
+    transcoded.
 
     R2 mode (USE_OBJECT_STORAGE=true in .env):
-        Uploads to Cloudflare R2 under generated/<uuid>.png.
+        Uploads to Cloudflare R2 under generated/<uuid>.<ext>.
         Returns the full public https:// URL.
 
     Local mode (default):
-        Writes to static/generated/<uuid>.png on disk.
-        Returns the relative path, e.g. ``static/generated/<uuid>.png``.
+        Writes to static/generated/<uuid>.<ext> on disk.
+        Returns the relative path, e.g. ``static/generated/<uuid>.jpg``.
     """
     from app.core.config import settings  # lazy to avoid circular at module load
 
-    filename = f"{uuid.uuid4().hex}.png"
+    extension, content_type = detect_image_format(image_bytes)
+    filename = f"{uuid.uuid4().hex}.{extension}"
 
     if settings.USE_OBJECT_STORAGE:
         import boto3  # lazy import — only needed in R2 mode
@@ -38,13 +72,13 @@ def save_image(png_bytes: bytes) -> str:
         s3.put_object(
             Bucket=os.environ["R2_BUCKET_NAME"],
             Key=key,
-            Body=png_bytes,
-            ContentType="image/png",
+            Body=image_bytes,
+            ContentType=content_type,
         )
         return f"{os.environ['R2_PUBLIC_URL'].rstrip('/')}/{key}"
 
     _GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    (_GENERATED_DIR / filename).write_bytes(png_bytes)
+    (_GENERATED_DIR / filename).write_bytes(image_bytes)
     return f"static/generated/{filename}"
 
 

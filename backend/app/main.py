@@ -1,10 +1,11 @@
 """Ficshon FastAPI application."""
 import logging
 import os
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -127,6 +128,49 @@ app = FastAPI(
 # a `detail` the UI can display and a Retry-After header (see auth module).
 app.state.limiter = auth.limiter
 app.add_exception_handler(RateLimitExceeded, auth.rate_limit_exceeded_handler)
+
+
+PUBLIC_ERROR_MESSAGE = "Something went wrong on our end. Please try again."
+
+
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Return JSON — never plain text — for exceptions no route handled.
+
+    Without this, Starlette answers an unhandled exception with a plain-text
+    ``Internal Server Error`` body. Every frontend client parses error bodies as
+    JSON, so that body fails to parse and the real fault is flattened into a
+    generic "Something went wrong" with no way to tell a storage failure from a
+    timeout. That is exactly what stalled the Canon image-generation incident.
+
+    The public payload stays deliberately generic: no exception type, message,
+    or traceback, since those can carry file paths, connection strings, and
+    provider detail. The correlation id is the bridge — it is returned to the
+    caller and logged alongside the full traceback, so a user-reported id can be
+    matched to its server-side stack without exposing anything.
+    """
+    request_id = uuid.uuid4().hex[:12]
+    # logger.exception attaches the traceback; keep every detail server-side.
+    logger.exception(
+        "UNHANDLED_EXCEPTION request_id=%s method=%s path=%s exc_type=%s",
+        request_id,
+        request.method,
+        request.url.path,
+        type(exc).__name__,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": PUBLIC_ERROR_MESSAGE, "request_id": request_id},
+        headers={"X-Request-ID": request_id},
+    )
+
+
+# Registered for bare Exception, so FastAPI's own HTTPException and validation
+# handlers still own their responses; only genuinely unhandled faults land here.
+#
+# Note: Starlette's ServerErrorMiddleware prefers its HTML debug page when
+# app.debug is True, so this handler is what production (DEBUG=False) returns
+# while local dev keeps the interactive traceback.
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 # Configure CORS - uses parsed origins from settings
 app.add_middleware(

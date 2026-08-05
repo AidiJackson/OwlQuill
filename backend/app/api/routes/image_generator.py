@@ -550,9 +550,33 @@ def generate_image(
             character_id=character_id,
         )
 
+    # Storage checkpoints. save_image() is the last unguarded step before the DB
+    # write, and a failure there is indistinguishable from a provider failure in
+    # the logs unless the boundary is marked on both sides — a START with no OK
+    # localises the fault to storage without needing a traceback.
+    #
+    # BYTES_RECEIVED fires only when a provider actually returned bytes, so it
+    # stays truthful. STORAGE_START/STORAGE_OK bracket BOTH branches: the
+    # placeholder path writes a file too, and it is the path production takes
+    # whenever no provider resolves — leaving it uninstrumented would blind
+    # exactly the case where a provider is misconfigured in one environment only.
+    #
+    # Byte counts, ids and paths only — never prompt text or credentials.
     if png_bytes is not None:
+        logger.info(
+            "IMAGE_GEN_BYTES_RECEIVED character_id=%s provider=%s bytes=%d",
+            character_id, actual_provider_name, len(png_bytes),
+        )
+        logger.info(
+            "IMAGE_GEN_STORAGE_START character_id=%s source=provider_bytes bytes=%d object_storage=%s",
+            character_id, len(png_bytes), settings.USE_OBJECT_STORAGE,
+        )
         file_path = save_image(png_bytes)
     else:
+        logger.info(
+            "IMAGE_GEN_STORAGE_START character_id=%s source=placeholder bytes=0 object_storage=%s",
+            character_id, settings.USE_OBJECT_STORAGE,
+        )
         file_path = generate_placeholder_png(
             label=character.name,
             sublabel=body.prompt[:80],
@@ -560,6 +584,11 @@ def generate_image(
         )
         actual_provider_name = "stub"
         logger.info("IMAGE_GEN_STUB character_id=%s", character_id)
+
+    logger.info(
+        "IMAGE_GEN_STORAGE_OK character_id=%s file_path=%s",
+        character_id, file_path,
+    )
 
     # ── Cover composition retry (character-inclusive covers only) ──
     # One deterministic retry with an escalated cover prompt, still sourced
@@ -661,9 +690,18 @@ def generate_image(
         metadata_json=metadata,
         file_path=file_path,
     )
+    # DB checkpoints bracket the commit for the same reason as storage: a
+    # START without an OK isolates a persistence fault (connection drop, pool
+    # exhaustion, constraint) from everything upstream that already succeeded.
+    logger.info(
+        "IMAGE_GEN_DB_WRITE_START character_id=%s file_path=%s", character_id, file_path
+    )
     db.add(img)
     db.commit()
     db.refresh(img)
+    logger.info(
+        "IMAGE_GEN_DB_WRITE_OK character_id=%s image_id=%s", character_id, img.id
+    )
 
     logger.info(
         "image_generator_result image_id=%s character_id=%s provider=%s "
