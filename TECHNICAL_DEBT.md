@@ -32,10 +32,29 @@ then calls `.get` on it. The handler itself raised
 `ModuleNotFoundError` at all six reference loads. Diagnostics outranked the error
 they described.
 
-Both are fixed on branch and pending production verification: boto3 is pinned in
-requirements, the error handler extracts defensively and logs `exc_type`, and a
-canon generation whose references *all* fail now returns a safe 503 instead of
-silently producing an identity-weak image.
+**Fixed in commit `4e956f9`, pending production verification:**
+
+- `boto3==1.42.96` explicitly declared in `backend/requirements.txt` (botocore,
+  jmespath and s3transfer arrive transitively and are not imported directly, so
+  they are deliberately unpinned).
+- `_load_from_r2`'s error handler extracts the S3 code defensively and logs
+  `exc_type`, so a non-`ClientError` can never mask the real fault again.
+- Reference loading emits `IMAGE_GEN_REF_LOAD_START` / `_OK` / `_FAILED` /
+  `_SUMMARY` with requested and loaded counts, with query strings stripped so a
+  signed URL cannot leak its credential.
+- A canon generation whose references *all* fail now returns a safe **503**
+  ("Character reference images could not be loaded. Please try again.") before
+  any provider call, instead of silently generating an identity-ungrounded image.
+  Partial loads still proceed.
+
+Verified from a clean deployment-style install (`pip install --target`, with dev
+`.pythonlibs` excluded from `sys.path`): boto3 resolves, `app.core.storage`,
+`app.api.routes.image_generator` and `app.main` all import, and `_r2_client()`
+reaches boto3 and fails only on the absent env var. 150 focused backend tests,
+148 frontend tests, `tsc --noEmit` and the production build were all green at
+commit time.
+
+Closing this item requires one production generation on the republished build.
 
 **Superseded hypotheses**, recorded so they are not re-investigated: Google model
 ID/availability, credentials, response parsing, SPA fallback masking, route
@@ -44,35 +63,55 @@ claim that production used local filesystem storage. That last one was wrong —
 it came from reading the *workspace* shell environment and `start-prod.sh`, which
 do not carry Replit deployment secrets.
 
-### Lesson for the next environment-specific incident
-
-The original symptom was the bare string `Something went wrong`, produced only by
-`frontend/src/features/characterCreation/shared/api.ts:36` when a non-2xx
-response body fails to parse as JSON. That correctly narrowed the fault to "an
-unhandled exception or a gateway error", but the investigation then stalled for
-several rounds on a wrong premise.
-
-**The wrong premise:** production storage mode was read from the *workspace*
-shell environment and `start-prod.sh`, both of which showed `USE_OBJECT_STORAGE`
-unset, and the conclusion drawn was that production used local filesystem
-storage. It does not — it runs with object storage enabled. Replit **deployment**
-secrets are configured separately from the workspace and are not visible to a
-shell in the workspace, so no amount of local inspection could have shown the
-real value.
-
-**What to do instead:** never infer a deployment's configuration from the
-workspace. Read it from the deployment itself, or make the running app report it
-(a redacted diagnostics endpoint), or prove it from a production traceback as
-happened here. Treat "dev works, production doesn't" as a signal to compare
-*installed dependencies and deployment config*, not application logic.
-
 ### 1.9 GB of generated images ship in every deployment image
 
-`backend/static/generated/` holds 34,387 PNGs totalling 1.9 GB. `.gitignore`
-excludes it, but **`.replitignore` does not**, so the whole directory is packaged
+`backend/static/generated/` holds **34,387 files totalling 1.9 GB**. `.gitignore`
+excludes it (line 236) so **0 of those files are git-tracked**, but
+**`.replitignore` has no matching rule**, so Replit packages the whole directory
 into every deployment. It inflates build and deploy time and bloats the runtime
 image. Runtime writes land in the same directory, which on the Cloud Run target
 is ephemeral — anything written there is also lost on restart.
+
+**Cannot be excluded yet — a dependency check is outstanding.** Production runs
+with `USE_OBJECT_STORAGE=true`, so newly generated images go to R2, but any
+*legacy* row whose `file_path` is a relative `static/generated/...` path is still
+read from local disk by `load_image_bytes` and served from the deployed folder.
+Excluding the directory would break exactly those rows.
+
+A read-only audit of the **dev** database (`helium/heliumdb`) found:
+
+    character_images total     1323
+      https / R2 paths         1303
+      local static/generated     20
+
+so even in dev, 20 rows still resolve locally. **The production Neon database has
+not been audited** — its credentials are not available in the workspace, and the
+workspace `DATABASE_URL` points at the dev Postgres, not Neon.
+
+Required before any `.replitignore` change:
+1. Run the same read-only count against production Neon.
+2. If any local-path rows exist, copy those objects to R2 and update the rows
+   (idempotent, verify-before-update, retain originals).
+3. Only then add the exclusion, and re-measure the bundle.
+
+### Historical images: JPEG bytes stored under .png
+
+Distinct from the MIME fix below, which only corrects *new* writes. A read-only
+magic-byte scan of all 34,387 local objects found:
+
+    png bytes, .png name     34034   (99.0%)  correct
+    jpeg bytes, .png name      353   ( 1.0%)  MISMATCH
+    unreadable                   0
+
+All 1,323 dev `character_images` rows carry a `.png` extension, consistent with
+the pre-fix behaviour of always naming files `.png`.
+
+**R2 objects have not been audited** — that needs controlled downloads against
+production and has deliberately not been run. Browsers content-sniff, so these
+render; the risk is to anything that trusts the extension or the stored
+`Content-Type`. No repair tool has been written yet; when it is, it must be
+dry-run by default, copy-and-verify before updating any row, and never delete
+originals in the first pass.
 
 ## P1 – Closed beta
 
@@ -135,23 +174,57 @@ replace it is paused at the investigation stage. Confirmed findings:
   actively routes users through a paste into the Home composer.
 - Editor Studio is image-only and out of scope for text provenance.
 
-The data-model decision (inline columns via mixin vs. a central polymorphic
-table) is open and deliberately unanswered.
-
-### Alembic has nine heads
-
-`alembic upgrade head` — the command documented in `DEV_SETUP.md:30`,
-`replit.md:87` and `README.md:106` — fails with "Multiple head revisions are
-present". Migrations are run manually; nothing runs them at startup. This must
-be resolved deliberately before any new migration is added, including the
-provenance migration above.
+This remains a **separate open product/engineering sprint**. No architecture has
+been selected — the data-model decision (inline columns via a shared mixin vs. a
+central polymorphic table) is open and deliberately unanswered — and **no
+migration has been created**. Nothing about it blocks, or is blocked by, the
+image-generation work.
 
 ## P2 – Future improvements
 
 ### Founder-quality Gemini Pro image option
 
-`gemini-3-pro-image` is confirmed available on the configured key (stable, not
-preview) and supports `generateContent`. Worth exposing as a founder/admin
-quality tier alongside Canon · Recommended, with `gemini-2.5-flash-image` as an
-economical fallback. Purely additive — the current pinned
-`gemini-3.1-flash-image` default is correct and carries no deprecation debt.
+**An optional enhancement, not a defect.** `gemini-3-pro-image` is confirmed
+available on the configured key (stable, not preview) and supports
+`generateContent`. Worth exposing as a founder/admin quality tier alongside
+Canon · Recommended, with `gemini-2.5-flash-image` as an economical fallback.
+Purely additive — the current pinned `gemini-3.1-flash-image` default is correct
+and carries no deprecation debt.
+
+## Withdrawn findings
+
+Claims previously recorded here that turned out to be false. Kept so they are not
+rediscovered and re-investigated, and for the engineering lesson they share.
+
+### "Alembic has nine heads" — false
+
+There is exactly **one** head, `tw02_writer_waitlist`. `alembic heads` reports
+one, `alembic branches` shows every branchpoint reconverging at a mergepoint, and
+the dev database is already at it. `alembic upgrade head` works as documented in
+`DEV_SETUP.md`, `replit.md` and `README.md`. **There is no multiple-head defect
+and no merge revision is required.**
+
+The figure came from a hand-rolled regex that read `down_revision` as a single
+quoted string, silently missing the three merge revisions that use a **tuple**
+(`4643bfb95d96`, `08567e37d16e`, `bc03_body_identity_v2`). Every revision named
+inside those tuples looked unreferenced — 8 phantoms plus the 1 real head gave
+the reported 9.
+
+### "Production uses local filesystem storage" — false
+
+Production runs with `USE_OBJECT_STORAGE=true`, proven by the production
+traceback. The claim came from reading the workspace shell and `start-prod.sh`;
+Replit **deployment** secrets are separate and invisible to a workspace shell.
+
+### The shared lesson
+
+Both were inferences stated with more confidence than their evidence carried, and
+each cost multiple investigation rounds.
+
+- **Never hand-parse a tool's own data model.** `alembic heads` was always
+  available and authoritative.
+- **Never infer a deployment's configuration from the workspace.** Read it from
+  the deployment, have the running app report it, or prove it from a production
+  traceback.
+- Treat "dev works, production doesn't" as a signal to compare **installed
+  dependencies and deployment configuration**, not application logic.
