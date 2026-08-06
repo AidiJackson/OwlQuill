@@ -8,7 +8,7 @@ from app.core.database import SessionLocal
 from app.models.user import User
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
 from app.models.post import Post as PostModel, ContentTypeEnum
-from app.services.provenance import undecided
+from app.services.provenance import not_composed_here
 
 logger = logging.getLogger(__name__)
 
@@ -276,10 +276,10 @@ def ensure_starter_realms_and_posts() -> None:
                     content_type=post_def["content_type"],
                     post_kind=post_def["post_kind"],
                 )
-                # Editorial seed content, not a user's writing. It used to take
-                # the model default and render "User Written" — the badge was
-                # being applied to posts nobody wrote in the product at all.
-                post.apply_provenance(undecided())
+                # Editorial seed content, not a user's writing. It used to
+                # take the model default and render "User Written" — the badge
+                # was being applied to posts nobody wrote in the product.
+                post.apply_provenance(not_composed_here("starter_seed"))
                 db.add(post)
                 logger.info(
                     "Starter seed: created post '%s' in '%s'",

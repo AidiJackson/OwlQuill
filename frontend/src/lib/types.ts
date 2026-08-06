@@ -228,11 +228,19 @@ export interface PostMention {
 /** How a piece of text came to exist, decided server-side from evidence.
  *  The client can neither set nor influence it.
  *
- *  Deliberately a widened string union: the server may introduce a state (an
- *  `external` / `imported` verdict is planned) without a coordinated client
- *  release. Anything unrecognised renders as no badge, which is the safe
- *  failure — an unlabelled post, never a wrong label. */
-export type Provenance = 'user_written' | 'ai_assisted' | 'unknown' | (string & {});
+ *  Three states are user-facing: written here, assisted by our AI, or written
+ *  elsewhere. `unknown` is legacy only — rows that predate the system, shown as
+ *  "Written elsewhere" like anything else Ficshon did not watch being written.
+ *
+ *  Deliberately a widened string union so the server can introduce a state
+ *  without a coordinated client release. Anything unrecognised renders as no
+ *  badge, which is the safe failure — an unlabelled post, never a wrong one. */
+export type Provenance =
+  | 'user_written'
+  | 'ai_assisted'
+  | 'external'
+  | 'unknown'
+  | (string & {});
 
 export interface Post {
   id: number;

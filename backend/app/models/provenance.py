@@ -28,26 +28,40 @@ from sqlalchemy.types import JSON
 class Provenance(str, enum.Enum):
     """How a piece of user-visible text came to exist.
 
-    ``EXTERNAL`` is declared but **never emitted by rule version 1**. It is the
-    reserved landing place for text pasted in from outside Ficshon, which today
-    resolves to ``UNKNOWN`` while carrying ``basis: "external_insertion"`` in its
-    evidence. Promoting it is a one-constant change in the service plus a badge
-    entry in the client — see ``app.services.provenance.EXTERNAL_VERDICT``.
+    Three states are user-facing, and the product philosophy behind them is that
+    Ficshon states what it *knows* rather than guessing what it does not:
+
+    * ``USER_WRITTEN`` — Ficshon observed the text being composed here.
+    * ``AI_ASSISTED``  — Ficshon's own AI tools produced or substantially
+      assisted it.
+    * ``EXTERNAL``     — everything else. "Written elsewhere" is a statement
+      about where composition happened, **not** a claim that the text is
+      AI-written. Notepad, Word, Docs, Discord, an old RP site and an outside
+      AI all land here alike, because Ficshon cannot tell them apart and does
+      not pretend to.
+
+    ``UNKNOWN`` is **legacy only**. It is what rows created before the
+    provenance system carry, and the rules no longer emit it. It is retained so
+    those rows stay identifiable as never-evaluated (``rule_version = 0``); the
+    client displays them as "Written elsewhere" like any other content Ficshon
+    did not observe being written here.
     """
 
     USER_WRITTEN = "user_written"
     AI_ASSISTED = "ai_assisted"
-    UNKNOWN = "unknown"
     EXTERNAL = "external"
+    #: Legacy — pre-provenance rows. Never emitted by the rules.
+    UNKNOWN = "unknown"
 
 
 #: The states the decision rules always produce, whatever the external verdict
 #: is configured to be. ``app.services.provenance`` adds ``EXTERNAL_VERDICT`` to
-#: this to form its own guard, so promoting the external state stays a
-#: one-constant change rather than tripping an assertion.
-BASE_VERDICTS = frozenset(
-    {Provenance.USER_WRITTEN, Provenance.AI_ASSISTED, Provenance.UNKNOWN}
-)
+#: this to form its own guard, so changing where "not written here" lands stays
+#: a one-constant change rather than tripping an assertion.
+#:
+#: ``UNKNOWN`` is deliberately absent: a decision that cannot prove anything now
+#: resolves to EXTERNAL, so nothing the rules produce is ever unbadged.
+BASE_VERDICTS = frozenset({Provenance.USER_WRITTEN, Provenance.AI_ASSISTED})
 
 
 class ProvenanceMixin:

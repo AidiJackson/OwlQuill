@@ -20,6 +20,18 @@ The honest limit: no browser scheme proves a human typed something, and this one
 does not claim to. What it does guarantee is that assistance from *Ficshon's own
 tools* is labelled regardless of client behaviour, and that "Written in Ficshon"
 is backed by a session the server issued rather than applied by default.
+
+Three outcomes, and only three
+------------------------------
+State what we know; do not guess what we do not. A piece of text either was
+observed being composed here, or was produced by our own AI, or was not composed
+here — and the third case is a single state on purpose. Ficshon cannot tell a
+Notepad paste from a Word paste from an outside AI, so it does not try, and
+"Written elsewhere" makes no claim about which it was.
+
+There is consequently no "we have no idea" outcome. Anything that fails to earn
+USER_WRITTEN and carries no AI evidence is EXTERNAL, because "we did not observe
+you writing this here" is itself something we know.
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -35,16 +47,22 @@ from app.services import text_fingerprint
 
 #: Bumped whenever the rules below change meaning. Stamped on every decided row
 #: so a later pass can find exactly what a given rule produced and re-evaluate.
-RULE_VERSION = 1
-
-#: Where externally-pasted text lands today.
 #:
-#: Rule v1 routes it to UNKNOWN while recording ``basis: "external_insertion"``
-#: in the evidence, so the rows are identifiable. Enabling a distinct public
-#: state is this constant plus a client badge entry plus a ``RULE_VERSION`` bump
-#: — and a re-decide pass over rows carrying that basis. **No migration**, which
-#: is why ``provenance`` is a wide String rather than a database enum.
-EXTERNAL_VERDICT = Provenance.UNKNOWN
+#: v2 — "Written elsewhere" became a real state. Every outcome that previously
+#: resolved to UNKNOWN (no session, unusable metrics, no observed typing, mostly
+#: pasted) now resolves to EXTERNAL, so a decided row is never unbadged.
+RULE_VERSION = 2
+
+#: Where content Ficshon did not observe being written here lands.
+#:
+#: This is a positive, honest statement — "not composed in Ficshon" — and
+#: explicitly **not** a claim about AI. Text from Notepad, Word, Docs, Discord,
+#: an old RP site or an outside AI are indistinguishable to us, so they share
+#: one state rather than being guessed apart.
+#:
+#: Still a single constant: the schema is a wide String, not a database enum, so
+#: moving where this lands remains a code change with no migration.
+EXTERNAL_VERDICT = Provenance.EXTERNAL
 
 #: Share of the final text that may arrive by external paste and still count as
 #: written here. Non-zero because quoting a line of someone's post, or fixing a
@@ -191,9 +209,15 @@ def _typing_evidence(
 ) -> dict[str, Any]:
     """Score a session's counters against the content the server received.
 
-    Returns an evidence dict whose ``basis`` is one of ``composition_session``
-    (corroborated), ``inconsistent_metrics`` (the claim contradicts the content)
-    or ``external_insertion`` (mostly pasted from outside).
+    Exactly one ``basis`` earns USER_WRITTEN — ``composition_session``. Every
+    other outcome means Ficshon did not observe the text being written here, so
+    it resolves to EXTERNAL. The distinct bases are kept for diagnostics and for
+    future rule versions, not because they lead anywhere different today:
+
+    * ``composition_session``  — corroborated typing. The only one that earns it.
+    * ``inconsistent_metrics`` — the client's claim contradicts the content.
+    * ``no_typing_evidence``   — a session exists but nothing was typed into it.
+    * ``external_insertion``   — mostly arrived by paste or drop.
     """
     metrics = session.metrics_json or {}
     typed = int(metrics.get("typed_chars", 0) or 0)
@@ -290,24 +314,25 @@ def decide_provenance(
             return _decision(Provenance.AI_ASSISTED, match, session)
 
     if session is None:
-        # No session: historical clients, direct API use, seeds, backfills.
-        # Asserting nothing is the correct answer, and the reason the badge is
-        # no longer applied by default.
-        return _decision(Provenance.UNKNOWN, {"basis": "no_session"})
+        # No session: older clients, direct API use, seeds, imports. Ficshon did
+        # not watch this being written, which is itself a fact worth stating.
+        return _decision(EXTERNAL_VERDICT, {"basis": "no_session"})
 
     evidence = _typing_evidence(db, session, content)
     basis = evidence["basis"]
     if basis == "composition_session":
         return _decision(Provenance.USER_WRITTEN, evidence, session)
-    if basis == "external_insertion":
-        return _decision(EXTERNAL_VERDICT, evidence, session)
-    return _decision(Provenance.UNKNOWN, evidence, session)
+    # Everything else — pasted in, unusable metrics, nothing typed — is content
+    # Ficshon did not observe being written here. One state, no guessing at
+    # which kind of elsewhere it came from.
+    return _decision(EXTERNAL_VERDICT, evidence, session)
 
 
 # ── derived content ───────────────────────────────────────────────────────────
 
-#: Worst case wins. A story with one AI-assisted segment is AI-assisted; it is
-#: only written-here if every part of it is.
+#: Weakest claim wins. A story with one AI-assisted segment is AI-assisted; it
+#: is only written-here if every part of it is. Legacy UNKNOWN segments sit with
+#: EXTERNAL because they make the same public statement.
 _ROLLUP_PRECEDENCE = (
     Provenance.AI_ASSISTED,
     Provenance.EXTERNAL,
@@ -320,13 +345,13 @@ def inherit(source_provenance: str) -> ProvenanceDecision:
     """Provenance for a row copied verbatim from another — publish, snapshots.
 
     Carried across rather than recomputed: the copy has no composition session
-    of its own, and recomputing would silently downgrade every published story
-    to UNKNOWN. This is the hole that ``publish_story`` had.
+    of its own, and recomputing would downgrade every published story to
+    EXTERNAL. This is the hole that ``publish_story`` had.
     """
     try:
         verdict = Provenance(source_provenance)
     except ValueError:
-        verdict = Provenance.UNKNOWN
+        verdict = EXTERNAL_VERDICT
     return ProvenanceDecision(
         verdict=verdict,
         evidence={"basis": "inherited"},
@@ -341,11 +366,11 @@ def rollup(values: Iterable[str]) -> ProvenanceDecision:
         try:
             present.add(Provenance(v))
         except ValueError:
-            present.add(Provenance.UNKNOWN)
+            present.add(EXTERNAL_VERDICT)
 
     if not present:
         return ProvenanceDecision(
-            verdict=Provenance.UNKNOWN, evidence={"basis": "empty"}, rule_version=RULE_VERSION
+            verdict=EXTERNAL_VERDICT, evidence={"basis": "empty"}, rule_version=RULE_VERSION
         )
 
     for candidate in _ROLLUP_PRECEDENCE:
@@ -356,7 +381,7 @@ def rollup(values: Iterable[str]) -> ProvenanceDecision:
                 rule_version=RULE_VERSION,
             )
     return ProvenanceDecision(
-        verdict=Provenance.UNKNOWN, evidence={"basis": "rollup"}, rule_version=RULE_VERSION
+        verdict=EXTERNAL_VERDICT, evidence={"basis": "rollup"}, rule_version=RULE_VERSION
     )
 
 
@@ -364,9 +389,9 @@ def external_import(source: str) -> ProvenanceDecision:
     """Text that demonstrably originated outside Ficshon.
 
     An RP partner's reply pasted in from another platform is the clear case: it
-    was not written here by anyone, and calling it user-written would be a lie.
-    Resolves to :data:`EXTERNAL_VERDICT` — UNKNOWN today — while recording a
-    basis specific enough to re-decide these rows when the state is enabled.
+    was not written here by anyone, and calling it written-in-Ficshon would be a
+    lie. The ``source`` is recorded for diagnostics only — the public statement
+    is the same "Written elsewhere" every other external route produces.
     """
     return ProvenanceDecision(
         verdict=EXTERNAL_VERDICT,
@@ -375,12 +400,15 @@ def external_import(source: str) -> ProvenanceDecision:
     )
 
 
-def undecided() -> ProvenanceDecision:
-    """Explicit 'we know nothing' — seeds, backfills, imports.
+def not_composed_here(reason: str = "seeded") -> ProvenanceDecision:
+    """Content that entered Ficshon without passing through its composer.
 
-    Used where a route genuinely has no evidence, so the row says so rather than
-    inheriting a default that reads as a claim.
+    Editorial seed posts and imports. Ficshon did not watch anyone write these,
+    so they carry the same honest statement as any other outside text — rather
+    than a default that reads as a claim, which is what the old badge did.
     """
     return ProvenanceDecision(
-        verdict=Provenance.UNKNOWN, evidence={"basis": "undecided"}, rule_version=RULE_VERSION
+        verdict=EXTERNAL_VERDICT,
+        evidence={"basis": "not_composed_here", "reason": reason},
+        rule_version=RULE_VERSION,
     )

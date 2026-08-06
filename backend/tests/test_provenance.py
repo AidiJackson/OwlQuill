@@ -101,7 +101,7 @@ def test_client_cannot_forge_the_badge(client):
 
     assert "source_type" not in post
     # No session was supplied, so the honest answer is that nothing is known.
-    assert post["provenance"] == Provenance.UNKNOWN.value
+    assert post["provenance"] == Provenance.EXTERNAL.value
 
 
 def test_no_session_yields_unknown_not_user_written(client):
@@ -111,7 +111,7 @@ def test_no_session_yields_unknown_not_user_written(client):
 
     post = _post(client, token, realm, "Posted straight at the API.")
 
-    assert post["provenance"] == Provenance.UNKNOWN.value
+    assert post["provenance"] == Provenance.EXTERNAL.value
 
 
 # ── 2. written in Ficshon requires a session ──────────────────────────────────
@@ -140,7 +140,7 @@ def test_metrics_that_contradict_the_content_are_discarded(client):
 
     post = _post(client, token, realm, content, composition_session_id=session)
 
-    assert post["provenance"] == Provenance.UNKNOWN.value
+    assert post["provenance"] == Provenance.EXTERNAL.value
 
 
 def test_a_session_with_no_reported_typing_earns_nothing(client):
@@ -156,7 +156,7 @@ def test_a_session_with_no_reported_typing_earns_nothing(client):
     session = _open_session(client, token)
     post = _post(client, token, realm, "hi", composition_session_id=session)
 
-    assert post["provenance"] == Provenance.UNKNOWN.value
+    assert post["provenance"] == Provenance.EXTERNAL.value
 
 
 def test_externally_pasted_text_is_not_user_written(client):
@@ -176,8 +176,10 @@ def test_externally_pasted_text_is_not_user_written(client):
 
 
 def test_external_paste_is_recorded_distinguishably(client, db_session):
-    """It lands in UNKNOWN today, but carries a basis specific enough to
-    re-decide into a dedicated state later without a migration."""
+    """The verdict is EXTERNAL, and the evidence still records *why*.
+
+    The distinct bases no longer change the public statement, but they are what
+    a future rule version would re-decide on, so they must survive."""
     from app.models.post import Post as PostModel
 
     token = get_auth_token(client, email="extbasis@test.com", username="extbasisuser")
@@ -191,7 +193,8 @@ def test_external_paste_is_recorded_distinguishably(client, db_session):
     db_session.expire_all()
     row = db_session.query(PostModel).filter(PostModel.id == created["id"]).first()
     assert row.provenance_evidence["basis"] == "external_insertion"
-    assert row.provenance_rule_version == 1
+    from app.services.provenance import RULE_VERSION
+    assert row.provenance_rule_version == RULE_VERSION
 
 
 def test_a_session_cannot_be_redeemed_twice(client):
@@ -207,7 +210,7 @@ def test_a_session_cannot_be_redeemed_twice(client):
     second = _post(client, token, realm, content, composition_session_id=session)
 
     assert first["provenance"] == Provenance.USER_WRITTEN.value
-    assert second["provenance"] == Provenance.UNKNOWN.value
+    assert second["provenance"] == Provenance.EXTERNAL.value
 
 
 def test_another_users_session_is_not_usable(client):
@@ -221,7 +224,7 @@ def test_another_users_session_is_not_usable(client):
 
     post = _post(client, token_b, realm, content, composition_session_id=session)
 
-    assert post["provenance"] == Provenance.UNKNOWN.value
+    assert post["provenance"] == Provenance.EXTERNAL.value
 
 
 def test_expired_session_is_refused(client, db_session):
@@ -241,7 +244,7 @@ def test_expired_session_is_refused(client, db_session):
 
     post = _post(client, token, realm, content, composition_session_id=session)
 
-    assert post["provenance"] == Provenance.UNKNOWN.value
+    assert post["provenance"] == Provenance.EXTERNAL.value
 
 
 def test_internal_handoff_is_credited_only_up_to_the_parent(client):
@@ -453,10 +456,60 @@ def test_fingerprint_ignores_case_and_whitespace():
     [
         (["user_written", "user_written"], Provenance.USER_WRITTEN),
         (["user_written", "ai_assisted"], Provenance.AI_ASSISTED),
-        (["user_written", "unknown"], Provenance.UNKNOWN),
+        (["user_written", "unknown"], Provenance.UNKNOWN),   # legacy row preserved as stored
         (["unknown", "ai_assisted"], Provenance.AI_ASSISTED),
-        ([], Provenance.UNKNOWN),
+        ([], Provenance.EXTERNAL),
     ],
 )
 def test_rollup_precedence(states, expected):
     assert rollup(states).verdict == expected
+
+
+# ── three states, and only three ──────────────────────────────────────────────
+
+def test_rules_never_emit_unknown(client):
+    """UNKNOWN is legacy storage only — no decision may produce it.
+
+    The guard that enforces this lives in the service; this pins the intent so a
+    future rule change cannot quietly reintroduce an unbadged state.
+    """
+    from app.services.provenance import EMITTED_VERDICTS
+
+    assert Provenance.UNKNOWN not in EMITTED_VERDICTS
+    assert EMITTED_VERDICTS == {
+        Provenance.USER_WRITTEN,
+        Provenance.AI_ASSISTED,
+        Provenance.EXTERNAL,
+    }
+
+
+def test_pasted_from_outside_is_written_elsewhere(client):
+    """The Notepad case: copied in from another application, nothing typed."""
+    token = get_auth_token(client, email="notepad@test.com", username="notepaduser")
+    realm = _commons_realm(client, token)
+    body = "Text composed in another application entirely and pasted in whole."
+
+    session = _open_session(client, token)
+    _report_metrics(
+        client, token, session,
+        typed_chars=0, inserted_chars=len(body), insertion_count=1,
+        largest_insertion=len(body), edit_duration_ms=900,
+    )
+    post = _post(client, token, realm, body, composition_session_id=session)
+
+    assert post["provenance"] == Provenance.EXTERNAL.value
+
+
+def test_seeded_content_is_written_elsewhere(db_session):
+    """Editorial seed posts were never composed in Ficshon either."""
+    from app.services.provenance import not_composed_here
+
+    decision = not_composed_here("starter_seed")
+    assert decision.verdict == Provenance.EXTERNAL
+    assert decision.evidence["basis"] == "not_composed_here"
+
+
+def test_rp_partner_import_is_written_elsewhere():
+    from app.services.provenance import external_import
+
+    assert external_import("rp_partner").verdict == Provenance.EXTERNAL
