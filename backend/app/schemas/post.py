@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from app.models.post import ContentTypeEnum, PostKindEnum, SourceTypeEnum
+from app.models.post import ContentTypeEnum, PostKindEnum
 
 
 class PostMentionRead(BaseModel):
@@ -23,14 +23,20 @@ class PostBase(BaseModel):
     content: str = Field(..., min_length=1)
     content_type: ContentTypeEnum = ContentTypeEnum.IC
     post_kind: PostKindEnum = PostKindEnum.GENERAL
-    source_type: SourceTypeEnum = SourceTypeEnum.USER
     character_id: Optional[int] = None
     image_url: Optional[str] = Field(None, max_length=512)
 
 
 class PostCreate(PostBase):
-    """Post creation schema."""
-    pass
+    """Post creation schema.
+
+    ``source_type`` is deliberately gone. It was client-settable, which made the
+    authorship badge a claim the poster wrote about themselves. Provenance is
+    now decided server-side and there is no field here that can influence it —
+    only ``composition_session_id``, which is evidence the server issued and can
+    verify, not a verdict.
+    """
+    composition_session_id: Optional[str] = Field(None, max_length=36)
 
 
 class PostUpdate(BaseModel):
@@ -51,8 +57,10 @@ class Post(PostBase):
     author_username: Optional[str] = None
     character_name: Optional[str] = None
     character_avatar_url: Optional[str] = None
-    # Override: DB may have NULL for rows created before this field was added.
-    source_type: Optional[SourceTypeEnum] = SourceTypeEnum.USER
+    # A plain str, not an enum, so a verdict added later (the reserved
+    # ``external`` state) serialises without a schema change. Clients render
+    # anything they do not recognise as no badge.
+    provenance: str = "unknown"
     created_at: datetime
     updated_at: datetime
     mentions: list[PostMentionRead] = []

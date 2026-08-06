@@ -4,13 +4,16 @@ interface Props {
   onSend: (content: string) => Promise<void>;
   disabled?: boolean;
   channelType?: string;
+  /** Composition tracker's ref callback — watches how text arrives (counts
+   *  only, never content). See lib/composition.ts. */
+  trackRef?: (el: HTMLTextAreaElement | null) => void;
 }
 
-export default function PostInput({ onSend, disabled = false, channelType }: Props) {
+export default function PostInput({ onSend, disabled = false, channelType, trackRef }: Props) {
   const [content, setContent] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const placeholder =
     channelType === 'chat'
@@ -51,7 +54,10 @@ export default function PostInput({ onSend, disabled = false, channelType }: Pro
       )}
       <div className="flex items-end gap-2 bg-surface border border-edge rounded-xl px-3 py-2 focus-within:border-edge-md transition-colors">
         <textarea
-          ref={textareaRef}
+          ref={(el) => {
+            textareaRef.current = el;
+            trackRef?.(el);
+          }}
           value={content}
           onChange={(e) => {
             setContent(e.target.value);

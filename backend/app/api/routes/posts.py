@@ -14,6 +14,8 @@ from app.models.character import Character as CharacterModel
 from app.models.character_image import CharacterImage
 from app.models.user_image import UserImage
 from app.schemas.post import Post, PostCreate
+from app.services.composition import link_commit
+from app.services.provenance import decide_provenance
 from app.services.safety import blocked_user_ids
 from app.services.visibility import user_can_access_realm
 from app.services.seeding import serialize_post_for_viewer, serialize_posts_for_viewer
@@ -126,12 +128,31 @@ def create_post_in_realm(
                 detail="You can only use your own images in posts",
             )
 
-    db_post = PostModel(
-        **post_data.model_dump(),
-        realm_id=realm_id,
-        author_user_id=current_user.id
+    # Provenance is decided here, from server-held evidence, and is the only
+    # thing that drives the public badge. Nothing in ``post_data`` can influence
+    # it — note the explicit field list rather than the ``**model_dump()`` splat
+    # that previously let a client name its own ``source_type``.
+    decision = decide_provenance(
+        db,
+        user_id=current_user.id,
+        content=post_data.content,
+        composition_session_id=post_data.composition_session_id,
     )
+
+    db_post = PostModel(
+        realm_id=realm_id,
+        author_user_id=current_user.id,
+        character_id=post_data.character_id,
+        title=post_data.title,
+        content=post_data.content,
+        content_type=post_data.content_type,
+        post_kind=post_data.post_kind,
+        image_url=post_data.image_url,
+    )
+    db_post.apply_provenance(decision)
     db.add(db_post)
+    db.flush()
+    link_commit(db, decision.session, kind="post", obj_id=db_post.id)
     db.commit()
     db.refresh(db_post)
 

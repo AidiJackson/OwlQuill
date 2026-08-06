@@ -9,6 +9,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.models.provenance import ProvenanceMixin
 
 
 class ChannelTypeEnum(str, enum.Enum):
@@ -89,7 +90,7 @@ class StorySpaceChannel(Base):
     )
 
 
-class StorySpacePost(Base):
+class StorySpacePost(ProvenanceMixin, Base):
     __tablename__ = "story_space_posts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -99,7 +100,8 @@ class StorySpacePost(Base):
     character_id = Column(Integer, ForeignKey("characters.id", ondelete="SET NULL"), nullable=True)
     content = Column(Text, nullable=False)
     content_type = Column(String(20), nullable=False, default="ic")  # 'ic' | 'ooc' | 'narration'
-    source_type = Column(String(20), nullable=True, default="user")  # 'user' | 'ai_assisted' | 'ai_generated'
+    # RETIRED — superseded by the provenance columns. See app/models/post.py.
+    source_type = Column(String(20), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -113,7 +115,11 @@ class StorySpacePost(Base):
     )
 
 
-class PublishedStory(Base):
+class PublishedStory(ProvenanceMixin, Base):
+    """A published snapshot. Provenance is the roll-up of its segments' —
+    stored rather than computed so a story listing can filter on it without
+    loading every segment."""
+
     __tablename__ = "published_stories"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -137,7 +143,11 @@ class PublishedStory(Base):
     )
 
 
-class PublishedStorySegment(Base):
+class PublishedStorySegment(ProvenanceMixin, Base):
+    """One published segment. Provenance is inherited verbatim from the source
+    ``StorySpacePost`` — publishing must not launder an AI-assisted post into an
+    unlabelled one, which is exactly what it used to do."""
+
     __tablename__ = "published_story_segments"
 
     id = Column(Integer, primary_key=True, index=True)

@@ -11,6 +11,8 @@ import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
 import MentionText from '@/components/MentionText';
 import { hasActingCharacter } from '@/lib/entitlements';
+import ProvenanceBadge from '@/components/ProvenanceBadge';
+import { CompositionTracker } from '@/lib/composition';
 
 export default function RealmDetail() {
   const { realmId } = useParams<{ realmId: string }>();
@@ -25,6 +27,8 @@ export default function RealmDetail() {
   // Scenes state
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [showSceneForm, setShowSceneForm] = useState(false);
+  const composition = useRef(new CompositionTracker('realm_composer', { targetKind: 'post' })).current;
+  const sceneComposition = useRef(new CompositionTracker('scene', { targetKind: 'scene_post' })).current;
   const [newScene, setNewScene] = useState({
     title: '',
     openingContent: '',
@@ -106,10 +110,14 @@ export default function RealmDetail() {
     setPostCreateError(null);
 
     try {
+      composition.options.targetRef = String(realmId);
+      const sessionId = await composition.commit();
       const createdPost = await apiClient.createPost(Number(realmId), {
         ...newPost,
         ...(attachedImage ? { image_url: attachedImage.url } : {}),
+        ...(sessionId ? { composition_session_id: sessionId } : {}),
       });
+      composition.reset();
       setPosts([createdPost, ...posts]);
       setNewPost({
         title: '',
@@ -167,10 +175,13 @@ export default function RealmDetail() {
         title: newScene.title.trim(),
         visibility: newScene.visibility,
       });
+      const sceneSessionId = await sceneComposition.commit();
       await apiClient.createScenePost(scene.id, {
         content: newScene.openingContent.trim(),
         character_id: newScene.character_id,
+        ...(sceneSessionId ? { composition_session_id: sceneSessionId } : {}),
       });
+      sceneComposition.reset();
       navigate(`/scenes/${scene.id}`);
     } catch (err) {
       console.error('Failed to create scene:', err);
@@ -205,20 +216,6 @@ export default function RealmDetail() {
     return (
       <span className={`px-2 py-1 text-xs font-semibold rounded ${kind.className}`}>
         {kind.label}
-      </span>
-    );
-  };
-
-  const getSourceTypePill = (sourceType?: string | null) => {
-    const pills: Record<string, { label: string; className: string }> = {
-      user:         { label: '✍️ User Written', className: 'text-ink-2/80  border-edge-md  bg-surface-elevated'    },
-      ai_assisted:  { label: '✨ AI Assisted',  className: 'text-purple-400/80 border-purple-800/50 bg-purple-950/30' },
-      ai_generated: { label: '🤖 AI Generated', className: 'text-blue-400/70  border-blue-800/40  bg-blue-950/20'   },
-    };
-    const pill = pills[sourceType ?? 'user'] ?? pills.user;
-    return (
-      <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded border select-none ${pill.className}`}>
-        {pill.label}
       </span>
     );
   };
@@ -323,6 +320,7 @@ export default function RealmDetail() {
               <div>
                 <label className="block text-sm font-medium mb-1">Opening Post</label>
                 <textarea
+                  ref={sceneComposition.attach}
                   value={newScene.openingContent}
                   onChange={(e) => setNewScene({ ...newScene, openingContent: e.target.value })}
                   className="textarea"
@@ -461,6 +459,7 @@ export default function RealmDetail() {
               <div>
                 <label className="block text-sm font-medium mb-2">Content</label>
                 <textarea
+                  ref={composition.attach}
                   value={newPost.content}
                   onChange={(e) => setNewPost({ ...newPost, content: e.target.value })}
                   className="textarea"
@@ -656,7 +655,7 @@ export default function RealmDetail() {
                       )}
                       {getPostTypeBadge(post.content_type)}
                       {getPostKindBadge(post.post_kind)}
-                      {getSourceTypePill(post.source_type)}
+                      <ProvenanceBadge provenance={post.provenance} />
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-xs text-ink-3">

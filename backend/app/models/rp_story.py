@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, T
 from sqlalchemy.types import JSON
 
 from app.core.database import Base
+from app.models.provenance import ProvenanceMixin
 
 
 class RPStoryThread(Base):
@@ -26,8 +27,14 @@ class RPStoryThread(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
-class RPStoryTurn(Base):
-    """A single turn in an RP Story Thread."""
+class RPStoryTurn(ProvenanceMixin, Base):
+    """A single turn in an RP Story Thread.
+
+    ``generated`` predates the provenance system and was the only honest
+    authorship signal in the codebase — but it was private to this table and
+    never reached a badge. It is now an *input* to the decision rather than the
+    answer, and the verdict lives in the shared provenance columns.
+    """
 
     __tablename__ = "rp_story_turns"
 

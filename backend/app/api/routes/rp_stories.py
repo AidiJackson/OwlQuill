@@ -32,6 +32,8 @@ from app.schemas.rp_story import (
     RPStoryTurnOut,
     SaveGeneratedTurnRequest,
 )
+from app.models.provenance import Provenance
+from app.services.provenance import decide_provenance, external_import, register_ai_output
 from app.services.rp_story_service import (
     _auto_title,
     append_lightweight_summary,
@@ -109,6 +111,9 @@ def create_rp_story(
         generated=False,
         created_at=now,
     )
+    # A partner starter is pasted in from another platform by definition — not
+    # written here by anyone, so it is never user-written.
+    turn.apply_provenance(external_import("rp_partner"))
     db.add(turn)
     db.commit()
     db.refresh(thread)
@@ -178,6 +183,7 @@ def add_partner_turn(
         generated=False,
         created_at=datetime.utcnow(),
     )
+    turn.apply_provenance(external_import("rp_partner"))
     db.add(turn)
     thread.updated_at = datetime.utcnow()
     db.commit()
@@ -222,6 +228,24 @@ def generate_reply(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    # Fingerprint the draft even though it is not saved here: the user may well
+    # paste it into a Commons post instead of accepting it into the thread, and
+    # that route must still recognise it as AI output.
+    try:
+        register_ai_output(
+            db,
+            user_id=current_user.id,
+            text=result.get("reply", ""),
+            source_kind="rp_thread_reply",
+            source_ref=str(thread.id),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning(
+            "[PROVENANCE] fingerprint registration failed | thread=%s", thread.id, exc_info=True
+        )
+
     return GenerateThreadReplyResponse(**result)
 
 
@@ -264,6 +288,16 @@ def save_generated_turn(
         godmod_severity=req.godmod_severity,
         metadata_json=metadata if metadata else None,
         created_at=now,
+    )
+    # Structural: this endpoint exists to save AI output the user accepted.
+    # No evidence is consulted because none is needed — the surface is the fact.
+    turn.apply_provenance(
+        decide_provenance(
+            db,
+            user_id=current_user.id,
+            content=req.content,
+            structural=Provenance.AI_ASSISTED,
+        )
     )
     db.add(turn)
 

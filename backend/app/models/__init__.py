@@ -41,8 +41,19 @@ from app.models.adult_identity import (
 from app.models.adult_founder_job import AdultFounderJob
 from app.models.editor_job import EditorJob
 from app.models.identity_pack_job import IdentityPackJob
+from app.models.provenance import Provenance, ProvenanceMixin
+from app.models.composition import CompositionSession, SessionStatus
+from app.models.ai_fingerprint import AIOutputFingerprint
+from app.models.rp_story import RPStoryThread, RPStoryTurn
 
 __all__ = [
+    "Provenance",
+    "ProvenanceMixin",
+    "CompositionSession",
+    "SessionStatus",
+    "AIOutputFingerprint",
+    "RPStoryThread",
+    "RPStoryTurn",
     "AdultStudioIdentity",
     "AdultFounderJob",
     "EditorJob",

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { Realm } from '@/lib/types';
+import { CompositionTracker, markInternalHandoff } from '@/lib/composition';
 
 const TITLE_KEY      = 'ficshon.workspace.title';
 const BODY_KEY       = 'ficshon.workspace.body';
@@ -371,6 +372,10 @@ type GrammarState = {
 
 export default function Workspace() {
   const navigate = useNavigate();
+  // WriteSpace is a first-class writing surface, so it carries a session of
+  // its own — both for its direct publish path and so a copy-for-posting
+  // handoff can vouch for the paste that lands in another composer.
+  const composition = useRef(new CompositionTracker('workspace', { targetKind: 'post' })).current;
   const [title, setTitle] = useState(() => localStorage.getItem(TITLE_KEY) ?? '');
   const [body, setBody]   = useState(() => localStorage.getItem(BODY_KEY)  ?? '');
   const [characterId, setCharacterId] = useState<number>(() => {
@@ -412,7 +417,7 @@ export default function Workspace() {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fixTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [formatFlash, setFormatFlash] = useState<string>('');
   const formatFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [grammar, setGrammar] = useState<GrammarState>({ status: 'idle', matches: [] });
@@ -522,12 +527,16 @@ export default function Workspace() {
 
       // characterId === 0 is the "Yourself (OOC)" sentinel; a real character → IC + attribution.
       const isOOC = characterId === 0;
+      composition.options.targetRef = String(realmId);
+      const sessionId = await composition.commit();
       await apiClient.createPost(realmId, {
         content: body.trim(),
         content_type: isOOC ? 'ooc' : 'ic',
         ...(isOOC ? {} : { character_id: characterId }),
         ...(title.trim() ? { title: title.trim() } : {}),
+        ...(sessionId ? { composition_session_id: sessionId } : {}),
       });
+      composition.reset();
 
       setTitle('');
       setBody('');
@@ -1298,6 +1307,12 @@ export default function Workspace() {
                 return;
               }
               const ok = await copyToClipboard(body);
+              if (ok) {
+                // Flush counters, then leave the session id for whichever
+                // composer receives the paste. The draft itself travels by
+                // clipboard as it always has — the server never sees it.
+                markInternalHandoff((await composition.commit()) ?? null);
+              }
               setCopyStatus(ok ? 'copied' : 'failed');
             }}
             className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
@@ -1827,7 +1842,10 @@ export default function Workspace() {
               } : undefined}
             >
               <textarea
-                ref={textareaRef}
+                ref={(el) => {
+                  textareaRef.current = el;
+                  composition.attach(el);
+                }}
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 placeholder={selectedCharName ? `${selectedCharName}\u2019s scene\u2026` : 'Start writing\u2026'}

@@ -5,6 +5,7 @@ import type { StorySpaceRead, StorySpaceChannel, StorySpacePost } from '@/lib/ty
 import ChannelList from '@/components/storyspace/ChannelList';
 import PostList from '@/components/storyspace/PostList';
 import PostInput from '@/components/storyspace/PostInput';
+import { CompositionTracker } from '@/lib/composition';
 
 export default function StorySpaceDetail() {
   const { spaceId } = useParams<{ spaceId: string }>();
@@ -17,6 +18,9 @@ export default function StorySpaceDetail() {
   const [posts, setPosts] = useState<StorySpacePost[]>([]);
   const [postsLoading, setPostsLoading] = useState(false);
 
+  const composition = useRef(
+    new CompositionTracker('story_space', { targetKind: 'story_space_post' }),
+  ).current;
   const feedBottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
 
@@ -70,10 +74,14 @@ export default function StorySpaceDetail() {
 
   async function handleSend(content: string) {
     if (!spaceId || !activeChannel) return;
+    composition.options.targetRef = String(activeChannel.id);
+    const sessionId = await composition.commit();
     const post = await apiClient.createSpacePost(Number(spaceId), activeChannel.id, {
       content,
       content_type: activeChannel.channel_type === 'chat' ? 'ooc' : 'ic',
+      ...(sessionId ? { composition_session_id: sessionId } : {}),
     });
+    composition.reset();
     setPosts((prev) => [...prev, post]);
     // Ensure the feed scrolls to show the new post immediately
     setTimeout(() => feedBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
@@ -171,6 +179,7 @@ export default function StorySpaceDetail() {
           {activeChannel && (
             <div className="flex-shrink-0">
               <PostInput
+                trackRef={composition.attach}
                 onSend={handleSend}
                 channelType={activeChannel.channel_type}
               />

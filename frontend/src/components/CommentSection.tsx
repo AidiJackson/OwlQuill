@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import { authorLink } from '@/lib/authorLink';
 import type { Comment, Character } from '@/lib/types';
+import { CompositionTracker } from '@/lib/composition';
 
 interface CommentSectionProps {
   postId: number;
@@ -28,6 +29,9 @@ export default function CommentSection({
   const [composerCharId, setComposerCharId] = useState<number | null>(null);
   const [commentError, setCommentError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const composition = useRef(
+    new CompositionTracker('comment', { targetKind: 'comment', targetRef: String(postId) }),
+  ).current;
 
   const activeCharacterId = useAuthStore((s) => s.user?.active_character?.id);
   const wandererName = useAuthStore((s) => s.user?.username);
@@ -68,11 +72,14 @@ export default function CommentSection({
     setCommentError(null);
     setSubmitting(true);
     try {
+      const sessionId = await composition.commit();
       await apiClient.createComment(postId, {
         content: content.trim(),
         content_type: contentType,
         ...(composerCharId ? { character_id: composerCharId } : {}),
+        ...(sessionId ? { composition_session_id: sessionId } : {}),
       });
+      composition.reset();
       setContent('');
       const updated = await apiClient.getPostComments(postId);
       setComments(updated);
@@ -218,6 +225,7 @@ export default function CommentSection({
               </div>
             )}
             <textarea
+              ref={composition.attach}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Write a comment..."

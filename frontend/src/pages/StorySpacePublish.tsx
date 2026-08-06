@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { StorySpaceRead, StorySpacePost } from '@/lib/types';
+import ProvenanceBadge from '@/components/ProvenanceBadge';
 
 export default function StorySpacePublish() {
   const { spaceId } = useParams<{ spaceId: string }>();
@@ -210,6 +211,10 @@ export default function StorySpacePublish() {
                       >
                         {displayName}
                       </span>
+                      {/* Shown at selection time: publishing inherits each
+                          post's provenance, so what you pick is what the
+                          published story will carry. */}
+                      <ProvenanceBadge provenance={post.provenance} className="ml-1.5" />
                       <p className="text-sm text-ink-2 mt-0.5 leading-relaxed line-clamp-3 whitespace-pre-wrap">
                         {post.content}
                       </p>

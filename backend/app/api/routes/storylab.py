@@ -57,6 +57,7 @@ from app.schemas.storylab import (
     GeneratedText,
 )
 from app.services import storylab_telemetry
+from app.services.provenance import register_ai_output
 from app.services.story_memory import (
     check_for_contradictions,
     extract_and_merge_memory,
@@ -147,6 +148,47 @@ def _seconds_until_utc_midnight() -> int:
     now = datetime.now(timezone.utc)
     tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
     return max(0, int((tomorrow - now).total_seconds()))
+
+
+# ── provenance: register what the generators produced ─────────────────────────
+
+def _register_ai_fingerprint(
+    db: Session,
+    *,
+    user_id: int | None,
+    text: str,
+    source_kind: str,
+    source_ref: str | None = None,
+) -> None:
+    """Fingerprint a generation so a later paste of it is recognised.
+
+    This is what connects StoryLab to the public badge: the server records
+    hashes of its own output, and a post that reuses that output is labelled
+    AI-assisted whatever the client claims.
+
+    Always called *after* the generation has been committed, and always in its
+    own transaction. Fingerprinting is bookkeeping — losing a user's chapter to
+    a failure in it would be a far worse outcome than losing the detection.
+    """
+    if user_id is None or not text:
+        return
+    try:
+        register_ai_output(
+            db,
+            user_id=user_id,
+            text=text,
+            source_kind=source_kind,
+            source_ref=source_ref,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning(
+            "[PROVENANCE] fingerprint registration failed | kind=%s ref=%s",
+            source_kind,
+            source_ref,
+            exc_info=True,
+        )
 
 
 # ── telemetry persistence (S24AZ) ──────────────────────────────────────────────
@@ -586,6 +628,14 @@ def generate(
     db.add(log)
     db.commit()
     db.refresh(state_row)
+
+    _register_ai_fingerprint(
+        db,
+        user_id=current_user.id,
+        text=generated_text,
+        source_kind="storylab_continuation",
+        source_ref=request_id,
+    )
 
     # ── telemetry (token + cost) — best-effort, also feeds the daily counter ──
     _persist_generation_telemetry(
@@ -1648,6 +1698,14 @@ def generate_chapter_endpoint(
     db.commit()
     db.refresh(ch)
 
+    _register_ai_fingerprint(
+        db,
+        user_id=current_user.id,
+        text=chapter_text,
+        source_kind="storylab_chapter",
+        source_ref=f"{story_id}#{chapter_number}",
+    )
+
     # Update story summary + character memory (both non-fatal; chapter already committed)
     # S24AZ T3: summary is batched to cut per-chapter cost ~20–25%. It fires on
     # the first chapter (so early chapters have summary context) and then only
@@ -1880,6 +1938,14 @@ def regenerate_chapter(
     ch.updated_at = datetime.utcnow()
     db.add(ch)
     db.commit()
+
+    _register_ai_fingerprint(
+        db,
+        user_id=current_user.id,
+        text=chapter_text,
+        source_kind="storylab_chapter",
+        source_ref=f"{story_id}#{ch.chapter_number}",
+    )
 
     # Update story summary + character memory (both non-fatal; chapter already committed)
     # S24AZ T3: summary is batched to cut per-chapter cost ~20–25%. It fires on
@@ -2295,6 +2361,14 @@ def generate_rp_reply_endpoint(
         _narr_mechanics["static_scene_risk"], _narr_mechanics["recursive_emotion_risk"],
         _narr_events["progression_event_count"], _narr_monotony["monotony_score"],
         _narr_mechanics["environment_usage_density"],
+    )
+
+    _register_ai_fingerprint(
+        db,
+        user_id=current_user.id,
+        text=reply,
+        source_kind="rp_reply",
+        source_ref=req.story_id,
     )
 
     # ── telemetry (token + cost) — best-effort, also feeds the daily counter ──

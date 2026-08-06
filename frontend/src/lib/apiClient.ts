@@ -1,5 +1,5 @@
 import { rateLimitMessage } from './rateLimit';
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, CharacterGalleryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, CharacterGalleryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus, PostCreatePayload, CommentCreatePayload, ScenePostCreatePayload, SpacePostCreatePayload, CompositionMetrics } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -212,7 +212,7 @@ class ApiClient {
     return this.request<Post[]>(`/posts/realms/${realmId}/posts?skip=${skip}&limit=${limit}`);
   }
 
-  async createPost(realmId: number, data: Partial<Post>): Promise<Post> {
+  async createPost(realmId: number, data: PostCreatePayload): Promise<Post> {
     return this.request<Post>(`/posts/realms/${realmId}/posts`, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -232,7 +232,7 @@ class ApiClient {
     return this.request<Comment[]>(`/comments/posts/${postId}/comments`);
   }
 
-  async createComment(postId: number, data: Partial<Comment>): Promise<Comment> {
+  async createComment(postId: number, data: CommentCreatePayload): Promise<Comment> {
     return this.request<Comment>(`/comments/posts/${postId}/comments`, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -277,7 +277,7 @@ class ApiClient {
     return this.request<ScenePost[]>(`/scenes/${sceneId}/posts`);
   }
 
-  async createScenePost(sceneId: number, data: { content: string; character_id?: number; reply_to_id?: number }): Promise<ScenePost> {
+  async createScenePost(sceneId: number, data: ScenePostCreatePayload): Promise<ScenePost> {
     return this.request<ScenePost>(`/scenes/${sceneId}/posts`, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -552,7 +552,7 @@ class ApiClient {
   async createSpacePost(
     spaceId: number,
     channelId: number,
-    payload: { content: string; content_type?: string; character_id?: number },
+    payload: SpacePostCreatePayload,
   ): Promise<StorySpacePost> {
     return this.request<StorySpacePost>(`/story-spaces/${spaceId}/channels/${channelId}/posts`, {
       method: 'POST',
@@ -569,6 +569,31 @@ class ApiClient {
 
   async getPublishedStory(id: number): Promise<PublishedStory> {
     return this.request<PublishedStory>(`/published-stories/${id}`);
+  }
+
+  // Composition sessions — shared editor infrastructure (see lib/composition.ts)
+
+  async createCompositionSession(payload: {
+    surface: string;
+    target_kind?: string;
+    target_ref?: string;
+    continues_session_id?: string;
+  }): Promise<{ id: string; surface: string; status: string }> {
+    return this.request(`/composition/sessions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /** Reports integer counters only — never text. See lib/composition.ts. */
+  async updateCompositionSession(
+    sessionId: string,
+    metrics: CompositionMetrics,
+  ): Promise<{ id: string; status: string }> {
+    return this.request(`/composition/sessions/${sessionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ metrics }),
+    });
   }
 
   // Notifications

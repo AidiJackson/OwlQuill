@@ -13,12 +13,14 @@ import AttachImageModal from '@/components/AttachImageModal';
 import MentionText from '@/components/MentionText';
 import HappeningInFicshon from '@/components/HappeningInFicshon';
 import { hasActingCharacter } from '@/lib/entitlements';
+import ProvenanceBadge from '@/components/ProvenanceBadge';
+import { CompositionTracker } from '@/lib/composition';
 
 const WORKSPACE_PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
 
 export default function Home() {
   const navigate = useNavigate();
-  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const user = useAuthStore((s) => s.user);
   const postSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -29,6 +31,9 @@ export default function Home() {
 
   // Quick-post composer state
   const [quickContent, setQuickContent] = useState('');
+  // One tracker for the life of the composer; reset() starts a fresh session
+  // after each post, which is what keeps a session single-use.
+  const composition = useRef(new CompositionTracker('commons_composer', { targetKind: 'post' })).current;
   const [quickContentType, setQuickContentType] = useState<'ooc' | 'ic' | 'narration'>('ooc');
   const [quickPostKind, setQuickPostKind] = useState<'general' | 'open_starter' | 'finished_piece'>('general');
   const [composerCharId, setComposerCharId] = useState<number | null>(null);
@@ -133,13 +138,17 @@ export default function Home() {
     setPosting(true);
     setPostError(null);
     try {
+      composition.options.targetRef = String(commonsRealm.id);
+      const sessionId = await composition.commit();
       const created = await apiClient.createPost(commonsRealm.id, {
         content: quickContent.trim(),
         content_type: quickContentType,
         post_kind: quickPostKind,
         ...(composerCharId ? { character_id: composerCharId } : {}),
         ...(attachedImage ? { image_url: attachedImage.url } : {}),
+        ...(sessionId ? { composition_session_id: sessionId } : {}),
       });
+      composition.reset();
       setPosts(prev => [created, ...prev]);
       setQuickContent('');
       setQuickContentType('ooc');
@@ -223,20 +232,6 @@ export default function Home() {
     return (
       <span className={`px-1.5 py-0.5 text-[10px] font-mono tracking-[0.06em] uppercase rounded border select-none ${kind.className}`}>
         {kind.label}
-      </span>
-    );
-  };
-
-  const getSourceTypePill = (sourceType?: string | null) => {
-    const pills: Record<string, { label: string; className: string }> = {
-      user:          { label: '✍️ User Written', className: 'text-ink-3 bg-surface-elevated border-edge' },
-      ai_assisted:   { label: '✨ AI Assisted',  className: 'text-purple-400/80 bg-purple-950/30 border-purple-800/40' },
-      ai_generated:  { label: '🤖 AI Generated', className: 'text-blue-400/70 bg-blue-950/20 border-blue-800/40' },
-    };
-    const pill = pills[sourceType ?? 'user'] ?? pills.user;
-    return (
-      <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded border select-none ${pill.className}`}>
-        {pill.label}
       </span>
     );
   };
@@ -363,7 +358,11 @@ export default function Home() {
               )}
 
               <textarea
-                ref={composerRef}
+                ref={(el) => {
+                  composerRef.current = el;
+                  // Watches how text arrives — counts only, never content.
+                  composition.attach(el);
+                }}
                 value={quickContent}
                 onChange={(e) => setQuickContent(e.target.value)}
                 onFocus={() => {
@@ -590,7 +589,7 @@ export default function Home() {
                             )}
                             {getPostTypeBadge(post.content_type)}
                             {getPostKindBadge(post.post_kind)}
-                            {getSourceTypePill(post.source_type)}
+                            <ProvenanceBadge provenance={post.provenance} />
                           </div>
                           <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                             <span className="text-[11px] font-mono text-ink-3">

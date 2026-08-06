@@ -1,21 +1,5 @@
 import type { StorySpacePost } from '@/lib/types';
-
-type SourceType = 'user' | 'ai_assisted' | 'ai_generated';
-
-const SOURCE_PILLS: Record<SourceType, { label: string; className: string }> = {
-  user:          { label: '✍️ User Written', className: 'text-ink-2/80  border-edge-md  bg-surface-elevated'  },
-  ai_assisted:   { label: '✨ AI Assisted',  className: 'text-purple-400/80 border-purple-800/50 bg-purple-950/30' },
-  ai_generated:  { label: '🤖 AI Generated', className: 'text-blue-400/70  border-blue-800/40  bg-blue-950/20'  },
-};
-
-function SourcePill({ sourceType }: { sourceType?: SourceType | null }) {
-  const pill = SOURCE_PILLS[sourceType ?? 'user'];
-  return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded border select-none ${pill.className}`}>
-      {pill.label}
-    </span>
-  );
-}
+import ProvenanceBadge from '@/components/ProvenanceBadge';
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
@@ -61,7 +45,7 @@ function PostItem({ post }: { post: StorySpacePost }) {
         >
           {displayName}
         </span>
-        <SourcePill sourceType={post.source_type} />
+        <ProvenanceBadge provenance={post.provenance} />
         <span className="ml-auto text-[11px] text-ink-3 group-hover:text-ink-3 transition-colors leading-none flex-shrink-0">
           {formatTimestamp(post.created_at)}
         </span>

@@ -14,6 +14,8 @@ from app.models.scene_post import ScenePost as ScenePostModel
 from app.models.realm import RealmMembership as RealmMembershipModel
 from app.schemas.scene import SceneCreate, SceneOut
 from app.schemas.scene_post import ScenePostCreate, ScenePostOut
+from app.services.composition import link_commit
+from app.services.provenance import decide_provenance
 
 router = APIRouter()
 
@@ -34,6 +36,7 @@ def _scene_post_out(p: ScenePostModel, viewer_id: int) -> ScenePostOut:
         character_name=p.character.name if p.character else None,
         content=p.content,
         reply_to_id=p.reply_to_id,
+        provenance=p.provenance,
         created_at=p.created_at,
     )
 
@@ -204,6 +207,13 @@ def create_scene_post(
                 detail="You can only post as your own character.",
             )
 
+    decision = decide_provenance(
+        db,
+        user_id=current_user.id,
+        content=data.content,
+        composition_session_id=data.composition_session_id,
+    )
+
     post = ScenePostModel(
         scene_id=scene_id,
         author_user_id=current_user.id,
@@ -211,7 +221,10 @@ def create_scene_post(
         content=data.content,
         reply_to_id=data.reply_to_id,
     )
+    post.apply_provenance(decision)
     db.add(post)
+    db.flush()
+    link_commit(db, decision.session, kind="scene_post", obj_id=post.id)
     db.commit()
     db.refresh(post)
 

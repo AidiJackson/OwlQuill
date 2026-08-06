@@ -12,7 +12,7 @@ class CommentBase(BaseModel):
 
 class CommentCreate(CommentBase):
     """Comment creation schema."""
-    pass
+    composition_session_id: Optional[str] = Field(None, max_length=36)
 
 
 class CommentUpdate(BaseModel):
@@ -34,6 +34,7 @@ class Comment(CommentBase):
     author_avatar_url: Optional[str] = None
     character_name: Optional[str] = None
     character_avatar_url: Optional[str] = None
+    provenance: str = "unknown"
     created_at: datetime
     updated_at: datetime
 

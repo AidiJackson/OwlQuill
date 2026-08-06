@@ -5,9 +5,10 @@ from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.models.provenance import ProvenanceMixin
 
 
-class ScenePost(Base):
+class ScenePost(ProvenanceMixin, Base):
     """Individual turn/post within a scene."""
 
     __tablename__ = "scene_posts"

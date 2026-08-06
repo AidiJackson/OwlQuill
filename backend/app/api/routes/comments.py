@@ -10,6 +10,8 @@ from app.models.character import Character as CharacterModel
 from app.models.comment import Comment as CommentModel
 from app.models.post import Post as PostModel
 from app.schemas.comment import Comment, CommentCreate
+from app.services.composition import link_commit
+from app.services.provenance import decide_provenance
 from app.services.safety import blocked_user_ids
 from app.services.visibility import user_can_access_post
 from app.services.seeding import serialize_comments_for_viewer
@@ -68,12 +70,23 @@ def create_comment(
             detail=f"Comments are limited to {_WANDERER_COMMENT_MAX_CHARS} characters.",
         )
 
-    db_comment = CommentModel(
-        **comment_data.model_dump(),
-        post_id=post_id,
-        author_user_id=current_user.id
+    decision = decide_provenance(
+        db,
+        user_id=current_user.id,
+        content=comment_data.content,
+        composition_session_id=comment_data.composition_session_id,
     )
+
+    db_comment = CommentModel(
+        post_id=post_id,
+        author_user_id=current_user.id,
+        character_id=comment_data.character_id,
+        content=comment_data.content,
+    )
+    db_comment.apply_provenance(decision)
     db.add(db_comment)
+    db.flush()
+    link_commit(db, decision.session, kind="comment", obj_id=db_comment.id)
     db.commit()
     db.refresh(db_comment)
     return db_comment

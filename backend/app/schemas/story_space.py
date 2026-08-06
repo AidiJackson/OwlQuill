@@ -19,6 +19,7 @@ class PublishedSegmentRead(BaseModel):
     content_type: str
     character_id: Optional[int] = None
     character_name_snap: Optional[str] = None
+    provenance: str = "unknown"
     # source_post_id is an internal audit field — intentionally excluded
 
 
@@ -30,6 +31,8 @@ class PublishedStoryRead(BaseModel):
     summary: Optional[str] = None
     cover_url: Optional[str] = None
     visibility: str
+    #: Roll-up of the segments' provenance — worst case wins.
+    provenance: str = "unknown"
     segment_count: int
     segments: List[PublishedSegmentRead]
     published_at: Optional[datetime] = None
@@ -40,8 +43,10 @@ class PublishedStoryRead(BaseModel):
 class StorySpacePostCreate(BaseModel):
     content: str = Field(..., min_length=1)
     content_type: str = Field("ic", pattern="^(ic|ooc|narration)$")
-    source_type: str = Field("user", pattern="^(user|ai_assisted|ai_generated)$")
     character_id: Optional[int] = None
+    # ``source_type`` removed — it let the client pick its own badge. See
+    # app/schemas/post.py::PostCreate.
+    composition_session_id: Optional[str] = Field(None, max_length=36)
 
 
 class StorySpacePostRead(BaseModel):
@@ -59,7 +64,7 @@ class StorySpacePostRead(BaseModel):
     character_avatar_url: Optional[str] = None
     content: str
     content_type: str
-    source_type: str
+    provenance: str = "unknown"
     created_at: datetime
     updated_at: datetime
 

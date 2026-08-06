@@ -4,9 +4,10 @@ from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.models.provenance import ProvenanceMixin
 
 
-class Comment(Base):
+class Comment(ProvenanceMixin, Base):
     """Comment model for posts."""
 
     __tablename__ = "comments"

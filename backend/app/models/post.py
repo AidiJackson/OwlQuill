@@ -5,6 +5,7 @@ from sqlalchemy.orm import relationship
 import enum
 
 from app.core.database import Base
+from app.models.provenance import ProvenanceMixin
 
 
 class ContentTypeEnum(str, enum.Enum):
@@ -22,13 +23,18 @@ class PostKindEnum(str, enum.Enum):
 
 
 class SourceTypeEnum(str, enum.Enum):
-    """Who or what produced the post content."""
+    """RETIRED — superseded by ``app.models.provenance.Provenance``.
+
+    The old badge vocabulary. It was client-settable and defaulted to ``USER``,
+    so it asserted authorship it had no evidence for. Kept only so the retired
+    column below still maps; nothing writes it.
+    """
     USER = "user"
     AI_ASSISTED = "ai_assisted"
     AI_GENERATED = "ai_generated"
 
 
-class Post(Base):
+class Post(ProvenanceMixin, Base):
     """Post model for story snippets and scenes."""
 
     __tablename__ = "posts"
@@ -41,7 +47,10 @@ class Post(Base):
     content = Column(Text, nullable=False)
     content_type = Column(SQLEnum(ContentTypeEnum), default=ContentTypeEnum.IC, nullable=False)
     post_kind = Column(String, default="general", nullable=False)
-    source_type = Column(String(20), default=SourceTypeEnum.USER.value, nullable=True)
+    # RETIRED — read by nothing, written by nothing. Left in place so the
+    # existing column still maps; dropped in a follow-up once no deployment
+    # is rolling back across the provenance migration.
+    source_type = Column(String(20), nullable=True)
     image_url = Column(String(512), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

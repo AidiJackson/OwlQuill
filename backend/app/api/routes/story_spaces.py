@@ -31,6 +31,8 @@ from app.schemas.story_space import (
     StorySpacePostCreate,
     StorySpacePostRead,
 )
+from app.services.composition import link_commit
+from app.services.provenance import decide_provenance, inherit, rollup
 
 router = APIRouter()
 
@@ -289,7 +291,7 @@ def _to_post_read(post: StorySpacePost) -> StorySpacePostRead:
         character_avatar_url=character_avatar_url,
         content=post.content,
         content_type=post.content_type,
-        source_type=post.source_type or "user",
+        provenance=post.provenance,
         created_at=post.created_at,
         updated_at=post.updated_at,
     )
@@ -317,6 +319,13 @@ def create_post(
         if not character or character.owner_id != member.user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Character not owned by you")
 
+    decision = decide_provenance(
+        db,
+        user_id=member.user_id,
+        content=body.content,
+        composition_session_id=body.composition_session_id,
+    )
+
     now = datetime.utcnow()
     post = StorySpacePost(
         space_id=space_id,
@@ -325,11 +334,13 @@ def create_post(
         character_id=body.character_id,
         content=body.content,
         content_type=body.content_type,
-        source_type=body.source_type,
         created_at=now,
         updated_at=now,
     )
+    post.apply_provenance(decision)
     db.add(post)
+    db.flush()
+    link_commit(db, decision.session, kind="story_space_post", obj_id=post.id)
     db.commit()
     db.refresh(post)
     return _to_post_read(post)
@@ -370,6 +381,7 @@ def _to_published_read(story: PublishedStory) -> PublishedStoryRead:
         summary=story.summary,
         cover_url=story.cover_url,
         visibility=story.visibility,
+        provenance=story.provenance,
         segment_count=len(segs),
         segments=[
             PublishedSegmentRead(
@@ -379,6 +391,7 @@ def _to_published_read(story: PublishedStory) -> PublishedStoryRead:
                 content_type=s.content_type,
                 character_id=s.character_id,
                 character_name_snap=s.character_name_snap,
+                provenance=s.provenance,
             )
             for s in segs
         ],
@@ -423,12 +436,16 @@ def publish_story(
         created_at=now,
         updated_at=now,
     )
+    # Rolled up from the segments below — worst case wins, so publishing can
+    # never turn AI-assisted posts into an unlabelled story. This path used to
+    # drop provenance on the floor entirely.
+    published.apply_provenance(rollup(p.provenance for p in selected))
     db.add(published)
     db.flush()
 
     for position, post in enumerate(selected, start=1):
         char_name_snap = post.character.name if post.character else None
-        db.add(PublishedStorySegment(
+        segment = PublishedStorySegment(
             published_story_id=published.id,
             source_post_id=post.id,
             position=position,
@@ -437,7 +454,11 @@ def publish_story(
             character_name_snap=char_name_snap,
             content_type=post.content_type,
             created_at=now,
-        ))
+        )
+        # Inherited verbatim: a snapshot has no composition session of its own,
+        # and recomputing would silently downgrade every segment to unknown.
+        segment.apply_provenance(inherit(post.provenance))
+        db.add(segment)
 
     db.commit()
     db.refresh(published)

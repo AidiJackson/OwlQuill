@@ -154,31 +154,43 @@ anything that trusts the extension rather than the bytes must account for them.
 
 ### Evidence-based provenance system (User Written / AI Assisted)
 
-The current authorship badge is decorative, not evidential, and the sprint to
-replace it is paused at the investigation stage. Confirmed findings:
+**Built — pending review and deployment.** Every finding recorded here was
+confirmed and is now addressed on `feature/provenance-sprint`.
 
-- No frontend composer sends `source_type`, so every post silently takes the
-  Pydantic default `user` (`backend/app/schemas/post.py:26`) and renders
-  "✍️ User Written". The label has never encoded anything.
-- `source_type` is forgeable — `backend/app/api/routes/posts.py:129` does
-  `PostModel(**post_data.model_dump())` and
-  `backend/app/api/routes/story_spaces.py:328` does `source_type=body.source_type`,
-  both unvalidated.
-- Real AI evidence exists but is disconnected from the public badge:
-  `RPStoryTurn.generated`, `StoryChapter.generated_text`, `GenerationLog`,
-  `GenerationTelemetry`.
-- Story Space publication loses provenance entirely —
-  `PublishedStorySegment` (`backend/app/models/story_space.py:140`) has no
-  source field.
-- No paste detection exists anywhere (zero `onPaste` handlers), while WriteSpace
-  actively routes users through a paste into the Home composer.
-- Editor Studio is image-only and out of scope for text provenance.
+What was wrong: the badge defaulted to "✍️ User Written" for every post, was
+client-settable (`PostModel(**post_data.model_dump())`, `source_type=body.source_type`),
+was applied retroactively to historical NULL rows by the client's `?? 'user'`
+fallback, and was dropped entirely by Story Space publication. Meanwhile real AI
+evidence existed (`RPStoryTurn.generated`, `GenerationLog`, `StoryChapter`) and
+reached nothing public.
 
-This remains a **separate open product/engineering sprint**. No architecture has
-been selected — the data-model decision (inline columns via a shared mixin vs. a
-central polymorphic table) is open and deliberately unanswered — and **no
-migration has been created**. Nothing about it blocks, or is blocked by, the
-image-generation work.
+What replaced it:
+
+- Inline provenance columns via `ProvenanceMixin` on all seven content tables,
+  written by the same `INSERT` as the content. Migration `prov01_provenance`.
+- One decision service, `app/services/provenance.py`, called by every create
+  route; no route decides for itself and no create schema carries a verdict.
+- AI output fingerprinting (`ai_output_fingerprints`) — generators register
+  shingle hashes of their own output, so pasting StoryLab text into the Commons
+  composer is labelled server-side regardless of client behaviour. Author-scoped.
+- Composition sessions (`composition_sessions`) as shared editor infrastructure,
+  with `state_json` reserved for autosave / revisions / collaboration.
+- Paste detection by field-length diffing. `clipboardData.getData()` is never
+  called anywhere in the client — see `frontend/src/lib/composition.ts`.
+- Historical rows are `unknown` with `provenance_rule_version = 0` and render no
+  badge. Deliberately **not** backfilled to `user_written`.
+
+Known follow-ups, none blocking:
+
+- The retired `source_type` columns on `posts` and `story_space_posts` are left
+  in place for rollback safety and should be dropped in a later revision.
+- `EXTERNAL_VERDICT` in the provenance service resolves to `UNKNOWN`. Externally
+  pasted text and RP partner imports already carry a distinguishing evidence
+  `basis`, so enabling a dedicated state is a constant, a badge entry and a
+  re-decide pass — no migration.
+- No sweep exists yet for abandoned composition sessions or for fingerprints past
+  the 90-day retention window. Both tables are indexed on `created_at` for it.
+- Editor Studio is image-only and remains out of scope for text provenance.
 
 ## P2 – Future improvements
 

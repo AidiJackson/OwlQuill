@@ -225,6 +225,15 @@ export interface PostMention {
   url: string;
 }
 
+/** How a piece of text came to exist, decided server-side from evidence.
+ *  The client can neither set nor influence it.
+ *
+ *  Deliberately a widened string union: the server may introduce a state (an
+ *  `external` / `imported` verdict is planned) without a coordinated client
+ *  release. Anything unrecognised renders as no badge, which is the safe
+ *  failure — an unlabelled post, never a wrong label. */
+export type Provenance = 'user_written' | 'ai_assisted' | 'unknown' | (string & {});
+
 export interface Post {
   id: number;
   realm_id?: number;
@@ -237,7 +246,7 @@ export interface Post {
   content: string;
   content_type: 'ic' | 'ooc' | 'narration';
   post_kind?: 'general' | 'open_starter' | 'finished_piece';
-  source_type?: 'user' | 'ai_assisted' | 'ai_generated';
+  provenance?: Provenance;
   image_url?: string;
   created_at: string;
   updated_at: string;
@@ -245,6 +254,55 @@ export interface Post {
   /** Comment count, sent with the post so a collapsed comment section can show
    *  a truthful count before the comments themselves are fetched. */
   comment_count?: number;
+}
+
+/** Create payloads.
+ *
+ *  Explicit rather than `Partial<Post>` so there is no field here capable of
+ *  asserting authorship. `composition_session_id` is evidence the server issued
+ *  and can verify — it is not a verdict, and the server is free to ignore it.
+ */
+/** Editing-session counters. Integers only — this shape is the complete set of
+ *  what a composer reports about how text arrived. There is deliberately no
+ *  field here capable of carrying text. */
+export interface CompositionMetrics {
+  typed_chars: number;
+  inserted_chars: number;
+  internal_insert_chars: number;
+  largest_insertion: number;
+  insertion_count: number;
+  edit_duration_ms: number;
+}
+
+export interface PostCreatePayload {
+  content: string;
+  title?: string;
+  content_type?: 'ic' | 'ooc' | 'narration';
+  post_kind?: 'general' | 'open_starter' | 'finished_piece';
+  character_id?: number;
+  image_url?: string;
+  composition_session_id?: string;
+}
+
+export interface CommentCreatePayload {
+  content: string;
+  content_type?: 'ic' | 'ooc' | 'narration';
+  character_id?: number;
+  composition_session_id?: string;
+}
+
+export interface ScenePostCreatePayload {
+  content: string;
+  character_id?: number;
+  reply_to_id?: number;
+  composition_session_id?: string;
+}
+
+export interface SpacePostCreatePayload {
+  content: string;
+  content_type?: string;
+  character_id?: number;
+  composition_session_id?: string;
 }
 
 export interface Notification {
@@ -269,6 +327,7 @@ export interface Comment {
   character_avatar_url?: string;
   content: string;
   content_type?: 'ic' | 'ooc' | 'narration';
+  provenance?: Provenance;
   created_at: string;
   updated_at: string;
 }
@@ -310,6 +369,7 @@ export interface ScenePost {
   character_name?: string;
   content: string;
   reply_to_id?: number;
+  provenance?: Provenance;
   created_at: string;
 }
 
@@ -405,7 +465,7 @@ export interface StorySpacePost {
   character_avatar_url?: string;
   content: string;
   content_type: string;
-  source_type?: 'user' | 'ai_assisted' | 'ai_generated';
+  provenance?: Provenance;
   created_at: string;
   updated_at: string;
 }
