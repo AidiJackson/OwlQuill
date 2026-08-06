@@ -154,8 +154,11 @@ anything that trusts the extension rather than the bytes must account for them.
 
 ### Evidence-based provenance system (User Written / AI Assisted)
 
-**Built — pending review and deployment.** Every finding recorded here was
-confirmed and is now addressed on `feature/provenance-sprint`.
+**Built and verified locally — not deployed, and not applied to any real
+database.** Every finding recorded here was confirmed and is now addressed on
+`feature/provenance-sprint` (commits `ce78527`, `de87b7f`). Nothing below is a
+claim about production behaviour; `prov01_provenance` has never been run against
+Neon.
 
 What was wrong: the badge defaulted to "✍️ User Written" for every post, was
 client-settable (`PostModel(**post_data.model_dump())`, `source_type=body.source_type`),
@@ -164,32 +167,60 @@ fallback, and was dropped entirely by Story Space publication. Meanwhile real AI
 evidence existed (`RPStoryTurn.generated`, `GenerationLog`, `StoryChapter`) and
 reached nothing public.
 
-What replaced it:
+Resolved locally by this sprint:
 
-- Inline provenance columns via `ProvenanceMixin` on all seven content tables,
-  written by the same `INSERT` as the content. Migration `prov01_provenance`.
-- One decision service, `app/services/provenance.py`, called by every create
-  route; no route decides for itself and no create schema carries a verdict.
-- AI output fingerprinting (`ai_output_fingerprints`) — generators register
-  shingle hashes of their own output, so pasting StoryLab text into the Commons
-  composer is labelled server-side regardless of client behaviour. Author-scoped.
-- Composition sessions (`composition_sessions`) as shared editor infrastructure,
-  with `state_json` reserved for autosave / revisions / collaboration.
-- Paste detection by field-length diffing. `clipboardData.getData()` is never
-  called anywhere in the client — see `frontend/src/lib/composition.ts`.
-- Historical rows are `unknown` with `provenance_rule_version = 0` and render no
+- **Decorative, forgeable badge.** Inline provenance columns via
+  `ProvenanceMixin` on all seven content tables, written by the same `INSERT` as
+  the content. One decision service, `app/services/provenance.py`, called by
+  every create route; no route decides for itself, and `source_type` is gone
+  from every create schema so no client field can influence a verdict.
+- **StoryLab output disconnected from provenance.** AI output fingerprinting
+  (`ai_output_fingerprints`) — generators register shingle hashes of their own
+  output, so pasting StoryLab or RP text into a composer is labelled
+  server-side regardless of client behaviour. Author-scoped, lookups chunked.
+- **Story Space provenance loss.** Publication now inherits each segment's
+  provenance verbatim and rolls the story up worst-case, so an AI-assisted post
+  can no longer be laundered into an unlabelled published story.
+- **WriteSpace internal handoff.** A copy-for-posting registers a session
+  linkage, not content; the receiving composer's paste is credited as internal
+  only up to what the parent session was independently observed to type. Paste
+  detection is field-length diffing — `clipboardData.getData()` is never called
+  anywhere in the client (`frontend/src/lib/composition.ts`).
+- **Historical rows.** `unknown` at `provenance_rule_version = 0`, rendering no
   badge. Deliberately **not** backfilled to `user_written`.
+- **Stale creator-gated tests.** The 44 pre-existing failures in
+  `test_storylab.py`, `test_rp_reply.py` and
+  `test_storylab_create_story_isolation.py` were bare accounts calling
+  creator-gated routes and receiving a correct `require_creator` 403. Fixed in
+  `de87b7f` at the gated seam; `require_creator` unchanged, no production code
+  touched.
 
-Known follow-ups, none blocking:
+Still open:
 
-- The retired `source_type` columns on `posts` and `story_space_posts` are left
-  in place for rollback safety and should be dropped in a later revision.
-- `EXTERNAL_VERDICT` in the provenance service resolves to `UNKNOWN`. Externally
-  pasted text and RP partner imports already carry a distinguishing evidence
+- **No cleanup job for abandoned composition sessions.** `composition_sessions`
+  is indexed on `created_at` for a sweep that does not exist yet.
+- **No cleanup job for AI fingerprints past the 90-day retention window.**
+  `FINGERPRINT_RETENTION` bounds *matching*, not storage;
+  `ai_output_fingerprints` is indexed on `created_at` for the prune.
+- **`prov01_provenance` has not been applied to production.** It descends from
+  `tw02_writer_waitlist`, is a single head, and compiles cleanly both ways, but
+  has only been exercised as generated SQL — never run against Neon.
+- **No browser QA.** The provenance UI, composition-session lifecycle and paste
+  accounting have been verified by unit/API tests and a production build only;
+  nothing has been clicked through in a real browser.
+- **No admin provenance inspection panel.** `provenance_evidence` is deliberately
+  never exposed in a public payload, so there is currently no way to inspect why
+  a given post got its verdict without database access.
+- **Richer Imported / "Brought to Ficshon" public treatment.** `EXTERNAL_VERDICT`
+  resolves to `UNKNOWN` today, so externally pasted text and RP partner imports
+  are not publicly distinguished. They already carry a distinguishing evidence
   `basis`, so enabling a dedicated state is a constant, a badge entry and a
   re-decide pass — no migration.
-- No sweep exists yet for abandoned composition sessions or for fingerprints past
-  the 90-day retention window. Both tables are indexed on `created_at` for it.
+- **Cross-user fingerprint matching**, intentionally excluded from v1. Matching
+  is author-scoped, so text generated by one account and posted by another is
+  not detected. Enabling it is a scope change with its own privacy decision.
+- The retired `source_type` columns on `posts` and `story_space_posts` are left
+  in place for rollback safety and should be dropped in a later revision.
 - Editor Studio is image-only and remains out of scope for text provenance.
 
 ## P2 – Future improvements
