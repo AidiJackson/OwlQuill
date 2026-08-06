@@ -100,6 +100,13 @@ export default function RealmDetail() {
     }
   };
 
+  // See Home.tsx — an image picked for one character must not survive a
+  // change of posting character.
+  useEffect(() => {
+    setAttachedImage(null);
+    setShowImageModal(false);
+  }, [newPost.character_id]);
+
   const handleCreatePost = async () => {
     if (!realmId || !newPost.content.trim()) return;
     // Require an explicit character selection when the user has characters
@@ -717,6 +724,7 @@ export default function RealmDetail() {
         onClose={() => setShowImageModal(false)}
         onSelect={(img) => { setAttachedImage(img); setShowImageModal(false); }}
         selectedId={attachedImage?.id}
+        characterId={newPost.character_id}
       />
     </div>
   );

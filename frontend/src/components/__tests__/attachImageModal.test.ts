@@ -26,7 +26,14 @@ describe('isAttachableImage', () => {
     }
   });
 
-  it('excludes cover banners (not a normal post attachment)', () => {
-    expect(isAttachableImage(img('cover'))).toBe(false);
+  // Changed deliberately in the character-scoped-media fix: `cover` is now part
+  // of the publishable allowlist alongside `generated` and `scene_only`. It was
+  // previously excluded as "not a normal post attachment"; a character's cover
+  // is its own public banner, so publishing it leaks nothing.
+  //
+  // The kinds that must never be attachable are the private production material
+  // covered above and in attachImageKinds.scope.test.ts.
+  it('accepts a character cover banner', () => {
+    expect(isAttachableImage(img('cover'))).toBe(true);
   });
 });

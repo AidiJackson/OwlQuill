@@ -3,16 +3,26 @@ import { Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { LibraryImage } from '@/lib/types';
 import { ficDebug } from '@/lib/ficDebug';
-import { isAttachableImage } from './attachImageKinds';
+import { isAttachableImage, ATTACHABLE_KIND_LIST } from './attachImageKinds';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSelect: (image: LibraryImage) => void;
   selectedId?: number;
+  /**
+   * The character the post is being authored as. Required — a post composer is
+   * character-contextual and must never show an account-wide library: posting
+   * as Pan must not expose Shadow's media.
+   *
+   * This is deliberately not optional and has no "all characters" mode. That
+   * belongs to the founder Image Library workspace, which is a different
+   * surface with a different purpose.
+   */
+  characterId?: number | null;
 }
 
-export default function AttachImageModal({ open, onClose, onSelect, selectedId }: Props) {
+export default function AttachImageModal({ open, onClose, onSelect, selectedId, characterId }: Props) {
   const [images, setImages] = useState<LibraryImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -25,16 +35,39 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId }
 
   useEffect(() => {
     if (!open) return;
-    ficDebug.log('AttachImageModal: fetching images');
     setPicked(selectedId);
+    // No acting character means no scope to show. Failing closed is correct:
+    // the alternative is falling back to the account-wide library, which is
+    // exactly the leak this guards against.
+    if (characterId == null) {
+      setImages([]);
+      setLoading(false);
+      setError('');
+      return;
+    }
+    ficDebug.log(`AttachImageModal: fetching images for character ${characterId}`);
     setLoading(true);
     setError('');
+    let cancelled = false;
     apiClient
-      .listMyCharacterImages()
-      .then((imgs) => setImages(imgs.filter(isAttachableImage)))
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
-      .finally(() => setLoading(false));
-  }, [open, selectedId]);
+      // Scoped server-side by character AND kind; the client-side filter below
+      // is belt-and-braces for older rows, not the boundary.
+      .listMyCharacterImages({ characterId, kind: ATTACHABLE_KIND_LIST })
+      .then((imgs) => {
+        if (!cancelled) setImages(imgs.filter(isAttachableImage));
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    // Guards against a stale response from the previous character landing after
+    // a fast switch and repopulating the grid with the wrong character's media.
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedId, characterId]);
 
   if (!open) return null;
 

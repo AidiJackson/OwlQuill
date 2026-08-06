@@ -11,7 +11,11 @@ from app.models.user import User
 from app.models.post import Post as PostModel
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
 from app.models.character import Character as CharacterModel
-from app.models.character_image import CharacterImage
+from app.models.character_image import (
+    POST_ATTACHABLE_IMAGE_KINDS,
+    CharacterImage,
+    ImageStatusEnum,
+)
 from app.models.user_image import UserImage
 from app.schemas.post import Post, PostCreate
 from app.services.composition import link_commit
@@ -100,19 +104,30 @@ def create_post_in_realm(
             detail="You can only post as your own character.",
         )
 
-    # Enforce image ownership: if image_url is provided, it must belong to the
-    # current user (via their character's images or their user images).
+    # Enforce image attachment rules. Account ownership alone is not enough: a
+    # post is authored by ONE character, so the image must belong to THAT
+    # character. Owning Shadow does not entitle a post authored by Pan to
+    # Shadow's media, and the client cannot buy its way past this by sending a
+    # forged path — the acting character is taken from the verified
+    # ``author_char`` above, never from the request.
+    #
+    # Status and kind are checked here too, so private production material
+    # (identity sketches, face/body refs, anchors, accessory sheets) and
+    # inactive/temp rows can never be published even if a client asks for them.
     if post_data.image_url:
         file_path = post_data.image_url.lstrip('/')
         owned_char_img = (
             db.query(CharacterImage)
-            .join(CharacterModel, CharacterImage.character_id == CharacterModel.id)
             .filter(
                 CharacterImage.file_path == file_path,
-                CharacterModel.owner_id == current_user.id,
+                CharacterImage.character_id == author_char.id,
+                CharacterImage.status == ImageStatusEnum.ACTIVE,
+                CharacterImage.kind.in_(POST_ATTACHABLE_IMAGE_KINDS),
             )
             .first()
         )
+        # Account-level images belong to no character, so the character scope
+        # above does not apply to them; they remain the poster's own media.
         owned_user_img = (
             db.query(UserImage)
             .filter(
@@ -125,7 +140,7 @@ def create_post_in_realm(
         if not owned_char_img and not owned_user_img:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only use your own images in posts",
+                detail="You can only attach your own character's images to a post.",
             )
 
     # Provenance is decided here, from server-held evidence, and is the only

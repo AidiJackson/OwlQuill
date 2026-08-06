@@ -128,6 +128,14 @@ export default function Home() {
 
   const commonsRealm = realms.find(r => r.is_commons);
 
+  // Switching who you are posting as invalidates an image chosen for the
+  // previous character — it belongs to them, not to the new author, and the
+  // server would refuse it anyway.
+  useEffect(() => {
+    setAttachedImage(null);
+    setShowImageModal(false);
+  }, [composerCharId]);
+
   const handleQuickPost = async () => {
     if (!commonsRealm || !quickContent.trim()) return;
     // Require an explicit character selection when the user has characters
@@ -752,6 +760,7 @@ export default function Home() {
         onClose={() => setShowImageModal(false)}
         onSelect={(img) => { setAttachedImage(img); setShowImageModal(false); }}
         selectedId={attachedImage?.id}
+        characterId={composerCharId}
       />
     </div>
   );

@@ -33,6 +33,25 @@ class ImageKindEnum(str, enum.Enum):
     SCENE_ONLY = "scene_only"                      # generated scene — not canon, not identity ref
 
 
+#: Kinds a character may attach to a public post.
+#:
+#: An allowlist, not a denylist, so a newly added kind is private by default and
+#: has to be opted in deliberately. Everything omitted here — identity sketches,
+#: face and body references, anchors, accessory sheets — is private production
+#: material that exists to drive generation, not to be published.
+#:
+#: The client mirrors this list in ``frontend/src/components/attachImageKinds.ts``
+#: for what it *offers*; this is what the server will *accept*, and it is the one
+#: that matters.
+POST_ATTACHABLE_IMAGE_KINDS = frozenset(
+    {
+        ImageKindEnum.GENERATED.value,
+        ImageKindEnum.COVER.value,
+        ImageKindEnum.SCENE_ONLY.value,
+    }
+)
+
+
 class ImageStatusEnum(str, enum.Enum):
     """Image lifecycle status."""
     ACTIVE = "active"
