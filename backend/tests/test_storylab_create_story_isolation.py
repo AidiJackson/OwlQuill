@@ -326,8 +326,12 @@ class TestRPReplyStillWorks:
 
 class TestDiagMetadata:
     def test_chapter_response_includes_diag_metadata(self, client):
-        from tests.conftest import get_auth_token, auth_headers
+        from tests.conftest import ensure_character, get_auth_token, auth_headers
         token = get_auth_token(client)
+        # StoryLab is a creator workspace — require_creator derives the
+        # entitlement from character ownership, so a bare account 403s before
+        # reaching the diag metadata this test is about.
+        ensure_character(client, token)
         story_resp = client.post(
             "/storylab/stories",
             headers=auth_headers(token),
@@ -365,8 +369,12 @@ class TestDiagMetadata:
 
     def test_chapter_response_diag_reflects_controls(self, client):
         """Verify controls sent by frontend are received and reflected in diag."""
-        from tests.conftest import get_auth_token, auth_headers
+        from tests.conftest import ensure_character, get_auth_token, auth_headers
         token = get_auth_token(client)
+        # StoryLab is a creator workspace — require_creator derives the
+        # entitlement from character ownership, so a bare account 403s before
+        # reaching the diag metadata this test is about.
+        ensure_character(client, token)
         story_resp = client.post(
             "/storylab/stories",
             headers=auth_headers(token),

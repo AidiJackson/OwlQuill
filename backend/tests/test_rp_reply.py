@@ -3,6 +3,24 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import get_auth_token, auth_headers, make_admin
 
+
+def _creator_token(client) -> str:
+    """Token for an account that owns a character.
+
+    The RP reply endpoint is a creator workspace: ``require_creator`` derives
+    the entitlement from character ownership, so a bare account receives a
+    correct 403 and never reaches reply generation. These tests exercise
+    generation, not the gate, so the account gets the character that makes it a
+    Writer. Tests that create their own named character already pass and are
+    left alone, so no one-character slot is consumed twice.
+    """
+    from tests.conftest import ensure_character
+
+    token = get_auth_token(client)
+    ensure_character(client, token)
+    return token
+
+
 _LENNOX_REPLY = (
     "||Lennox hadn't moved from the doorway. She stood with one shoulder against the frame, "
     "arms loose at her sides — the pose of someone who had made peace with waiting, "
@@ -155,7 +173,7 @@ def test_check_rp_reply_output_no_warnings_for_clean_reply():
 # ── endpoint tests ────────────────────────────────────────────────────────────
 
 def test_rp_reply_basic_generation(client: TestClient):
-    token = get_auth_token(client)
+    token = _creator_token(client)
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -176,7 +194,7 @@ def test_rp_reply_basic_generation(client: TestClient):
 
 
 def test_rp_reply_roleplay_bars_format(client: TestClient):
-    token = get_auth_token(client)
+    token = _creator_token(client)
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -196,7 +214,7 @@ def test_rp_reply_roleplay_bars_format(client: TestClient):
 
 
 def test_rp_reply_mature_mode_does_not_enable_explicit(client: TestClient):
-    token = get_auth_token(client)
+    token = _creator_token(client)
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -250,7 +268,7 @@ def test_rp_reply_with_character_id(client: TestClient):
 
 
 def test_rp_reply_invalid_character_id_returns_404(client: TestClient):
-    token = get_auth_token(client)
+    token = _creator_token(client)
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -507,7 +525,7 @@ def test_rp_reply_endpoint_with_leonardo_does_not_open_as_lennox(client: TestCli
 
 def test_rp_reply_endpoint_response_has_style_warnings_field(client: TestClient):
     """Response always includes style_warnings field (may be empty)."""
-    token = get_auth_token(client)
+    token = _creator_token(client)
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -527,7 +545,7 @@ def test_rp_reply_endpoint_response_has_style_warnings_field(client: TestClient)
 
 
 def test_rp_reply_empty_partner_reply_rejected(client: TestClient):
-    token = get_auth_token(client)
+    token = _creator_token(client)
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -1160,7 +1178,7 @@ def test_build_spatial_continuity_block_contains_no_teleport_rule():
 
 def test_rp_reply_endpoint_returns_orchestration_fields(client: TestClient):
     """Response must include orchestration stabilization diagnostic fields."""
-    token = get_auth_token(client)
+    token = _creator_token(client)
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -1249,7 +1267,7 @@ def test_inferno_model_is_not_restrictive():
 
 def test_content_level_standard_in_request(client: TestClient):
     """intensity=standard accepted and returns valid response."""
-    token = get_auth_token(client)
+    token = _creator_token(client)
     resp = client.post(
         "/storylab/rp-reply/generate",
         headers=auth_headers(token),
@@ -1937,7 +1955,7 @@ class TestEndpointTask5Fields:
     def test_task5_fields_present_in_response(self, client: TestClient):
         """ai_cadence_risk, spatial_position, spatial_dominance, resolved_heat must all be
         present in the response schema (added in Task #5)."""
-        token = get_auth_token(client)
+        token = _creator_token(client)
         resp = client.post(
             "/storylab/rp-reply/generate",
             headers=auth_headers(token),
@@ -1987,7 +2005,7 @@ class TestEndpointTask5Fields:
 
     def test_partner_character_name_accepted_in_request(self, client: TestClient):
         """partner_character_name field (added in Task #5) must be accepted without error."""
-        token = get_auth_token(client)
+        token = _creator_token(client)
         resp = client.post(
             "/storylab/rp-reply/generate",
             headers=auth_headers(token),
@@ -2029,7 +2047,7 @@ class TestEndpointTask5Fields:
             }
             return (fake_reply, "stub", 0, [], 0, fake_meta)
 
-        token = get_auth_token(client)
+        token = _creator_token(client)
         with patch.object(route_module, "generate_rp_reply", side_effect=_mock_generate):
             resp = client.post(
                 "/storylab/rp-reply/generate",

@@ -1365,7 +1365,17 @@ _CH_GENERATE_BODY = {
 
 
 def _sl_auth_headers(client, email: str = "sl-test@ficshon.com", username: str = "sltestuser") -> dict:
-    """Register a test user (if needed) and return Bearer auth headers."""
+    """Register a test user (if needed) and return Bearer auth headers.
+
+    The account is given a character, because StoryLab is a creator workspace:
+    ``require_creator`` derives the entitlement from character ownership, so a
+    bare account gets a correct 403 and never reaches the behaviour these tests
+    are about. No test in this module asserts the Wanderer 403 — the 403
+    assertions here are all about the admin-only boundary and heat gates, which
+    sit *behind* the creator gate and were previously unreachable.
+    """
+    from tests.conftest import ensure_character
+
     client.post(
         "/auth/register",
         json={"email": email, "username": username, "password": "testpass123"},
@@ -1375,6 +1385,7 @@ def _sl_auth_headers(client, email: str = "sl-test@ficshon.com", username: str =
         json={"email": email, "password": "testpass123"},
     )
     token = resp.json()["access_token"]
+    ensure_character(client, token)
     return {"Authorization": f"Bearer {token}"}
 
 
