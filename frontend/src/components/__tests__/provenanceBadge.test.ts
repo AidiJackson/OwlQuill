@@ -10,8 +10,8 @@ import { describe, it, expect } from 'vitest';
 const BADGE_LABELS: Record<string, string> = {
   user_written: '✍️ Written in Ficshon',
   ai_assisted: '✨ AI Assisted',
-  external: '📄 Written elsewhere',
-  unknown: '📄 Written elsewhere',
+  external: '📄 Created elsewhere',
+  unknown: '📄 Created elsewhere',
 };
 
 function labelFor(provenance?: string | null): string | null {
@@ -27,19 +27,19 @@ describe('provenance badge vocabulary', () => {
     expect(labelFor('ai_assisted')).toBe('✨ AI Assisted');
   });
 
-  it('labels content written elsewhere', () => {
-    expect(labelFor('external')).toBe('📄 Written elsewhere');
+  it('labels content created elsewhere', () => {
+    expect(labelFor('external')).toBe('📄 Created elsewhere');
   });
 
-  it('shows legacy rows as written elsewhere, not as unbadged', () => {
+  it('shows legacy rows as created elsewhere, not as unbadged', () => {
     // Pre-provenance posts were deliberately never backfilled. They still say
-    // something true: Ficshon did not watch them being written.
-    expect(labelFor('unknown')).toBe('📄 Written elsewhere');
+    // something true: Ficshon did not watch them being created.
+    expect(labelFor('unknown')).toBe('📄 Created elsewhere');
   });
 
   it('makes no claim about which kind of elsewhere', () => {
     // A Notepad paste and an outside AI are indistinguishable to us and must
-    // therefore read identically. "Written elsewhere" is not an AI accusation.
+    // therefore read identically. "Created elsewhere" is not an AI accusation.
     expect(labelFor('external')).not.toMatch(/AI/);
   });
 

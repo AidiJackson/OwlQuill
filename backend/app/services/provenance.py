@@ -27,7 +27,7 @@ State what we know; do not guess what we do not. A piece of text either was
 observed being composed here, or was produced by our own AI, or was not composed
 here — and the third case is a single state on purpose. Ficshon cannot tell a
 Notepad paste from a Word paste from an outside AI, so it does not try, and
-"Written elsewhere" makes no claim about which it was.
+"Created elsewhere" makes no claim about which it was.
 
 There is consequently no "we have no idea" outcome. Anything that fails to earn
 USER_WRITTEN and carries no AI evidence is EXTERNAL, because "we did not observe
@@ -48,7 +48,7 @@ from app.services import text_fingerprint
 #: Bumped whenever the rules below change meaning. Stamped on every decided row
 #: so a later pass can find exactly what a given rule produced and re-evaluate.
 #:
-#: v2 — "Written elsewhere" became a real state. Every outcome that previously
+#: v2 — "Created elsewhere" became a real state. Every outcome that previously
 #: resolved to UNKNOWN (no session, unusable metrics, no observed typing, mostly
 #: pasted) now resolves to EXTERNAL, so a decided row is never unbadged.
 RULE_VERSION = 2
@@ -391,7 +391,7 @@ def external_import(source: str) -> ProvenanceDecision:
     An RP partner's reply pasted in from another platform is the clear case: it
     was not written here by anyone, and calling it written-in-Ficshon would be a
     lie. The ``source`` is recorded for diagnostics only — the public statement
-    is the same "Written elsewhere" every other external route produces.
+    is the same "Created elsewhere" every other external route produces.
     """
     return ProvenanceDecision(
         verdict=EXTERNAL_VERDICT,

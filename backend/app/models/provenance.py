@@ -34,17 +34,17 @@ class Provenance(str, enum.Enum):
     * ``USER_WRITTEN`` — Ficshon observed the text being composed here.
     * ``AI_ASSISTED``  — Ficshon's own AI tools produced or substantially
       assisted it.
-    * ``EXTERNAL``     — everything else. "Written elsewhere" is a statement
-      about where composition happened, **not** a claim that the text is
-      AI-written. Notepad, Word, Docs, Discord, an old RP site and an outside
-      AI all land here alike, because Ficshon cannot tell them apart and does
-      not pretend to.
+    * ``EXTERNAL``     — everything else. "Created elsewhere" is a statement
+      about where the content was created, **not** a claim that the text is
+      AI-written. Notepad, Word, Docs, Discord, an imported roleplay log, a
+      translation, an archived post and an outside AI all land here alike,
+      because Ficshon cannot tell them apart and does not pretend to.
 
     ``UNKNOWN`` is **legacy only**. It is what rows created before the
     provenance system carry, and the rules no longer emit it. It is retained so
     those rows stay identifiable as never-evaluated (``rule_version = 0``); the
-    client displays them as "Written elsewhere" like any other content Ficshon
-    did not observe being written here.
+    client displays them as "Created elsewhere" like any other content Ficshon
+    did not observe being created here.
     """
 
     USER_WRITTEN = "user_written"

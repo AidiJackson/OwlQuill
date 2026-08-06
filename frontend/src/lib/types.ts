@@ -228,9 +228,9 @@ export interface PostMention {
 /** How a piece of text came to exist, decided server-side from evidence.
  *  The client can neither set nor influence it.
  *
- *  Three states are user-facing: written here, assisted by our AI, or written
+ *  Three states are user-facing: written here, assisted by our AI, or created
  *  elsewhere. `unknown` is legacy only — rows that predate the system, shown as
- *  "Written elsewhere" like anything else Ficshon did not watch being written.
+ *  "Created elsewhere" like anything else Ficshon did not watch being created.
  *
  *  Deliberately a widened string union so the server can introduce a state
  *  without a coordinated client release. Anything unrecognised renders as no

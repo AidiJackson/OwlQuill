@@ -9,10 +9,13 @@ import type { Provenance } from '@/lib/types';
  *
  * - **Written in Ficshon** — we watched it being composed here.
  * - **AI Assisted** — our own AI tools produced or substantially assisted it.
- * - **Written elsewhere** — everything else. This is a statement about *where
- *   composition happened*, not an accusation. Notepad, Word, Docs, Discord, an
- *   old RP site and an outside AI all land here alike, because we genuinely
- *   cannot tell them apart and will not pretend otherwise.
+ * - **Created elsewhere** — everything else. This is a statement about *where
+ *   the content was created*, not an accusation. Notepad, Word, Docs, Discord,
+ *   an imported roleplay log, a translation, an archived post and an outside AI
+ *   all land here alike, because we genuinely cannot tell them apart and will
+ *   not pretend otherwise. "Created" rather than "written" because much of what
+ *   arrives this way was collaborative, chatted, logged or converted rather than
+ *   authored in one sitting.
  *
  * Two rules keep it honest:
  *
@@ -34,15 +37,15 @@ const BADGES: Record<string, { label: string; className: string }> = {
     className: 'text-purple-400/80 border-purple-800/50 bg-purple-950/30',
   },
   external: {
-    label: '📄 Written elsewhere',
+    label: '📄 Created elsewhere',
     className: 'text-ink-3 border-edge bg-surface',
   },
   // Legacy. Rows created before the provenance system carry `unknown` and were
   // deliberately never backfilled, so the database still distinguishes "never
   // evaluated" from "evaluated, not composed here". Publicly they say the same
-  // thing: Ficshon did not observe this being written here.
+  // thing: Ficshon did not observe this being created here.
   unknown: {
-    label: '📄 Written elsewhere',
+    label: '📄 Created elsewhere',
     className: 'text-ink-3 border-edge bg-surface',
   },
 };
