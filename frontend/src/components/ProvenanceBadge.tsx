@@ -27,26 +27,38 @@ import type { Provenance } from '@/lib/types';
  * 2. **Unrecognised states render nothing.** A verdict the server introduces
  *    before the client knows about it shows no badge rather than a wrong one.
  */
-const BADGES: Record<string, { label: string; className: string }> = {
+/** Exported so the tests assert against *this* table rather than a copy of it. */
+export const BADGES: Record<
+  string,
+  { icon: string; label: string; className: string; title: string }
+> = {
   user_written: {
-    label: '✍️ Written in Ficshon',
-    className: 'text-ink-2/80 border-edge-md bg-surface-elevated',
+    icon: '✍️',
+    label: 'Written in Ficshon',
+    className: 'badge-written',
+    title: 'Ficshon watched this being composed here.',
   },
   ai_assisted: {
-    label: '✨ AI Assisted',
-    className: 'text-purple-400/80 border-purple-800/50 bg-purple-950/30',
+    icon: '✨',
+    label: 'AI Assisted',
+    className: 'badge-ai',
+    title: "Produced or substantially assisted by Ficshon's own AI tools.",
   },
   external: {
-    label: '📄 Created elsewhere',
-    className: 'text-ink-3 border-edge bg-surface',
+    icon: '📄',
+    label: 'Created elsewhere',
+    className: 'badge-external',
+    title: 'Not composed in Ficshon. This is not a claim about AI.',
   },
   // Legacy. Rows created before the provenance system carry `unknown` and were
   // deliberately never backfilled, so the database still distinguishes "never
   // evaluated" from "evaluated, not composed here". Publicly they say the same
   // thing: Ficshon did not observe this being created here.
   unknown: {
-    label: '📄 Created elsewhere',
-    className: 'text-ink-3 border-edge bg-surface',
+    icon: '📄',
+    label: 'Created elsewhere',
+    className: 'badge-external',
+    title: 'Not composed in Ficshon. This is not a claim about AI.',
   },
 };
 
@@ -62,8 +74,14 @@ export default function ProvenanceBadge({
 
   return (
     <span
-      className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded border select-none ${badge.className} ${className}`}
+      // Geometry from the shared `.badge` rule, so this sits at exactly the
+      // height of the IC/OOC chip beside it — see index.css and PostBadges.
+      className={`badge ${badge.className} ${className}`}
+      title={badge.title}
     >
+      {/* Decoration only. Read aloud, "writing hand Written in Ficshon" is
+          noise; the label alone says the whole thing. */}
+      <span aria-hidden="true">{badge.icon}</span>
       {badge.label}
     </span>
   );

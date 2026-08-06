@@ -14,6 +14,7 @@ import MentionText from '@/components/MentionText';
 import HappeningInFicshon from '@/components/HappeningInFicshon';
 import { hasActingCharacter } from '@/lib/entitlements';
 import ProvenanceBadge from '@/components/ProvenanceBadge';
+import { PostTypeBadge, PostKindBadge } from '@/components/PostBadges';
 import { CompositionTracker } from '@/lib/composition';
 
 const WORKSPACE_PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
@@ -134,6 +135,9 @@ export default function Home() {
   useEffect(() => {
     setAttachedImage(null);
     setShowImageModal(false);
+    // A "select a character" error is answered by selecting one; leaving it on
+    // screen afterwards reads as a second, unrelated failure.
+    setPostError(null);
   }, [composerCharId]);
 
   const handleQuickPost = async () => {
@@ -215,35 +219,6 @@ export default function Home() {
     return realm?.name || 'Unknown Realm';
   };
 
-  const getPostTypeBadge = (contentType: string) => {
-    const badges = {
-      ic:        { label: 'IC',        className: 'text-gem bg-gem-soft border-gem/25' },
-      ooc:       { label: 'OOC',       className: 'text-ink-3 bg-surface-elevated border-edge' },
-      narration: { label: 'NARRATION', className: 'text-amber-400/80 bg-amber-950/20 border-amber-800/40' },
-    };
-    const badge = badges[contentType as keyof typeof badges] || badges.ic;
-    return (
-      <span className={`px-1.5 py-0.5 text-[10px] font-mono tracking-[0.06em] uppercase rounded border select-none ${badge.className}`}>
-        {badge.label}
-      </span>
-    );
-  };
-
-  const getPostKindBadge = (postKind?: string) => {
-    if (!postKind || postKind === 'general') return null;
-    const kinds: Record<string, { label: string; className: string }> = {
-      open_starter:   { label: 'Open Starter',   className: 'text-teal-400/80 bg-teal-950/20 border-teal-800/40' },
-      finished_piece: { label: 'Finished Piece', className: 'text-rose-400/70 bg-rose-950/20 border-rose-800/40' },
-    };
-    const kind = kinds[postKind];
-    if (!kind) return null;
-    return (
-      <span className={`px-1.5 py-0.5 text-[10px] font-mono tracking-[0.06em] uppercase rounded border select-none ${kind.className}`}>
-        {kind.label}
-      </span>
-    );
-  };
-
   // Quiet select styling shared by the composer controls
   const selectCls =
     'bg-surface-elevated border border-edge rounded-lg px-2.5 py-1.5 text-sm text-ink-2 cursor-pointer focus:outline-none';
@@ -312,9 +287,12 @@ export default function Home() {
             null
           ) : commonsRealm ? (
             <div className="rounded-2xl border border-edge bg-surface mb-8 p-5">
-              <h3 className="text-sm font-medium mb-3 text-ink-2">
-                <>Writing as <span className="text-gem">{composerCharId ? (characters.find(c => c.id === composerCharId)?.name ?? characters[0].name) : characters[0].name}</span></>
-              </h3>
+              {/* The identity line lives in the "Posting as" control below and
+                  nowhere else. There used to be a heading here saying the same
+                  thing — and saying it wrongly: with several characters and none
+                  chosen, it named the first one while the selector still read
+                  "select character", so the composer claimed an identity the
+                  post would not have carried. */}
               {showWorkspacePasteHint && (
                 <div className="flex items-center justify-between text-xs text-ink-3 mb-3">
                   <span>From Workspace: paste your draft into the composer.</span>
@@ -373,11 +351,13 @@ export default function Home() {
                 }}
                 value={quickContent}
                 onChange={(e) => setQuickContent(e.target.value)}
+                disabled={posting}
+                aria-label="Write a post"
                 onFocus={() => {
                   localStorage.removeItem(WORKSPACE_PASTE_HINT_KEY);
                   setShowWorkspacePasteHint(false);
                 }}
-                className="w-full mb-3 bg-transparent border-none resize-none text-[15px] leading-[1.7] text-ink placeholder:text-ink-3 focus:outline-none min-h-[80px]"
+                className="fic-compose w-full mb-3 bg-transparent border-none resize-none text-ink placeholder:text-ink-3 focus:outline-none min-h-[80px]"
                 placeholder="Share an intro, plot idea, or just say hello..."
                 rows={3}
               />
@@ -404,6 +384,8 @@ export default function Home() {
                 <select
                   value={quickContentType}
                   onChange={(e) => setQuickContentType(e.target.value as 'ooc' | 'ic' | 'narration')}
+                  aria-label="Writing mode"
+                  disabled={posting}
                   className={selectCls}
                 >
                   <option value="ooc">OOC</option>
@@ -413,6 +395,8 @@ export default function Home() {
                 <select
                   value={quickPostKind}
                   onChange={(e) => setQuickPostKind(e.target.value as 'general' | 'open_starter' | 'finished_piece')}
+                  aria-label="Post kind"
+                  disabled={posting}
                   className={selectCls}
                 >
                   <option value="general">General</option>
@@ -422,21 +406,32 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setShowImageModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-ink-2 bg-surface-elevated hover:text-ink transition-colors"
+                  // A post carries the acting character's images and no others,
+                  // so with nobody chosen there is nothing this could show. It
+                  // used to open onto "No generated images saved yet", which is
+                  // both wrong and unhelpful.
+                  disabled={posting || !composerCharId}
+                  title={composerCharId ? undefined : 'Choose a character first — a post carries that character’s images.'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-ink-2 bg-surface-elevated hover:text-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-ink-2"
                 >
                   <Image className="w-4 h-4" />
                   Attach image
                 </button>
                 <button
                   onClick={handleQuickPost}
+                  // Deliberately still clickable without a character: pressing
+                  // Post and being told what is missing beats a dead button
+                  // that explains nothing.
                   disabled={posting || !quickContent.trim()}
-                  className="ml-auto px-5 py-1.5 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors disabled:opacity-40"
+                  className="ml-auto px-5 py-1.5 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {posting ? 'Posting...' : 'Post'}
+                  {posting ? 'Posting…' : 'Post'}
                 </button>
               </div>
               {postError && (
-                <p className="text-red-400 text-sm mt-2">{postError}</p>
+                <p role="alert" className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2 mt-3">
+                  {postError}
+                </p>
               )}
               {/* Post-success nudge — appears only after a successful Commons post */}
               {showPostSuccessNudge && (
@@ -589,14 +584,14 @@ export default function Home() {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-1.5">
                             {post.character_name ? (
-                              <Link to={headerHref} className="text-sm font-semibold text-ink hover:text-gem transition-colors leading-tight">
+                              <Link to={headerHref} className="text-sm font-semibold text-ink hover:text-gem transition-colors leading-tight truncate max-w-full">
                                 {post.character_name}
                               </Link>
                             ) : (
                               <span className="text-sm font-medium text-ink-2">{author.label}</span>
                             )}
-                            {getPostTypeBadge(post.content_type)}
-                            {getPostKindBadge(post.post_kind)}
+                            <PostTypeBadge contentType={post.content_type} />
+                            <PostKindBadge postKind={post.post_kind} />
                             <ProvenanceBadge provenance={post.provenance} />
                           </div>
                           <div className="flex items-center gap-1 mt-0.5 flex-wrap">
@@ -619,13 +614,15 @@ export default function Home() {
 
                     {/* Post content — in-world writing reads as literature */}
                     {post.title && (
-                      <h3 className="font-serif text-[21px] font-medium leading-[1.35] mb-2 text-ink">{post.title}</h3>
+                      <h3 className="fic-title text-[21px] font-medium mb-2">{post.title}</h3>
                     )}
                     <p
-                      className={`whitespace-pre-wrap ${
+                      className={`fic-read whitespace-pre-wrap ${
                         post.content_type === 'ooc'
-                          ? 'text-[15px] leading-[1.7] text-ink-2'
-                          : 'font-serif text-[17px] leading-[1.75] text-ink'
+                          ? 'fic-ooc'
+                          : post.content_type === 'narration'
+                          ? 'fic-narration'
+                          : ''
                       }`}
                     >
                       <MentionText text={post.content} mentions={post.mentions} />

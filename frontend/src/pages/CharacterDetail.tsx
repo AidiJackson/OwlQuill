@@ -483,7 +483,7 @@ export default function CharacterDetail() {
               <p className="font-serif text-lg sm:text-xl leading-[1.6] text-ink">{character.short_bio}</p>
             )}
             {character.long_bio && (
-              <p className="text-[15px] leading-[1.75] text-ink-2 whitespace-pre-wrap">{character.long_bio}</p>
+              <p className="fic-read fic-ooc whitespace-pre-wrap">{character.long_bio}</p>
             )}
             {character.tags && (
               <div className="flex flex-wrap gap-2">
@@ -622,11 +622,17 @@ export default function CharacterDetail() {
       </div>
 
       {/* Post composer */}
-      <PostComposer
-        open={composerOpen}
-        onClose={() => { setComposerOpen(false); setComposerImage(null); }}
-        preloadedImage={composerImage}
-      />
+      {/* Post composer. Scoped to the character whose page this is: the image
+          came from their gallery, and the post is authored by them. */}
+      {character && (
+        <PostComposer
+          open={composerOpen}
+          onClose={() => { setComposerOpen(false); setComposerImage(null); }}
+          preloadedImage={composerImage}
+          characterId={character.id}
+          characterName={character.name}
+        />
+      )}
 
       {/* Cover toast */}
       {coverToast && (
@@ -860,9 +866,9 @@ function PostCard({
         </span>
       </div>
       {post.title && (
-        <h3 className="font-serif text-lg font-medium text-ink mb-1.5 leading-snug">{post.title}</h3>
+        <h3 className="fic-title text-lg font-medium mb-1.5">{post.title}</h3>
       )}
-      <p className="font-serif text-[16px] text-ink whitespace-pre-wrap leading-[1.75]">
+      <p className="fic-read whitespace-pre-wrap">
         <MentionText text={post.content ?? ''} mentions={post.mentions} />
       </p>
       {post.image_url && (

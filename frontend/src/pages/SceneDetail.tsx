@@ -128,7 +128,7 @@ export default function SceneDetail() {
                   {new Date(p.created_at).toLocaleString()}
                 </span>
               </div>
-              <p className="text-ink-2 whitespace-pre-wrap leading-relaxed mt-1">{p.content}</p>
+              <p className="fic-read whitespace-pre-wrap mt-1">{p.content}</p>
             </div>
           ))
         )}
@@ -141,7 +141,7 @@ export default function SceneDetail() {
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          className="textarea w-full mb-3"
+          className="textarea fic-compose w-full mb-3"
           placeholder="Write your turn..."
           rows={4}
         />

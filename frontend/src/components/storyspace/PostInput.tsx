@@ -69,7 +69,7 @@ export default function PostInput({ onSend, disabled = false, channelType, track
           disabled={disabled || sending}
           placeholder={placeholder}
           rows={1}
-          className="flex-1 bg-transparent text-sm text-ink placeholder:text-ink-3 resize-none focus:outline-none leading-relaxed min-h-[1.5rem] max-h-40 disabled:opacity-50"
+          className="fic-read-sm flex-1 bg-transparent text-ink placeholder:text-ink-3 resize-none focus:outline-none min-h-[1.5rem] max-h-40 disabled:opacity-50"
           style={{ height: '1.5rem' }}
         />
         <button

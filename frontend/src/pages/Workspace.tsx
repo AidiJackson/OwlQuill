@@ -11,6 +11,11 @@ const MODE_KEY       = 'ficshon.writespace.mode';
 const REALM_KEY      = 'ficshon.writespace.selected_realm_id';
 const CHARACTER_KEY  = 'ficshon.writespace.selected_character_id';
 const SURFACE_KEY    = 'fic_surface_mode';
+/** The composition session the autosaved draft belongs to. Stored beside the
+ *  draft so a reopened tab resumes the same session instead of starting its
+ *  authorship evidence from zero — see CompositionTracker.resume(). Holds an
+ *  opaque id and nothing else. */
+const SESSION_KEY    = 'ficshon.writespace.composition_session_id';
 
 const EDITOR_TEXT    = 'text-[16px] md:text-[17px] lg:text-[18px]';
 const EDITOR_LEADING = 'leading-[1.75]';
@@ -427,6 +432,19 @@ export default function Workspace() {
   const pendingCaretRef = useRef<number | null>(null);
 
 
+  // Resume the session the restored draft belongs to. A draft outlives the
+  // component that wrote it; without this, reopening WriteSpace lost every
+  // character of typing evidence and the finished piece posted as "Created
+  // elsewhere". Runs once, before any editing, and only when there is actually
+  // a restored draft to account for.
+  useEffect(() => {
+    const restored = localStorage.getItem(BODY_KEY) ?? '';
+    if (!restored) return;
+    void composition
+      .resume(localStorage.getItem(SESSION_KEY), restored.length)
+      .then((id) => { if (id) localStorage.setItem(SESSION_KEY, id); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Debounced autosave — persists draft content + UI context
   useEffect(() => {
     setIsSaving(true);
@@ -436,6 +454,9 @@ export default function Workspace() {
       localStorage.setItem(MODE_KEY, mode);
       localStorage.setItem(REALM_KEY, selectedRealmId === null ? '' : String(selectedRealmId));
       localStorage.setItem(CHARACTER_KEY, String(characterId));
+      // Saved with the draft, so the next visit resumes this session rather
+      // than opening a fresh one with no history.
+      if (composition.id) localStorage.setItem(SESSION_KEY, composition.id);
       setIsSaving(false);
       setLastSavedAt(Date.now());
     }, 500);
@@ -542,6 +563,9 @@ export default function Workspace() {
       setBody('');
       localStorage.removeItem(TITLE_KEY);
       localStorage.removeItem(BODY_KEY);
+      // The session was spent on that post. Leaving its id behind would make
+      // the next draft try to resume a session the server has already closed.
+      localStorage.removeItem(SESSION_KEY);
       setPublishDestination(destination);
       setPublishSuccess(true);
     } catch {
@@ -550,6 +574,26 @@ export default function Workspace() {
       setPublishing(false);
     }
   };
+
+  /**
+   * Apply a change one of WriteSpace's own tools made to the draft.
+   *
+   * Bold, headings, scene breaks, sentence splits and grammar fixes all rewrite
+   * the textarea through React state, so they fire no `input` event and the
+   * composition session never sees them. Unrecorded, a heavily formatted draft
+   * reports fewer characters than the server receives, trips the consistency
+   * check and posts as "Created elsewhere" — for using the editor's own
+   * buttons. Recording the growth here keeps the counters honest.
+   *
+   * Every one of these edits is the writer's own text reshaped locally; none
+   * introduces outside content, and `typed_chars` remains what it always was —
+   * a client claim that can corroborate a verdict but never overrule the
+   * server's AI evidence.
+   */
+  function applyToolEdit(next: string) {
+    composition.noteEditorEdit(next.length - body.length);
+    setBody(next);
+  }
 
   function downloadDraft() {
     if (!body.trim()) return;
@@ -577,7 +621,7 @@ export default function Workspace() {
       after +
       body.slice(end);
 
-    setBody(newText);
+    applyToolEdit(newText);
 
     setTimeout(() => {
       el.focus();
@@ -598,7 +642,7 @@ export default function Workspace() {
       // No selection: prefix the line the cursor is on
       const lineStart = body.lastIndexOf('\n', start - 1) + 1;
       const newText   = body.slice(0, lineStart) + prefix + body.slice(lineStart);
-      setBody(newText);
+      applyToolEdit(newText);
       setTimeout(() => {
         el.focus();
         el.setSelectionRange(start + prefix.length, start + prefix.length);
@@ -608,7 +652,7 @@ export default function Workspace() {
       const selected  = body.slice(start, end);
       const prefixed  = selected.split('\n').map((line) => prefix + line).join('\n');
       const newText   = body.slice(0, start) + prefixed + body.slice(end);
-      setBody(newText);
+      applyToolEdit(newText);
       setTimeout(() => {
         el.focus();
         el.setSelectionRange(start, start + prefixed.length);
@@ -639,7 +683,7 @@ export default function Workspace() {
       return;
     }
     const newText = body.slice(0, start) + before + placeholder + after + body.slice(start);
-    setBody(newText);
+    applyToolEdit(newText);
     setTimeout(() => {
       el.setSelectionRange(start + before.length, start + before.length + placeholder.length);
       el.focus();
@@ -666,14 +710,14 @@ export default function Workspace() {
     const prefix = '## ';
     if (lineContent.trim() === '') {
       const newText = body.slice(0, lineStart) + prefix + placeholder + body.slice(lineStart);
-      setBody(newText);
+      applyToolEdit(newText);
       setTimeout(() => {
         el.setSelectionRange(lineStart + prefix.length, lineStart + prefix.length + placeholder.length);
         el.focus();
       }, 0);
     } else {
       const newText = body.slice(0, lineStart) + prefix + body.slice(lineStart);
-      setBody(newText);
+      applyToolEdit(newText);
       setTimeout(() => {
         el.setSelectionRange(start + prefix.length, start + prefix.length);
         el.focus();
@@ -689,6 +733,10 @@ export default function Workspace() {
     localStorage.removeItem(TITLE_KEY);
     localStorage.removeItem(BODY_KEY);
     localStorage.removeItem(PASTE_HINT_KEY);
+    // Discarding the draft discards its evidence too: whatever is written next
+    // is a new piece of writing and gets a session of its own.
+    localStorage.removeItem(SESSION_KEY);
+    composition.reset();
     setLastSavedAt(null);
   }
 
@@ -705,8 +753,8 @@ export default function Workspace() {
   async function applySuggestionFix(s: ReviewSuggestion) {
     if (!s.fix || !s.matchText) return;
     if (s.fix.applyMode === 'apply') {
-      if (s.kind === 'sentence')  setBody(splitLongSentence(body, s.matchText));
-      if (s.kind === 'paragraph') setBody(breakUpParagraph(body, s.matchText));
+      if (s.kind === 'sentence')  applyToolEdit(splitLongSentence(body, s.matchText));
+      if (s.kind === 'paragraph') applyToolEdit(breakUpParagraph(body, s.matchText));
       setFixStatus({ id: s.id, msg: 'Applied \u2713' });
     } else {
       const hint = buildActiveSuggestion(s.matchText);
@@ -734,7 +782,7 @@ export default function Workspace() {
 
   function applyGrammarFix(m: GrammarMatch, replacement: string) {
     const newBody = body.slice(0, m.offset) + replacement + body.slice(m.offset + m.length);
-    setBody(newBody);
+    applyToolEdit(newBody);
     setGrammar((prev) => ({ ...prev, matches: prev.matches.filter((x) => x !== m) }));
   }
 
@@ -768,7 +816,7 @@ export default function Workspace() {
       return; // unknown type — do nothing
     }
 
-    setBody(newBody);
+    applyToolEdit(newBody);
     // Restore caret near the edit location after React re-renders
     pendingCaretRef.current = caretPos;
     requestAnimationFrame(() => {
@@ -1724,7 +1772,7 @@ export default function Workspace() {
             </button>
             <button
               type="button"
-              onClick={() => { setBody((prev) => prev + '\n\n---\n\n'); flash('Scene break inserted'); revealFormatting(); }}
+              onClick={() => { applyToolEdit(body + '\n\n---\n\n'); flash('Scene break inserted'); revealFormatting(); }}
               className={TOOLBTN}
             >
               Scene break
@@ -1806,7 +1854,7 @@ export default function Workspace() {
                   if (rawSentence) {
                     const newBody = splitLongSentence(body, rawSentence);
                     if (newBody !== body) {
-                      setBody(newBody);
+                      applyToolEdit(newBody);
                       requestAnimationFrame(() => textareaRef.current?.focus());
                       return;
                     }

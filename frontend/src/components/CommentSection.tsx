@@ -4,6 +4,7 @@ import { useAuthStore } from '@/lib/store';
 import { authorLink } from '@/lib/authorLink';
 import type { Comment, Character } from '@/lib/types';
 import { CompositionTracker } from '@/lib/composition';
+import { PostTypeBadge } from '@/components/PostBadges';
 
 interface CommentSectionProps {
   postId: number;
@@ -95,22 +96,6 @@ export default function CommentSection({
   // the viewer's own new comment).
   const shownCount = loaded ? comments.length : commentCount ?? 0;
 
-  const getTypeBadge = (type?: string) => {
-    if (!type) return null;
-    const badges: Record<string, { label: string; className: string }> = {
-      ic: { label: 'IC', className: 'bg-gem-soft text-gem border border-gem/25' },
-      ooc: { label: 'OOC', className: 'bg-surface-elevated text-ink-3 border border-edge' },
-      narration: { label: 'NARRATION', className: 'bg-amber-950/20 text-amber-400/80 border border-amber-800/40' },
-    };
-    const badge = badges[type];
-    if (!badge) return null;
-    return (
-      <span className={`px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-[0.06em] rounded ${badge.className}`}>
-        {badge.label}
-      </span>
-    );
-  };
-
   return (
     <div className="mt-3 pt-3 border-t border-edge">
       <button
@@ -168,12 +153,12 @@ export default function CommentSection({
                         </div>
                       );
                     })()}
-                    {getTypeBadge(comment.content_type)}
+                    <PostTypeBadge contentType={comment.content_type} />
                     <span className="text-xs font-mono text-ink-3">
                       {new Date(comment.created_at).toLocaleDateString()}
                     </span>
                   </div>
-                  <p className="text-sm text-ink-2 whitespace-pre-wrap">{comment.content}</p>
+                  <p className="fic-read-sm fic-ooc whitespace-pre-wrap">{comment.content}</p>
                 </div>
               ))}
             </div>
@@ -229,7 +214,7 @@ export default function CommentSection({
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Write a comment..."
-              className="w-full px-3 py-2 bg-surface-elevated border border-edge rounded-lg text-sm text-ink placeholder:text-ink-3 focus:outline-none min-h-[60px]"
+              className="fic-read-sm w-full px-3 py-2 bg-surface-elevated border border-edge rounded-lg text-ink placeholder:text-ink-3 focus:outline-none min-h-[60px]"
               rows={2}
             />
             {commentError && (

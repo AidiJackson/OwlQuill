@@ -12,6 +12,7 @@ import AttachImageModal from '@/components/AttachImageModal';
 import MentionText from '@/components/MentionText';
 import { hasActingCharacter } from '@/lib/entitlements';
 import ProvenanceBadge from '@/components/ProvenanceBadge';
+import { PostTypeBadge, PostKindBadge } from '@/components/PostBadges';
 import { CompositionTracker } from '@/lib/composition';
 
 export default function RealmDetail() {
@@ -196,35 +197,6 @@ export default function RealmDetail() {
     } finally {
       setSceneCreating(false);
     }
-  };
-
-  const getPostTypeBadge = (contentType: string) => {
-    const badges = {
-      ic: { label: 'IC', className: 'bg-gem text-gem-ink' },
-      ooc: { label: 'OOC', className: 'bg-blue-600 text-white' },
-      narration: { label: 'NARRATION', className: 'bg-amber-600 text-white' },
-    };
-    const badge = badges[contentType as keyof typeof badges] || badges.ic;
-    return (
-      <span className={`px-2 py-1 text-xs font-semibold rounded ${badge.className}`}>
-        {badge.label}
-      </span>
-    );
-  };
-
-  const getPostKindBadge = (postKind?: string) => {
-    if (!postKind || postKind === 'general') return null;
-    const kinds: Record<string, { label: string; className: string }> = {
-      open_starter: { label: 'Open Starter', className: 'bg-teal-700 text-white' },
-      finished_piece: { label: 'Finished Piece', className: 'bg-rose-700 text-white' },
-    };
-    const kind = kinds[postKind];
-    if (!kind) return null;
-    return (
-      <span className={`px-2 py-1 text-xs font-semibold rounded ${kind.className}`}>
-        {kind.label}
-      </span>
-    );
   };
 
   if (loading) {
@@ -469,7 +441,7 @@ export default function RealmDetail() {
                   ref={composition.attach}
                   value={newPost.content}
                   onChange={(e) => setNewPost({ ...newPost, content: e.target.value })}
-                  className="textarea"
+                  className="textarea fic-compose"
                   placeholder="Write your post..."
                   rows={6}
                 />
@@ -586,7 +558,11 @@ export default function RealmDetail() {
                 <button
                   type="button"
                   onClick={() => setShowImageModal(true)}
-                  className="btn btn-secondary flex items-center gap-1.5"
+                  // See Home: with nobody chosen there is no character whose
+                  // images this could offer.
+                  disabled={!newPost.character_id}
+                  title={newPost.character_id ? undefined : 'Choose a character first — a post carries that character’s images.'}
+                  className="btn btn-secondary flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Image className="w-4 h-4" />
                   Attach image
@@ -636,7 +612,7 @@ export default function RealmDetail() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2 flex-wrap min-w-0">
                       {post.character_name ? (
-                        <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 flex-shrink-0">
+                        <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 min-w-0 max-w-[min(100%,18rem)]">
                           {post.character_avatar_url ? (
                             <img
                               src={post.character_avatar_url}
@@ -648,7 +624,7 @@ export default function RealmDetail() {
                               {post.character_name.charAt(0)}
                             </div>
                           )}
-                          <span className="text-sm font-medium text-gem group-hover:text-gem transition-colors">
+                          <span className="text-sm font-medium text-gem group-hover:text-gem transition-colors truncate">
                             {post.character_name}
                           </span>
                         </Link>
@@ -660,8 +636,8 @@ export default function RealmDetail() {
                           <span className="text-sm text-ink-2">{author.label}</span>
                         </div>
                       )}
-                      {getPostTypeBadge(post.content_type)}
-                      {getPostKindBadge(post.post_kind)}
+                      <PostTypeBadge contentType={post.content_type} />
+                      <PostKindBadge postKind={post.post_kind} />
                       <ProvenanceBadge provenance={post.provenance} />
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -675,8 +651,18 @@ export default function RealmDetail() {
                   </div>
 
                   {/* Post content */}
-                  {post.title && <h3 className="text-xl font-semibold mb-2">{post.title}</h3>}
-                  <p className="text-ink-2 whitespace-pre-wrap leading-relaxed mt-1"><MentionText text={post.content} mentions={post.mentions} /></p>
+                  {post.title && <h3 className="fic-title text-[21px] font-medium mb-2">{post.title}</h3>}
+                  <p
+                    className={`fic-read whitespace-pre-wrap mt-1 ${
+                      post.content_type === 'ooc'
+                        ? 'fic-ooc'
+                        : post.content_type === 'narration'
+                        ? 'fic-narration'
+                        : ''
+                    }`}
+                  >
+                    <MentionText text={post.content} mentions={post.mentions} />
+                  </p>
 
                   {post.image_url && (
                     <img

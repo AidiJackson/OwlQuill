@@ -36,10 +36,10 @@ function PostItem({ post }: { post: StorySpacePost }) {
   return (
     <article className="group py-3 border-b border-edge last:border-0">
       {/* Byline */}
-      <div className="flex items-center gap-2 mb-1.5">
+      <div className="flex items-center gap-2 mb-1.5 min-w-0">
         <Avatar url={post.character_avatar_url} name={avatarName} />
         <span
-          className={`text-sm font-medium leading-none ${
+          className={`text-sm font-medium leading-none truncate ${
             isCharacter ? 'text-gem' : 'text-ink-2'
           }`}
         >
@@ -54,11 +54,11 @@ function PostItem({ post }: { post: StorySpacePost }) {
       {/* Content */}
       <div className="pl-9">
         <p
-          className={`text-sm leading-relaxed whitespace-pre-wrap ${
+          className={`fic-read-sm whitespace-pre-wrap ${
             post.content_type === 'ooc'
               ? 'text-ink-3 italic'
               : post.content_type === 'narration'
-              ? 'text-ink-2 italic'
+              ? 'fic-narration'
               : 'text-ink'
           }`}
         >

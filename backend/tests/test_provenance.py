@@ -513,3 +513,90 @@ def test_rp_partner_import_is_written_elsewhere():
     from app.services.provenance import external_import
 
     assert external_import("rp_partner").verdict == Provenance.EXTERNAL
+
+
+# ── 5. A draft outlives the session that wrote it ─────────────────────────────
+
+def test_a_resumed_session_still_carries_its_typing(client):
+    """WriteSpace autosaves; a tab does not.
+
+    The writer types a chapter, closes the tab and comes back. The client has
+    forgotten its counters, so it reads them back from the server and carries
+    on. Nothing new is claimed — the same session that watched the typing is
+    the one that gets redeemed — and the piece is still written here.
+    """
+    token = get_auth_token(client, email="resume@test.com", username="resumeuser")
+    realm = _commons_realm(client, token)
+    content = "r" * 4000
+
+    session = _open_session(client, token, surface="workspace")
+    _report_metrics(client, token, session, typed_chars=4000, edit_duration_ms=1_200_000)
+
+    # What a reopened tab reads back before it resumes.
+    read_back = client.get(
+        f"/composition/sessions/{session}", headers=auth_headers(token)
+    )
+    assert read_back.status_code == 200, read_back.text
+    assert read_back.json()["metrics"]["typed_chars"] == 4000
+    assert read_back.json()["status"] == "open"
+
+    # It then reports the same totals plus the day's additions.
+    _report_metrics(client, token, session, typed_chars=4400, edit_duration_ms=1_500_000)
+    post = _post(client, token, realm, content + "r" * 400, composition_session_id=session)
+
+    assert post["provenance"] == Provenance.USER_WRITTEN.value
+
+
+def test_a_session_read_back_never_exposes_non_counter_state(client, db_session):
+    """``metrics_json`` is an open slot shared with autosave and analytics.
+
+    The read endpoint promises counters and must return counters only, so a
+    future feature storing something else there cannot leak through it.
+    """
+    from app.models.composition import CompositionSession
+
+    token = get_auth_token(client, email="slot@test.com", username="slotuser")
+    session = _open_session(client, token, surface="workspace")
+
+    db_session.expire_all()
+    row = db_session.query(CompositionSession).filter(CompositionSession.id == session).first()
+    row.metrics_json = {"typed_chars": 12, "draft_body": "secret", "notes": ["x"]}
+    db_session.commit()
+
+    body = client.get(
+        f"/composition/sessions/{session}", headers=auth_headers(token)
+    ).json()
+
+    assert body["metrics"]["typed_chars"] == 12
+    assert "draft_body" not in body["metrics"]
+    assert "notes" not in body["metrics"]
+
+
+def test_a_resumed_draft_whose_parent_never_typed_earns_nothing(client):
+    """The continuation path is a claim, not a grant.
+
+    When the original session is gone or spent, the client opens a new one that
+    *continues* it and declares the restored text an internal transfer. If the
+    parent has no observed typing to back that, the credit is zero — a draft
+    that was pasted in from outside cannot launder itself through a reopened
+    tab.
+    """
+    token = get_auth_token(client, email="relaunder@test.com", username="relaunderuser")
+    realm = _commons_realm(client, token)
+    content = "p" * 3000
+
+    parent = _open_session(client, token, surface="workspace")
+    _report_metrics(
+        client, token, parent,
+        typed_chars=0, inserted_chars=3000, insertion_count=1, largest_insertion=3000,
+    )
+
+    child = _open_session(client, token, surface="workspace", continues_session_id=parent)
+    _report_metrics(
+        client, token, child,
+        typed_chars=0, inserted_chars=3000, internal_insert_chars=3000, insertion_count=1,
+    )
+
+    post = _post(client, token, realm, content, composition_session_id=child)
+
+    assert post["provenance"] == Provenance.EXTERNAL.value

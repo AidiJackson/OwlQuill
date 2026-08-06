@@ -1052,7 +1052,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
                 </div>
               </div>
             ) : currentChapter ? (
-              <p className={`font-serif text-[17px] leading-[1.85] whitespace-pre-wrap tracking-[0.005em] transition-colors duration-200 animate-[fadeIn_0.25s_ease] ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-ink'}`}>
+              <p className={`fic-read whitespace-pre-wrap transition-colors duration-200 animate-[fadeIn_0.25s_ease] ${surfaceMode === 'paper' ? 'text-[#1C1917]' : 'text-ink'}`}>
                 {currentChapter.generated_text}
               </p>
             ) : (

@@ -585,6 +585,15 @@ class ApiClient {
     });
   }
 
+  /** Read back a session the caller owns, including the counters the server
+   *  holds for it. Used to resume a restored draft's session rather than
+   *  starting its evidence over from zero. 404s for anyone else's session. */
+  async getCompositionSession(
+    sessionId: string,
+  ): Promise<{ id: string; status: string; metrics?: Partial<CompositionMetrics> }> {
+    return this.request(`/composition/sessions/${sessionId}`);
+  }
+
   /** Reports integer counters only — never text. See lib/composition.ts. */
   async updateCompositionSession(
     sessionId: string,

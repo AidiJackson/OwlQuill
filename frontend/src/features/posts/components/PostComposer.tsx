@@ -1,23 +1,43 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Realm } from '@/lib/types';
 import type { CharacterGalleryImage } from '@/lib/types';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
+import { CompositionTracker } from '@/lib/composition';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   preloadedImage?: CharacterGalleryImage | null;
+  /**
+   * The character this post is authored by — the one whose gallery the image
+   * came from. Required, for the same reason every other composer requires it:
+   * posts are authored by characters, the server refuses any post without one,
+   * and an attached image is only accepted if it belongs to *that* character.
+   */
+  characterId: number;
+  characterName?: string;
 }
 
-export default function PostComposer({ open, onClose, preloadedImage }: Props) {
+export default function PostComposer({
+  open,
+  onClose,
+  preloadedImage,
+  characterId,
+  characterName,
+}: Props) {
   const [content, setContent] = useState('');
   const [contentType, setContentType] = useState<'ooc' | 'ic' | 'narration'>('ooc');
   const [commonsRealm, setCommonsRealm] = useState<Realm | null>(null);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  // Same evidence path as every other composer. Without it, a post typed here
+  // arrived with nothing to show for it and was labelled "Created elsewhere".
+  const composition = useRef(
+    new CompositionTracker('commons_composer', { targetKind: 'post' }),
+  ).current;
 
   useEffect(() => {
     if (!open) return;
@@ -31,16 +51,27 @@ export default function PostComposer({ open, onClose, preloadedImage }: Props) {
       .catch(() => {});
   }, [open]);
 
+  useEffect(() => () => composition.dispose(), [composition]);
+
   const handleSubmit = async () => {
     if (!commonsRealm || !content.trim()) return;
     setPosting(true);
     setError('');
     try {
+      composition.options.targetRef = String(commonsRealm.id);
+      const sessionId = await composition.commit();
       await apiClient.createPost(commonsRealm.id, {
         content: content.trim(),
         content_type: contentType,
-        ...(preloadedImage ? { image_url: resolveImageUrl(preloadedImage.url) } : {}),
+        character_id: characterId,
+        // The stored address, not the display URL. `resolveImageUrl` may
+        // prefix an API origin for rendering; the server matches the image by
+        // its stored path, so sending the rendered form fails the ownership
+        // check on exactly the image the user just picked.
+        ...(preloadedImage ? { image_url: preloadedImage.url } : {}),
+        ...(sessionId ? { composition_session_id: sessionId } : {}),
       });
+      composition.reset();
       setDone(true);
       setTimeout(onClose, 800);
     } catch (err) {
@@ -61,10 +92,16 @@ export default function PostComposer({ open, onClose, preloadedImage }: Props) {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-ink">New Post</h3>
+            <h3 className="text-sm font-semibold text-ink">
+              New Post
+              {characterName && (
+                <span className="font-normal text-ink-3"> · as <span className="text-gem">{characterName}</span></span>
+              )}
+            </h3>
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close"
               className="text-ink-3 hover:text-ink-2 p-1 rounded transition-colors"
             >
               <X className="w-4 h-4" />
@@ -82,6 +119,8 @@ export default function PostComposer({ open, onClose, preloadedImage }: Props) {
           )}
 
           <textarea
+            // Watches how the text arrives — counts only, never content.
+            ref={composition.attach}
             className="textarea w-full"
             rows={4}
             placeholder="What's on your mind?"

@@ -87,6 +87,19 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId, 
             <p className="text-sm text-ink-2 py-8 text-center">Loading images…</p>
           ) : error ? (
             <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2 mb-3">{error}</p>
+          ) : characterId == null ? (
+            // Distinct from "no images". Telling a founder with a full library
+            // that they have none is the kind of small lie that costs a support
+            // thread; the actual blocker is that nobody is posting yet.
+            <>
+              <p className="text-sm text-ink-2 mb-4">
+                Choose which character you&rsquo;re posting as first — a post can only carry
+                that character&rsquo;s images.
+              </p>
+              <button onClick={onClose} className="btn btn-secondary text-sm">
+                Close
+              </button>
+            </>
           ) : images.length === 0 ? (
             <>
               <p className="text-sm text-ink-2 mb-4">

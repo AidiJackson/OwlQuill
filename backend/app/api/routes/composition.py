@@ -43,7 +43,7 @@ def open_session(
     )
     db.commit()
     db.refresh(session)
-    return SessionRead.model_validate(session)
+    return SessionRead.from_session(session)
 
 
 @router.patch("/sessions/{session_id}", response_model=SessionRead)
@@ -66,7 +66,7 @@ def update_session(
     composition_service.update_metrics(db, session, body.metrics.model_dump())
     db.commit()
     db.refresh(session)
-    return SessionRead.model_validate(session)
+    return SessionRead.from_session(session)
 
 
 @router.get("/sessions/{session_id}", response_model=SessionRead)
@@ -81,4 +81,4 @@ def get_session(
     )
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return SessionRead.model_validate(session)
+    return SessionRead.from_session(session)

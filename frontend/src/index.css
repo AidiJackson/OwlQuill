@@ -116,15 +116,152 @@ button:focus {
 .gem-bg   { background: var(--accent); }
 .gem-glow { box-shadow: 0 0 0 1px var(--accent-border), 0 4px 24px var(--accent-glow); }
 
-/* Long-form reading measure. NOTE: @tailwindcss/typography is NOT installed;
-   if it ever is, this class must be renamed first. */
-.prose {
+/* ══ Reading typography ══════════════════════════════════════════════════
+   One reading voice for the whole product.
+
+   The same in-character post used to render at 17px Playfair in the Commons,
+   16px Inter in a Realm, 14px Inter in a Story Space and 16px Playfair on a
+   character page — four different pieces of writing to the eye, all of them
+   the same paragraph. These classes are the single answer to "what does
+   writing look like in Ficshon".
+
+   **Inter is the reading face.** Playfair Display stays, but as what it was
+   drawn to be: a display face for titles and mastheads. It is a high-contrast
+   didone — beautiful at 32px, thin-stroked and tiring at 17px on a dark
+   background, which is exactly where the old feed used it. Body copy moving to
+   Inter is a readability change, not a brand one; see `.fic-title` below,
+   which keeps every heading serif.
+
+   Sizes are stated once here rather than at 30 call sites, so the next surface
+   inherits the decision instead of re-litigating it.                        */
+
+/* Long-form and in-character prose — feed posts, story segments, chapters. */
+.fic-read {
+  font-family: theme('fontFamily.sans');
+  font-size: 16px;
+  line-height: 1.75;
+  letter-spacing: 0.001em;
+  color: var(--text);
+  /* A pasted URL or an unbroken RP scream must not widen the card and start
+     the page scrolling sideways. */
+  overflow-wrap: anywhere;
+}
+/* Phones read at arm's length on a small measure; desktops have the room for
+   the extra point. Both stay on the same leading. */
+@media (min-width: 640px) {
+  .fic-read { font-size: 17px; }
+}
+
+/* Compact reading — comments, Story Space channels, message threads. Denser
+   by intent (these are conversations, not manuscripts) but the same face,
+   the same rhythm. */
+.fic-read-sm {
+  font-family: theme('fontFamily.sans');
+  font-size: 15px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+/* Out-of-character asides. A modifier, not a separate voice: it steps the
+   colour back so IC writing stays the loudest thing on the page. */
+.fic-ooc { color: var(--text-2); }
+
+/* Narration — italic, one step quieter than IC, same size. */
+.fic-narration { font-style: italic; color: var(--text-2); }
+
+/* Titles of written work. The serif display voice, kept. */
+.fic-title {
   font-family: theme('fontFamily.serif');
-  font-size: 18px;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  color: var(--text);
+  /* Avoids a one-word last line on a two-line title. Ignored where
+     unsupported, which costs nothing. */
+  text-wrap: balance;
+}
+
+/* Reading measure. ~68 characters is the comfortable range for continuous
+   prose; feed cards are already narrower than this, so applying it there
+   changes nothing — it only bites on wide reading surfaces. */
+.fic-measure { max-width: 68ch; }
+
+/* Composer text. What you type should look like what you are about to
+   publish, so this matches `.fic-read` exactly. */
+.fic-compose {
+  font-family: theme('fontFamily.sans');
+  font-size: 16px;
+  line-height: 1.75;
+}
+@media (min-width: 640px) {
+  .fic-compose { font-size: 17px; }
+}
+
+/* Long-form reading measure. NOTE: @tailwindcss/typography is NOT installed;
+   if it ever is, this class must be renamed first.
+   Retained for the surfaces that already use it; new work should reach for
+   `.fic-read` instead. */
+.prose {
+  font-family: theme('fontFamily.sans');
+  font-size: 17px;
   line-height: 1.8;
   color: var(--text);
 }
 .prose p + p { margin-top: 1.4em; }
+
+/* ══ Post badges ═════════════════════════════════════════════════════════
+   IC, OOC, Narration, Open Starter, Finished Piece and the three provenance
+   states all sit on the same line of the same post header, so they are one
+   family and are described in one place.
+
+   Before this they were three: the Commons drew quiet outlined chips, a Realm
+   drew solid 12px blocks in raw Tailwind palette colours, and the provenance
+   badge drew a third thing — so "IC · ✍️ Written in Ficshon" rendered at two
+   heights, two weights and two colour systems in the same row.
+
+   Geometry is fixed here rather than per-badge: a set height rather than
+   padding-plus-line-height means a badge is exactly as tall as its neighbour
+   whatever it contains, at any font size, in any translation.
+
+   Colours are stated for both themes. The raw palette values the Realm feed
+   used (bg-blue-600, bg-amber-950/20) are dark-mode assumptions; light mode is
+   a supported product theme, so every badge below has a light variant.       */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 1.25rem;          /* 20px — matches the 20px avatar/name line */
+  padding: 0 0.375rem;
+  border-radius: 0.25rem;
+  border: 1px solid transparent;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;      /* a badge wraps as a unit, never mid-label */
+  user-select: none;
+  flex-shrink: 0;
+}
+/* The IC/OOC/NARRATION set reads as a label, not as prose. */
+.badge-type {
+  font-family: theme('fontFamily.mono');
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.badge-ic        { color: rgb(var(--gem)); background: var(--accent-soft); border-color: var(--accent-border); }
+.badge-ooc       { color: var(--text-3); background: var(--elevated); border-color: var(--border-md); }
+.badge-narration { color: #fbbf24; background: rgb(251 191 36 / 0.10); border-color: rgb(180 83 9 / 0.45); }
+.badge-starter   { color: #2dd4bf; background: rgb(45 212 191 / 0.10); border-color: rgb(15 118 110 / 0.45); }
+.badge-finished  { color: #fb7185; background: rgb(251 113 133 / 0.10); border-color: rgb(159 18 57 / 0.45); }
+/* Provenance. "Written in Ficshon" is deliberately the quietest of the three:
+   it is the norm, not an award, and should not shout over the writing. */
+.badge-written   { color: var(--text-2); background: var(--elevated); border-color: var(--border-md); }
+.badge-ai        { color: #c084fc; background: rgb(192 132 252 / 0.12); border-color: rgb(107 33 168 / 0.5); }
+.badge-external  { color: var(--text-3); background: var(--surface); border-color: var(--border-md); }
+
+[data-mode="light"] .badge-narration { color: #92400e; background: rgb(251 191 36 / 0.18); border-color: rgb(180 83 9 / 0.28); }
+[data-mode="light"] .badge-starter   { color: #115e59; background: rgb(45 212 191 / 0.18); border-color: rgb(15 118 110 / 0.28); }
+[data-mode="light"] .badge-finished  { color: #9f1239; background: rgb(251 113 133 / 0.16); border-color: rgb(159 18 57 / 0.28); }
+[data-mode="light"] .badge-ai        { color: #6b21a8; background: rgb(192 132 252 / 0.16); border-color: rgb(107 33 168 / 0.28); }
 
 /* Cinematic cover fade (Character Home hero). The fade starts late so the
    photograph stays visible through the establishing shot, then completes into

@@ -266,3 +266,45 @@ def test_founder_library_still_supports_character_filter(client, two_characters)
     )
     assert resp.status_code == 200, resp.text
     assert {i["file_path"] for i in resp.json()} == {"static/generated/shadow-new.png"}
+
+
+# ── the address the client is expected to send ────────────────────────────────
+
+def test_the_stored_address_is_what_the_server_accepts(client, two_characters):
+    """The picker's ``url`` is what a composer must send, unmodified.
+
+    ``/static/generated/x.png`` is how the API addresses the stored path
+    ``static/generated/x.png``, and the ownership check strips the leading
+    slash to match. Anything a client does to that string on the way through —
+    prefixing an API origin for rendering being the case that actually
+    happened — no longer matches the image the user just picked, and the post
+    is refused with a message about someone else's images.
+    """
+    ctx = two_characters
+    stored = _post_with_image(
+        client, ctx["token"], ctx["realm"], ctx["pan"], "/static/generated/pan-one.png"
+    )
+    assert stored.status_code == 201, stored.text
+
+    rendered = _post_with_image(
+        client, ctx["token"], ctx["realm"], ctx["pan"],
+        "https://api.ficshon.example/static/generated/pan-one.png",
+    )
+    assert rendered.status_code == 403
+
+
+def test_a_post_without_a_character_is_refused_outright(client, two_characters):
+    """Posts are authored by characters — a composer that omits one gets no post.
+
+    Pinned because a composer really did omit it: the gallery's "Use in Post"
+    action opened a modal that never sent ``character_id``, so every attempt
+    from it failed with a message about creating a character the user already
+    had.
+    """
+    ctx = two_characters
+    resp = client.post(
+        f"/posts/realms/{ctx['realm']}/posts",
+        json={"content": "No identity attached.", "image_url": "/static/generated/pan-one.png"},
+        headers=auth_headers(ctx["token"]),
+    )
+    assert resp.status_code == 403

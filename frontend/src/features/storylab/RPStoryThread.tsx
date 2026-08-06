@@ -55,7 +55,7 @@ function TurnCard({
             </span>
           )}
         </div>
-        <div className={`whitespace-pre-wrap text-sm leading-relaxed ${
+        <div className={`fic-read-sm whitespace-pre-wrap ${
           theme === 'dark'
             ? (isCharacter ? 'text-emerald-50' : 'text-ink')
             : (isCharacter ? 'text-emerald-900' : 'text-gray-800')

@@ -102,10 +102,10 @@ export default function PublishedStoryReader() {
             <p
               className={`whitespace-pre-wrap ${
                 seg.content_type === 'narration'
-                  ? 'font-serif italic text-[18px] leading-[1.85] text-ink-2'
+                  ? 'fic-read fic-narration'
                   : seg.content_type === 'ooc'
-                  ? 'text-sm italic leading-[1.7] text-ink-3'
-                  : 'font-serif text-[18px] leading-[1.85] text-ink'
+                  ? 'fic-read-sm italic text-ink-3'
+                  : 'fic-read'
               }`}
             >
               {seg.content}

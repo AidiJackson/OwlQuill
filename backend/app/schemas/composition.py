@@ -47,5 +47,38 @@ class SessionRead(BaseModel):
     parent_session_id: Optional[str] = None
     created_at: datetime
     last_active_at: datetime
+    #: The counters the server currently holds for this session, so a composer
+    #: that lost its in-memory state (page reload, restored draft) can resume
+    #: from the server's record instead of from zero. Read-only and
+    #: owner-scoped — the endpoints 404 for anyone else — and it returns only
+    #: what that same caller reported, so it discloses nothing new.
+    metrics: CompositionMetrics = CompositionMetrics()
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_session(cls, session) -> "SessionRead":
+        """Build from a ``CompositionSession`` row, projecting ``metrics_json``.
+
+        ``metrics_json`` is an open JSON slot shared with autosave and
+        analytics, so it is filtered through :class:`CompositionMetrics` rather
+        than returned raw — a key the model does not know about is dropped
+        instead of leaking out of an endpoint that promises counters only.
+        """
+        return cls(
+            id=session.id,
+            surface=session.surface,
+            status=session.status,
+            target_kind=session.target_kind,
+            target_ref=session.target_ref,
+            parent_session_id=session.parent_session_id,
+            created_at=session.created_at,
+            last_active_at=session.last_active_at,
+            metrics=CompositionMetrics(
+                **{
+                    k: v
+                    for k, v in (session.metrics_json or {}).items()
+                    if k in CompositionMetrics.model_fields
+                }
+            ),
+        )
