@@ -15,6 +15,7 @@ B19: Anchor-image conditioning.
   - Falls back to single-image grounded generation (face-ref crop) when not
   - Tightens the strict identity text wrapper to be short and punchy
 """
+import hashlib
 import logging
 from pathlib import Path
 from typing import Literal
@@ -42,8 +43,10 @@ from app.services.provider_capabilities import Capability, provider_supports, re
 from app.services.image_provider import (
     get_provider_for_option,
     get_fallback_provider,
+    is_moderation_block,
     resolve_canon_provider_option,
 )
+from app.services.image_providers.google_provider import parse_prompt_block
 from app.services.stub_image_generator import generate_placeholder_png
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.services.canon_compiler import (
@@ -52,7 +55,7 @@ from app.services.canon_compiler import (
 )
 from app.services.canon_service import load_face_canon
 from app.services.face_verifier import verify_face_match, passes as _face_passes
-from app.services.scene_router import route_canon_refs
+from app.services.scene_router import route_canon_refs, slot_names_for_urls
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +134,125 @@ _FACE_REGEN_PREFIX = (
     "images — identical face shape, jaw, nose, eye shape, brow, and bone "
     "structure. Do not drift toward a generic or different face. "
 )
+
+
+# ── Canon-failure classification ──────────────────────────────────────
+#
+# A canon generation whose reference-bearing calls all failed used to return ONE
+# message — "reduce adult/explicit wording" — no matter why. That is actively
+# misleading for a benign prompt: Gemini answers a blocked prompt with
+# blockReason=OTHER and NO safety category, which says nothing about sexual
+# content, and a plain timeout or an unsupported-provider error said nothing
+# about content at all. The three outcomes are now distinguished.
+
+_DETAIL_SEXUAL_REFUSAL = (
+    "Canon provider declined this scene. "
+    "Try Adult Studio or reduce adult/explicit wording."
+)
+_DETAIL_PROVIDER_BLOCKED = (
+    "Google could not process this character reference set. "
+    "Try again or use another provider."
+)
+_DETAIL_GENERIC_FAILURE = (
+    "Image generation failed for this character. Please try again."
+)
+
+# Google safety-category substrings that genuinely denote sexual content. A
+# category list that contains none of these (including the common EMPTY list
+# accompanying blockReason=OTHER) must NOT produce adult-content guidance.
+_SEXUAL_CATEGORY_MARKERS = ("SEXUALLY_EXPLICIT", "HARM_CATEGORY_SEXUAL")
+
+
+def _classify_ref_failure(reason: str | None) -> tuple[str, str | None, list[str]]:
+    """Classify why every reference-bearing provider call failed.
+
+    Returns ``(kind, block_reason, safety_categories)`` where kind is one of:
+
+      ``"sexual_refusal"``  — the provider refused on sexual/adult grounds, or
+          returned the Gemini IMAGE_RECITATION refusal this route has always
+          treated as adult-adjacent (behaviour deliberately unchanged).
+      ``"provider_blocked"`` — Google blocked the prompt for a NON-sexual or
+          unspecified reason (blockReason=OTHER and friends).
+      ``"unknown"`` — anything else: timeout, HTTP error, a provider that cannot
+          consume references at all.
+    """
+    reason = reason or ""
+    block_reason, categories = parse_prompt_block(reason)
+    if block_reason:
+        joined = " ".join(categories).upper()
+        if any(m in joined for m in _SEXUAL_CATEGORY_MARKERS):
+            return "sexual_refusal", block_reason, categories
+        return "provider_blocked", block_reason, categories
+    # Pre-existing refusal signals, unchanged: Gemini IMAGE_RECITATION and the
+    # OpenAI moderation vocabulary shared with scene_images / character_visual.
+    if "google_refused_image" in reason or is_moderation_block(reason):
+        return "sexual_refusal", None, []
+    return "unknown", None, []
+
+
+def _provider_model_slug(provider) -> str:
+    """Best-effort model identifier for logging.
+
+    The Google adapter wraps GoogleImageProvider, so the model lives at
+    ``provider._google._model``; probing the adapter alone (as this log line
+    once did) always yielded "?" and left every Google failure unattributable to
+    a model. FLUX/Together adapters expose ``model_name`` instead.
+    """
+    for obj in (provider, getattr(provider, "_google", None)):
+        if obj is None:
+            continue
+        for attr in ("model_name", "_model", "model"):
+            value = getattr(obj, attr, None)
+            if isinstance(value, str) and value:
+                return value
+    return "?"
+
+
+def _ref_digest(url: str) -> str:
+    """Stable, non-reversible 8-char identifier for a reference URL.
+
+    The query string is dropped before hashing so a re-signed URL for the same
+    object keeps the same digest — and so no credential can reach the log even
+    in digested form.
+    """
+    return hashlib.sha256(url.split("?", 1)[0].encode()).hexdigest()[:8]
+
+
+def _ref_audit(
+    db: Session,
+    urls: list[str],
+    slots: list[str],
+    load_flags: list[bool],
+) -> list[str]:
+    """Build per-reference audit tokens: position, slot, DB image id, digest.
+
+    Deliberately carries NO URL, signed or otherwise. The DB id is looked up by
+    file_path and is absent for canon cards uploaded through the admin route
+    (which stores bytes without creating a CharacterImage row) — those are still
+    identifiable by slot name plus digest.
+    """
+    ids_by_path: dict[str, int] = {}
+    try:
+        rows = (
+            db.query(CharacterImage.id, CharacterImage.file_path)
+            .filter(CharacterImage.file_path.in_(urls))
+            .all()
+        )
+        for image_id, path in rows:
+            ids_by_path.setdefault(path, image_id)
+    except Exception:  # diagnostics must never mask the provider failure
+        logger.debug("IMAGE_GEN_REF_AUDIT_ID_LOOKUP_FAILED", exc_info=True)
+
+    tokens: list[str] = []
+    for i, url in enumerate(urls):
+        slot = slots[i] if i < len(slots) else "unknown"
+        loaded = load_flags[i] if i < len(load_flags) else False
+        image_id = ids_by_path.get(url)
+        tokens.append(
+            f"{i}:slot={slot}:id={image_id if image_id is not None else '-'}"
+            f":h={_ref_digest(url)}:loaded={int(loaded)}"
+        )
+    return tokens
 
 
 def _generate_scene_png(
@@ -382,16 +504,22 @@ def generate_image(
         character_id, len(requested_refs),
     )
     ref_bytes: list[bytes] = []
+    # Positional load outcome per requested ref — lets the block diagnostic name
+    # exactly which selected references reached the provider. ref_bytes alone
+    # cannot: it silently drops failures and loses the correlation to the slot.
+    ref_load_flags: list[bool] = []
     for url in requested_refs:
         safe_url = url.split("?", 1)[0]
         try:
             b = load_image_bytes(url)
             ref_bytes.append(b)
+            ref_load_flags.append(True)
             logger.info(
                 "IMAGE_GEN_REF_LOAD_OK character_id=%s url=%s bytes=%d",
                 character_id, safe_url, len(b),
             )
         except Exception as exc:
+            ref_load_flags.append(False)
             # exc_type is logged separately because str(exc) alone hid a
             # ModuleNotFoundError behind a misleading message once already.
             logger.warning(
@@ -530,18 +658,62 @@ def generate_image(
     # below stay intact for genuine non-ref flows (include_character=False, no
     # refs available, or no provider configured → offline/stub path).
     if png_bytes is None and using_canon and ref_bytes and provider is not None:
-        refused = bool(ref_failure_reason and "google_refused_image" in ref_failure_reason)
+        kind, block_reason, safety_categories = _classify_ref_failure(ref_failure_reason)
+        model_slug = _provider_model_slug(provider)
+        refused = kind == "sexual_refusal"
+
         logger.warning(
             "IMAGE_GEN_CANON_REFUSED_BLOCKED character_id=%s provider=%s model=%s "
-            "refused=%s fallback_blocked=true reason=%r",
-            character_id, resolved_provider_name,
-            getattr(provider, "_model", getattr(provider, "model", "?")),
-            refused, (ref_failure_reason or "")[:200],
+            "failure_kind=%s refused=%s block_reason=%s fallback_blocked=true reason=%r",
+            character_id, resolved_provider_name, model_slug,
+            kind, refused, block_reason or "-", (ref_failure_reason or "")[:200],
         )
+
+        # Reference-set diagnostic. Emitted only when the provider reported a
+        # prompt-level block, which is the case that needs the exact input set
+        # identified — and only there, so the ordinary failure path stays cheap.
+        # Carries no URL (signed or otherwise), no bytes, no prompt text and no
+        # credential: slot names, DB image ids and stable digests are enough to
+        # pin the set.
+        #
+        # Why this exists: a character generating fine in dev while production
+        # returns blockReason=OTHER for the same source images (Angelo, 2026-08)
+        # left no way to compare the two runs — the block surfaced only as a
+        # truncated JSON snippet with no record of WHICH references were sent.
+        # This line is what makes a prod-vs-dev comparison possible. Note that
+        # the workspace and published databases are NOT the same store, so the
+        # production reference set can only be read from production's own logs.
+        if block_reason:
+            try:
+                slots = list(scene_meta.route_slots) or slot_names_for_urls(
+                    canon, requested_refs
+                )
+                logger.warning(
+                    "IMAGE_GEN_GOOGLE_BLOCKED character_id=%s provider=%s model=%s "
+                    "block_reason=%s safety_categories=%s refs_requested=%d "
+                    "refs_loaded=%d camera=%s routed=%s exposure=%s slots=%s refs=[%s]",
+                    character_id, resolved_provider_name, model_slug,
+                    block_reason, safety_categories or [],
+                    len(requested_refs), len(ref_bytes),
+                    scene_meta.camera, scene_meta.routed, scene_meta.exposure,
+                    slots,
+                    ", ".join(_ref_audit(db, requested_refs, slots, ref_load_flags)),
+                )
+            except Exception:  # never let diagnostics replace the real failure
+                logger.warning(
+                    "IMAGE_GEN_GOOGLE_BLOCKED_DIAG_FAILED character_id=%s block_reason=%s",
+                    character_id, block_reason, exc_info=True,
+                )
+
+        if kind == "sexual_refusal":
+            detail = _DETAIL_SEXUAL_REFUSAL
+        elif kind == "provider_blocked":
+            detail = _DETAIL_PROVIDER_BLOCKED
+        else:
+            detail = _DETAIL_GENERIC_FAILURE
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Canon provider declined this scene. "
-                   "Try Adult Studio or reduce adult/explicit wording.",
+            detail=detail,
         )
 
     if png_bytes is None and provider is not None:

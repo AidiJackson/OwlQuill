@@ -756,6 +756,237 @@ def test_noncanon_text_only_fallback_still_works(client: TestClient):
     assert resp.json()["metadata_json"]["canon_used"] is False
 
 
+# ── Google block classification + reference-set diagnostics ───────────
+#
+# A canon generation whose ref-bearing calls all fail returns 422 either way;
+# what changed is WHICH message, and what the operator can see in the log.
+
+
+def _blocking_provider(reason: str) -> MagicMock:
+    """Provider whose ref-bearing calls both fail with ``reason``."""
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = MagicMock(side_effect=RuntimeError(reason))
+    mock.generate_grounded_image = MagicMock(side_effect=RuntimeError(reason))
+    mock.generate_image = MagicMock(return_value=_stub_png_bytes())
+    mock._model = "gemini-3.1-flash-image"
+    return mock
+
+
+def _post_blocked(client, db_session, email, reason, prompt="Standing in his office"):
+    token = _register_and_login(client, email)
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid)
+    mock = _blocking_provider(reason)
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+        resp = _post(client, token, cid, {
+            "prompt": prompt,
+            "include_character": True,
+            "provider_option": "option2",
+        })
+    return resp, mock, cid
+
+
+def test_block_other_returns_neutral_message_not_adult_wording(client, db_session):
+    """blockReason=OTHER on a benign prompt must NOT be reported as adult content."""
+    resp, mock, _ = _post_blocked(
+        client, db_session, "imggen_block_other@example.com",
+        "google_prompt_blocked:OTHER:",
+    )
+
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail == (
+        "Google could not process this character reference set. "
+        "Try again or use another provider."
+    )
+    assert "adult" not in detail.lower()
+    assert "explicit" not in detail.lower()
+    # The ref-less fallback stays blocked exactly as before.
+    mock.generate_image.assert_not_called()
+
+
+def test_block_with_sexual_category_keeps_adult_guidance(client, db_session):
+    """A genuine sexual safety category still routes the user to Adult Studio."""
+    resp, _, _ = _post_blocked(
+        client, db_session, "imggen_block_sexual@example.com",
+        "google_prompt_blocked:SAFETY:HARM_CATEGORY_SEXUALLY_EXPLICIT=HIGH",
+    )
+
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert "Adult Studio" in detail
+    assert "adult/explicit wording" in detail
+
+
+def test_image_recitation_refusal_keeps_adult_guidance(client, db_session):
+    """The pre-existing Gemini refusal path is deliberately unchanged."""
+    resp, _, _ = _post_blocked(
+        client, db_session, "imggen_recitation@example.com",
+        "google_refused_image: IMAGE_RECITATION",
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "Adult Studio" in resp.json()["detail"]
+
+
+def test_unrelated_provider_failure_returns_generic_message(client, db_session):
+    """A timeout is not a content problem and must not mention content at all."""
+    resp, _, _ = _post_blocked(
+        client, db_session, "imggen_timeout@example.com",
+        "Google Gemini request failed: timed out",
+    )
+
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail == "Image generation failed for this character. Please try again."
+    for word in ("adult", "explicit", "declined", "Adult Studio"):
+        assert word.lower() not in detail.lower()
+
+
+def test_google_block_logs_reference_set_diagnostic(client, db_session, caplog):
+    """The block diagnostic must identify the exact reference set involved."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+        resp, _, cid = _post_blocked(
+            client, db_session, "imggen_block_diag@example.com",
+            "google_prompt_blocked:OTHER:",
+        )
+    assert resp.status_code == 422
+
+    diag = [r.getMessage() for r in caplog.records if "IMAGE_GEN_GOOGLE_BLOCKED " in r.getMessage()]
+    assert len(diag) == 1, f"expected one diagnostic line, got {diag}"
+    line = diag[0]
+
+    for fragment in (
+        f"character_id={cid}",
+        "provider=google",
+        "model=gemini-3.1-flash-image",
+        "block_reason=OTHER",
+        "safety_categories=[]",
+        "refs_requested=2",
+        "refs_loaded=2",
+        "camera=unknown",
+        "routed=False",
+        "exposure=[]",
+    ):
+        assert fragment in line, f"missing {fragment!r} in: {line}"
+
+    # Canon slot names, in routed order — available even on the fallback path
+    # where SceneMeta.route_slots is empty.
+    assert "slots=['face_front', 'body_front']" in line, line
+    # Per-reference identity: position, slot, DB id (absent here), digest, load flag.
+    assert "0:slot=face_front:id=-:h=" in line, line
+    assert "1:slot=body_front:id=-:h=" in line, line
+    assert "loaded=1" in line, line
+
+
+def test_google_block_diagnostic_leaks_no_urls_or_bytes(client, db_session, caplog):
+    """The diagnostic identifies references without exposing their locations."""
+    import logging
+    from app.services.canon_service import load_face_canon
+    from app.models.character_identity_canon import CharacterIdentityCanon
+
+    secret_prompt = "Zarnak quicksilver bellwether in his office"
+    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+        resp, _, cid = _post_blocked(
+            client, db_session, "imggen_block_noleak@example.com",
+            "google_prompt_blocked:OTHER:", prompt=secret_prompt,
+        )
+    assert resp.status_code == 422
+
+    canon = (
+        db_session.query(CharacterIdentityCanon)
+        .filter(CharacterIdentityCanon.character_id == cid)
+        .first()
+    )
+    face_url = load_face_canon(canon).face_front_image_url
+
+    line = next(
+        r.getMessage() for r in caplog.records
+        if "IMAGE_GEN_GOOGLE_BLOCKED " in r.getMessage()
+    )
+    assert face_url not in line
+    assert "static/generated" not in line
+    assert "http" not in line
+    assert "?" not in line  # no query string, hence no signed-URL credential
+    # No prompt text — neither the user's scene nor any compiled fragment.
+    # Only the distinctive invented tokens are checked; short English words like
+    # "in" appear legitimately inside field names ("image", "unknown").
+    for token in ("Zarnak", "quicksilver", "bellwether", "office"):
+        assert token not in line, f"prompt token {token!r} leaked into: {line}"
+    assert "adult, fully clothed" not in line  # canon_compiler safety prefix
+
+
+def test_google_block_diagnostic_reports_db_image_ids(client, db_session):
+    """A reference backed by a CharacterImage row is named by its DB id."""
+    import logging
+    from app.models.character_image import (
+        CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum,
+    )
+    from app.services.canon_service import load_face_canon
+    from app.models.character_identity_canon import CharacterIdentityCanon
+
+    token = _register_and_login(client, "imggen_block_dbid@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid)
+
+    canon = (
+        db_session.query(CharacterIdentityCanon)
+        .filter(CharacterIdentityCanon.character_id == cid)
+        .first()
+    )
+    face_url = load_face_canon(canon).face_front_image_url
+    row = CharacterImage(
+        character_id=cid,
+        kind=ImageKindEnum.ANCHOR_FRONT,
+        status=ImageStatusEnum.ACTIVE,
+        visibility=ImageVisibilityEnum.PRIVATE,
+        provider="openai",
+        file_path=face_url,
+    )
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+
+    mock = _blocking_provider("google_prompt_blocked:OTHER:")
+    import app.api.routes.image_generator as ig
+    with patch.object(ig, "get_provider_for_option", return_value=mock), \
+            patch.object(ig.logger, "warning") as warn:
+        resp = _post(client, token, cid, {
+            "prompt": "Standing in his office",
+            "include_character": True,
+            "provider_option": "option2",
+        })
+
+    assert resp.status_code == 422
+    rendered = [call.args[0] % call.args[1:] for call in warn.call_args_list
+                if "IMAGE_GEN_GOOGLE_BLOCKED " in call.args[0]]
+    assert len(rendered) == 1, rendered
+    assert f"0:slot=face_front:id={row.id}:" in rendered[0], rendered[0]
+
+
+def test_non_block_failure_emits_no_reference_diagnostic(client, db_session, caplog):
+    """The reference-set diagnostic is scoped to real provider blocks only."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+        resp, _, _ = _post_blocked(
+            client, db_session, "imggen_nodiag@example.com",
+            "temporary upstream 503",
+        )
+    assert resp.status_code == 422
+    assert not [r for r in caplog.records if "IMAGE_GEN_GOOGLE_BLOCKED " in r.getMessage()]
+    # The summary line still fires, and classifies the failure honestly.
+    summary = next(
+        r.getMessage() for r in caplog.records
+        if "IMAGE_GEN_CANON_REFUSED_BLOCKED" in r.getMessage()
+    )
+    assert "failure_kind=unknown" in summary
+    assert "refused=False" in summary
+
+
 def test_canon_success_path_unaffected(client: TestClient, db_session):
     """Non-adult canon gen where the multi-image call succeeds is unaffected:
     200, refs used, text-only never touched (Pan normal-generation analogue)."""

@@ -196,11 +196,13 @@ def _open_png_tempfiles(images: list[bytes]) -> Iterator[list[IO[bytes]]]:
             p.unlink(missing_ok=True)
 
 
-def is_moderation_block(exc: BaseException) -> bool:
+def is_moderation_block(exc: BaseException | str) -> bool:
     """True when a provider exception is a content-moderation refusal.
 
     Single definition of the moderation-refusal keywords — previously
-    duplicated in scene_images and character_visual.
+    duplicated in scene_images and character_visual. Accepts an already-
+    stringified failure reason as well as the exception itself, so callers that
+    only retained the message can classify it without rebuilding the exception.
     """
     msg = str(exc).lower()
     return any(kw in msg for kw in ("moderation_blocked", "safety system", "safety_violation"))

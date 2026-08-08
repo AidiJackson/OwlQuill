@@ -589,6 +589,29 @@ def _get_canon_slot_urls(canon: "CharacterIdentityCanon") -> dict[str, str]:
     return slots
 
 
+def slot_names_for_urls(
+    canon: "CharacterIdentityCanon",
+    urls: list[str],
+) -> list[str]:
+    """Reverse-map reference URLs to their canon slot names. Audit only.
+
+    ``SceneMeta.route_slots`` is populated only when a camera orientation was
+    detected; the ambiguous-prompt fallback returns an empty list even though it
+    still selected real slots. Diagnostics need the slot names on BOTH paths, so
+    this rebuilds them from the canon slot table without touching routing.
+
+    A URL occupying several slots (canon slots legitimately share a card) maps to
+    the first slot in ``_get_canon_slot_urls`` order, which is deterministic. A
+    URL that is not a canon slot maps to ``"unknown"`` — on the fallback path
+    that is the only possibility, since permanent-mark crops are routed solely
+    when a camera was detected and are already named in ``route_slots``.
+    """
+    reverse: dict[str, str] = {}
+    for slot, url in _get_canon_slot_urls(canon).items():
+        reverse.setdefault(url, slot)
+    return [reverse.get(u, "unknown") for u in urls]
+
+
 def _detect_camera(prompt_lower: str) -> str | None:
     """Detect camera orientation from a lowercased prompt.
 

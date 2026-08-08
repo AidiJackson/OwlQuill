@@ -12,9 +12,76 @@ import urllib.request
 import urllib.error
 
 from app.core.config import settings
+from app.core.storage import detect_image_format
 from app.services.image_providers.base import ImageProviderBase
 
 logger = logging.getLogger(__name__)
+
+# ── Prompt-level block marker ─────────────────────────────────────────
+# Gemini answers a REFUSED prompt with HTTP 200 and a body carrying
+# ``promptFeedback.blockReason`` and NO ``candidates`` key. Parsing that body
+# for image parts therefore fails on a KeyError, and the resulting
+# "response missing expected structure: {...json...}" message buried the real
+# reason inside a truncated JSON snippet — the caller could not tell a benign
+# block (blockReason=OTHER, no safety category) apart from a genuine sexual
+# refusal, and reported both to the user as adult content.
+#
+# The block is now raised as a parseable marker instead:
+#
+#     google_prompt_blocked:<BLOCK_REASON>:<CATEGORY=PROBABILITY,...>
+#
+# Callers classify it with :func:`parse_prompt_block`. The category list is
+# whatever Google returned in promptFeedback.safetyRatings and is frequently
+# EMPTY for blockReason=OTHER — an empty list means Google supplied no safety
+# category, NOT that the content was safe or unsafe.
+GOOGLE_PROMPT_BLOCKED_PREFIX = "google_prompt_blocked:"
+
+
+def parse_prompt_block(reason: str) -> tuple[str | None, list[str]]:
+    """Parse a ``google_prompt_blocked`` marker into (block_reason, categories).
+
+    Returns ``(None, [])`` for any string that is not such a marker, so callers
+    can pass an arbitrary provider-failure message in without pre-checking.
+    """
+    if not reason or GOOGLE_PROMPT_BLOCKED_PREFIX not in reason:
+        return None, []
+    tail = reason.split(GOOGLE_PROMPT_BLOCKED_PREFIX, 1)[1]
+    block_reason, _, cats = tail.partition(":")
+    categories = [c for c in (p.strip() for p in cats.split(",")) if c]
+    return (block_reason.strip() or None), categories
+
+
+def _raise_if_prompt_blocked(body: dict) -> None:
+    """Raise a parseable marker when Google blocked the prompt outright."""
+    feedback = body.get("promptFeedback") or {}
+    block_reason = feedback.get("blockReason")
+    if not block_reason:
+        return
+    categories = ",".join(
+        f"{r.get('category')}={r.get('probability')}"
+        for r in (feedback.get("safetyRatings") or [])
+        if r.get("category")
+    )
+    raise RuntimeError(f"{GOOGLE_PROMPT_BLOCKED_PREFIX}{block_reason}:{categories}")
+
+
+def _inline_image_part(image_bytes: bytes) -> dict:
+    """Build an inlineData part declaring the image's ACTUAL media type.
+
+    The mime type was previously hardcoded to image/png for every reference,
+    which mislabelled the JPEG/WebP cards the admin canon-upload route accepts
+    and stores untranscoded. ``detect_image_format`` falls back to image/png for
+    unrecognised bytes, so anything that is not sniffable is sent exactly as it
+    was before.
+    """
+    _, mime_type = detect_image_format(image_bytes)
+    return {
+        "inlineData": {
+            "mimeType": mime_type,
+            "data": base64.b64encode(image_bytes).decode("ascii"),
+        }
+    }
+
 
 def _timeout() -> int:
     return settings.GOOGLE_IMAGE_TIMEOUT_S
@@ -85,6 +152,7 @@ class GoogleImageProvider(ImageProviderBase):
             raise RuntimeError(f"Google Gemini request failed: {exc}") from exc
 
         # Detect Google content refusal before parsing image parts.
+        _raise_if_prompt_blocked(body)
         _cands = body.get("candidates", [])
         if _cands:
             _c0 = _cands[0]
@@ -135,15 +203,7 @@ class GoogleImageProvider(ImageProviderBase):
         if not reference_images:
             raise ValueError("reference_images must not be empty.")
 
-        parts: list[dict] = []
-        for img_bytes in reference_images:
-            encoded = base64.b64encode(img_bytes).decode("ascii")
-            parts.append({
-                "inlineData": {
-                    "mimeType": "image/png",
-                    "data": encoded,
-                }
-            })
+        parts: list[dict] = [_inline_image_part(b) for b in reference_images]
         parts.append({"text": prompt})
 
         payload = {"contents": [{"parts": parts}]}
@@ -174,6 +234,7 @@ class GoogleImageProvider(ImageProviderBase):
             )
             raise RuntimeError(f"Google Gemini multi-anchor request failed: {exc}") from exc
 
+        _raise_if_prompt_blocked(body)
         _cands = body.get("candidates", [])
         if _cands:
             _c0 = _cands[0]
@@ -223,17 +284,11 @@ class GoogleImageProvider(ImageProviderBase):
         if not reference_image_bytes:
             raise ValueError("reference_image_bytes must not be empty.")
 
-        encoded_seed = base64.b64encode(reference_image_bytes).decode("ascii")
         payload = {
             "contents": [
                 {
                     "parts": [
-                        {
-                            "inlineData": {
-                                "mimeType": "image/png",
-                                "data": encoded_seed,
-                            }
-                        },
+                        _inline_image_part(reference_image_bytes),
                         {"text": prompt},
                     ]
                 }
@@ -269,6 +324,7 @@ class GoogleImageProvider(ImageProviderBase):
             raise RuntimeError(f"Google Gemini grounded request failed: {exc}") from exc
 
         # Detect Google content refusal before parsing image parts.
+        _raise_if_prompt_blocked(body)
         _cands = body.get("candidates", [])
         if _cands:
             _c0 = _cands[0]

@@ -574,7 +574,11 @@ def test_flux_refs_not_used_metadata_when_include_character(client: TestClient, 
     # consume them must FAIL LOUDLY (422) instead of silently degrading to a
     # ref-less text-only image that drops the character's identity.
     assert resp.status_code == 422, resp.text
-    assert "Canon provider declined" in resp.json()["detail"]
+    # "cannot consume references" is a capability failure, not a content refusal:
+    # it gets the generic message, never the adult-content guidance.
+    detail = resp.json()["detail"]
+    assert detail == "Image generation failed for this character. Please try again."
+    assert "adult" not in detail.lower()
 
 
 def test_existing_google_path_unaffected_by_flux_addition(client: TestClient):
