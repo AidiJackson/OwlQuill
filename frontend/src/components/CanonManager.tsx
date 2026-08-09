@@ -456,6 +456,38 @@ function SkinTruthSection({
   const [coverageError, setCoverageError] = useState('');
   const [expanded, setExpanded] = useState(false);
 
+  // Resync local edit state whenever the SERVER value changes.
+  //
+  // Without this the checkboxes were initialised once and never again (a
+  // useState initialiser does not re-run on prop change), while the collapsed
+  // summary below always rendered the server value. The two could therefore
+  // disagree — a region shown ticked while the summary omitted it, which is
+  // exactly the "Hands/Fingers checked but missing from the summary" report.
+  // The summary was right and the tick was a local, unsaved edit.
+  const declaredKey = JSON.stringify(declared);
+  const coverageKey = JSON.stringify(body.card_coverage ?? {});
+  useEffect(() => {
+    setRegions(new Set(declared ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [declaredKey]);
+  useEffect(() => {
+    const out: Record<string, string> = {};
+    for (const [slot, cov] of Object.entries(body.card_coverage ?? {})) {
+      out[slot] = cov.coverage_type;
+    }
+    setCoverage(out);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coverageKey]);
+
+  // Unsaved-change detection. This panel has two independent Save buttons, so
+  // an edited-but-unsaved checkbox is easy to lose by saving the other block
+  // or collapsing the panel — the likely path by which the hands declaration
+  // was never persisted. Surface it instead of failing silently.
+  const regionsDirty =
+    declared === null
+      ? regions.size > 0
+      : JSON.stringify([...regions].sort()) !== JSON.stringify([...declared].sort());
+
   async function saveRegions() {
     setDeclaring(true);
     setDeclareError('');
@@ -543,13 +575,24 @@ function SkinTruthSection({
                 </label>
               ))}
             </div>
+            {declared === null && regions.size === 0 && (
+              <p className="text-xs text-ink-3">
+                Saving with nothing ticked declares this character has no permanent
+                markings anywhere — different from leaving it undeclared.
+              </p>
+            )}
+            {regionsDirty && (
+              <p className="text-xs text-amber-400">
+                Unsaved changes — press Save marking regions to apply them.
+              </p>
+            )}
             {declareError && <p className="text-xs text-red-400">{declareError}</p>}
             <button
               onClick={saveRegions}
               disabled={declaring}
               className="text-xs btn btn-primary"
             >
-              {declaring ? 'Saving…' : 'Save marking regions'}
+              {declaring ? 'Saving…' : regionsDirty ? 'Save marking regions *' : 'Save marking regions'}
             </button>
           </div>
 

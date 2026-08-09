@@ -88,6 +88,22 @@ _EXPOSE_LEG_SIGNALS = frozenset({
     "swimwear", "bikini", "bare legs", "miniskirt", "mini skirt", "mini-skirt",
 })
 
+# Hands and face are visible in essentially every scene — that is why they are
+# in ALWAYS_VISIBLE_REGIONS and never create a card-coverage conflict. They
+# still need a scene STATE, because "visible" is exactly the precondition for
+# asserting that a canonical hand/face mark should be rendered. Without a state
+# the positive half of mark truth could never fire for them (a declared hand
+# tattoo could only ever be denied, never asserted). Only an explicit covering
+# garment takes them out of "exposed".
+_COVER_HAND_SIGNALS = frozenset({
+    "gloves", "gloved", "glove", "mittens", "boxing gloves", "gauntlets",
+    "hands in pockets", "hands pocketed",
+})
+_COVER_FACE_SIGNALS = frozenset({
+    "mask", "masked", "balaclava", "helmet", "visor", "veil", "face covering",
+    "face covered", "respirator",
+})
+
 
 # ── Scene region states ───────────────────────────────────────────────
 
@@ -122,6 +138,9 @@ def scene_region_states(prompt_lower: str) -> dict[str, str]:
     torso_cover = any(s in prompt_lower for s in _COVER_TORSO_SIGNALS)
     neck_covered = any(s in prompt_lower for s in _CROP_NECK_COVER)
 
+    hands_covered = any(s in prompt_lower for s in _COVER_HAND_SIGNALS)
+    face_covered = any(s in prompt_lower for s in _COVER_FACE_SIGNALS)
+
     return {
         "torso": _state(any(s in prompt_lower for s in _CROP_TORSO_EXPOSE), torso_cover),
         # Garments that cover the torso cover the back with it.
@@ -136,6 +155,13 @@ def scene_region_states(prompt_lower: str) -> dict[str, str]:
             any(s in prompt_lower for s in _EXPOSE_LEG_SIGNALS),
             any(s in prompt_lower for s in _COVER_LEG_SIGNALS),
         ),
+        # Default-exposed, unlike every region above: bare hands and an
+        # uncovered face are the norm, so the absence of a signal means
+        # VISIBLE rather than the conservative covered_default. These keys are
+        # deliberately NOT in _TRACKED, so card-coverage conflict/suppression
+        # is completely unaffected — they exist for mark truth only.
+        "hands": _state(not hands_covered, hands_covered),
+        "face": _state(not face_covered, face_covered),
     }
 
 

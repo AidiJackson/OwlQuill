@@ -441,19 +441,97 @@ def _legacy_mark_presence_clause(
     )
 
 
+def _conditional_occlusion_clause(
+    canon: "CharacterIdentityCanon",
+    scene_prompt: str,
+) -> str:
+    """Conditional ink-on-fabric invariant for regions the scene leaves UNSTATED.
+
+    The production failure this closes: "Davies in his office - any tattoos
+    that should be visible are visible" reproduced his chest artwork ON the
+    shirt. The scene names no garment, so every torso signal resolves to
+    ``covered_default`` and :func:`_coverage_occlusion_clause` (which requires
+    ``covered_explicit``) stayed silent — while the user's own wording pushed
+    the model to render torso ink. The model then dressed him for an office,
+    as it should, and printed the ink onto the fabric.
+
+    The fix is deliberately CONDITIONAL. It never asserts that the region IS
+    covered — asserting that on an unstated scene would break shirtless,
+    swimwear and fantasy prompts, and would be exactly the "assume everything
+    is clothed" overreach we must avoid. It asserts only the implication:
+    *if* clothing covers this region here, the marking is under it, never on
+    it. That is true in every scene, so it is safe to state whenever the
+    region is not explicitly exposed.
+
+    Fires only when ALL of:
+      * the canon carries mark-location authority (structured marks and/or a
+        ``marked_regions`` declaration) — legacy undeclared canons keep
+        byte-identical prompts, so Angelo and friends are untouched,
+      * the region is one the character is actually MARKED in (clean regions
+        are handled by the clean-skin clause; naming them here would be noise),
+      * the canon carries bare-skin card evidence for that region — without it
+        there is no ink for the model to migrate,
+      * the scene does not EXPOSE the region (exposed → the mark should show),
+      * the scene does not explicitly cover it either (explicit → the stronger
+        absolute clause above owns the wording; no duplication).
+    """
+    from app.services.card_coverage import (
+        card_visible_regions,
+        mark_location_authority,
+        scene_region_states,
+    )
+    from app.services.scene_router import _detect_camera, _get_canon_slot_urls
+
+    body = load_body_canon(canon)
+    if body is None:
+        return ""
+    authority = mark_location_authority(body)
+    if not authority:
+        return ""
+
+    prompt_lower = (scene_prompt or "").lower()
+    if _detect_camera(prompt_lower) == "portrait_closeup":
+        return ""
+
+    states = scene_region_states(prompt_lower)
+
+    bare: set[str] = set()
+    for slot in _get_canon_slot_urls(canon):
+        regions, _source = card_visible_regions(body, slot)
+        if regions:
+            bare |= regions
+    candidates = (bare & set(authority)) - {
+        r for r, s in states.items() if s in ("exposed", "covered_explicit")
+    }
+    if not candidates:
+        return ""
+
+    phrases: list[str] = []
+    for region in ("torso", "back", "upper_arms", "forearms", "neck", "legs"):
+        if region in candidates:
+            p = _REGION_PHRASES[region]
+            if p not in phrases:
+                phrases.append(p)
+    if not phrases:
+        return ""
+    return (
+        f"Wherever clothing covers the {_join_phrases(phrases)} in this scene, the "
+        "permanent markings there are underneath the fabric: never printed, "
+        "traced, echoed or patterned onto the garment itself."
+    )
+
+
 def _coverage_occlusion_clause(
     canon: "CharacterIdentityCanon",
     scene_prompt: str,
 ) -> str:
-    """Region-level occlusion invariant for MARKLESS canons with bare cards.
+    """Region-level occlusion invariant for canons with bare card evidence.
 
     Davies: permanent_body_marks is empty, so `_permanent_marks_clause` emits
     nothing — not even the clothing-truth line — while his shirtless canon
     cards hand the provider strong visual tattoo evidence. This clause is the
     text counterweight for exactly that case. It fires only when ALL of:
 
-      * the canon has NO structured marks (marks present → the existing
-        mark-driven clause owns occlusion wording; no duplication),
       * the scene is not a portrait close-up (no body in frame),
       * at least one region is EXPLICITLY covered by scene clothing vocabulary
         (covered_default scenes stay byte-identical — no prompt bloat, and the
@@ -468,8 +546,13 @@ def _coverage_occlusion_clause(
     body = load_body_canon(canon)
     if body is None:
         return ""
-    if getattr(body, "permanent_body_marks", None):
-        return ""  # mark-driven machinery owns occlusion wording
+    # Mark-bearing canons get the COMPACT form below rather than nothing.
+    # Returning "" for them (the original behaviour, when only markless
+    # canons could reach here) meant that registering structured marks on a
+    # character DELETED his region-named occlusion wording and left only the
+    # generic clothing-truth directive — a silent downgrade of the exact text
+    # that made the white-shirt scene pass before enrichment.
+    has_marks = bool(getattr(body, "permanent_body_marks", None))
 
     from app.services.card_coverage import (
         card_visible_regions,
@@ -501,10 +584,15 @@ def _coverage_occlusion_clause(
             p = _REGION_PHRASES[region]
             if p not in phrases:
                 phrases.append(p)
-    if len(phrases) == 1:
-        joined = phrases[0]
-    else:
-        joined = ", ".join(phrases[:-1]) + " and " + phrases[-1]
+    joined = _join_phrases(phrases)
+    if has_marks:
+        # The generic _CLOTHING_TRUTH_DIRECTIVE already states the rule for
+        # mark-bearing canons; this only has to name the regions, so it stays
+        # short rather than repeating the full sentence.
+        return (
+            f"Opaque clothing covers {joined} here — markings there stay "
+            "under the fabric, never on it."
+        )
     return (
         f"The character's {joined} are fully covered by opaque clothing in this "
         "scene. Permanent skin markings in those regions are not visible on or "
@@ -550,16 +638,30 @@ def compile_canon_prompt(
     if marks_clause:
         parts.append(marks_clause)
     else:
-        # Markless canon (Davies): when the scene is explicitly clothed and the
-        # canon carries bare-skin card evidence, assert region-level occlusion
-        # so reference pixels cannot out-argue the requested clothing.
-        occlusion = _coverage_occlusion_clause(canon, scene)
-        if occlusion:
-            parts.append(occlusion)
         # Enriched legacy canon: positive presence for exposed authority regions.
         presence = _legacy_mark_presence_clause(canon, scene)
         if presence:
             parts.append(presence)
+
+    # Region-level occlusion. Runs on BOTH paths: a canon that carries bare
+    # card evidence needs its covered regions named whether or not its marks
+    # are structured (registering marks must not silently remove this).
+    occlusion = _coverage_occlusion_clause(canon, scene)
+    if occlusion:
+        parts.append(occlusion)
+    else:
+        # Unstated scene: the conditional ink-on-fabric invariant. This is what
+        # "Davies in his office - any tattoos that should be visible are
+        # visible" needed — no garment named, so the clause above stays silent
+        # while the prompt actively encourages torso ink.
+        #
+        # Only when the absolute clause did NOT fire: the two are the same
+        # invariant at different confidence levels, and a scene that already
+        # names its garments has the stronger, region-named wording above.
+        # Emitting both just repeats the rule and inflates the prompt.
+        conditional = _conditional_occlusion_clause(canon, scene)
+        if conditional:
+            parts.append(conditional)
 
     # Clean-skin authority (anti-migration) — emitted on BOTH paths whenever
     # the canon knows where marks are allowed to exist. Marked and markless

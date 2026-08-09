@@ -253,12 +253,24 @@ def _mark_region_exposed(body_region: str, is_sleeve: bool, prompt_lower: str) -
     # ── Back ──
     if "back" in region:
         return any(s in prompt_lower for s in _CROP_BACK_EXPOSE)
-    # ── Hands / face are generally visible ──
+    # ── Hands / face are visible unless a garment explicitly covers them ──
+    # Default-exposed (the inverse of every region above), because bare hands
+    # and an uncovered face are the norm. Gloves/mask are the only signals that
+    # hide them, and honouring those keeps a gloved scene from routing a
+    # knuckle-tattoo crop the frame cannot show.
+    from app.services.card_coverage import (
+        _COVER_FACE_SIGNALS,
+        _COVER_HAND_SIGNALS,
+    )
+
+    if region in ("left_hand", "right_hand", "hand", "knuckles", "fingers",
+                  "left_wrist", "right_wrist", "wrist"):
+        return not any(s in prompt_lower for s in _COVER_HAND_SIGNALS)
     if region in (
-        "left_hand", "right_hand", "hand", "knuckles", "face",
-        "right_cheek", "left_cheek", "jaw", "forehead", "chin",
+        "face", "right_cheek", "left_cheek", "jaw", "forehead", "chin",
+        "temple", "brow",
     ):
-        return True
+        return not any(s in prompt_lower for s in _COVER_FACE_SIGNALS)
     # Legs / other regions → conservative (not routed without explicit signal).
     return False
 
