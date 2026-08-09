@@ -135,7 +135,13 @@ _MAX_MARK_CROPS = 2
 
 _CROP_FULL_ARM = frozenset({
     "shirtless", "bare-chested", "bare chested", "bare chest", "no shirt",
-    "topless", "bare torso", "sleeveless", "tank top", "tank", "vest",
+    "topless", "bare torso", "sleeveless", "tank top", "tank",
+    # "vest" was removed: in tailoring vocabulary a vest is the COVERED middle
+    # layer of a three-piece suit ("suit vest", "waistcoat"), and the bare word
+    # flipped formal suit scenes into exposed-arm routing (the Davies-era
+    # false positive). The UK sleeveless-undershirt sense stays reachable via
+    # "sleeveless", "tank top" and "muscle shirt" — an unambiguous exposure
+    # reading requires one of those.
     "muscle shirt", "muscle tee", "camisole", "racerback",
     "bare arms", "arms bare", "bare arm", "arms out", "arm out",
     "arms visible", "arm visible", "both arms visible", "arms exposed",
@@ -168,6 +174,10 @@ _CROP_TORSO_EXPOSE = frozenset({
     "shirtless", "bare-chested", "bare chested", "bare chest", "no shirt",
     "topless", "bare torso", "open shirt", "shirt open", "unbuttoned",
     "swimming", "swimming pool", "poolside", "swimwear", "bikini",
+    # Swim garments contain the substring "suit"; naming them here lets the
+    # exposure-first precedence in card_coverage.scene_region_states resolve
+    # them as exposure before "suit" can read as formal covered clothing.
+    "swimsuit", "bathing suit", "swim trunks",
 })
 _CROP_BACK_EXPOSE = frozenset({
     "shirtless", "bare back", "back visible", "from behind", "back view", "topless",
@@ -546,7 +556,124 @@ class SceneMeta:
     mark_crop_bindings: list["MarkCropBinding"] = field(default_factory=list)
     # S24I: True when the bare-skin body_map placement sheet was dropped because
     # the character has marks and the scene covers all of them (audit only).
+    # Since the CANON SKIN/CLOTHING sprint this is also True when body_map was
+    # suppressed by mark-INDEPENDENT card-coverage conflict (Davies).
     body_map_suppressed: bool = False
+    # ── Card-coverage audit (CANON SKIN/CLOTHING sprint) ──────────────
+    # Region → "exposed" | "covered_explicit" | "covered_default" for this scene.
+    scene_coverage: dict[str, str] = field(default_factory=dict)
+    # Body-bearing slots dropped because their depicted skin conflicts with the
+    # scene's explicitly covered regions (Davies bleed-through prevention).
+    coverage_suppressed: list[str] = field(default_factory=list)
+    # Declared cards fully compatible with the scene's coverage.
+    coverage_compatible: list[str] = field(default_factory=list)
+    # Declared cards bare in a covered region but also in an exposed one (kept).
+    coverage_partial: list[str] = field(default_factory=list)
+    # Legacy cards with no coverage metadata — routed exactly as before, but
+    # identified so diagnostics can tell unknown from verified-compatible.
+    coverage_unknown: list[str] = field(default_factory=list)
+    # The conflicting card retained as the body anchor when EVERY body card
+    # conflicted (all-bare legacy canon + covered scene). Recorded, never
+    # silently treated as compatible.
+    coverage_conflict_anchor: str | None = None
+
+
+# ── Card-coverage integration (CANON SKIN/CLOTHING sprint) ────────────
+# Anchor priority when EVERY body-bearing card conflicts with a covered scene:
+# the strongest single body anchor is retained (identity grounding must never
+# drop to zero — the same principle the Angelo provider work enforced). Whole-
+# body truth first; the inherently-bare body_map is the last resort.
+_ANCHOR_PRIORITY = (
+    "body_front", "torso_front", "standing_relaxed", "final_character_card",
+    "body_left", "body_right", "body_back", "seated_relaxed", "torso_side",
+    "body_map",
+)
+
+
+def _coverage_plan(
+    canon: "CharacterIdentityCanon",
+    slot_urls: dict[str, str],
+    prompt_lower: str,
+    camera: str | None,
+) -> tuple[dict[str, str], dict, set[str], str | None, bool]:
+    """Compute the scene/card coverage decision for this routing pass.
+
+    Returns (scene_states, views, suppressed_slots, conflict_anchor,
+    declared_present).
+
+    * ``conflicting`` cards (bare skin only where the scene is EXPLICITLY
+      covered) are suppressed — unless suppression would leave no body-bearing
+      card at all, in which case the single strongest conflicting card is
+      retained as ``conflict_anchor`` and recorded, never re-labelled
+      compatible (legacy all-bare canons, requirement: no total body-grounding
+      loss).
+    * ``unknown`` (legacy, no metadata) cards are never suppressed — absent
+      metadata must not be read as bare OR as clothed.
+    * Portrait close-ups route no body evidence, so no suppression applies.
+    * Mark-INDEPENDENT by design: Davies proved permanent_body_marks can be
+      empty while the cards are covered in tattoos.
+    """
+    from app.services.card_coverage import classify_cards, scene_region_states
+
+    scene_states = scene_region_states(prompt_lower)
+    if camera == "portrait_closeup":
+        return scene_states, {}, set(), None, False
+
+    body = load_body_canon(canon)
+    views = classify_cards(body, list(slot_urls), scene_states)
+    declared_present = any(v.source == "declared" for v in views.values())
+
+    conflicting = [s for s, v in views.items() if v.classification == "conflicting"]
+    survivors = [s for s in views if s not in conflicting]
+    suppressed = set(conflicting)
+    conflict_anchor: str | None = None
+    if conflicting and not survivors:
+        ordered = [s for s in _ANCHOR_PRIORITY if s in conflicting]
+        conflict_anchor = ordered[0] if ordered else sorted(conflicting)[0]
+        suppressed.discard(conflict_anchor)
+    return scene_states, views, suppressed, conflict_anchor, declared_present
+
+
+def _reorder_body_slots(slots: list[str], views: dict) -> list[str]:
+    """Stable-reorder body-bearing slots by coverage preference.
+
+    Compatible clothed/silhouette evidence takes the earliest body positions,
+    then scene-useful partials, then legacy unknowns — face slots keep their
+    exact positions (face grounding is non-negotiable). Applied only when at
+    least one DECLARED card exists, so purely-legacy canons keep today's
+    ordering byte-for-byte.
+    """
+    from app.services.card_coverage import coverage_rank
+    from app.schemas.canon import CARD_COVERAGE_SLOTS
+
+    body_idx = [i for i, s in enumerate(slots) if s in CARD_COVERAGE_SLOTS]
+    if len(body_idx) < 2:
+        return slots
+    ranked = sorted(
+        (slots[i] for i in body_idx),
+        key=lambda s: coverage_rank(views[s]) if s in views else 3,
+    )
+    out = list(slots)
+    for i, s in zip(body_idx, ranked):
+        out[i] = s
+    return out
+
+
+def _fill_coverage_meta(meta: "SceneMeta", scene_states, views, suppressed, anchor) -> None:
+    meta.scene_coverage = dict(scene_states)
+    meta.coverage_suppressed = sorted(suppressed)
+    meta.coverage_compatible = sorted(
+        s for s, v in views.items() if v.classification == "compatible" and v.source == "declared"
+    )
+    meta.coverage_partial = sorted(
+        s for s, v in views.items() if v.classification == "partial"
+    )
+    meta.coverage_unknown = sorted(
+        s for s, v in views.items() if v.classification == "unknown"
+    )
+    meta.coverage_conflict_anchor = anchor
+    if "body_map" in suppressed:
+        meta.body_map_suppressed = True
 
 
 # ── Internal helpers ──────────────────────────────────────────────────
@@ -715,18 +842,49 @@ def route_canon_refs(
     ):
         camera = "front"
 
-    # S24I coverage gate: when the character has marks and this scene exposes none
-    # of them, the bare-skin body_map placement sheet is suppressed on every path.
-    # The clothed body_front remains as covered body truth.
+    # ── Card-coverage plan (CANON SKIN/CLOTHING) — mark-independent ──
+    # Which body-bearing cards depict skin the scene explicitly covers?
+    # Computed BEFORE the mark gate below because Davies proved the two are
+    # independent: his cards are covered in tattoos while permanent_body_marks
+    # is empty.
+    scene_states, cov_views, suppressed, conflict_anchor, declared_present = (
+        _coverage_plan(canon, slot_urls, prompt_lower, camera)
+    )
+
+    # S24I coverage gate (unchanged, mark-driven): when the character has marks
+    # and this scene exposes none of them, the bare-skin body_map placement
+    # sheet is suppressed on every path — including covered_default scenes,
+    # which the mark-independent plan deliberately leaves alone.
     bmap_present = "body_map" in slot_urls
     covered = _has_covered_marks(canon, prompt_lower, camera)
-    body_map_suppressed = covered and bmap_present
+    if covered and bmap_present:
+        suppressed.add("body_map")
+        if conflict_anchor == "body_map":
+            conflict_anchor = None
+    body_map_suppressed = "body_map" in suppressed
 
     if camera is None:
         fallback_urls = collect_canon_reference_urls(canon)
-        if body_map_suppressed:
-            bmap_url = slot_urls["body_map"]
-            fallback_urls = [u for u in fallback_urls if u != bmap_url]
+        if suppressed or declared_present:
+            from app.services.card_coverage import coverage_rank
+            from app.schemas.canon import CARD_COVERAGE_SLOTS
+            names = slot_names_for_urls(canon, fallback_urls)
+            pairs = [
+                (n, u) for n, u in zip(names, fallback_urls) if n not in suppressed
+            ]
+            if declared_present:
+                # Stable preference reorder among body-card positions only —
+                # face reference positions are untouched.
+                body_idx = [
+                    i for i, (n, _) in enumerate(pairs) if n in CARD_COVERAGE_SLOTS
+                ]
+                ranked = sorted(
+                    (pairs[i] for i in body_idx),
+                    key=lambda p: coverage_rank(cov_views[p[0]]) if p[0] in cov_views else 3,
+                )
+                for i, p in zip(body_idx, ranked):
+                    pairs[i] = p
+            fallback_urls = [u for _, u in pairs]
         meta = SceneMeta(
             camera="unknown",
             exposure=exposure,
@@ -734,28 +892,39 @@ def route_canon_refs(
             route_slots=[],
             body_map_suppressed=body_map_suppressed,
         )
+        _fill_coverage_meta(meta, scene_states, cov_views, suppressed, conflict_anchor)
         logger.info(
-            "SCENE_ROUTER char=%s camera=unknown fallback=true exposure=%s refs=%d body_map_suppressed=%s",
+            "SCENE_ROUTER char=%s camera=unknown fallback=true exposure=%s refs=%d "
+            "body_map_suppressed=%s coverage_suppressed=%s coverage_unknown=%s "
+            "conflict_anchor=%s",
             char_id, exposure, len(fallback_urls), body_map_suppressed,
+            meta.coverage_suppressed, meta.coverage_unknown,
+            conflict_anchor or "-",
         )
         return fallback_urls, meta
 
     # P13: exposure-gated cropped-mark routing. When the scene exposes a mark's
     # region, splice its high-fidelity crop ahead of lower-priority refs while
-    # guaranteeing body_front + body_map survive. No exposed marks → unchanged.
+    # guaranteeing body_front + body_map survive. Coverage-suppressed slots are
+    # filtered from the candidate pool first (structured marks REFINE routing;
+    # they no longer gate the coverage decision).
     crops = _collect_exposed_mark_crops(canon, prompt_lower, camera)
+    slot_urls_visible = {s: u for s, u in slot_urls.items() if s not in suppressed}
     if crops:
-        # An exposed mark exists here, so coverage suppression never applies.
         route_slots = _ROUTES.get(camera, _ROUTES["front"])
-        slots_avail = [s for s in route_slots if s in slot_urls]
-        slots_hit, urls = _merge_crops(camera, slots_avail, slot_urls, crops)
+        slots_avail = [s for s in route_slots if s in slot_urls_visible]
+        slots_hit, urls = _merge_crops(camera, slots_avail, slot_urls_visible, crops)
         crop_count = slots_hit.count("mark_crop")
         # Crops are spliced contiguously right after the lead ref, so the first
         # crop_count bindings are exactly the ones that survived the cap (#1/#3).
         routed_bindings = crops[:crop_count]
     else:
-        drop = frozenset({"body_map"}) if body_map_suppressed else frozenset()
-        urls, slots_hit = _resolve_route(camera, slot_urls, drop_slots=drop)
+        route_slots = _ROUTES.get(camera, _ROUTES["front"])
+        slots_all = [s for s in route_slots if s in slot_urls_visible]
+        if declared_present:
+            slots_all = _reorder_body_slots(slots_all, cov_views)
+        slots_hit = slots_all[:MAX_PROVIDER_REFS]
+        urls = [slot_urls_visible[s] for s in slots_hit]
         crop_count = 0
         routed_bindings = []
 
@@ -768,8 +937,13 @@ def route_canon_refs(
         mark_crop_bindings=routed_bindings,
         body_map_suppressed=body_map_suppressed,
     )
+    _fill_coverage_meta(meta, scene_states, cov_views, suppressed, conflict_anchor)
     logger.info(
-        "SCENE_ROUTER char=%s camera=%s routed=true exposure=%s slots=%s refs=%d crops=%d body_map_suppressed=%s",
-        char_id, camera, exposure, slots_hit, len(urls), crop_count, body_map_suppressed,
+        "SCENE_ROUTER char=%s camera=%s routed=true exposure=%s slots=%s refs=%d "
+        "crops=%d body_map_suppressed=%s coverage_suppressed=%s "
+        "coverage_compatible=%s coverage_unknown=%s conflict_anchor=%s",
+        char_id, camera, exposure, slots_hit, len(urls), crop_count,
+        body_map_suppressed, meta.coverage_suppressed, meta.coverage_compatible,
+        meta.coverage_unknown, conflict_anchor or "-",
     )
     return urls, meta

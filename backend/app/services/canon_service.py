@@ -127,7 +127,11 @@ def update_body_canon(
     """Apply patch fields to body canon anatomy. Returns updated BodyCanonData."""
     body = load_body_canon(canon) or BodyCanonData()
     data = patch.model_dump(exclude_none=True)
-    updated = body.model_copy(update=data)
+    # Re-validate rather than model_copy alone: model_copy bypasses validation,
+    # which left nested card_coverage values as raw dicts (attribute access on
+    # them would differ from a freshly-loaded canon) and skipped the
+    # BodyCanonData slot validator.
+    updated = BodyCanonData(**{**body.model_dump(), **data})
     _save_body(canon, updated)
     return updated
 
