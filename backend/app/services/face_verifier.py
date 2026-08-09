@@ -41,11 +41,43 @@ _COMPARE_PROMPT = (
 )
 
 
+# ── Scorability (measurement only) ────────────────────────────────────
+#
+# Face similarity is only meaningful when there is enough face to compare.
+# A back-facing shot or a distant full-body frame produces a low score for a
+# reason that has nothing to do with identity, and scoring those as FAIL
+# turns "insufficient evidence" into "wrong character" — which is what
+# corrupted the first soak's face numbers.
+#
+# This is additive and OPT-IN: ``verify_face_match`` keeps its exact prompt
+# and return contract by default, so the generation path is untouched. Only
+# the measurement harness passes ``assess_visibility=True``.
+_VISIBILITY_CLAUSE = (
+    ' Additionally report "face_visible": true only if enough of the SECOND '
+    "image's face is actually visible to judge identity — a face turned away "
+    "from camera, obscured, or too small/blurred to read must be false. "
+    'Return {"same_person":bool,"similarity":float,"face_visible":bool,"reason":string}.'
+)
+
+# Deterministic pre-check: the router already knows a back-facing scene, so a
+# provably face-away prompt is ruled NOT_SCORABLE without spending a call.
+def prompt_is_face_away(scene_prompt: str) -> bool:
+    """True when the scene prompt itself places the face away from camera."""
+    from app.services.scene_router import _BACK_SIGNALS
+
+    return any(s in (scene_prompt or "").lower() for s in _BACK_SIGNALS)
+
+
 def _b64_data_url(png_bytes: bytes) -> str:
     return f"data:image/png;base64,{base64.b64encode(png_bytes).decode('ascii')}"
 
 
-def verify_face_match(reference_png: bytes, candidate_png: bytes) -> dict[str, Any]:
+def verify_face_match(
+    reference_png: bytes,
+    candidate_png: bytes,
+    *,
+    assess_visibility: bool = False,
+) -> dict[str, Any]:
     """Compare a candidate generated image against a reference face.
 
     Returns ``{ok, match, similarity, skip_reason}``:
@@ -68,7 +100,8 @@ def verify_face_match(reference_png: bytes, candidate_png: bytes) -> dict[str, A
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": _COMPARE_PROMPT},
+                        {"type": "text",
+                         "text": _COMPARE_PROMPT + (_VISIBILITY_CLAUSE if assess_visibility else "")},
                         {"type": "image_url",
                          "image_url": {"url": _b64_data_url(reference_png), "detail": "low"}},
                         {"type": "image_url",
@@ -87,7 +120,12 @@ def verify_face_match(reference_png: bytes, candidate_png: bytes) -> dict[str, A
         similarity = max(0.0, min(1.0, float(parsed.get("similarity", 0.0))))
         match = bool(parsed.get("same_person", False))
         logger.info("face_verify event=ok match=%s similarity=%.2f", match, similarity)
-        return {"ok": True, "match": match, "similarity": similarity, "skip_reason": ""}
+        verdict = {"ok": True, "match": match, "similarity": similarity, "skip_reason": ""}
+        if assess_visibility:
+            # Absent key → assume visible, so a model that ignores the clause
+            # cannot silently mark everything unscorable.
+            verdict["face_visible"] = bool(parsed.get("face_visible", True))
+        return verdict
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         logger.warning("face_verify event=parse_error")
         return {**_SKIP, "skip_reason": "parse_error"}
