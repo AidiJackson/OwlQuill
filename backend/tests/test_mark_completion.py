@@ -219,3 +219,104 @@ class TestDetailCropRouting:
     def test_markless_canon_routes_no_crops(self):
         _urls, meta = route_canon_refs("Davies front view at his desk", _canon())
         assert meta.mark_crops == 0
+
+
+# ── Ambiguous/fallback-path crop routing ──────────────────────────────
+#
+# A vague natural prompt detects no camera, and the crop splice used to exist
+# only on the camera path — so the most common real user prompt received no
+# structured mark evidence at all. These pin the fix and, just as importantly,
+# the limits that keep it from weakening grounding or leaking covered marks.
+
+class TestAmbiguousPromptCropRouting:
+    def _hand_canon(self, **kw):
+        return _canon(marks=[_mark("right_hand", "right", "rosette", HAND_CROP)], **kw)
+
+    def test_vague_prompt_routes_exposed_hand_crop(self):
+        _urls, meta = route_canon_refs(OFFICE, self._hand_canon())
+        assert meta.camera == "unknown"
+        assert meta.mark_crops == 1
+        assert meta.mark_crop_bindings[0].body_region == "right_hand"
+
+    def test_vague_prompt_keeps_face_anchor_leading(self):
+        # Reference grounding must not be weakened: face identity still leads
+        # and a real body anchor is still present behind it.
+        _urls, meta = route_canon_refs(OFFICE, self._hand_canon())
+        assert meta.route_slots[0] == "face_front"
+        assert "body_front" in meta.route_slots
+
+    def test_crop_never_leads_the_reference_list(self):
+        _urls, meta = route_canon_refs(OFFICE, self._hand_canon())
+        assert meta.route_slots.index("mark_crop") > 0
+
+    def test_covered_mark_does_not_route_on_vague_prompt(self):
+        # Chest is not exposed by a vague office prompt — the crop must not ride
+        # in just because the camera was ambiguous.
+        canon = _canon(marks=[_mark("chest", "centre", "crest", HAND_CROP)])
+        _urls, meta = route_canon_refs(OFFICE, canon)
+        assert meta.mark_crops == 0
+
+    def test_gloves_suppress_hand_crop_on_vague_prompt(self):
+        _urls, meta = route_canon_refs(
+            "Davies in his office wearing gloves", self._hand_canon())
+        assert meta.mark_crops == 0
+
+    def test_shirtless_vague_prompt_routes_chest_crop(self):
+        # Exposure promotion makes this camera=front; asserted here so the two
+        # paths stay consistent about which marks are eligible.
+        canon = _canon(marks=[_mark("chest", "centre", "crest", HAND_CROP)])
+        _urls, meta = route_canon_refs("Davies shirtless in his office", canon)
+        assert meta.mark_crops == 1
+
+    def test_route_slots_populated_only_when_crops_spliced(self):
+        # Otherwise a crop URL reverse-maps to "unknown" and diagnostics
+        # misreport the reference set.
+        _urls, with_crops = route_canon_refs(OFFICE, self._hand_canon())
+        assert with_crops.route_slots
+        _urls2, without = route_canon_refs(OFFICE, _canon())
+        assert without.route_slots == []
+
+    def test_static_fallback_unchanged_for_markless_canon(self):
+        from app.services.canon_compiler import collect_canon_reference_urls
+        canon = _canon()
+        urls, meta = route_canon_refs("standing in a sunny field", canon)
+        assert urls == collect_canon_reference_urls(canon)
+        assert meta.mark_crops == 0
+
+    def test_mark_without_crop_image_routes_nothing(self):
+        canon = _canon(marks=[_mark("right_hand", "right", "rosette", None)])
+        _urls, meta = route_canon_refs(OFFICE, canon)
+        assert meta.mark_crops == 0
+
+    def test_crops_capped_and_reference_count_not_inflated(self):
+        from app.services.scene_router import MAX_PROVIDER_REFS
+        canon = _canon(marks=[
+            _mark("right_hand", "right", "r", HAND_CROP),
+            _mark("left_hand", "left", "l", HAND_CROP),
+            _mark("knuckles", "centre", "k", HAND_CROP),
+        ])
+        urls, meta = route_canon_refs(OFFICE, canon)
+        assert meta.mark_crops <= 2
+        assert len(urls) <= MAX_PROVIDER_REFS
+
+    def test_no_crop_without_a_body_anchor(self):
+        # The anchor guarantee holds on this path too: a crop must have anatomy
+        # to bind onto or it reads as a floating symbol.
+        canon = MagicMock(spec=CharacterIdentityCanon)
+        canon.character_id = 1
+        canon.face_canon_json = json.dumps(
+            FaceCanonData(face_front_image_url=FACE_FRONT).model_dump())
+        canon.body_canon_json = json.dumps(BodyCanonData(
+            permanent_body_marks=[_mark("right_hand", "right", "r", HAND_CROP)],
+        ).model_dump())
+        canon.accessories_json = None
+        _urls, meta = route_canon_refs(OFFICE, canon)
+        assert meta.mark_crops == 0
+
+    def test_bindings_align_with_routed_crop_count(self):
+        canon = _canon(marks=[
+            _mark("right_hand", "right", "r", HAND_CROP),
+            _mark("left_hand", "left", "l", HAND_CROP),
+        ])
+        _urls, meta = route_canon_refs(OFFICE, canon)
+        assert len(meta.mark_crop_bindings) == meta.mark_crops

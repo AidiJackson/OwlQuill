@@ -897,19 +897,62 @@ def route_canon_refs(
                 for i, p in zip(body_idx, ranked):
                     pairs[i] = p
             fallback_urls = [u for _, u in pairs]
+
+        # ── Ambiguous-prompt mark crops ───────────────────────────────
+        # A vague natural prompt ("Davies in his office") detects no camera and
+        # therefore used to route NO permanent-mark evidence at all: the crop
+        # splice lived only on the camera path. That is the common case for
+        # real users, and it is why an always-visible hand marking could be
+        # declared, asserted in the prompt, and still have no high-fidelity
+        # reference behind it.
+        #
+        # Exposure gating is unchanged and per-mark, so only marks the scene
+        # actually exposes are eligible — a covered chest or sleeved arm still
+        # routes nothing here. The ordering reuses _merge_crops, the same
+        # proven arrangement the camera path uses (face anchor leads, body
+        # truth next, crops as supporting evidence, never leading), rather
+        # than inventing a second ordering: no orientation is passed, so no
+        # side card is pulled in. Its body-anchor guarantee still applies, so
+        # crops can never route without anatomy to bind onto.
+        crop_count = 0
+        routed_bindings: list["MarkCropBinding"] = []
+        crop_slots: list[str] = []
+        crops = _collect_exposed_mark_crops(canon, prompt_lower, camera)
+        if crops:
+            names = slot_names_for_urls(canon, fallback_urls)
+            visible: dict[str, str] = {}
+            for n, u in zip(names, fallback_urls):
+                if n != "unknown":
+                    visible.setdefault(n, u)
+            slots_avail = list(visible)
+            merged_slots, merged_urls = _merge_crops(camera, slots_avail, visible, crops)
+            if "mark_crop" in merged_slots:
+                fallback_urls = merged_urls
+                crop_slots = merged_slots
+                crop_count = merged_slots.count("mark_crop")
+                routed_bindings = crops[:crop_count]
+
         meta = SceneMeta(
             camera="unknown",
             exposure=exposure,
+            # routed stays False: no camera orientation was detected. The crop
+            # splice does not change that, only which references were chosen.
             routed=False,
-            route_slots=[],
+            # Populated ONLY when crops were spliced. The list no longer equals
+            # the static ordering then, and reverse-mapping a crop URL through
+            # slot_names_for_urls would label it "unknown" — diagnostics would
+            # silently misreport the reference set.
+            route_slots=crop_slots,
+            mark_crops=crop_count,
+            mark_crop_bindings=routed_bindings,
             body_map_suppressed=body_map_suppressed,
         )
         _fill_coverage_meta(meta, scene_states, cov_views, suppressed, conflict_anchor)
         logger.info(
             "SCENE_ROUTER char=%s camera=unknown fallback=true exposure=%s refs=%d "
-            "body_map_suppressed=%s coverage_suppressed=%s coverage_unknown=%s "
+            "crops=%d body_map_suppressed=%s coverage_suppressed=%s coverage_unknown=%s "
             "conflict_anchor=%s",
-            char_id, exposure, len(fallback_urls), body_map_suppressed,
+            char_id, exposure, len(fallback_urls), crop_count, body_map_suppressed,
             meta.coverage_suppressed, meta.coverage_unknown,
             conflict_anchor or "-",
         )
