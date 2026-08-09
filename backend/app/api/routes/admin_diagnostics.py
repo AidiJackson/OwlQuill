@@ -13,6 +13,9 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.services.image_providers.google_provider import google_effective_config
+from app.services.model_profiles import (
+    supports_input_fidelity as _supports_input_fidelity,
+)
 
 router = APIRouter()
 
@@ -121,7 +124,13 @@ def admin_diagnostics(
         "weekly_limit": settings.IMAGE_WEEKLY_LIMIT,
         "openai_key_present": bool(os.getenv("OPENAI_API_KEY")),
         "fal_key_present": bool(os.getenv("FAL_KEY")),
+        # Effective model ids for BOTH image providers, so a dev-vs-prod model
+        # diff is one diagnostics call (env vars override the code defaults —
+        # this reports what the running process actually uses).
         "model": settings.IMAGE_MODEL,
+        "google_model": settings.GOOGLE_IMAGE_MODEL,
+        # Model-profile facts consumed by the pipeline (model_profiles.py).
+        "openai_input_fidelity_supported": _supports_input_fidelity(settings.IMAGE_MODEL),
     }
 
     # ── Google (Gemini) — dev-vs-production comparison surface ──

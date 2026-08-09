@@ -77,7 +77,13 @@ class Settings(BaseSettings):
     # Canon Studio production default is Google (Gemini). OpenAI stays fully
     # wired as an admin-only fallback (option1 + IMAGE_PROVIDER_FALLBACK paths).
     IMAGE_PROVIDER: str = "google"
-    IMAGE_MODEL: str = "gpt-image-1.5"
+    # OpenAI image model. gpt-image-2 is OpenAI's current recommended model
+    # (verified 2026-08 against the official image-generation guide); it
+    # processes every reference at high fidelity and REJECTS input_fidelity —
+    # call sites gate that via model_profiles.supports_input_fidelity.
+    # NOTE: an IMAGE_MODEL env var/secret overrides this default — the admin
+    # diagnostics endpoint reports the effective value the process is using.
+    IMAGE_MODEL: str = "gpt-image-2"
     OPENAI_API_KEY: Optional[str] = None
     BACKEND_PUBLIC_URL: str = "http://localhost:8000"
 
@@ -141,6 +147,15 @@ class Settings(BaseSettings):
     # saved below threshold; a second escalated attempt materially improves the
     # recovery rate before we fall back to the best-scoring candidate.
     IDENTITY_FACE_VERIFY_MAX_RETRIES: int = 2
+
+    # ── Permanent-mark placement verification (PERMANENT-MARK CANON) ────
+    # After a canon generation, check the image for gross mark violations
+    # (tattoos on regions the canon declares clean, marks printed on
+    # clothing). FLAG-ONLY: a violation writes a metadata warning and never
+    # rejects or regenerates the image. Runs only for canons that carry
+    # mark-location authority (structured marks or marked_regions), so legacy
+    # canons cost nothing. Best-effort like face verification.
+    CANON_MARK_VERIFY: bool = True
 
     # Grammar engine — LanguageTool
     # Self-host: docker run -p 8010:8010 erikvl87/languagetool

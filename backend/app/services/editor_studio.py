@@ -108,18 +108,34 @@ class GptImageEditor:
             image_arg = handles if len(handles) > 1 else handles[0]
             import base64
 
-            try:
-                response = self._client.images.edit(
-                    model=settings.IMAGE_MODEL,
-                    image=image_arg,
-                    prompt=full_prompt,
-                    n=1,
-                    size=size,
-                    input_fidelity=fidelity,
-                )
-            except TypeError:
-                # Older SDK without input_fidelity — retry without it.
-                logger.warning("editor_input_fidelity_unsupported — retrying without param")
+            # input_fidelity is a MODEL capability, not an SDK constant:
+            # gpt-image-2 rejects the parameter outright (it always processes
+            # inputs at high fidelity), while gpt-image-1/1.5 accept it. The
+            # profile gate prevents a model upgrade from turning every editor
+            # call into an API error.
+            from app.services.model_profiles import supports_input_fidelity
+
+            if supports_input_fidelity(settings.IMAGE_MODEL):
+                try:
+                    response = self._client.images.edit(
+                        model=settings.IMAGE_MODEL,
+                        image=image_arg,
+                        prompt=full_prompt,
+                        n=1,
+                        size=size,
+                        input_fidelity=fidelity,
+                    )
+                except TypeError:
+                    # Older SDK without input_fidelity — retry without it.
+                    logger.warning("editor_input_fidelity_unsupported — retrying without param")
+                    response = self._client.images.edit(
+                        model=settings.IMAGE_MODEL,
+                        image=image_arg,
+                        prompt=full_prompt,
+                        n=1,
+                        size=size,
+                    )
+            else:
                 response = self._client.images.edit(
                     model=settings.IMAGE_MODEL,
                     image=image_arg,

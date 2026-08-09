@@ -624,7 +624,10 @@ class TestClothingTruthOverTattooVisibility:
         assert "mandatory identity features" not in prompt
         # Compact, not a return to pre-P12 multi-paragraph prose bloat.
         assert "for visual balance or composition" not in prompt
-        assert len(prompt) < 1200
+        # PERMANENT-MARK CANON: the clean-skin authority clause (~210 chars)
+        # is a deliberate compact addition, not prose bloat — the essay
+        # markers above remain the real anti-bloat guard.
+        assert len(prompt) < 1450
 
     def test_2_sleeveless_routes_both_arm_crops(self):
         """2. Sleeveless: full arms exposed → both arm crops route."""

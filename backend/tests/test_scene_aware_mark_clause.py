@@ -122,4 +122,5 @@ class TestRolledSleevesAsymmetry:
     def test_kitchen_prompt_stays_compact(self):
         p = _prompt(self._KITCHEN)
         assert "for visual balance or composition" not in p  # no pre-P12 prose
-        assert len(p) < 1200
+        # PERMANENT-MARK CANON: allow the compact clean-skin authority clause.
+        assert len(p) < 1450

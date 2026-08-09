@@ -568,16 +568,19 @@ def generate_image(
     # exactly which selected references reached the provider. ref_bytes alone
     # cannot: it silently drops failures and loses the correlation to the slot.
     ref_load_flags: list[bool] = []
+    # Byte-identical duplicate suppression (REF EFFICIENCY): canon slots may
+    # legitimately share one card (same URL under two slot names, or the same
+    # bytes uploaded twice). A duplicate adds zero identity information and
+    # only inflates the provider payload — the Angelo investigation measured a
+    # six-reference request at ~17 MB. Deduped positions are logged distinctly
+    # from load failures; the FIRST occurrence always survives, so identity
+    # grounding is untouched.
+    refs_deduped = 0
+    _seen_ref_hashes: set[str] = set()
     for url in requested_refs:
         safe_url = url.split("?", 1)[0]
         try:
             b = load_image_bytes(url)
-            ref_bytes.append(b)
-            ref_load_flags.append(True)
-            logger.info(
-                "IMAGE_GEN_REF_LOAD_OK character_id=%s url=%s bytes=%d",
-                character_id, safe_url, len(b),
-            )
         except Exception as exc:
             ref_load_flags.append(False)
             # exc_type is logged separately because str(exc) alone hid a
@@ -586,9 +589,28 @@ def generate_image(
                 "IMAGE_GEN_REF_LOAD_FAILED character_id=%s url=%s exc_type=%s error=%r",
                 character_id, safe_url, type(exc).__name__, str(exc),
             )
+            continue
+        content_hash = hashlib.sha256(b).hexdigest()
+        if content_hash in _seen_ref_hashes:
+            refs_deduped += 1
+            ref_load_flags.append(False)
+            logger.info(
+                "IMAGE_GEN_REF_DEDUP character_id=%s url=%s bytes=%d b=%s "
+                "reason=duplicate_content",
+                character_id, safe_url, len(b), content_hash[:8],
+            )
+            continue
+        _seen_ref_hashes.add(content_hash)
+        ref_bytes.append(b)
+        ref_load_flags.append(True)
+        logger.info(
+            "IMAGE_GEN_REF_LOAD_OK character_id=%s url=%s bytes=%d",
+            character_id, safe_url, len(b),
+        )
     logger.info(
-        "IMAGE_GEN_REF_LOAD_SUMMARY character_id=%s refs_requested=%d refs_loaded=%d",
-        character_id, len(requested_refs), len(ref_bytes),
+        "IMAGE_GEN_REF_LOAD_SUMMARY character_id=%s refs_requested=%d refs_loaded=%d "
+        "refs_deduped=%d",
+        character_id, len(requested_refs), len(ref_bytes), refs_deduped,
     )
 
     # A canon generation whose references ALL failed would silently produce a
@@ -846,6 +868,49 @@ def generate_image(
             character_id=character_id,
         )
 
+    # ── Permanent-mark placement verification (flag-only) ─────────────
+    # Runs only for canons that carry mark-location authority. A violation is
+    # surfaced as a metadata warning — never a rejection or regeneration:
+    # generation-time grounding (routed cards + clean-skin/occlusion clauses)
+    # is the primary defence; this detects the gross drift that slips through.
+    mark_verify_meta: dict = {}
+    if (
+        png_bytes is not None
+        and using_canon
+        and canon is not None
+        and actual_provider_name not in ("stub", "fal")
+        and settings.CANON_MARK_VERIFY
+    ):
+        from app.services.canon_service import load_body_canon
+        from app.services.card_coverage import mark_location_authority
+        from app.services.mark_verifier import verify_mark_regions
+
+        authority = mark_location_authority(load_body_canon(canon))
+        if authority is not None:
+            verdict = verify_mark_regions(png_bytes, authority)
+            if verdict.get("ok"):
+                mark_verify_meta = {
+                    "mark_verify_observed": verdict["observed"],
+                    "mark_verify_violations": verdict["violations"],
+                    "mark_verify_on_clothing": verdict["on_clothing"],
+                }
+                if verdict["violations"] or verdict["on_clothing"]:
+                    mark_verify_meta["mark_verify_warning"] = (
+                        "Generated image may show permanent markings outside this "
+                        "character's canon (regions: "
+                        + (", ".join(verdict["violations"]) or "clothing surface")
+                        + "). Consider regenerating."
+                    )
+                    logger.warning(
+                        "IMAGE_GEN_MARK_VERIFY character_id=%s result=violation "
+                        "violations=%s on_clothing=%s",
+                        character_id, verdict["violations"], verdict["on_clothing"],
+                    )
+            else:
+                mark_verify_meta = {
+                    "mark_verify_skipped": verdict.get("skip_reason") or "unknown"
+                }
+
     # Storage checkpoints. save_image() is the last unguarded step before the DB
     # write, and a failure there is indistinguishable from a provider failure in
     # the logs unless the boundary is marked on both sides — a START with no OK
@@ -946,6 +1011,7 @@ def generate_image(
         # Canon-contract diagnostics (replace legacy strict-identity metadata).
         "canon_used": using_canon,
         "refs_count": len(ref_bytes),
+        "refs_deduped": refs_deduped,
         "compiled_prompt": compiled_prompt[:400],
     }
     if body.include_character:
@@ -955,6 +1021,8 @@ def generate_image(
         metadata["cover_retry_succeeded"] = cover_retry_succeeded
         if face_verify_meta:
             metadata.update(face_verify_meta)
+        if mark_verify_meta:
+            metadata.update(mark_verify_meta)
         # Together AI URL-based ref diagnostics (option5 only).
         if together_response_mode != "not_applicable":
             metadata["together_response_mode"] = together_response_mode

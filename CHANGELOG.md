@@ -2,6 +2,43 @@
 
 All notable changes to the Ficshon project will be documented in this file.
 
+## [Permanent-Mark Canon] - 2026-08-09 - Mark location authority + provider modernisation
+
+### Added
+- **Mark-location authority** (`BodyCanonData.marked_regions` + `card_coverage.mark_location_authority`):
+  separates SKIN VISIBILITY from PERMANENT-MARK LOCATION AUTHORITY. A canon can now
+  declare where marks exist; every other region is authoritatively clean skin.
+  `[]` = explicitly unmarked; structured marks union in (under-declaration can never
+  suppress a registered mark); unmappable mark regions veto clean-skin claims.
+- **Clean-skin authority clause** (`canon_compiler._clean_region_clause`): scene-relevant
+  negative truth — stops reference-pack tattoos migrating onto neck/hands/face
+  (the Davies office collar/knuckle inventions). Character-agnostic, region-level.
+- **Legacy mark presence clause**: enriched legacy canons (declaration, no structured
+  marks) get a positive "markings exactly as shown in references" line in exposed scenes.
+- **Mark placement verifier** (`services/mark_verifier.py`, `CANON_MARK_VERIFY`):
+  flag-only post-generation check for marks outside authority and marks printed on
+  clothing. Never rejects/regenerates — writes metadata warnings.
+- **Model profiles** (`services/model_profiles.py`): per-model capability facts
+  (gpt-image-2 rejects `input_fidelity`; images.edit hard cap 16 refs). Editor
+  strength control now gates on the profile instead of assuming the parameter.
+- **Reference dedup**: byte-identical duplicate references dropped before the provider
+  call (first occurrence kept); `refs_deduped` in logs and image metadata.
+- **Creator UX** (CanonManager): "Skin & Marking Truth" section — marked-regions
+  checkboxes + per-card coverage presets; mark body-region is now a canonical
+  dropdown (free text was how unmappable regions entered canon).
+- Admin diagnostics now report the effective Google model and OpenAI
+  input-fidelity support alongside the OpenAI model.
+
+### Changed
+- `IMAGE_MODEL` default `gpt-image-1.5` → `gpt-image-2` (OpenAI's current recommended
+  model, verified against official docs 2026-08). Env var still overrides.
+
+### Not changed
+- `GOOGLE_IMAGE_MODEL` stays `gemini-3.1-flash-image` (benchmarked vs flash-lite on
+  4 canon cases: comparable scores, but n is too small to prove the cheaper model
+  holds identity on hard tattoo cases — see sprint report for the larger-benchmark plan).
+- No Alembic migration: `marked_regions` is JSON-additive inside `body_canon_json`.
+
 ## [Phase 2] - 2025-11-16 - Playable Social MVP
 
 ### Added

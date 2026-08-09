@@ -169,6 +169,70 @@ def mark_region_groups(body_region: str) -> frozenset[str]:
     return frozenset()
 
 
+# ── Permanent-mark location authority ─────────────────────────────────
+# SKIN VISIBILITY and PERMANENT-MARK LOCATION AUTHORITY are different
+# concepts. Visibility (above) decides which cards conflict with a scene's
+# clothing. Authority decides where marks are allowed to EXIST at all — the
+# Davies neck/knuckle failure was the provider extrapolating tattooed skin
+# from reference pixels onto regions that are merely VISIBLE (neck above a
+# collar, hands) without any canon saying those regions are clean.
+
+def _authority_region_groups(body_region: str) -> frozenset[str]:
+    """Region groups for AUTHORITY purposes — extends mark_region_groups.
+
+    Coverage refinement deliberately ignores face/hand regions (they never
+    conflict with clothing), but authority must know about them: a registered
+    cheek tattoo grants "face" authority, otherwise the clean-skin clause
+    would contradict the mark. Returns the empty set for regions it cannot
+    map — the caller treats that as a veto on authority.
+    """
+    groups = mark_region_groups(body_region)
+    if groups:
+        return groups
+    r = (body_region or "").lower().strip().replace(" ", "_")
+    if any(t in r for t in ("hand", "knuckle", "finger", "wrist")):
+        return frozenset({"hands"})
+    if any(t in r for t in ("face", "cheek", "jaw", "forehead", "chin",
+                            "temple", "brow", "eye", "nose", "lip", "ear",
+                            "head", "scalp")):
+        return frozenset({"face"})
+    return frozenset()
+
+
+def mark_location_authority(body: "BodyCanonData | None") -> frozenset[str] | None:
+    """Return the region groups where this character's permanent marks live.
+
+    ``None`` means the canon carries NO usable authority data — no clean-skin
+    claims may be made. A frozenset (possibly empty) is authoritative: marks
+    exist ONLY in these regions; every other region is clean skin.
+
+    Sources, merged by union so an under-declaration can never suppress a
+    registered mark:
+      * ``marked_regions``       — creator's explicit declaration ([] = the
+                                   character is explicitly unmarked)
+      * ``permanent_body_marks`` — structured marks; the canon schema defines
+                                   these as locked anatomical truth, so a
+                                   non-empty set is treated as complete.
+
+    Conservative veto: if ANY structured mark's region cannot be mapped onto
+    the group vocabulary, authority is ``None`` — a clean-skin claim that
+    might contradict a registered mark is worse than making no claim.
+    """
+    if body is None:
+        return None
+    declared = getattr(body, "marked_regions", None)
+    marks = getattr(body, "permanent_body_marks", None) or []
+    from_marks: set[str] = set()
+    for m in marks:
+        groups = _authority_region_groups(getattr(m, "body_region", ""))
+        if not groups:
+            return None  # unmappable mark region → no clean-skin claims
+        from_marks |= groups
+    if declared is None and not marks:
+        return None
+    return frozenset(set(declared or []) | from_marks)
+
+
 # ── Card classification ───────────────────────────────────────────────
 
 @dataclass(frozen=True)

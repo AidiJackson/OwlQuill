@@ -305,6 +305,142 @@ _REGION_PHRASES = {
 }
 
 
+# ── Clean-skin authority clause (PERMANENT-MARK CANON sprint) ─────────
+# Anti-migration mechanism. When the canon carries mark-location authority
+# (structured marks and/or marked_regions), every scene-relevant region
+# OUTSIDE that authority is asserted as unmarked skin. This is what stops a
+# heavily-tattooed reference pack teaching the provider that the character's
+# neck, hands or face are tattooed (the Davies office collar/knuckle
+# inventions): those regions are VISIBLE, but visibility is not authority.
+# Region-level and character-agnostic — never a per-character negative-prompt
+# hack, so it scales to every canon that declares authority.
+# Flat noun lists so the joined sentence never nests "and" inside a phrase.
+_CLEAN_REGION_PHRASES = {
+    "torso": ["chest", "torso"],
+    "back": ["back"],
+    "upper_arms": ["upper arms"],
+    "forearms": ["forearms"],
+    "neck": ["neck", "throat"],
+    "legs": ["legs"],
+    "hands": ["hands", "fingers", "knuckles"],
+    "face": ["face"],
+}
+
+# Order clean regions are named in — head-down, deterministic output.
+_CLEAN_REGION_ORDER = (
+    "face", "neck", "torso", "back", "upper_arms", "forearms", "hands", "legs",
+)
+
+
+def _join_phrases(phrases: list[str]) -> str:
+    if len(phrases) == 1:
+        return phrases[0]
+    return ", ".join(phrases[:-1]) + " and " + phrases[-1]
+
+
+def _clean_region_clause(
+    canon: "CharacterIdentityCanon",
+    scene_prompt: str,
+) -> str:
+    """Assert clean skin for scene-relevant regions outside mark authority.
+
+    Fires only when the canon carries authority data (see
+    card_coverage.mark_location_authority). Scene relevance keeps the clause
+    compact:
+      * face and hands — always relevant (always visible);
+      * neck — relevant unless the scene explicitly covers it (a suit collar
+        still leaves the neck visible — the exact Davies migration site);
+      * torso/back/arms/legs — relevant only when the scene EXPOSES them
+        (when covered, the occlusion machinery already owns the wording).
+    Portrait close-ups reduce to face + neck (the only skin in frame).
+    """
+    from app.services.card_coverage import (
+        mark_location_authority,
+        scene_region_states,
+    )
+    from app.services.scene_router import _detect_camera
+
+    body = load_body_canon(canon)
+    authority = mark_location_authority(body)
+    if authority is None:
+        return ""
+
+    prompt_lower = (scene_prompt or "").lower()
+    states = scene_region_states(prompt_lower)
+
+    clean = [r for r in _CLEAN_REGION_ORDER if r not in authority]
+    relevant: list[str] = []
+    portrait = _detect_camera(prompt_lower) == "portrait_closeup"
+    for region in clean:
+        if portrait and region not in ("face", "neck"):
+            continue
+        if region in ("face", "hands"):
+            relevant.append(region)
+        elif region == "neck":
+            if states.get("neck") != "covered_explicit":
+                relevant.append(region)
+        elif states.get(region) == "exposed":
+            relevant.append(region)
+    if not relevant:
+        return ""
+
+    nouns: list[str] = []
+    for r in relevant:
+        nouns.extend(_CLEAN_REGION_PHRASES[r])
+    joined = _join_phrases(nouns)
+    return (
+        f"Clean-skin truth: this character has no tattoos, markings, or ink on the "
+        f"{joined} — those areas are unmarked natural skin. Never add, extend, or "
+        "migrate any marking onto them, even if reference images show tattoos on "
+        "nearby skin."
+    )
+
+
+def _legacy_mark_presence_clause(
+    canon: "CharacterIdentityCanon",
+    scene_prompt: str,
+) -> str:
+    """Positive existence line for DECLARED-authority canons without structured marks.
+
+    An enriched legacy character (marked_regions set, permanent_body_marks
+    still empty — Davies after enrichment) has no per-mark geometry lines, so
+    when the scene exposes an authority region this asserts that its markings
+    exist and are defined by the reference images. Design details stay in the
+    cards — prose never describes them (the P12 lesson).
+    """
+    from app.services.card_coverage import (
+        mark_location_authority,
+        scene_region_states,
+    )
+    from app.services.scene_router import _detect_camera
+
+    body = load_body_canon(canon)
+    if body is None or getattr(body, "permanent_body_marks", None):
+        return ""  # structured marks own their own positive lines
+    authority = mark_location_authority(body)
+    if not authority:
+        return ""
+
+    prompt_lower = (scene_prompt or "").lower()
+    if _detect_camera(prompt_lower) == "portrait_closeup":
+        return ""
+    states = scene_region_states(prompt_lower)
+    exposed = [
+        r for r in _CLEAN_REGION_ORDER
+        if r in authority and states.get(r) == "exposed"
+    ]
+    if not exposed:
+        return ""
+    nouns: list[str] = []
+    for r in exposed:
+        nouns.extend(_CLEAN_REGION_PHRASES[r])
+    joined = _join_phrases(nouns)
+    return (
+        f"The character's {joined} carry their permanent markings exactly as shown "
+        "in the reference images — same designs, same positions, same scale."
+    )
+
+
 def _coverage_occlusion_clause(
     canon: "CharacterIdentityCanon",
     scene_prompt: str,
@@ -420,6 +556,18 @@ def compile_canon_prompt(
         occlusion = _coverage_occlusion_clause(canon, scene)
         if occlusion:
             parts.append(occlusion)
+        # Enriched legacy canon: positive presence for exposed authority regions.
+        presence = _legacy_mark_presence_clause(canon, scene)
+        if presence:
+            parts.append(presence)
+
+    # Clean-skin authority (anti-migration) — emitted on BOTH paths whenever
+    # the canon knows where marks are allowed to exist. Marked and markless
+    # canons previously took entirely different prompt machinery; this clause
+    # is the shared negative-truth layer both need.
+    clean_clause = _clean_region_clause(canon, scene)
+    if clean_clause:
+        parts.append(clean_clause)
 
     parts.append(scene)
 
@@ -433,8 +581,10 @@ def compile_canon_prompt(
         )
 
     logger.info(
-        "CANON_PROMPT character_id=%s accessories=%d marks_clause=%s prompt_len=%d",
-        canon.character_id, len(requested), bool(marks_clause), len(prompt),
+        "CANON_PROMPT character_id=%s accessories=%d marks_clause=%s "
+        "clean_skin_clause=%s prompt_len=%d",
+        canon.character_id, len(requested), bool(marks_clause),
+        bool(clean_clause), len(prompt),
     )
 
     return prompt

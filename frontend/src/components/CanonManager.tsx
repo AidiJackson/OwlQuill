@@ -42,6 +42,11 @@ interface FaceCanon {
   locked: boolean;
 }
 
+interface CardCoverage {
+  coverage_type: string;
+  visible_skin_regions: string[];
+}
+
 interface BodyCanon {
   body_front_image_url: string | null;
   body_left_image_url: string | null;
@@ -58,6 +63,11 @@ interface BodyCanon {
   skin_tone: string | null;
   body_description: string | null;
   permanent_body_marks: PermanentBodyMark[];
+  // Per-card depicted skin coverage (PERMANENT-MARK CANON sprint).
+  card_coverage?: Record<string, CardCoverage> | null;
+  // Mark-location declaration: null/undefined = undeclared (legacy),
+  // [] = explicitly unmarked, [...] = marks confined to these regions.
+  marked_regions?: string[] | null;
   locked: boolean;
 }
 
@@ -380,6 +390,211 @@ function FaceCanonSection({
   );
 }
 
+// ── Skin & Markings truth (PERMANENT-MARK CANON sprint) ───────────────
+// Two simple declarations that give the Canon engine authoritative data:
+//   1. marked_regions — WHERE this character's permanent marks exist at all
+//      (everything else is clean skin the generator must not tattoo).
+//   2. card_coverage — what skin each reference card actually shows, so a
+//      bare-skinned card can never contaminate a clothed scene.
+// Deliberately not an anatomy form: one checkbox row + one preset per card.
+
+const MARKED_REGION_OPTIONS: { key: string; label: string }[] = [
+  { key: 'torso',      label: 'Chest / torso' },
+  { key: 'back',       label: 'Back' },
+  { key: 'upper_arms', label: 'Upper arms' },
+  { key: 'forearms',   label: 'Forearms' },
+  { key: 'neck',       label: 'Neck' },
+  { key: 'hands',      label: 'Hands / fingers' },
+  { key: 'face',       label: 'Face' },
+  { key: 'legs',       label: 'Legs' },
+];
+
+const COVERAGE_PRESET_OPTIONS: { key: string; label: string }[] = [
+  { key: '',              label: 'Not declared' },
+  { key: 'fully_clothed', label: 'Fully clothed' },
+  { key: 'short_sleeves', label: 'Short sleeves' },
+  { key: 'sleeveless',    label: 'Sleeveless' },
+  { key: 'bare_torso',    label: 'Bare torso' },
+  { key: 'shorts',        label: 'Shorts' },
+  { key: 'swimwear',      label: 'Swimwear' },
+];
+
+const COVERAGE_CARD_SLOTS: { slot: string; label: string }[] = [
+  { slot: 'body_front',           label: 'Body Front' },
+  { slot: 'body_left',            label: 'Body Left' },
+  { slot: 'body_right',           label: 'Body Right' },
+  { slot: 'body_back',            label: 'Body Back' },
+  { slot: 'body_map',             label: 'Body Map' },
+  { slot: 'final_character_card', label: 'Final Card' },
+  { slot: 'torso_front',          label: 'Torso Front' },
+  { slot: 'torso_side',           label: 'Torso Side' },
+  { slot: 'standing_relaxed',     label: 'Standing Relaxed' },
+  { slot: 'seated_relaxed',       label: 'Seated Relaxed' },
+];
+
+function SkinTruthSection({
+  body,
+  characterId,
+  onRefresh,
+}: {
+  body: BodyCanon;
+  characterId: number;
+  onRefresh: () => void;
+}) {
+  const declared = body.marked_regions ?? null;
+  const [regions, setRegions] = useState<Set<string>>(new Set(declared ?? []));
+  const [declaring, setDeclaring] = useState(false);
+  const [declareError, setDeclareError] = useState('');
+  const [coverage, setCoverage] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const [slot, cov] of Object.entries(body.card_coverage ?? {})) {
+      out[slot] = cov.coverage_type;
+    }
+    return out;
+  });
+  const [savingCoverage, setSavingCoverage] = useState(false);
+  const [coverageError, setCoverageError] = useState('');
+  const [expanded, setExpanded] = useState(false);
+
+  async function saveRegions() {
+    setDeclaring(true);
+    setDeclareError('');
+    try {
+      await apiClient.patchBodyCanon(characterId, {
+        marked_regions: Array.from(regions),
+      });
+      onRefresh();
+    } catch (err: unknown) {
+      setDeclareError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setDeclaring(false);
+    }
+  }
+
+  async function saveCoverage() {
+    setSavingCoverage(true);
+    setCoverageError('');
+    try {
+      const dict: Record<string, { coverage_type: string }> = {};
+      for (const [slot, preset] of Object.entries(coverage)) {
+        if (preset) dict[slot] = { coverage_type: preset };
+      }
+      await apiClient.patchBodyCanon(characterId, { card_coverage: dict });
+      onRefresh();
+    } catch (err: unknown) {
+      setCoverageError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSavingCoverage(false);
+    }
+  }
+
+  // Only offer coverage rows for cards that exist.
+  const presentSlots = COVERAGE_CARD_SLOTS.filter(({ slot }) => {
+    const url = (body as unknown as Record<string, unknown>)[`${slot}_image_url`];
+    return typeof url === 'string' && url.length > 0;
+  });
+
+  return (
+    <div className="border border-edge-md rounded-lg bg-surface-elevated">
+      <button
+        className="w-full flex items-center justify-between p-2.5 text-left hover:bg-surface-overlay"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div>
+          <p className="text-xs font-medium text-ink">Skin &amp; Marking Truth</p>
+          <p className="text-xs text-ink-3 mt-0.5">
+            {declared === null
+              ? 'Not declared — the generator cannot protect clean skin yet.'
+              : declared.length === 0
+                ? 'Declared: no permanent markings anywhere.'
+                : `Markings confined to: ${declared.join(', ')}`}
+          </p>
+        </div>
+        {expanded
+          ? <ChevronDown className="w-3 h-3 text-ink-3 shrink-0" />
+          : <ChevronRight className="w-3 h-3 text-ink-3 shrink-0" />}
+      </button>
+
+      {expanded && (
+        <div className="px-2.5 pb-2.5 space-y-3 border-t border-edge-md">
+          {/* Marked regions declaration */}
+          <div className="pt-2 space-y-1.5">
+            <p className="text-xs font-medium text-ink">
+              Where does this character have permanent markings?
+            </p>
+            <p className="text-xs text-ink-3">
+              Everywhere you leave unticked is treated as clean skin — tattoos can
+              never appear or migrate there. Tick nothing to declare an unmarked
+              character.
+            </p>
+            <div className="grid grid-cols-2 gap-1">
+              {MARKED_REGION_OPTIONS.map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-1.5 text-xs text-ink-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={regions.has(key)}
+                    onChange={e => {
+                      const s = new Set(regions);
+                      e.target.checked ? s.add(key) : s.delete(key);
+                      setRegions(s);
+                    }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {declareError && <p className="text-xs text-red-400">{declareError}</p>}
+            <button
+              onClick={saveRegions}
+              disabled={declaring}
+              className="text-xs btn btn-primary"
+            >
+              {declaring ? 'Saving…' : 'Save marking regions'}
+            </button>
+          </div>
+
+          {/* Per-card coverage */}
+          {presentSlots.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-ink">
+                What does each reference card show?
+              </p>
+              <p className="text-xs text-ink-3">
+                Declaring a card&apos;s clothing lets the generator keep bare-skin
+                cards out of clothed scenes (and vice versa).
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {presentSlots.map(({ slot, label }) => (
+                  <label key={slot} className="flex items-center justify-between gap-1 text-xs text-ink-2">
+                    <span className="truncate">{label}</span>
+                    <select
+                      value={coverage[slot] ?? ''}
+                      onChange={e => setCoverage(c => ({ ...c, [slot]: e.target.value }))}
+                      className="text-xs bg-surface-elevated border border-edge-md rounded px-1.5 py-1 text-ink"
+                    >
+                      {COVERAGE_PRESET_OPTIONS.map(({ key, label: l }) => (
+                        <option key={key} value={key}>{l}</option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              {coverageError && <p className="text-xs text-red-400">{coverageError}</p>}
+              <button
+                onClick={saveCoverage}
+                disabled={savingCoverage}
+                className="text-xs btn btn-primary"
+              >
+                {savingCoverage ? 'Saving…' : 'Save card coverage'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Section B: Body Canon ─────────────────────────────────────────────
 
 function BodyCanonSection({
@@ -526,6 +741,15 @@ function BodyCanonSection({
         ))}
       </div>
 
+      {/* Skin & marking truth — coverage + clean-skin declarations */}
+      {body && (
+        <SkinTruthSection
+          body={body}
+          characterId={characterId}
+          onRefresh={onRefresh}
+        />
+      )}
+
       {/* Permanent body marks */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
@@ -649,12 +873,50 @@ function BodyCanonSection({
                     <option value="bilateral">Bilateral</option>
                   </select>
                 </div>
-                <input
+                {/* Canonical regions only — free text here was how unmappable
+                    regions entered canon and silently disabled routing and
+                    clean-skin authority for the whole character. */}
+                <select
                   value={markForm.body_region}
                   onChange={e => setMarkForm(f => ({ ...f, body_region: e.target.value }))}
-                  placeholder="Body region (e.g. left_full_arm)"
                   className="w-full text-xs bg-surface-elevated border border-edge-md rounded px-2.5 py-1.5 text-ink focus:outline-none"
-                />
+                >
+                  <option value="">Body region…</option>
+                  <optgroup label="Torso">
+                    <option value="chest">Chest</option>
+                    <option value="sternum">Sternum</option>
+                    <option value="abdomen">Abdomen</option>
+                    <option value="ribs">Ribs</option>
+                    <option value="back">Back</option>
+                  </optgroup>
+                  <optgroup label="Arms">
+                    <option value="left_full_arm">Left full arm (sleeve)</option>
+                    <option value="right_full_arm">Right full arm (sleeve)</option>
+                    <option value="left_upper_arm">Left upper arm</option>
+                    <option value="right_upper_arm">Right upper arm</option>
+                    <option value="left_forearm">Left forearm</option>
+                    <option value="right_forearm">Right forearm</option>
+                  </optgroup>
+                  <optgroup label="Neck & head">
+                    <option value="neck">Neck</option>
+                    <option value="throat">Throat</option>
+                    <option value="left_cheek">Left cheek</option>
+                    <option value="right_cheek">Right cheek</option>
+                    <option value="forehead">Forehead</option>
+                    <option value="jaw">Jaw</option>
+                  </optgroup>
+                  <optgroup label="Hands">
+                    <option value="left_hand">Left hand</option>
+                    <option value="right_hand">Right hand</option>
+                    <option value="knuckles">Knuckles</option>
+                  </optgroup>
+                  <optgroup label="Legs">
+                    <option value="left_thigh">Left thigh</option>
+                    <option value="right_thigh">Right thigh</option>
+                    <option value="left_calf">Left calf</option>
+                    <option value="right_calf">Right calf</option>
+                  </optgroup>
+                </select>
                 {/* Image is the primary truth for the marking. */}
                 {isAdmin && (
                   <label className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-ink cursor-pointer border border-dashed border-edge-md rounded px-2.5 py-2 transition-colors">

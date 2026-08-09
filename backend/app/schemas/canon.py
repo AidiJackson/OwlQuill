@@ -31,6 +31,14 @@ from pydantic import BaseModel, Field, model_validator
 #
 # "face" and "hands" are accepted in metadata for completeness but are treated
 # as always visible — they never create a coverage conflict.
+#
+# VISIBILITY vs MARK AUTHORITY (PERMANENT-MARK CANON sprint): being always
+# visible is a ROUTING property (face/hands never conflict with scene
+# clothing). It grants NO authority to carry permanent marks — that is a
+# separate concept expressed by BodyCanonData.marked_regions and
+# permanent_body_marks (see card_coverage.mark_location_authority). A bare
+# tattooed reference card must never teach the provider that visible hands or
+# neck are tattooed merely because they are visible.
 COVERAGE_REGIONS = frozenset({
     "torso", "back", "upper_arms", "forearms", "neck", "legs", "face", "hands",
 })
@@ -183,6 +191,21 @@ class BodyCanonData(BaseModel):
     # this lives inside body_canon_json.
     card_coverage: dict[str, CardCoverage] = Field(default_factory=dict)
 
+    # ── Permanent-mark location authority (PERMANENT-MARK CANON sprint) ──
+    # Creator declaration: this character's permanent marks exist ONLY in
+    # these region groups (COVERAGE_REGIONS vocabulary). Semantics:
+    #   * None  — no declaration (legacy). Authority may still derive from
+    #             structured permanent_body_marks; with neither, the canon
+    #             makes no clean-skin claims (today's behaviour).
+    #   * []    — explicitly unmarked: clean skin everywhere.
+    #   * [...] — marks are confined to the listed regions; every other
+    #             region is authoritatively CLEAN skin.
+    # Structured marks always union in (an under-declaration can never
+    # suppress a registered mark — see card_coverage.mark_location_authority).
+    # This is what lets a legacy character whose tattoos exist only as card
+    # pixels (Davies) gain anti-migration truth without a canon rebuild.
+    marked_regions: Optional[list[str]] = None
+
     locked: bool = False
 
     @model_validator(mode="after")
@@ -192,6 +215,12 @@ class BodyCanonData(BaseModel):
             raise ValueError(
                 f"card_coverage has unknown slot(s) {bad!r}. "
                 f"Valid: {sorted(CARD_COVERAGE_SLOTS)}"
+            )
+        bad_regions = [r for r in (self.marked_regions or []) if r not in COVERAGE_REGIONS]
+        if bad_regions:
+            raise ValueError(
+                f"marked_regions has unknown region(s) {bad_regions!r}. "
+                f"Valid: {sorted(COVERAGE_REGIONS)}"
             )
         return self
 
@@ -272,6 +301,10 @@ class BodyCanonUpdate(BaseModel):
     # Optional coverage declarations; when provided the dict REPLACES the stored
     # one (whole-dict semantics keep the PATCH deterministic).
     card_coverage: Optional[dict[str, CardCoverage]] = None
+    # Optional mark-location declaration; when provided the list REPLACES the
+    # stored one. [] means "explicitly unmarked"; None means "not provided"
+    # (PATCH exclude_none semantics — the stored value is left unchanged).
+    marked_regions: Optional[list[str]] = None
 
     @model_validator(mode="after")
     def _validate_coverage_slots(self) -> "BodyCanonUpdate":
@@ -283,6 +316,12 @@ class BodyCanonUpdate(BaseModel):
             raise ValueError(
                 f"card_coverage has unknown slot(s) {bad!r}. "
                 f"Valid: {sorted(CARD_COVERAGE_SLOTS)}"
+            )
+        bad_regions = [r for r in (self.marked_regions or []) if r not in COVERAGE_REGIONS]
+        if bad_regions:
+            raise ValueError(
+                f"marked_regions has unknown region(s) {bad_regions!r}. "
+                f"Valid: {sorted(COVERAGE_REGIONS)}"
             )
         return self
 

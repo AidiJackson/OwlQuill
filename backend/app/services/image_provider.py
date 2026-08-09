@@ -1,7 +1,8 @@
 """Image generation provider abstraction.
 
 Provides a pluggable interface for image generation backends.
-Currently supports OpenAI Images API (gpt-image-1.5).
+OpenAI model selection lives in settings.IMAGE_MODEL (model-level behaviour
+differences are described by services/model_profiles.py).
 """
 from __future__ import annotations
 
