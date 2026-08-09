@@ -10,6 +10,8 @@ import hashlib
 import json
 import logging
 import os
+import random
+import time
 import urllib.request
 import urllib.error
 
@@ -140,6 +142,83 @@ def _timeout() -> int:
     return settings.GOOGLE_IMAGE_TIMEOUT_S
 
 
+# ── Bounded retry policy ──────────────────────────────────────────────
+#
+# Google's failure signals fall on two sides of a line, and the side decides
+# whether a retry can possibly help:
+#
+#   promptFeedback.blockReason  — evaluated on the INPUT, before generation.
+#       Deterministic for a fixed request: the same bytes produce the same
+#       verdict. Google documents OTHER as a non-configurable policy filter that
+#       neither threshold changes nor retries affect. Proven here too — the
+#       production one-reference run sent a byte-identical request twice (the
+#       multi-anchor and grounded payloads are identical when there is exactly
+#       one reference) and was blocked both times. NEVER retried.
+#
+#   finishReason IMAGE_RECITATION — evaluated on the OUTPUT that was sampled.
+#       Genuinely stochastic, so a resample can differ. Google's documented
+#       remedy is to raise the temperature; that is applied on the single retry
+#       and nowhere else, so a first attempt is byte-for-byte what it always was.
+#
+#   HTTP 408 / 429 / 5xx — transport. The only class Google documents as
+#       retryable, and observed here (one 503 in eighteen dev calls). Retried
+#       once with the IDENTICAL payload.
+#
+# Every retry re-sends the same references, in the same order, with the same
+# prompt and model. Availability is never bought by weakening identity evidence.
+_RETRY_TRANSIENT_CODES = (408, 429)
+_RETRY_BACKOFF_S = 0.75
+_RETRY_JITTER_S = 0.5
+# Hard ceiling: one initial attempt + at most one transient retry + at most one
+# recitation retry. A counter (not just the per-class flags) guarantees no loop
+# can outlive its budget however the classes interleave.
+_MAX_ATTEMPTS = 3
+# Google's documented recitation remedy. The default is unset — the first
+# attempt sends no generationConfig at all, exactly as before.
+_RECITATION_RETRY_TEMPERATURE = 1.3
+
+
+class _TransientHTTP(Exception):
+    """Internal marker: an HTTP status Google documents as retryable."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(f"transient HTTP {code}")
+        self.code = code
+
+
+def _is_transient_http(code: int) -> bool:
+    """True for the HTTP classes Google documents as retryable."""
+    return code in _RETRY_TRANSIENT_CODES or 500 <= code < 600
+
+
+def _is_image_recitation(body: dict) -> bool:
+    """True when Google generated an image but declined to return it."""
+    cands = body.get("candidates") or []
+    if not cands:
+        return False
+    c0 = cands[0]
+    return bool(
+        c0.get("finishReason") == "IMAGE_RECITATION"
+        or "unable to show the generated image" in str(
+            c0.get("finishMessage") or ""
+        ).lower()
+        or c0.get("content") == {}
+    )
+
+
+def _extract_inline_image(body: dict) -> bytes | None:
+    """Return the first inlineData image in the response, if any."""
+    try:
+        parts = body["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    for part in parts:
+        inline = part.get("inlineData")
+        if inline and inline.get("data"):
+            return base64.b64decode(inline["data"])
+    return None
+
+
 class GoogleImageProvider(ImageProviderBase):
     """Google Gemini native image generation via Google AI Studio."""
 
@@ -154,6 +233,123 @@ class GoogleImageProvider(ImageProviderBase):
         self._api_key = settings.GOOGLE_AI_API_KEY
         self._model = settings.GOOGLE_IMAGE_MODEL
 
+    # ── Transport ─────────────────────────────────────────────────────
+
+    def _post_once(self, payload: dict, *, refs: int, label: str, short: str) -> dict:
+        """POST one generateContent request and return the parsed body.
+
+        Raises ``_TransientHTTP`` for the documented retryable HTTP classes and
+        ``RuntimeError`` for everything else, so the caller's retry policy sees
+        exactly one signal per class.
+        """
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self._model}:generateContent?key={self._api_key}"
+        )
+        data = json.dumps(payload).encode()
+        # Permanent operational diagnostic: this is the only place the true
+        # serialized request size exists — callers can only estimate it. Counts
+        # and byte totals only; never bytes, prompt text, URLs or credentials.
+        logger.info(
+            "GOOGLE_MULTI_REF_PAYLOAD refs=%d payload_bytes=%d model=%s",
+            refs, len(data), self._model,
+        )
+        req = urllib.request.Request(
+            url, data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        _t = _timeout()
+        try:
+            with urllib.request.urlopen(req, timeout=_t) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            # Never log the key or the prompt.
+            logger.warning("google_gemini_api_error label=%s status=%s", label, exc.code)
+            if _is_transient_http(exc.code):
+                raise _TransientHTTP(exc.code) from exc
+            raise RuntimeError(
+                f"Google Gemini {label} failed (HTTP {exc.code})"
+            ) from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            logger.warning(
+                "google_gemini_timeout provider=google label=%s timeout_seconds=%s error=%r",
+                label, _t, exc,
+            )
+            raise RuntimeError(f"Google Gemini {short}request failed: {exc}") from exc
+
+    def _generate(self, payload: dict, *, refs: int, label: str, short: str) -> bytes:
+        """Run one generation under the bounded retry policy.
+
+        The payload is sent unchanged on the first attempt and on any transient
+        retry. Only a recitation retry alters it, and only by adding the
+        documented temperature remedy — never the references, their order, the
+        prompt or the model.
+        """
+        attempt_payload = dict(payload)
+        transient_retried = False
+        recitation_retried = False
+
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                body = self._post_once(attempt_payload, refs=refs, label=label, short=short)
+            except _TransientHTTP as exc:
+                if transient_retried:
+                    logger.warning(
+                        "GOOGLE_RETRY_EXHAUSTED label=%s class=transient status=%s",
+                        label, exc.code,
+                    )
+                    raise RuntimeError(
+                        f"Google Gemini {label} failed (HTTP {exc.code})"
+                    ) from exc
+                transient_retried = True
+                delay = _RETRY_BACKOFF_S + random.uniform(0, _RETRY_JITTER_S)
+                logger.info(
+                    "GOOGLE_RETRY label=%s class=transient status=%s attempt=%d "
+                    "delay_s=%.2f identical_payload=true refs=%d",
+                    label, exc.code, attempt, delay, refs,
+                )
+                time.sleep(delay)
+                continue
+
+            # Input-side block: deterministic for a fixed request. Never retried.
+            _raise_if_prompt_blocked(body)
+
+            if _is_image_recitation(body):
+                if recitation_retried:
+                    logger.warning(
+                        "GOOGLE_RETRY_EXHAUSTED label=%s class=image_recitation", label,
+                    )
+                    raise RuntimeError("google_refused_image: IMAGE_RECITATION")
+                recitation_retried = True
+                attempt_payload = {
+                    **payload,
+                    "generationConfig": {
+                        **(payload.get("generationConfig") or {}),
+                        "temperature": _RECITATION_RETRY_TEMPERATURE,
+                    },
+                }
+                logger.info(
+                    "GOOGLE_RETRY label=%s class=image_recitation attempt=%d "
+                    "temperature=%s refs=%d same_refs=true same_prompt=true",
+                    label, attempt, _RECITATION_RETRY_TEMPERATURE, refs,
+                )
+                continue
+
+            image = _extract_inline_image(body)
+            if image is not None:
+                return image
+
+            snippet = json.dumps(body)[:300]
+            raise RuntimeError(
+                f"Google Gemini {short}response contained no inlineData image: {snippet}"
+            )
+
+        # Unreachable: every branch above either returns or raises, and the
+        # per-class flags cap the loop well inside _MAX_ATTEMPTS. Present so a
+        # future class cannot silently fall out of the loop without a signal.
+        raise RuntimeError(f"Google Gemini {short}exhausted retry budget")
+
     def generate_text_to_image(
         self,
         *,
@@ -165,79 +361,8 @@ class GoogleImageProvider(ImageProviderBase):
         if not prompt or not prompt.strip():
             raise ValueError("Prompt must not be empty.")
 
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt}
-                    ]
-                }
-            ]
-        }
-
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self._model}:generateContent?key={self._api_key}"
-        )
-        data = json.dumps(payload).encode()
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
-        _t = _timeout()
-        try:
-            with urllib.request.urlopen(req, timeout=_t) as resp:
-                body = json.loads(resp.read())
-        except urllib.error.HTTPError as exc:
-            # Do not log the key or prompt
-            logger.warning("google_gemini_api_error status=%s", exc.code)
-            raise RuntimeError(
-                f"Google Gemini image generation failed (HTTP {exc.code})"
-            ) from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
-            logger.warning(
-                "google_gemini_timeout provider=google timeout_seconds=%s error=%r",
-                _t, exc,
-            )
-            raise RuntimeError(f"Google Gemini request failed: {exc}") from exc
-
-        # Detect Google content refusal before parsing image parts.
-        _raise_if_prompt_blocked(body)
-        _cands = body.get("candidates", [])
-        if _cands:
-            _c0 = _cands[0]
-            if (
-                _c0.get("finishReason") == "IMAGE_RECITATION"
-                or "unable to show the generated image" in str(
-                    _c0.get("finishMessage") or ""
-                ).lower()
-                or _c0.get("content") == {}
-            ):
-                raise RuntimeError("google_refused_image: IMAGE_RECITATION")
-
-        # Parse: candidates[0].content.parts[] — find part with inlineData
-        try:
-            parts = body["candidates"][0]["content"]["parts"]
-        except (KeyError, IndexError, TypeError):
-            snippet = json.dumps(body)[:300]
-            raise RuntimeError(
-                f"Google Gemini response missing expected structure: {snippet}"
-            )
-
-        for part in parts:
-            inline = part.get("inlineData")
-            if inline:
-                encoded = inline.get("data", "")
-                if encoded:
-                    return base64.b64decode(encoded)
-
-        snippet = json.dumps(body)[:300]
-        raise RuntimeError(
-            f"Google Gemini response contained no inlineData image: {snippet}"
-        )
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        return self._generate(payload, refs=0, label="image generation", short="")
 
     def generate_with_multi_reference(
         self,
@@ -249,7 +374,9 @@ class GoogleImageProvider(ImageProviderBase):
         """Generate conditioned on multiple identity anchor images (B19).
 
         Sends all anchor images as inlineData parts before the text prompt,
-        giving the model multi-angle visual identity context.
+        giving the model multi-angle visual identity context. Every retry
+        carries the SAME complete set in the SAME order — a retry must never
+        improve availability by sending weaker identity evidence.
         """
         if not prompt or not prompt.strip():
             raise ValueError("Prompt must not be empty.")
@@ -258,73 +385,10 @@ class GoogleImageProvider(ImageProviderBase):
 
         parts: list[dict] = [_inline_image_part(b) for b in reference_images]
         parts.append({"text": prompt})
-
         payload = {"contents": [{"parts": parts}]}
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self._model}:generateContent?key={self._api_key}"
-        )
-        data = json.dumps(payload).encode()
-        # TEMPORARY DIAGNOSTIC (payload-size probe): this is the only place the
-        # true serialized request size exists — the route can only estimate it.
-        # Counts and byte totals only; no bytes, prompt or credential.
-        logger.info(
-            "GOOGLE_MULTI_REF_PAYLOAD refs=%d payload_bytes=%d model=%s",
-            len(reference_images), len(data), self._model,
-        )
-        req = urllib.request.Request(
-            url, data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
-        _t = _timeout()
-        try:
-            with urllib.request.urlopen(req, timeout=_t) as resp:
-                body = json.loads(resp.read())
-        except urllib.error.HTTPError as exc:
-            logger.warning("google_gemini_multi_anchor_api_error status=%s", exc.code)
-            raise RuntimeError(
-                f"Google Gemini multi-anchor generation failed (HTTP {exc.code})"
-            ) from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
-            logger.warning(
-                "google_gemini_timeout provider=google timeout_seconds=%s error=%r",
-                _t, exc,
-            )
-            raise RuntimeError(f"Google Gemini multi-anchor request failed: {exc}") from exc
-
-        _raise_if_prompt_blocked(body)
-        _cands = body.get("candidates", [])
-        if _cands:
-            _c0 = _cands[0]
-            if (
-                _c0.get("finishReason") == "IMAGE_RECITATION"
-                or "unable to show the generated image" in str(
-                    _c0.get("finishMessage") or ""
-                ).lower()
-                or _c0.get("content") == {}
-            ):
-                raise RuntimeError("google_refused_image: IMAGE_RECITATION")
-
-        try:
-            resp_parts = body["candidates"][0]["content"]["parts"]
-        except (KeyError, IndexError, TypeError):
-            snippet = json.dumps(body)[:300]
-            raise RuntimeError(
-                f"Google Gemini multi-anchor response missing expected structure: {snippet}"
-            )
-
-        for part in resp_parts:
-            inline = part.get("inlineData")
-            if inline:
-                encoded_out = inline.get("data", "")
-                if encoded_out:
-                    return base64.b64decode(encoded_out)
-
-        snippet = json.dumps(body)[:300]
-        raise RuntimeError(
-            f"Google Gemini multi-anchor response contained no inlineData image: {snippet}"
+        return self._generate(
+            payload, refs=len(reference_images),
+            label="multi-anchor generation", short="multi-anchor ",
         )
 
     def generate_with_reference(
@@ -334,10 +398,11 @@ class GoogleImageProvider(ImageProviderBase):
         reference_image_bytes: bytes,
         size: str = "1024x1024",
     ) -> bytes:
-        """Generate an image grounded by a seed image (inlineData).
+        """Generate an image grounded by a single seed image (inlineData).
 
-        Sends the seed bytes as an image part alongside the pose prompt so the
-        model preserves identity across angles.
+        Used by providers/paths whose capability is genuinely single-reference.
+        The Canon route no longer calls this as a fallback after a failed
+        multi-reference attempt — see image_generator.generate_image().
         """
         if not prompt or not prompt.strip():
             raise ValueError("Prompt must not be empty.")
@@ -354,65 +419,4 @@ class GoogleImageProvider(ImageProviderBase):
                 }
             ]
         }
-
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self._model}:generateContent?key={self._api_key}"
-        )
-        data = json.dumps(payload).encode()
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
-        _t = _timeout()
-        try:
-            with urllib.request.urlopen(req, timeout=_t) as resp:
-                body = json.loads(resp.read())
-        except urllib.error.HTTPError as exc:
-            logger.warning("google_gemini_grounded_api_error status=%s", exc.code)
-            raise RuntimeError(
-                f"Google Gemini grounded generation failed (HTTP {exc.code})"
-            ) from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
-            logger.warning(
-                "google_gemini_timeout provider=google timeout_seconds=%s error=%r",
-                _t, exc,
-            )
-            raise RuntimeError(f"Google Gemini grounded request failed: {exc}") from exc
-
-        # Detect Google content refusal before parsing image parts.
-        _raise_if_prompt_blocked(body)
-        _cands = body.get("candidates", [])
-        if _cands:
-            _c0 = _cands[0]
-            if (
-                _c0.get("finishReason") == "IMAGE_RECITATION"
-                or "unable to show the generated image" in str(
-                    _c0.get("finishMessage") or ""
-                ).lower()
-                or _c0.get("content") == {}
-            ):
-                raise RuntimeError("google_refused_image: IMAGE_RECITATION")
-
-        try:
-            parts = body["candidates"][0]["content"]["parts"]
-        except (KeyError, IndexError, TypeError):
-            snippet = json.dumps(body)[:300]
-            raise RuntimeError(
-                f"Google Gemini grounded response missing expected structure: {snippet}"
-            )
-
-        for part in parts:
-            inline = part.get("inlineData")
-            if inline:
-                encoded = inline.get("data", "")
-                if encoded:
-                    return base64.b64decode(encoded)
-
-        snippet = json.dumps(body)[:300]
-        raise RuntimeError(
-            f"Google Gemini grounded response contained no inlineData image: {snippet}"
-        )
+        return self._generate(payload, refs=1, label="grounded generation", short="grounded ")

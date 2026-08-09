@@ -709,9 +709,18 @@ def test_canon_provider_refusal_blocks_refless_fallback(client: TestClient, db_s
     text_only.assert_not_called()
 
 
-def test_canon_transient_multi_failure_still_tries_grounded(client: TestClient, db_session):
-    """Canon gen + transient multi-image failure → still falls back to the
-    ref-BEARING grounded call (not blocked, not text-only)."""
+def test_canon_transient_multi_failure_does_not_degrade_to_one_reference(
+    client: TestClient, db_session
+):
+    """A transient multi-image failure must NOT fall back to one reference.
+
+    This test previously asserted the opposite: that an exhausted multi-image
+    call retried via generate_grounded_image(ref_bytes[0]). That bought
+    availability by discarding five of the six references the router selected
+    and saved the weaker result as if it were the real thing. Transient retries
+    now live in the provider, where they re-send the COMPLETE reference set, so
+    the route degrades to nothing — it either gets the real image or fails.
+    """
     token = _register_and_login(client, "imggen_transient@example.com")
     cid = _create_character(client, token)
     _setup_canon(db_session, cid)
@@ -722,6 +731,7 @@ def test_canon_transient_multi_failure_still_tries_grounded(client: TestClient, 
     mock.generate_with_anchors = MagicMock(side_effect=RuntimeError("temporary upstream 503"))
     mock.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
     mock.generate_image = text_only
+    mock._model = "gemini-3.1-flash-image"
 
     with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
@@ -730,10 +740,14 @@ def test_canon_transient_multi_failure_still_tries_grounded(client: TestClient, 
             "provider_option": "option2",
         })
 
-    assert resp.status_code == 200, resp.text
-    mock.generate_grounded_image.assert_called_once()
+    assert resp.status_code == 422, resp.text
+    mock.generate_grounded_image.assert_not_called()
     text_only.assert_not_called()
-    assert resp.json()["metadata_json"]["used_ref"] is True
+    # A transport failure is not a content problem and must not say it is.
+    detail = resp.json()["detail"]
+    assert detail == "Image generation failed for this character. Please try again."
+    for word in ("adult", "explicit", "Adult Studio"):
+        assert word.lower() not in detail.lower()
 
 
 def test_noncanon_text_only_fallback_still_works(client: TestClient):
@@ -876,7 +890,7 @@ def test_unrelated_provider_failure_returns_generic_message(client, db_session):
         assert word.lower() not in detail.lower()
 
 
-# ── TEMPORARY DIAGNOSTIC: admin-only max_ref_count payload-size probe ──
+# ── Shared helpers for provider-interaction tests ──────────────────────
 
 def _make_admin(db_session, email: str) -> None:
     from app.models.user import User as UserModel
@@ -887,15 +901,15 @@ def _make_admin(db_session, email: str) -> None:
     db_session.commit()
 
 
-def _generate_with(client, db_session, email, body_extra, *, admin: bool):
-    """Run one canon generation and return the anchor list the provider saw."""
+def _generate_with(client, db_session, email, body_extra, *, admin: bool, provider=None):
+    """Run one canon generation and return (response, provider mock)."""
     token = _register_and_login(client, email)
     cid = _create_character(client, token)
     _setup_canon(db_session, cid)
     if admin:
         _make_admin(db_session, email)
 
-    mock = _mock_provider_succeeds()
+    mock = provider if provider is not None else _mock_provider_succeeds()
     with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
             "prompt": "Standing in a library",
@@ -904,73 +918,6 @@ def _generate_with(client, db_session, email, body_extra, *, admin: bool):
             **body_extra,
         })
     return resp, mock
-
-
-def test_max_ref_count_defaults_to_full_reference_set(client, db_session):
-    """Omitting the field must send every routed reference, as before."""
-    resp, mock = _generate_with(
-        client, db_session, "imggen_cap_default@example.com", {}, admin=True
-    )
-    assert resp.status_code == 200, resp.text
-    sent = mock.generate_with_anchors.call_args.kwargs["anchor_images"]
-    assert len(sent) == 2
-
-
-def test_admin_max_ref_count_reduces_references_sent(client, db_session):
-    """An admin may cap the reference count for the payload-size probe."""
-    resp, mock = _generate_with(
-        client, db_session, "imggen_cap_admin@example.com",
-        {"max_ref_count": 1}, admin=True,
-    )
-    assert resp.status_code == 200, resp.text
-    sent = mock.generate_with_anchors.call_args.kwargs["anchor_images"]
-    assert len(sent) == 1
-
-
-def test_non_admin_max_ref_count_is_ignored(client, db_session):
-    """Ordinary users keep the full set no matter what they send.
-
-    The field is a diagnostic, not a product feature: a non-admin must not be
-    able to weaken identity grounding by asking for fewer references.
-    """
-    resp, mock = _generate_with(
-        client, db_session, "imggen_cap_user@example.com",
-        {"max_ref_count": 1}, admin=False,
-    )
-    assert resp.status_code == 200, resp.text
-    sent = mock.generate_with_anchors.call_args.kwargs["anchor_images"]
-    assert len(sent) == 2
-
-
-@pytest.mark.parametrize("bad", [0, 7, -1])
-def test_max_ref_count_out_of_range_is_rejected(client, db_session, bad):
-    """Bounds are enforced by the schema, before any provider work."""
-    resp, _ = _generate_with(
-        client, db_session, f"imggen_cap_bad{abs(bad)}@example.com",
-        {"max_ref_count": bad}, admin=True,
-    )
-    assert resp.status_code == 422, resp.text
-
-
-def test_ref_cap_is_logged_without_sensitive_data(client, db_session, caplog):
-    """The probe must record what it did, and nothing more."""
-    import logging
-
-    with caplog.at_level(logging.INFO, logger="app.api.routes.image_generator"):
-        resp, _ = _generate_with(
-            client, db_session, "imggen_cap_log@example.com",
-            {"max_ref_count": 1}, admin=True,
-        )
-    assert resp.status_code == 200
-
-    line = [
-        r.getMessage() for r in caplog.records
-        if "IMAGE_GEN_REF_LOAD_START" in r.getMessage()
-    ][0]
-    assert "ref_cap=1" in line
-    assert "max_ref_count=1" in line
-    assert "refs_requested=1" in line
-    assert "http" not in line.lower()  # no URLs, signed or otherwise
 
 
 def test_block_diagnostic_carries_prod_vs_dev_comparison_fields(
@@ -1204,3 +1151,182 @@ def test_canon_success_path_unaffected(client: TestClient, db_session):
     mock.generate_with_anchors.assert_called_once()
     mock.generate_image.assert_not_called()
     assert resp.json()["metadata_json"]["multi_image_used"] is True
+
+
+# ── No silent identity degradation ────────────────────────────────────
+#
+# A canon request must succeed with the reference evidence the router selected,
+# fail honestly, or retry inside the provider with that SAME evidence. It must
+# never quietly regenerate from a weaker reference set and save the result as
+# though it were the real thing.
+
+def test_six_reference_failure_never_becomes_one_reference_generation(client, db_session):
+    """A failed multi-reference canon call must NOT retry with ref_bytes[0]."""
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = MagicMock(
+        side_effect=RuntimeError("google_prompt_blocked:OTHER:"))
+    mock.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    mock.generate_image = MagicMock(return_value=_stub_png_bytes())
+    mock._model = "gemini-3.1-flash-image"
+
+    resp, _ = _generate_with(
+        client, db_session, "imggen_nodegrade@example.com", {}, admin=False, provider=mock,
+    )
+
+    assert resp.status_code == 422, resp.text
+    # The single-reference downgrade must never have been attempted...
+    mock.generate_grounded_image.assert_not_called()
+    # ...nor the reference-less text path.
+    mock.generate_image.assert_not_called()
+
+
+def test_single_reference_request_is_not_duplicated(client, db_session):
+    """With one reference the grounded payload equals the multi payload.
+
+    Retrying it could only repeat the first failure at full cost, so the route
+    must not issue that second identical call.
+    """
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = MagicMock(
+        side_effect=RuntimeError("google_refused_image: IMAGE_RECITATION"))
+    mock.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    mock.generate_image = MagicMock(return_value=_stub_png_bytes())
+    mock._model = "gemini-3.1-flash-image"
+
+    resp, _ = _generate_with(
+        client, db_session, "imggen_nodupe@example.com", {}, admin=False, provider=mock,
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert mock.generate_with_anchors.call_count == 1
+    mock.generate_grounded_image.assert_not_called()
+
+
+def test_single_reference_provider_still_uses_grounded_path(client, db_session):
+    """Removing the downgrade must not break genuinely single-reference providers.
+
+    When a provider cannot consume multiple references, one reference is its
+    real capability rather than a downgrade, so grounded remains its primary
+    path — that behaviour is deliberately preserved.
+    """
+    mock = _mock_provider_single_image_only()
+    resp, _ = _generate_with(
+        client, db_session, "imggen_singleprov@example.com", {}, admin=False, provider=mock,
+    )
+
+    assert resp.status_code == 200, resp.text
+    mock.generate_grounded_image.assert_called_once()
+
+
+def test_successful_google_path_is_unchanged(client, db_session):
+    """The happy path still sends every routed reference on the multi call."""
+    captured: dict = {}
+    resp, _ = _generate_with(
+        client, db_session, "imggen_happy@example.com", {}, admin=False,
+        provider=_capture_prompt_provider(captured),
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert captured["anchor_count"] == 2, "full reference set still sent"
+    assert resp.json()["kind"] == "scene_only"
+
+
+def test_no_automatic_provider_switch_on_google_block(client, db_session):
+    """A Google block must not silently hand the request to another provider."""
+    mock = MagicMock()
+    mock.supports_multi_image_input = True
+    mock.generate_with_anchors = MagicMock(
+        side_effect=RuntimeError("google_prompt_blocked:OTHER:"))
+    mock.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    mock.generate_image = MagicMock(return_value=_stub_png_bytes())
+    mock._model = "gemini-3.1-flash-image"
+
+    fallback = MagicMock()
+    fallback.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    token = _register_and_login(client, "imggen_noswitch@example.com")
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid)
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock), \
+         patch("app.api.routes.image_generator.get_fallback_provider", return_value=fallback):
+        resp = _post(client, token, cid, {
+            "prompt": "Standing in a library",
+            "include_character": True,
+            "provider_option": "option2",
+        })
+
+    assert resp.status_code == 422, resp.text
+    fallback.generate_image.assert_not_called()
+    assert resp.json()["detail"] == (
+        "Google could not process this character reference set. "
+        "Try again or use another provider."
+    )
+
+
+def test_openai_remains_admin_only(client, db_session):
+    """option1 (OpenAI) stays admin-gated — a Google block does not unlock it."""
+    from app.services.image_provider import resolve_canon_provider_option
+
+    effective, meta = resolve_canon_provider_option("option1", is_admin=False)
+    assert effective != "option1", "non-admin must not reach OpenAI"
+
+    effective_admin, _ = resolve_canon_provider_option("option1", is_admin=True)
+    assert effective_admin == "option1", "admins keep explicit OpenAI exactly as before"
+
+
+def test_max_ref_count_is_fully_removed(client, db_session):
+    """The temporary payload probe must leave no runtime surface behind."""
+    from app.api.routes.image_generator import ImageGenerateRequest
+
+    assert "max_ref_count" not in ImageGenerateRequest.model_fields
+
+    # An unknown field must not silently change the reference count either.
+    captured: dict = {}
+    resp, _ = _generate_with(
+        client, db_session, "imggen_norefcap@example.com",
+        {"max_ref_count": 1}, admin=True,
+        provider=_capture_prompt_provider(captured),
+    )
+    assert resp.status_code == 200, resp.text
+    assert captured["anchor_count"] == 2, "full reference set regardless of the old field"
+
+
+def test_face_verify_regeneration_never_falls_back_to_refless(client, db_session):
+    """A canon regeneration must not produce a reference-LESS candidate.
+
+    _generate_scene_png used to end with a text-only tier. For a canon request
+    that tier discards every reference, and a candidate that happened to score
+    better on face verification would have been saved as the final image.
+    """
+    from app.api.routes.image_generator import _generate_scene_png
+
+    provider = MagicMock()
+    provider.generate_with_anchors = MagicMock(side_effect=RuntimeError("blocked"))
+    provider.generate_grounded_image = MagicMock(return_value=_stub_png_bytes())
+    provider.generate_image = MagicMock(return_value=_stub_png_bytes())
+
+    out = _generate_scene_png(
+        provider, prompt="p",
+        ref_bytes=[b"a", b"b"], provider_supports_multi=True,
+    )
+
+    assert out is None, "must give up rather than return weaker evidence"
+    provider.generate_grounded_image.assert_not_called()
+    provider.generate_image.assert_not_called()
+
+
+def test_refless_generation_still_uses_text_path(client, db_session):
+    """With no references selected there is nothing to weaken — text-only stands."""
+    from app.api.routes.image_generator import _generate_scene_png
+
+    provider = MagicMock()
+    provider.generate_image = MagicMock(return_value=b"png")
+
+    out = _generate_scene_png(
+        provider, prompt="p", ref_bytes=[], provider_supports_multi=True,
+    )
+
+    assert out == b"png"
+    provider.generate_image.assert_called_once()

@@ -294,3 +294,207 @@ class TestReferenceMimeType:
         )
         sent = base64.b64decode(payload["contents"][0]["parts"][0]["inlineData"]["data"])
         assert sent == ref
+
+
+# ── Bounded retry policy ──────────────────────────────────────────────
+#
+# Three failure classes, three strategies. Every retry re-sends the COMPLETE
+# reference set in the SAME order — availability is never bought by weakening
+# identity evidence.
+
+def _http_error(code: int):
+    import urllib.error
+    return urllib.error.HTTPError(
+        url="https://generativelanguage.googleapis.com/x",
+        code=code, msg="err", hdrs=None, fp=None,
+    )
+
+
+def _recitation_response() -> bytes:
+    return json.dumps({"candidates": [{"finishReason": "IMAGE_RECITATION"}]}).encode()
+
+
+def _block_response(reason: str = "OTHER", categories: list | None = None) -> bytes:
+    return json.dumps({
+        "promptFeedback": {"blockReason": reason, "safetyRatings": categories or []}
+    }).encode()
+
+
+def _provider():
+    from app.services.image_providers.google_provider import GoogleImageProvider
+    with patch("app.services.image_providers.google_provider.settings", _mock_settings()):
+        return GoogleImageProvider()
+
+
+def _sent_payloads(mock_urlopen) -> list[dict]:
+    """Decode the JSON body of every request that was actually sent."""
+    return [json.loads(c.args[0].data.decode()) for c in mock_urlopen.call_args_list]
+
+
+class TestTransientRetry:
+    """HTTP 408/429/5xx — the only class Google documents as retryable."""
+
+    @pytest.mark.parametrize("code", [503, 500, 502, 504, 429, 408])
+    def test_transient_retries_once_with_identical_payload(self, code):
+        png = _make_png()
+        provider = _provider()
+        refs = [_make_png(), _make_png(), _make_png()]
+
+        with patch("app.services.image_providers.google_provider.settings", _mock_settings()), \
+             patch("app.services.image_providers.google_provider.time.sleep") as sleep, \
+             patch("urllib.request.urlopen") as urlopen:
+            urlopen.side_effect = [_http_error(code),
+                                   _FakeHTTPResponse(_google_response(png))]
+            out = provider.generate_with_multi_reference(
+                prompt="Angelo in his office", reference_images=refs,
+            )
+
+        assert out == png
+        assert urlopen.call_count == 2, "expected exactly one retry"
+        sent = _sent_payloads(urlopen)
+        assert sent[0] == sent[1], "retry must re-send the IDENTICAL payload"
+        # And the complete reference set survived the retry.
+        parts = sent[1]["contents"][0]["parts"]
+        assert sum(1 for p in parts if "inlineData" in p) == 3
+        assert "generationConfig" not in sent[1]
+        sleep.assert_called_once()
+        assert 0 < sleep.call_args.args[0] <= 1.25, "backoff must be short and jittered"
+
+    def test_second_transient_failure_stops_no_loop(self):
+        provider = _provider()
+        with patch("app.services.image_providers.google_provider.settings", _mock_settings()), \
+             patch("app.services.image_providers.google_provider.time.sleep"), \
+             patch("urllib.request.urlopen") as urlopen:
+            urlopen.side_effect = [_http_error(503), _http_error(503), _http_error(503)]
+            with pytest.raises(RuntimeError) as exc:
+                provider.generate_with_multi_reference(
+                    prompt="p", reference_images=[_make_png()],
+                )
+
+        assert urlopen.call_count == 2, "must stop after one retry, never loop"
+        assert "503" in str(exc.value)
+
+    def test_non_transient_http_is_never_retried(self):
+        """400/403 are client errors — retrying them is documented as wrong."""
+        provider = _provider()
+        for code in (400, 403):
+            with patch("app.services.image_providers.google_provider.settings", _mock_settings()), \
+                 patch("urllib.request.urlopen") as urlopen:
+                urlopen.side_effect = [_http_error(code), _http_error(code)]
+                with pytest.raises(RuntimeError):
+                    provider.generate_with_multi_reference(
+                        prompt="p", reference_images=[_make_png()],
+                    )
+                assert urlopen.call_count == 1, f"HTTP {code} must not retry"
+
+
+class TestRecitationRetry:
+    """IMAGE_RECITATION is output-side and stochastic — one resample is valid."""
+
+    def test_recitation_retries_once_with_temperature_only(self):
+        png = _make_png()
+        provider = _provider()
+        refs = [_make_png(), _make_png(), _make_png(), _make_png()]
+
+        with patch("app.services.image_providers.google_provider.settings", _mock_settings()), \
+             patch("urllib.request.urlopen") as urlopen:
+            urlopen.side_effect = [_FakeHTTPResponse(_recitation_response()),
+                                   _FakeHTTPResponse(_google_response(png))]
+            out = provider.generate_with_multi_reference(
+                prompt="Angelo in his office", reference_images=refs,
+            )
+
+        assert out == png
+        assert urlopen.call_count == 2
+        first, second = _sent_payloads(urlopen)
+        # Only generationConfig differs — same refs, same order, same prompt.
+        assert "generationConfig" not in first
+        assert second["generationConfig"]["temperature"] == 1.3
+        assert first["contents"] == second["contents"], (
+            "recitation retry must not alter references, order or prompt"
+        )
+        assert sum(1 for p in second["contents"][0]["parts"] if "inlineData" in p) == 4
+
+    def test_repeated_recitation_stops_with_neutral_marker(self):
+        provider = _provider()
+        with patch("app.services.image_providers.google_provider.settings", _mock_settings()), \
+             patch("urllib.request.urlopen") as urlopen:
+            urlopen.side_effect = [_FakeHTTPResponse(_recitation_response()),
+                                   _FakeHTTPResponse(_recitation_response()),
+                                   _FakeHTTPResponse(_recitation_response())]
+            with pytest.raises(RuntimeError) as exc:
+                provider.generate_with_multi_reference(
+                    prompt="p", reference_images=[_make_png()],
+                )
+
+        assert urlopen.call_count == 2, "one retry only — never a loop"
+        msg = str(exc.value)
+        assert "google_refused_image" in msg and "IMAGE_RECITATION" in msg
+        for word in ("sexual", "adult", "explicit"):
+            assert word not in msg.lower()
+
+
+class TestPromptBlockNeverRetried:
+    """blockReason is input-side and deterministic — a retry cannot help."""
+
+    @pytest.mark.parametrize("reason", ["OTHER", "SAFETY", "PROHIBITED_CONTENT"])
+    def test_block_performs_zero_retries(self, reason):
+        provider = _provider()
+        with patch("app.services.image_providers.google_provider.settings", _mock_settings()), \
+             patch("app.services.image_providers.google_provider.time.sleep") as sleep, \
+             patch("urllib.request.urlopen") as urlopen:
+            urlopen.side_effect = [_FakeHTTPResponse(_block_response(reason)),
+                                   _FakeHTTPResponse(_google_response(_make_png()))]
+            with pytest.raises(RuntimeError) as exc:
+                provider.generate_with_multi_reference(
+                    prompt="p", reference_images=[_make_png(), _make_png()],
+                )
+
+        assert urlopen.call_count == 1, "a prompt block must never be retried"
+        sleep.assert_not_called()
+        assert f"google_prompt_blocked:{reason}" in str(exc.value)
+
+
+class TestPayloadDiagnostic:
+    """The permanent payload-size log line must stay, and stay leak-safe."""
+
+    def test_payload_size_logged_without_sensitive_data(self, caplog):
+        import logging
+        provider = _provider()
+        secret_prompt = "Angelo in his office with a SECRETPHRASE"
+        refs = [_make_png(), _make_png()]
+
+        with caplog.at_level(logging.INFO, logger="app.services.image_providers.google_provider"), \
+             patch("app.services.image_providers.google_provider.settings", _mock_settings()), \
+             patch("urllib.request.urlopen") as urlopen:
+            urlopen.return_value = _FakeHTTPResponse(_google_response(_make_png()))
+            provider.generate_with_multi_reference(
+                prompt=secret_prompt, reference_images=refs,
+            )
+
+        lines = [r.getMessage() for r in caplog.records
+                 if "GOOGLE_MULTI_REF_PAYLOAD" in r.getMessage()]
+        assert len(lines) == 1
+        assert "refs=2" in lines[0]
+        assert "payload_bytes=" in lines[0]
+        assert "model=gemini-3.1-flash-image" in lines[0]
+        # No prompt text, no credential, no base64 image data.
+        assert "SECRETPHRASE" not in lines[0]
+        assert "fake-key" not in lines[0]
+        assert base64.b64encode(refs[0])[:24].decode() not in lines[0]
+
+    def test_payload_size_logged_once_per_attempt(self):
+        """Each retry is a real request and must be individually observable."""
+        import logging
+        provider = _provider()
+        with patch("app.services.image_providers.google_provider.settings", _mock_settings()), \
+             patch("app.services.image_providers.google_provider.time.sleep"), \
+             patch("urllib.request.urlopen") as urlopen, \
+             patch("app.services.image_providers.google_provider.logger") as log:
+            urlopen.side_effect = [_http_error(503),
+                                   _FakeHTTPResponse(_google_response(_make_png()))]
+            provider.generate_with_multi_reference(prompt="p", reference_images=[_make_png()])
+
+        payload_logs = [c for c in log.info.call_args_list
+                        if "GOOGLE_MULTI_REF_PAYLOAD" in str(c.args[0])]
+        assert len(payload_logs) == 2

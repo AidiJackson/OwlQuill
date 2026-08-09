@@ -128,18 +128,6 @@ class ImageGenerateRequest(BaseModel):
     provider_option: Literal["option1", "option2", "option3", "option4", "option5", "option6"] = "option2"
     is_cover: bool = False  # When True, saves with kind=COVER for use as a character cover banner
 
-    # ── TEMPORARY DIAGNOSTIC (payload-size probe) ─────────────────────
-    # Admin-only override for how many canon references are sent, so a
-    # production Canon generation can be run at a reduced payload size while
-    # investigating why production returns blockReason=OTHER for reference sets
-    # that succeed in dev. IGNORED for non-admins — the default stays 6 for
-    # every ordinary user, and this field changes no canon, no prompt, no
-    # provider and no stored data.
-    #
-    # To remove: delete this field, the ref_cap block in generate_image(), and
-    # the GOOGLE_MULTI_REF_PAYLOAD log line in google_provider.py.
-    max_ref_count: int | None = Field(None, ge=1, le=6)
-
 
 # ── Closed-loop face verification helper ──────────────────────────────
 
@@ -329,16 +317,27 @@ def _generate_scene_png(
     chain used for the first pass so a verification retry takes the identical
     path with an escalated prompt.
     """
-    if ref_bytes and provider_supports_multi:
+    multi_attempted = bool(ref_bytes and provider_supports_multi)
+    if multi_attempted:
         try:
             return provider.generate_with_anchors(prompt=prompt, anchor_images=ref_bytes)
         except (ValueError, RuntimeError, NotImplementedError, AttributeError):
             pass
-    if ref_bytes:
+    # Single-reference grounding only when multi-reference was never available —
+    # never as a downgrade after a failed multi-reference attempt. See the
+    # matching note in generate_image().
+    if ref_bytes and not multi_attempted:
         try:
             return provider.generate_grounded_image(prompt=prompt, reference_image_bytes=ref_bytes[0])
         except (ValueError, RuntimeError, NotImplementedError, AttributeError):
             pass
+    if ref_bytes:
+        # References were selected, so a reference-LESS regeneration is weaker
+        # evidence than the router chose. A text-only candidate that happened to
+        # score better on face verification would have been saved as the final
+        # image — a generic person passing as the character. Give up instead;
+        # the caller keeps the initial, properly-grounded image.
+        return None
     try:
         return provider.generate_image(prompt=prompt)
     except (ValueError, RuntimeError):
@@ -559,18 +558,10 @@ def generate_image(
     # ── Load reference image bytes (cap at 6) ─────────────────────
     # Query strings are stripped before logging: a signed storage URL carries its
     # credential there, and reference URLs are operator diagnostics, not secrets.
-    # TEMPORARY DIAGNOSTIC: admins may cap the reference count to probe whether
-    # provider behaviour is payload-size sensitive. Non-admin requests always
-    # use the full set, so ordinary behaviour is bit-for-bit unchanged.
-    ref_cap = 6
-    if body.max_ref_count is not None and current_user.is_admin:
-        ref_cap = body.max_ref_count
-    requested_refs = reference_urls[:ref_cap]
+    requested_refs = reference_urls[:6]
     logger.info(
-        "IMAGE_GEN_REF_LOAD_START character_id=%s refs_requested=%d "
-        "ref_cap=%d max_ref_count=%s",
+        "IMAGE_GEN_REF_LOAD_START character_id=%s refs_requested=%d",
         character_id, len(requested_refs),
-        ref_cap, body.max_ref_count if body.max_ref_count is not None else "-",
     )
     ref_bytes: list[bytes] = []
     # Positional load outcome per requested ref — lets the block diagnostic name
@@ -688,7 +679,8 @@ def generate_image(
     # failed so a canon generation can fail loudly instead of silently dropping
     # to a ref-less path. None until a ref-bearing attempt raises.
     ref_failure_reason: str | None = None
-    if provider is not None and ref_bytes and provider_supports_multi:
+    multi_attempted = bool(provider is not None and ref_bytes and provider_supports_multi)
+    if multi_attempted:
         try:
             png_bytes = provider.generate_with_anchors(
                 prompt=compiled_prompt,
@@ -699,10 +691,28 @@ def generate_image(
             logger.info("IMAGE_GEN_MULTI_IMAGE_SUCCESS character_id=%s", character_id)
         except (ValueError, RuntimeError, NotImplementedError, AttributeError) as exc:
             ref_failure_reason = str(exc)
-            logger.info("IMAGE_GEN_MULTI_IMAGE_FAILED character_id=%s fallback=grounded reason=%r",
+            logger.info("IMAGE_GEN_MULTI_IMAGE_FAILED character_id=%s fallback=none reason=%r",
                         character_id, str(exc)[:200])
 
-    if png_bytes is None and provider is not None and ref_bytes:
+    # ── No silent multi-ref → one-ref degradation ─────────────────────
+    # The grounded call runs ONLY when the multi-reference attempt never ran —
+    # i.e. the provider cannot consume multiple references, so one reference is
+    # its genuine best capability rather than a downgrade. It is no longer a
+    # fallback after a failed multi-reference attempt, for two reasons:
+    #
+    #   * It sends ref_bytes[0] alone. Retrying a failed six-reference canon
+    #     generation with ONE reference buys availability by discarding five
+    #     pieces of the identity evidence the router selected, and the result is
+    #     saved as if it were the real thing. Weaker evidence must never be a
+    #     silent consolation prize.
+    #   * When exactly one reference was selected the two payloads are
+    #     byte-identical (proven: same serialized SHA), so the call could only
+    #     ever repeat the first failure at full cost.
+    #
+    # Transient and recitation retries now live in the provider, where they
+    # re-send the COMPLETE reference set — that is where availability is
+    # recovered, without touching identity grounding.
+    if png_bytes is None and provider is not None and ref_bytes and not multi_attempted:
         try:
             png_bytes = provider.generate_grounded_image(
                 prompt=compiled_prompt,
@@ -889,17 +899,23 @@ def generate_image(
             include_accessories=True,
         )
         cover_retry_png: bytes | None = None
-        if ref_bytes and provider_supports_multi:
+        cover_multi_attempted = bool(ref_bytes and provider_supports_multi)
+        if cover_multi_attempted:
             try:
                 cover_retry_png = provider.generate_with_anchors(prompt=retry_prompt, anchor_images=ref_bytes)
             except (ValueError, RuntimeError, NotImplementedError, AttributeError):
                 pass
-        if cover_retry_png is None and ref_bytes:
+        # Same rule as the main path: one-reference grounding only when
+        # multi-reference was never available for this provider.
+        if cover_retry_png is None and ref_bytes and not cover_multi_attempted:
             try:
                 cover_retry_png = provider.generate_grounded_image(prompt=retry_prompt, reference_image_bytes=ref_bytes[0])
             except (ValueError, RuntimeError, NotImplementedError, AttributeError):
                 pass
-        if cover_retry_png is None:
+        # Same rule again: when references were selected, a reference-less cover
+        # retry is weaker evidence than the router chose and must not replace
+        # the first-pass image. Ref-less covers (no canon refs) are unaffected.
+        if cover_retry_png is None and not ref_bytes:
             try:
                 cover_retry_png = provider.generate_image(prompt=retry_prompt)
             except (ValueError, RuntimeError):
