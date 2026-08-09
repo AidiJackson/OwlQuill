@@ -134,22 +134,29 @@ class TestCoveredArmsSuppressMarks:
         assert meta.mark_crops == 0
 
 
-# ── is_sleeve fix: a "... sleeve" on the upper arm shows its forearm ───
+# ── Arm extent comes from the REGION, never from label text ───────────
+#
+# These previously asserted that a mark LABELLED "... sleeve" on the upper arm
+# gained forearm exposure. That behaviour is deleted, not narrowed: it was
+# proven to cause a real failure. Summer's butterfly piece is upper-arm-only
+# per her body-map legend but labelled "Butterfly floral sleeve"; the substring
+# widened its anatomy, a rolled-sleeve scene judged it exposed, and the model
+# rendered it on her bare forearm. A genuine full sleeve is expressed as a
+# full-arm REGION, which is what these now assert.
 
 
-class TestSleeveSemanticsOnUpperArm:
+class TestArmExtentFromStructuredRegion:
 
-    def test_sleeve_labelled_upper_arm_mark_exposed_by_rolled_sleeves(self):
-        """A sleeve spans the whole arm — rolled sleeves expose its forearm even
-        when its region is labelled upper_arm (the observed-failure case)."""
-        assert _mark_region_exposed("right_upper_arm", True, "sleeves rolled up") is True
+    def test_upper_arm_mark_stays_covered_by_rolled_sleeves(self):
+        """Rolled/short sleeves bare only the forearm — an upper-arm mark is covered."""
+        assert _mark_region_exposed("right_upper_arm", "sleeves rolled up") is False
 
-    def test_non_sleeve_upper_arm_mark_stays_covered_by_rolled_sleeves(self):
-        """Regression guard: a non-sleeve upper-arm mark is still covered by a
-        rolled/short sleeve (deliberate, separately tested semantics)."""
-        assert _mark_region_exposed("right_upper_arm", False, "sleeves rolled up") is False
+    def test_full_arm_region_is_exposed_by_rolled_sleeves(self):
+        """A true full sleeve reaches the wrist, so its lower portion shows."""
+        assert _mark_region_exposed("right_full_arm", "sleeves rolled up") is True
 
-    def test_sleeve_and_non_sleeve_upper_arm_both_exposed_when_sleeveless(self):
-        """Sleeveless bares the whole arm → upper-arm marks exposed regardless of is_sleeve."""
-        assert _mark_region_exposed("right_upper_arm", True, "sleeveless tank top") is True
-        assert _mark_region_exposed("right_upper_arm", False, "sleeveless tank top") is True
+    def test_upper_arm_mark_exposed_when_arm_is_bare(self):
+        assert _mark_region_exposed("right_upper_arm", "sleeveless tank top") is True
+
+    def test_full_arm_mark_exposed_when_arm_is_bare(self):
+        assert _mark_region_exposed("right_full_arm", "sleeveless tank top") is True

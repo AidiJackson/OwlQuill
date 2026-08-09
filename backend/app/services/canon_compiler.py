@@ -226,7 +226,7 @@ def _permanent_marks_clause(
     garments split/cut open to expose hidden marks).
 
     Visibility is decided by the SAME logic the scene router uses for crop
-    routing — `_detect_camera`, `_is_sleeve_mark`, `_mark_region_exposed` — so
+    routing — `_detect_camera` and `_mark_region_exposed` — so
     text and references can never drift apart (single source of truth).
 
     Emission rules:
@@ -249,7 +249,6 @@ def _permanent_marks_clause(
     # Single source of truth: reuse the router's deterministic scene logic.
     from app.services.scene_router import (
         _detect_camera,
-        _is_sleeve_mark,
         _mark_region_exposed,
     )
 
@@ -264,9 +263,7 @@ def _permanent_marks_clause(
     # the router applies to crop routing. Covered/uncertain regions → not exposed.
     exposed: list = []
     for m in marks:
-        if _mark_region_exposed(
-            getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower
-        ):
+        if _mark_region_exposed(getattr(m, "body_region", ""), prompt_lower):
             exposed.append(m)
 
     parts: list[str] = []

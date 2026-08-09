@@ -195,20 +195,30 @@ _SKIN_EXPOSURE_PROMOTION = (
 )
 
 
-def _is_sleeve_mark(mark: object) -> bool:
-    """True if a permanent mark is a full-arm sleeve (forearm portion visible
-    even under a t-shirt / rolled sleeves)."""
-    region = (getattr(mark, "body_region", "") or "").lower()
-    if region in ("left_full_arm", "right_full_arm", "left_arm", "right_arm"):
-        return True
-    text = (
-        (getattr(mark, "label", "") or "") + " "
-        + (getattr(mark, "description", "") or "")
-    ).lower()
-    return "sleeve" in text
+# ── Structured anatomy is the only authority ──────────────────────────
+#
+# There was a ``_is_sleeve_mark`` helper here that searched a mark's LABEL and
+# DESCRIPTION for the substring "sleeve" and, when it matched, granted an
+# upper-arm mark forearm exposure as well.
+#
+# It is deleted rather than narrowed. Summer's butterfly piece is registered as
+# ``left_upper_arm`` — shoulder to elbow, per her own body-map legend — but is
+# LABELLED "Butterfly floral sleeve". The substring match widened its anatomy
+# to the forearm, so a rolled-sleeve scene judged it exposed, described it as
+# visible and routed its crop; the model then rendered it on the only bare arm
+# skin in frame. A descriptive name silently redefined anatomy.
+#
+# The structured vocabulary already draws this distinction with no text at all:
+#   left_full_arm / right_full_arm  → shoulder to wrist (both segments)
+#   left_upper_arm / right_upper_arm→ shoulder to elbow
+#   left_forearm / right_forearm    → elbow to wrist
+# A genuine full sleeve is a full-arm REGION, not an upper-arm region with a
+# suggestive label. Free text stays what it should be: the design description
+# injected into the prompt, with no authority over anatomy, side, exposure,
+# crop routing or occlusion.
 
 
-def _mark_region_exposed(body_region: str, is_sleeve: bool, prompt_lower: str) -> bool:
+def _mark_region_exposed(body_region: str, prompt_lower: str) -> bool:
     """Return True when the scene exposes the skin region a mark sits on.
 
     Deterministic substring matching only — no inference. Conservative: when
@@ -227,21 +237,16 @@ def _mark_region_exposed(body_region: str, is_sleeve: bool, prompt_lower: str) -
     if "forearm" in region or "lower_arm" in region:
         return bool(full_arm or forearm)
     if "upper_arm" in region:
-        # A non-sleeve upper-arm mark is covered by short/rolled sleeves (they
-        # leave only the forearm bare). A SLEEVE, however, spans the whole arm,
-        # so its forearm portion still shows — honour is_sleeve here so a mark
-        # labelled "... sleeve" on the upper arm is not wrongly suppressed when
-        # the forearm is exposed.
-        if is_sleeve:
-            return bool(full_arm or forearm)
+        # Shoulder to elbow. Short/rolled sleeves leave only the FOREARM bare,
+        # so an upper-arm mark stays covered; only a genuinely bare arm
+        # (sleeveless, shirtless) exposes it. A mark that truly spans the whole
+        # arm must say so structurally as a full-arm region below.
         return bool(full_arm)
     if region in ("left_full_arm", "right_full_arm", "left_arm", "right_arm"):
-        # Full-arm mark: exposed if the arm is bare, or (sleeve) the forearm shows.
-        if full_arm:
-            return True
-        if forearm:
-            return True
-        return False
+        # Shoulder to wrist: exposed when the arm is bare, and still partly
+        # exposed when only the forearm shows (rolled sleeves reveal its lower
+        # portion). This is the structured way to express a full sleeve.
+        return bool(full_arm or forearm)
     # ── Neck / throat ──
     if region in ("neck", "throat"):
         if any(s in prompt_lower for s in _CROP_NECK_COVER):
@@ -350,7 +355,7 @@ def _collect_exposed_mark_crops(
         url = detail or getattr(m, "reference_image_url", None)
         if not url:
             continue  # graceful degrade — no crop available for this mark
-        if _mark_region_exposed(getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower):
+        if _mark_region_exposed(getattr(m, "body_region", ""), prompt_lower):
             crops.append(MarkCropBinding(
                 url=url,
                 body_region=getattr(m, "body_region", "") or "",
@@ -386,7 +391,7 @@ def _has_covered_marks(
     if not marks:
         return False
     for m in marks:
-        if _mark_region_exposed(getattr(m, "body_region", ""), _is_sleeve_mark(m), prompt_lower):
+        if _mark_region_exposed(getattr(m, "body_region", ""), prompt_lower):
             return False
     return True
 

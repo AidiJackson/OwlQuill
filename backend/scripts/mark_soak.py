@@ -258,9 +258,15 @@ def main() -> None:
     ap.add_argument("--apply", action="store_true", help="generate (default: dry run)")
     ap.add_argument("--pass", dest="pass_no", type=int, default=1)
     ap.add_argument("--out", default="soak_runs")
+    ap.add_argument("--character", type=int, action="append",
+                    help="restrict to these character ids (repeatable). The prompt "
+                         "set per character is unchanged, so a restricted run stays "
+                         "comparable with the full matrix row-for-row.")
     args = ap.parse_args()
 
     rows = build_matrix()
+    if args.character:
+        rows = [r for r in rows if r["character_id"] in args.character]
     print(f"matrix rows: {len(rows)}  model={settings.GOOGLE_IMAGE_MODEL}  pass={args.pass_no}")
     for r in rows:
         print(f"  {r['character_id']:>3} {r['name']:8} {r['class']:13} {r['prompt']}")

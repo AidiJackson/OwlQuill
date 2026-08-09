@@ -30,7 +30,6 @@ from app.schemas.canon import BodyCanonData, FaceCanonData, PermanentBodyMark
 from app.services.canon_compiler import compile_canon_prompt
 from app.services.scene_router import (
     _MAX_MARK_CROPS,
-    _is_sleeve_mark,
     _mark_region_exposed,
     route_canon_refs,
 )
@@ -207,7 +206,7 @@ def _exposed_hidden(char: Character, scene: Scene, camera: str):
     plower = scene.prompt.lower()
     exposed, hidden = [], []
     for m in char.marks:
-        if _mark_region_exposed(m.body_region, _is_sleeve_mark(m), plower):
+        if _mark_region_exposed(m.body_region, plower):
             exposed.append(m)
         else:
             hidden.append(m)

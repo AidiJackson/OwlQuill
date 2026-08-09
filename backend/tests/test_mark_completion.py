@@ -83,13 +83,13 @@ class TestHandsAndFaceRegionStates:
         assert "hands" not in _TRACKED and "face" not in _TRACKED
 
     def test_hand_mark_exposed_unless_gloved(self):
-        assert _mark_region_exposed("right_hand", False, OFFICE.lower()) is True
-        assert _mark_region_exposed("knuckles", False, OFFICE.lower()) is True
-        assert _mark_region_exposed("right_hand", False, "wearing gloves") is False
+        assert _mark_region_exposed("right_hand", OFFICE.lower()) is True
+        assert _mark_region_exposed("knuckles", OFFICE.lower()) is True
+        assert _mark_region_exposed("right_hand", "wearing gloves") is False
 
     def test_face_mark_exposed_unless_masked(self):
-        assert _mark_region_exposed("right_cheek", False, OFFICE.lower()) is True
-        assert _mark_region_exposed("right_cheek", False, "wearing a helmet") is False
+        assert _mark_region_exposed("right_cheek", OFFICE.lower()) is True
+        assert _mark_region_exposed("right_cheek", "wearing a helmet") is False
 
     def test_registered_hand_mark_positively_asserted(self):
         # Gap 1: previously impossible — hands had no state, so the presence
