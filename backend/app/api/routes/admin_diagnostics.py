@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.services.image_providers.google_provider import google_effective_config
 
 router = APIRouter()
 
@@ -123,6 +124,14 @@ def admin_diagnostics(
         "model": settings.IMAGE_MODEL,
     }
 
+    # ── Google (Gemini) — dev-vs-production comparison surface ──
+    # A workspace and its Replit deployment are separate secret scopes, so
+    # deployment secrets cannot be read from the workspace shell. This block is
+    # the only way to establish whether the two runtimes authenticate to Google
+    # as the same project. The credential is reported ONLY as a one-way
+    # fingerprint and its length — never the key, never a recoverable prefix.
+    google_info = google_effective_config()
+
     # ── Email ──
     email_info = {
         "smtp_configured": bool(settings.SMTP_HOST),
@@ -149,6 +158,7 @@ def admin_diagnostics(
         },
         "storylab": storylab_info,
         "images": images_info,
+        "google": google_info,
         "email": email_info,
         "safety": safety_info,
     }

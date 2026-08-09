@@ -28,7 +28,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.entitlements import require_creator
-from app.core.storage import save_image, load_image_bytes
+from app.core.storage import save_image, load_image_bytes, detect_image_format
 from app.models.user import User
 from app.services.image_quota import check_weekly_quota
 from app.models.character import Character as CharacterModel
@@ -46,7 +46,10 @@ from app.services.image_provider import (
     is_moderation_block,
     resolve_canon_provider_option,
 )
-from app.services.image_providers.google_provider import parse_prompt_block
+from app.services.image_providers.google_provider import (
+    google_credential_fingerprint,
+    parse_prompt_block,
+)
 from app.services.stub_image_generator import generate_placeholder_png
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.services.canon_compiler import (
@@ -153,6 +156,16 @@ _DETAIL_PROVIDER_BLOCKED = (
     "Google could not process this character reference set. "
     "Try again or use another provider."
 )
+# Gemini IMAGE_RECITATION — the model declined to RETURN an image it judged too
+# close to its training data. It is a recitation/copyright guard, NOT a safety
+# verdict: Google attaches no harm category to it and it fires on entirely
+# non-sexual references (Angelo, 2026-08). Classifying it as a sexual refusal
+# sent benign canon generations to Adult Studio and made the operator logs read
+# as an adult-content event when no safety signal existed at all.
+_DETAIL_IMAGE_RECITATION = (
+    "Google could not process this character reference combination. "
+    "Try another provider or adjust the reference set."
+)
 _DETAIL_GENERIC_FAILURE = (
     "Image generation failed for this character. Please try again."
 )
@@ -168,11 +181,15 @@ def _classify_ref_failure(reason: str | None) -> tuple[str, str | None, list[str
 
     Returns ``(kind, block_reason, safety_categories)`` where kind is one of:
 
-      ``"sexual_refusal"``  — the provider refused on sexual/adult grounds, or
-          returned the Gemini IMAGE_RECITATION refusal this route has always
-          treated as adult-adjacent (behaviour deliberately unchanged).
+      ``"sexual_refusal"``  — the provider refused on sexual/adult grounds.
+          ONLY returned when there is actual sexual/safety evidence: a Google
+          safety category naming sexual content, or the OpenAI moderation
+          vocabulary. This is the only kind that may mention Adult Studio.
       ``"provider_blocked"`` — Google blocked the prompt for a NON-sexual or
           unspecified reason (blockReason=OTHER and friends).
+      ``"image_recitation"`` — Gemini returned IMAGE_RECITATION: it would not
+          emit the image it generated. Carries no safety category and is not a
+          content verdict; see _DETAIL_IMAGE_RECITATION.
       ``"unknown"`` — anything else: timeout, HTTP error, a provider that cannot
           consume references at all.
     """
@@ -183,9 +200,11 @@ def _classify_ref_failure(reason: str | None) -> tuple[str, str | None, list[str
         if any(m in joined for m in _SEXUAL_CATEGORY_MARKERS):
             return "sexual_refusal", block_reason, categories
         return "provider_blocked", block_reason, categories
-    # Pre-existing refusal signals, unchanged: Gemini IMAGE_RECITATION and the
-    # OpenAI moderation vocabulary shared with scene_images / character_visual.
-    if "google_refused_image" in reason or is_moderation_block(reason):
+    if "google_refused_image" in reason:
+        return "image_recitation", "IMAGE_RECITATION", []
+    # OpenAI moderation vocabulary shared with scene_images / character_visual —
+    # a real content verdict, unchanged.
+    if is_moderation_block(reason):
         return "sexual_refusal", None, []
     return "unknown", None, []
 
@@ -223,13 +242,28 @@ def _ref_audit(
     urls: list[str],
     slots: list[str],
     load_flags: list[bool],
+    ref_bytes: list[bytes] | None = None,
 ) -> list[str]:
-    """Build per-reference audit tokens: position, slot, DB image id, digest.
+    """Build per-reference audit tokens: position, slot, DB image id, digests.
 
     Deliberately carries NO URL, signed or otherwise. The DB id is looked up by
     file_path and is absent for canon cards uploaded through the admin route
     (which stores bytes without creating a CharacterImage row) — those are still
     identifiable by slot name plus digest.
+
+    Two independent digests are emitted per position:
+
+      ``h=``  sha256 of the reference URL path — identifies WHICH object was
+              selected. It says nothing about the object's contents.
+      ``b=``  sha256 of the bytes actually sent to the provider, with the size
+              and sniffed mime type that accompany them in the payload.
+
+    ``b=`` exists because ``h=`` alone cannot settle a prod-vs-dev comparison:
+    two deployments can select the same slot at the same path and still send
+    different bytes (a re-encode, a different upload behind the same name, a
+    truncated read). Only a content hash proves the provider received the same
+    input. ``ref_bytes`` holds ONLY the successfully loaded references, so it is
+    walked positionally against ``load_flags`` rather than indexed directly.
     """
     ids_by_path: dict[str, int] = {}
     try:
@@ -243,14 +277,29 @@ def _ref_audit(
     except Exception:  # diagnostics must never mask the provider failure
         logger.debug("IMAGE_GEN_REF_AUDIT_ID_LOOKUP_FAILED", exc_info=True)
 
+    loaded_bytes = list(ref_bytes or [])
+    cursor = 0
     tokens: list[str] = []
     for i, url in enumerate(urls):
         slot = slots[i] if i < len(slots) else "unknown"
         loaded = load_flags[i] if i < len(load_flags) else False
         image_id = ids_by_path.get(url)
+        content = "-"
+        size = "-"
+        mime = "-"
+        if loaded and cursor < len(loaded_bytes):
+            raw = loaded_bytes[cursor]
+            cursor += 1
+            content = hashlib.sha256(raw).hexdigest()[:8]
+            size = str(len(raw))
+            try:
+                _, mime = detect_image_format(raw)
+            except Exception:
+                mime = "?"
         tokens.append(
             f"{i}:slot={slot}:id={image_id if image_id is not None else '-'}"
-            f":h={_ref_digest(url)}:loaded={int(loaded)}"
+            f":h={_ref_digest(url)}:b={content}:bytes={size}:mime={mime}"
+            f":loaded={int(loaded)}"
         )
     return tokens
 
@@ -690,14 +739,20 @@ def generate_image(
                 )
                 logger.warning(
                     "IMAGE_GEN_GOOGLE_BLOCKED character_id=%s provider=%s model=%s "
-                    "block_reason=%s safety_categories=%s refs_requested=%d "
-                    "refs_loaded=%d camera=%s routed=%s exposure=%s slots=%s refs=[%s]",
+                    "cred_fp=%s block_reason=%s safety_categories=%s refs_requested=%d "
+                    "refs_loaded=%d camera=%s routed=%s exposure=%s "
+                    "prompt_len=%d prompt_sha=%s slots=%s refs=[%s]",
                     character_id, resolved_provider_name, model_slug,
+                    google_credential_fingerprint(),
                     block_reason, safety_categories or [],
                     len(requested_refs), len(ref_bytes),
                     scene_meta.camera, scene_meta.routed, scene_meta.exposure,
+                    len(compiled_prompt),
+                    hashlib.sha256(compiled_prompt.encode()).hexdigest()[:8],
                     slots,
-                    ", ".join(_ref_audit(db, requested_refs, slots, ref_load_flags)),
+                    ", ".join(
+                        _ref_audit(db, requested_refs, slots, ref_load_flags, ref_bytes)
+                    ),
                 )
             except Exception:  # never let diagnostics replace the real failure
                 logger.warning(
@@ -707,6 +762,8 @@ def generate_image(
 
         if kind == "sexual_refusal":
             detail = _DETAIL_SEXUAL_REFUSAL
+        elif kind == "image_recitation":
+            detail = _DETAIL_IMAGE_RECITATION
         elif kind == "provider_blocked":
             detail = _DETAIL_PROVIDER_BLOCKED
         else:

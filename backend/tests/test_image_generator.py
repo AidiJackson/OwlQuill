@@ -700,7 +700,11 @@ def test_canon_provider_refusal_blocks_refless_fallback(client: TestClient, db_s
         })
 
     assert resp.status_code == 422, resp.text
-    assert "declined this scene" in resp.json()["detail"].lower()
+    # Wording is the recitation message, not the sexual-refusal one — this test
+    # is about the fallback block, which is unchanged.
+    assert "could not process this character reference combination" in (
+        resp.json()["detail"].lower()
+    )
     # The ref-less text-only fallback must NOT have run.
     text_only.assert_not_called()
 
@@ -819,15 +823,43 @@ def test_block_with_sexual_category_keeps_adult_guidance(client, db_session):
     assert "adult/explicit wording" in detail
 
 
-def test_image_recitation_refusal_keeps_adult_guidance(client, db_session):
-    """The pre-existing Gemini refusal path is deliberately unchanged."""
+def test_image_recitation_is_not_a_sexual_refusal(client, db_session):
+    """IMAGE_RECITATION is a recitation guard, not a safety verdict.
+
+    Google attaches no harm category to it and it fires on entirely non-sexual
+    reference sets, so it must never route the user to Adult Studio.
+    """
     resp, _, _ = _post_blocked(
         client, db_session, "imggen_recitation@example.com",
         "google_refused_image: IMAGE_RECITATION",
     )
 
     assert resp.status_code == 422, resp.text
-    assert "Adult Studio" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail == (
+        "Google could not process this character reference combination. "
+        "Try another provider or adjust the reference set."
+    )
+    for word in ("adult", "explicit", "sexual", "Adult Studio"):
+        assert word.lower() not in detail.lower()
+
+
+def test_image_recitation_classifies_as_image_recitation(client, db_session):
+    """The classifier gives recitation its own neutral kind."""
+    from app.api.routes.image_generator import _classify_ref_failure
+
+    kind, block_reason, categories = _classify_ref_failure(
+        "google_refused_image: IMAGE_RECITATION"
+    )
+    assert kind == "image_recitation"
+    assert block_reason == "IMAGE_RECITATION"
+    assert categories == []
+
+    # And a genuine sexual category is still classified as such.
+    kind, _, _ = _classify_ref_failure(
+        "google_prompt_blocked:SAFETY:HARM_CATEGORY_SEXUALLY_EXPLICIT=HIGH"
+    )
+    assert kind == "sexual_refusal"
 
 
 def test_unrelated_provider_failure_returns_generic_message(client, db_session):
@@ -842,6 +874,75 @@ def test_unrelated_provider_failure_returns_generic_message(client, db_session):
     assert detail == "Image generation failed for this character. Please try again."
     for word in ("adult", "explicit", "declined", "Adult Studio"):
         assert word.lower() not in detail.lower()
+
+
+def test_block_diagnostic_carries_prod_vs_dev_comparison_fields(
+    client, db_session, caplog, monkeypatch
+):
+    """The block line must be diffable against another runtime's block line.
+
+    URL digests (h=) cannot settle a prod-vs-dev comparison: the two stores use
+    different paths for the same card, so h= differs even when the bytes match.
+    Only the content hash (b=), the credential fingerprint and the compiled-
+    prompt hash identify what each runtime actually sent to Google.
+    """
+    import logging
+    import hashlib
+
+    secret = "AIza-diag-compare-key"
+    monkeypatch.setenv("GOOGLE_AI_API_KEY", secret)
+    expected_fp = hashlib.sha256(secret.encode()).hexdigest()[:12]
+
+    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+        resp, _, cid = _post_blocked(
+            client, db_session, "imggen_block_compare@example.com",
+            "google_prompt_blocked:OTHER:",
+        )
+    assert resp.status_code == 422
+
+    line = [
+        r.getMessage() for r in caplog.records
+        if "IMAGE_GEN_GOOGLE_BLOCKED " in r.getMessage()
+    ][0]
+
+    assert f"cred_fp={expected_fp}" in line
+    assert "prompt_sha=" in line
+    assert "prompt_len=" in line
+    # Every loaded reference reports a content hash, byte count and mime type.
+    assert line.count(":b=") == 2
+    assert line.count(":mime=image/") == 2
+    # And the key itself never reaches the log.
+    assert secret not in line
+
+
+def test_recitation_also_emits_the_reference_set_diagnostic(client, db_session, caplog):
+    """IMAGE_RECITATION is the production Angelo failure — it must be diagnosed.
+
+    Before recitation had its own kind it carried no block_reason, so the
+    reference-set diagnostic never fired for exactly the failure that needed it.
+    """
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+        resp, _, cid = _post_blocked(
+            client, db_session, "imggen_recit_diag@example.com",
+            "google_refused_image: IMAGE_RECITATION",
+        )
+    assert resp.status_code == 422
+
+    diag = [
+        r.getMessage() for r in caplog.records
+        if "IMAGE_GEN_GOOGLE_BLOCKED " in r.getMessage()
+    ]
+    assert len(diag) == 1, f"expected one diagnostic line, got {diag}"
+    assert "block_reason=IMAGE_RECITATION" in diag[0]
+    assert "failure_kind=image_recitation" not in diag[0]  # that lives on the other line
+
+    kinds = [
+        r.getMessage() for r in caplog.records
+        if "IMAGE_GEN_CANON_REFUSED_BLOCKED" in r.getMessage()
+    ]
+    assert any("failure_kind=image_recitation" in k and "refused=False" in k for k in kinds)
 
 
 def test_google_block_logs_reference_set_diagnostic(client, db_session, caplog):

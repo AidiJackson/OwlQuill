@@ -142,6 +142,58 @@ def test_admin_diagnostics_no_credentials_in_url(client: TestClient, monkeypatch
     assert "password" not in url_redacted.lower()
 
 
+def test_admin_diagnostics_google_block_fingerprints_without_leaking(
+    client: TestClient, monkeypatch
+):
+    """The google block must let dev and production be compared, key-safe.
+
+    Deployment secrets are unreadable from the workspace, so this endpoint is
+    the only comparison surface between the two runtimes. It must report a
+    fingerprint that matches iff the keys match, and must never carry the key
+    itself or any recoverable fragment of it.
+    """
+    secret = "AIza-TEST-do-not-leak-1234567890"
+    monkeypatch.setenv("GOOGLE_AI_API_KEY", secret)
+    monkeypatch.setenv("ADMIN_EMAIL", _ADMIN_EMAIL)
+    from app.core import config as cfg_module
+    monkeypatch.setattr(cfg_module.settings, "ADMIN_EMAILS", "")
+
+    token = _register_and_login(client, _ADMIN_EMAIL, _ADMIN_PASS, "diagadmin4")
+    resp = client.get("/api/admin/diagnostics", headers=_auth_headers(token))
+    assert resp.status_code == 200
+    google = resp.json()["google"]
+
+    import hashlib
+    assert google["credential_fingerprint"] == hashlib.sha256(
+        secret.encode()
+    ).hexdigest()[:12]
+    assert google["credential_present"] is True
+    assert google["credential_length"] == len(secret)
+    assert google["model"]
+    # Nothing in the whole response may contain the key or a usable slice of it.
+    raw = resp.text
+    assert secret not in raw
+    assert secret[:12] not in raw
+
+
+def test_admin_diagnostics_google_block_reports_unset_key(
+    client: TestClient, monkeypatch
+):
+    """An absent credential is itself an answer, not an error."""
+    monkeypatch.delenv("GOOGLE_AI_API_KEY", raising=False)
+    monkeypatch.setenv("ADMIN_EMAIL", _ADMIN_EMAIL)
+    from app.core import config as cfg_module
+    monkeypatch.setattr(cfg_module.settings, "ADMIN_EMAILS", "")
+    monkeypatch.setattr(cfg_module.settings, "GOOGLE_AI_API_KEY", None)
+
+    token = _register_and_login(client, _ADMIN_EMAIL, _ADMIN_PASS, "diagadmin5")
+    resp = client.get("/api/admin/diagnostics", headers=_auth_headers(token))
+    assert resp.status_code == 200
+    google = resp.json()["google"]
+    assert google["credential_fingerprint"] == "unset"
+    assert google["credential_present"] is False
+
+
 # ── Forgot-password hint ──────────────────────────────────────────────────────
 
 def test_forgot_password_response_has_hint(client: TestClient):

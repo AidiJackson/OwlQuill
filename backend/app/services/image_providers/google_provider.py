@@ -6,8 +6,10 @@ Supports text-to-image only (no reference-image edits).
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
+import os
 import urllib.request
 import urllib.error
 
@@ -35,6 +37,57 @@ logger = logging.getLogger(__name__)
 # EMPTY for blockReason=OTHER — an empty list means Google supplied no safety
 # category, NOT that the content was safe or unsafe.
 GOOGLE_PROMPT_BLOCKED_PREFIX = "google_prompt_blocked:"
+
+
+def google_credential_fingerprint() -> str:
+    """One-way 12-char fingerprint of the Google credential this process uses.
+
+    Two runtimes holding the SAME key produce the same fingerprint; two runtimes
+    holding different keys cannot collide in practice. The key itself is not
+    recoverable from it, so this is safe to log and safe to return from the
+    admin diagnostics endpoint.
+
+    It exists because a workspace and a Replit deployment are separate secret
+    scopes: deployment secrets are not readable from the workspace shell, so the
+    ONLY way to establish whether dev and production authenticate to Google as
+    the same project is to have each runtime report a comparable derivative of
+    its own key. Returns "unset" when no key is configured — an answer in its
+    own right.
+
+    Read from the live environment first so it reflects the running process
+    rather than a settings snapshot captured at import time.
+    """
+    key = os.getenv("GOOGLE_AI_API_KEY") or settings.GOOGLE_AI_API_KEY or ""
+    if not key:
+        return "unset"
+    return hashlib.sha256(key.encode()).hexdigest()[:12]
+
+
+def google_effective_config() -> dict:
+    """Every Google knob that can differ between two runtimes, credential-safe.
+
+    Mirrors exactly what the request builders below consult, so a dev/prod diff
+    of this dict is a diff of the outgoing request's non-content parameters.
+    """
+    key = os.getenv("GOOGLE_AI_API_KEY") or settings.GOOGLE_AI_API_KEY or ""
+    return {
+        "credential_fingerprint": google_credential_fingerprint(),
+        "credential_present": bool(key),
+        "credential_length": len(key),
+        "api_host": "generativelanguage.googleapis.com",
+        "api_version": "v1beta",
+        "model": settings.GOOGLE_IMAGE_MODEL,
+        "timeout_s": settings.GOOGLE_IMAGE_TIMEOUT_S,
+        # The payload builders send contents[] only. Declaring the absence
+        # explicitly is the point: it rules both out as a dev/prod variable.
+        "generation_config": None,
+        "safety_settings": None,
+        "system_instruction": None,
+        "image_provider": settings.IMAGE_PROVIDER,
+        "identity_image_provider": settings.IDENTITY_IMAGE_PROVIDER or None,
+        "identity_seed_provider": settings.IDENTITY_SEED_PROVIDER,
+        "identity_angles_provider": settings.IDENTITY_ANGLES_PROVIDER,
+    }
 
 
 def parse_prompt_block(reason: str) -> tuple[str | None, list[str]]:
