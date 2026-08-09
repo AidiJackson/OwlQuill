@@ -624,7 +624,12 @@ def test_together_provider_url_filtering_unit():
 
 def test_existing_google_path_unaffected_by_together_addition(client: TestClient):
     """Verify option2 (Google) still works normally after option5 additions."""
-    token = _register_and_login(client, "together_google_unaffected@example.com")
+    # Username is derived from the email local part, which must stay within the
+    # 24-character username limit — "together_google_unaffected" is 26, so
+    # registration failed, login returned no token, and this test raised
+    # KeyError before ever reaching its assertions. Shortened here; the
+    # production limit is deliberately unchanged.
+    token = _register_and_login(client, "tg_google_unaffected@example.com")
     cid = _create_character(client, token)
     resp = _post(client, token, cid, {
         "prompt": "A forest clearing in autumn",
