@@ -265,6 +265,13 @@ class GoogleImageProvider(ImageProviderBase):
             f"{self._model}:generateContent?key={self._api_key}"
         )
         data = json.dumps(payload).encode()
+        # TEMPORARY DIAGNOSTIC (payload-size probe): this is the only place the
+        # true serialized request size exists — the route can only estimate it.
+        # Counts and byte totals only; no bytes, prompt or credential.
+        logger.info(
+            "GOOGLE_MULTI_REF_PAYLOAD refs=%d payload_bytes=%d model=%s",
+            len(reference_images), len(data), self._model,
+        )
         req = urllib.request.Request(
             url, data=data,
             headers={"Content-Type": "application/json"},

@@ -876,6 +876,103 @@ def test_unrelated_provider_failure_returns_generic_message(client, db_session):
         assert word.lower() not in detail.lower()
 
 
+# ── TEMPORARY DIAGNOSTIC: admin-only max_ref_count payload-size probe ──
+
+def _make_admin(db_session, email: str) -> None:
+    from app.models.user import User as UserModel
+    db_session.expire_all()
+    user = db_session.query(UserModel).filter(UserModel.email == email).first()
+    assert user is not None, f"User {email!r} not found"
+    user.is_admin = True
+    db_session.commit()
+
+
+def _generate_with(client, db_session, email, body_extra, *, admin: bool):
+    """Run one canon generation and return the anchor list the provider saw."""
+    token = _register_and_login(client, email)
+    cid = _create_character(client, token)
+    _setup_canon(db_session, cid)
+    if admin:
+        _make_admin(db_session, email)
+
+    mock = _mock_provider_succeeds()
+    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+        resp = _post(client, token, cid, {
+            "prompt": "Standing in a library",
+            "include_character": True,
+            "provider_option": "option2",
+            **body_extra,
+        })
+    return resp, mock
+
+
+def test_max_ref_count_defaults_to_full_reference_set(client, db_session):
+    """Omitting the field must send every routed reference, as before."""
+    resp, mock = _generate_with(
+        client, db_session, "imggen_cap_default@example.com", {}, admin=True
+    )
+    assert resp.status_code == 200, resp.text
+    sent = mock.generate_with_anchors.call_args.kwargs["anchor_images"]
+    assert len(sent) == 2
+
+
+def test_admin_max_ref_count_reduces_references_sent(client, db_session):
+    """An admin may cap the reference count for the payload-size probe."""
+    resp, mock = _generate_with(
+        client, db_session, "imggen_cap_admin@example.com",
+        {"max_ref_count": 1}, admin=True,
+    )
+    assert resp.status_code == 200, resp.text
+    sent = mock.generate_with_anchors.call_args.kwargs["anchor_images"]
+    assert len(sent) == 1
+
+
+def test_non_admin_max_ref_count_is_ignored(client, db_session):
+    """Ordinary users keep the full set no matter what they send.
+
+    The field is a diagnostic, not a product feature: a non-admin must not be
+    able to weaken identity grounding by asking for fewer references.
+    """
+    resp, mock = _generate_with(
+        client, db_session, "imggen_cap_user@example.com",
+        {"max_ref_count": 1}, admin=False,
+    )
+    assert resp.status_code == 200, resp.text
+    sent = mock.generate_with_anchors.call_args.kwargs["anchor_images"]
+    assert len(sent) == 2
+
+
+@pytest.mark.parametrize("bad", [0, 7, -1])
+def test_max_ref_count_out_of_range_is_rejected(client, db_session, bad):
+    """Bounds are enforced by the schema, before any provider work."""
+    resp, _ = _generate_with(
+        client, db_session, f"imggen_cap_bad{abs(bad)}@example.com",
+        {"max_ref_count": bad}, admin=True,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_ref_cap_is_logged_without_sensitive_data(client, db_session, caplog):
+    """The probe must record what it did, and nothing more."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="app.api.routes.image_generator"):
+        resp, _ = _generate_with(
+            client, db_session, "imggen_cap_log@example.com",
+            {"max_ref_count": 1}, admin=True,
+        )
+    assert resp.status_code == 200
+
+    line = [
+        r.getMessage() for r in caplog.records
+        if "IMAGE_GEN_REF_LOAD_START" in r.getMessage()
+    ][0]
+    assert "ref_cap=1" in line
+    assert "max_ref_count=1" in line
+    assert "refs_requested=1" in line
+    assert "http" not in line.lower()  # no URLs, signed or otherwise
+
+
 def test_block_diagnostic_carries_prod_vs_dev_comparison_fields(
     client, db_session, caplog, monkeypatch
 ):

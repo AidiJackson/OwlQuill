@@ -128,6 +128,18 @@ class ImageGenerateRequest(BaseModel):
     provider_option: Literal["option1", "option2", "option3", "option4", "option5", "option6"] = "option2"
     is_cover: bool = False  # When True, saves with kind=COVER for use as a character cover banner
 
+    # ── TEMPORARY DIAGNOSTIC (payload-size probe) ─────────────────────
+    # Admin-only override for how many canon references are sent, so a
+    # production Canon generation can be run at a reduced payload size while
+    # investigating why production returns blockReason=OTHER for reference sets
+    # that succeed in dev. IGNORED for non-admins — the default stays 6 for
+    # every ordinary user, and this field changes no canon, no prompt, no
+    # provider and no stored data.
+    #
+    # To remove: delete this field, the ref_cap block in generate_image(), and
+    # the GOOGLE_MULTI_REF_PAYLOAD log line in google_provider.py.
+    max_ref_count: int | None = Field(None, ge=1, le=6)
+
 
 # ── Closed-loop face verification helper ──────────────────────────────
 
@@ -547,10 +559,18 @@ def generate_image(
     # ── Load reference image bytes (cap at 6) ─────────────────────
     # Query strings are stripped before logging: a signed storage URL carries its
     # credential there, and reference URLs are operator diagnostics, not secrets.
-    requested_refs = reference_urls[:6]
+    # TEMPORARY DIAGNOSTIC: admins may cap the reference count to probe whether
+    # provider behaviour is payload-size sensitive. Non-admin requests always
+    # use the full set, so ordinary behaviour is bit-for-bit unchanged.
+    ref_cap = 6
+    if body.max_ref_count is not None and current_user.is_admin:
+        ref_cap = body.max_ref_count
+    requested_refs = reference_urls[:ref_cap]
     logger.info(
-        "IMAGE_GEN_REF_LOAD_START character_id=%s refs_requested=%d",
+        "IMAGE_GEN_REF_LOAD_START character_id=%s refs_requested=%d "
+        "ref_cap=%d max_ref_count=%s",
         character_id, len(requested_refs),
+        ref_cap, body.max_ref_count if body.max_ref_count is not None else "-",
     )
     ref_bytes: list[bytes] = []
     # Positional load outcome per requested ref — lets the block diagnostic name
