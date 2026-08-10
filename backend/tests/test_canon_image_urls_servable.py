@@ -137,6 +137,71 @@ class TestEveryCanonSlotIsBrowserLoadable:
         assert read.body_canon.body_front_image_url is None
 
 
+class TestUploadAndFetchRoundTrip:
+    """End-to-end through the real routes, in local-disk storage mode.
+
+    Local disk is the mode that produced the failure — it is also the default,
+    since USE_OBJECT_STORAGE reaches a deployment only as a platform secret.
+    """
+
+    @staticmethod
+    def _png() -> bytes:
+        from app.services.stub_image_generator import generate_placeholder_png
+        from app.core.storage import load_image_bytes
+        return load_image_bytes(generate_placeholder_png(label="t", sublabel="t"))
+
+    def _admin_headers(self, client, db_session):
+        from tests.conftest import auth_headers, get_auth_token
+        from app.models.user import User as UserModel
+        token = get_auth_token(client, email="canonurl_admin@ficshon.com")
+        hdrs = auth_headers(token)
+        user = db_session.query(UserModel).filter(
+            UserModel.email == "canonurl_admin@ficshon.com").first()
+        user.is_admin = True
+        db_session.commit()
+        return hdrs
+
+    def test_uploaded_slot_renders_immediately_and_after_reload(
+            self, client, db_session, monkeypatch, generated_media_dir):
+        # Pin local-disk storage: this is the mode that produced page-relative
+        # paths, and it is the default whenever USE_OBJECT_STORAGE is unset.
+        from app.core.config import settings
+        monkeypatch.setattr(settings, "USE_OBJECT_STORAGE", False)
+
+        hdrs = self._admin_headers(client, db_session)
+        char_id = client.post(
+            "/characters/", json={"name": "CanonUrl", "visibility": "public"},
+            headers=hdrs).json()["id"]
+
+        upload = client.post(
+            f"/characters/{char_id}/identity-canon/upload",
+            data={"slot": "face_front"},
+            files={"file": ("face.png", self._png(), "image/png")},
+            headers=hdrs,
+        )
+        assert upload.status_code == 201, upload.text
+
+        # 1. the value the UI renders straight after upload
+        assert _is_browser_loadable(upload.json()["url"])
+
+        # 2. the value the UI renders after a reload
+        fetched = client.get(
+            f"/characters/{char_id}/identity-canon", headers=hdrs).json()
+        src = fetched["face_canon"]["face_front_image_url"]
+        assert _is_browser_loadable(src)
+
+        # 3. that src actually returns image bytes from the server root
+        # 3. that src is a /static/ path pointing at the bytes actually written.
+        # (The suite repoints the media dir to a tmp path while the app still
+        # mounts the repo's static dir, so fetching through the mount is not
+        # meaningful here; the URL→object mapping is what this must hold.)
+        from pathlib import Path
+        assert src.startswith("/static/generated/"), src
+        assert (generated_media_dir / Path(src).name).is_file(), (
+            f"{src} does not correspond to any stored image"
+        )
+
+
 class TestStoredValuesAreNotRewritten:
     """Serialization is a read-side concern only.
 

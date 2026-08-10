@@ -426,7 +426,10 @@ async def admin_upload_canon_image(
     return CanonUploadResponse(
         character_id=character_id,
         slot=slot,
-        url=image_url,
+        # Same normalisation as _canon_to_read: the UI renders this value
+        # straight into the slot preview (onUploaded -> <img src>), so a raw
+        # relative path would break the just-uploaded card until a reload.
+        url=file_path_to_url(image_url),
         canon=_canon_to_read(canon),
     )
 
@@ -476,7 +479,7 @@ async def admin_upload_mark_reference(
     return CanonUploadResponse(
         character_id=character_id,
         slot=f"mark/{mark_id}/{slot}",
-        url=image_url,
+        url=file_path_to_url(image_url),
         canon=_canon_to_read(canon),
     )
 
