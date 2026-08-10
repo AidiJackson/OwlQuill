@@ -2,6 +2,32 @@
 
 All notable changes to the Ficshon project will be documented in this file.
 
+## [Canon fact] - 2026-08-10 - Summer's left-arm mark is a full arm, not an upper arm
+
+### Fixed
+- **Summer (character 60) left-arm mark region** (`scripts/fix_summer_left_arm_region.py`):
+  `pbm_8cff990d` ("Butterfly floral sleeve") was stored as `left_upper_arm` with a
+  "shoulder cap down to the elbow" description. That anatomy was copied from the TEXT
+  LEGEND on her body-map card; the renders on that same card — and body_front,
+  body_left, body_right, body_back, the final character card and its wardrobe strip —
+  all show the work running shoulder → elbow → forearm, ending just above the wrist.
+  Now `left_full_arm` with a description matching the cards. Two fields on one mark;
+  side, label, images, the ballerina mark, `marked_regions` and both identity locks
+  unchanged. No schema change was needed — `left_full_arm` is existing vocabulary in
+  the router, `card_coverage.mark_region_groups` and the CanonManager dropdown.
+- Effect: short-sleeve and rolled-sleeve scenes now route the left-arm crop and name
+  the left arm in the prompt (previously the left forearm generated as bare skin,
+  because an upper-arm mark is correctly treated as covered by a short sleeve).
+- Stale comments corrected in `scene_router` (the deleted `_is_sleeve_mark` rationale
+  cited the wrong region as fact) and `adult_studio._marks_body_phrase` (docstring
+  example had Summer's sides swapped).
+
+### Added
+- `backend/scripts/summer_exposure_soak.py` — Summer-only exposure-class supplement to
+  `mark_soak.py` (bare arms / short sleeve / rolled / long sleeve), reusing its
+  scoring and retention primitives. Measurement only; the shared roster matrix is
+  untouched so recorded passes stay comparable.
+
 ## [Permanent-Mark Canon] - 2026-08-09 - Mark location authority + provider modernisation
 
 ### Added

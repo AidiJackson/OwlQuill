@@ -201,12 +201,18 @@ _SKIN_EXPOSURE_PROMOTION = (
 # DESCRIPTION for the substring "sleeve" and, when it matched, granted an
 # upper-arm mark forearm exposure as well.
 #
-# It is deleted rather than narrowed. Summer's butterfly piece is registered as
-# ``left_upper_arm`` — shoulder to elbow, per her own body-map legend — but is
-# LABELLED "Butterfly floral sleeve". The substring match widened its anatomy
-# to the forearm, so a rolled-sleeve scene judged it exposed, described it as
-# visible and routed its crop; the model then rendered it on the only bare arm
-# skin in frame. A descriptive name silently redefined anatomy.
+# It is deleted rather than narrowed. Summer's butterfly piece was registered as
+# ``left_upper_arm`` — shoulder to elbow, copied from the text legend on her own
+# body-map card — but is LABELLED "Butterfly floral sleeve". The substring match
+# widened its anatomy to the forearm, so a rolled-sleeve scene judged it exposed,
+# described it as visible and routed its crop; the model then rendered it on the
+# only bare arm skin in frame. A descriptive name silently redefined anatomy.
+#
+# The label happened to be right about the real tattoo and the region wrong (her
+# cards show the work running shoulder to wrist; the region is now
+# ``left_full_arm``), which is exactly why this must not be inferred from text:
+# a label that guesses correctly today is still a guess. The canon FACT is fixed
+# in the canon, not compensated for in the router.
 #
 # The structured vocabulary already draws this distinction with no text at all:
 #   left_full_arm / right_full_arm  → shoulder to wrist (both segments)

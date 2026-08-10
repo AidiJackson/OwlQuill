@@ -279,7 +279,7 @@ def _mark_name(m: Optional[dict]) -> str:
 
 def _marks_body_phrase(marks: list[dict]) -> str:
     """Body-caption markings descriptor using CANON sides, e.g.
-    'butterfly floral sleeve tattoo on right upper arm, ballerina tattoo on left forearm'."""
+    'butterfly floral sleeve tattoo on left full arm, ballerina tattoo on right forearm'."""
     bits: list[str] = []
     for m in marks:
         region = (m.get("body_region") or "").lower().strip().replace("_", " ")
