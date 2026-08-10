@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_owned_character, user_is_admin
-from app.core.storage import save_image, load_image_bytes
+from app.core.storage import save_image, load_image_bytes, file_path_to_url
 from app.models.character import Character as CharacterModel
 from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
 from app.models.character_identity_canon import CharacterIdentityCanon
@@ -90,15 +90,67 @@ def _require_admin(user: User) -> None:
         raise HTTPException(status_code=403, detail="Admin access required.")
 
 
+def _servable(model, *fields):
+    """Rewrite stored file paths on ``model`` into browser-servable URLs.
+
+    Storage keeps whatever :func:`app.core.storage.save_image` returned: an
+    absolute ``https://`` R2 URL in object-storage mode, or a bare relative
+    ``static/generated/<uuid>.png`` on local disk. Only the first is safe to
+    hand a browser. The second has no leading slash, so an ``<img>`` on a route
+    like ``/characters/42`` resolves it against the CURRENT PATH and requests
+    ``/characters/static/generated/...`` — which the SPA catch-all answers with
+    index.html: HTTP 200, Content-Type text/html. The browser cannot decode
+    that as an image and falls back to the alt text, which is why the panels
+    read "Front Face", "Left ¾"… while every server-side check looked healthy.
+
+    ``file_path_to_url`` is the codebase's existing answer to this and is
+    already applied by the character, user, editor and adult-studio routes.
+    The canon routes were the outlier that returned raw storage values.
+
+    Read-side only: the routing and prompt-compiler layers keep reading the
+    stored value through ``load_image_bytes``, which expects the raw path.
+    Nothing is written back, so no stored data changes.
+    """
+    if model is None:
+        return None
+    for field in fields:
+        value = getattr(model, field, None)
+        if isinstance(value, str) and value:
+            setattr(model, field, file_path_to_url(value))
+    return model
+
+
+_FACE_URL_FIELDS = (
+    "face_front_image_url", "face_left_3q_image_url", "face_right_3q_image_url",
+    "face_profile_image_url", "face_expression_image_url",
+)
+_BODY_URL_FIELDS = (
+    "body_front_image_url", "body_left_image_url", "body_right_image_url",
+    "body_back_image_url", "body_map_image_url", "final_character_card_image_url",
+    "torso_front_image_url", "torso_side_image_url",
+    "standing_relaxed_image_url", "seated_relaxed_image_url",
+)
+_MARK_URL_FIELDS = ("reference_image_url", "detail_crop_url")
+_ACCESSORY_URL_FIELDS = ("design_anchor_image_url", "fit_anchor_image_url")
+
+
 def _canon_to_read(canon: CharacterIdentityCanon) -> CharacterCanonRead:
     """Serialize a CharacterIdentityCanon ORM record to the read schema."""
+    face = _servable(load_face_canon(canon), *_FACE_URL_FIELDS)
+    body = _servable(load_body_canon(canon), *_BODY_URL_FIELDS)
+    if body is not None:
+        for mark in body.permanent_body_marks:
+            _servable(mark, *_MARK_URL_FIELDS)
+    accessories = [
+        _servable(a, *_ACCESSORY_URL_FIELDS) for a in load_accessories(canon)
+    ]
     return CharacterCanonRead(
         id=canon.id,
         character_id=canon.character_id,
         status=canon.status,
-        face_canon=load_face_canon(canon),
-        body_canon=load_body_canon(canon),
-        accessories=load_accessories(canon),
+        face_canon=face,
+        body_canon=body,
+        accessories=accessories,
         face_locked=canon.face_locked,
         body_locked=canon.body_locked,
         created_at=canon.created_at,
