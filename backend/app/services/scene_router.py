@@ -334,7 +334,15 @@ def arm_exposure_states(prompt_lower: str) -> tuple[str, str]:
         upper = STATE_AMBIGUOUS if covered else STATE_EXPOSED
     elif bare_unless_covered:
         upper = STATE_COVERED_EXPLICIT if covered else STATE_EXPOSED
-    elif covered:
+    elif covered or forearm_bare:
+        # ``forearm_bare`` here is short/rolled-sleeve vocabulary, which NAMES a
+        # sleeve: "sleeves rolled up" and "t-shirt" both state that a garment
+        # covers the shoulder and upper arm while leaving the forearm bare. That
+        # is explicit coverage of the upper arm, not merely an unresolved
+        # wardrobe, and saying so is what keeps an upper-arm-only mark from
+        # being offered to the provider on a rolled-sleeve scene — the original
+        # label-driven-anatomy failure, where the design was then painted onto
+        # the only bare arm skin in frame (the forearm).
         upper = STATE_COVERED_EXPLICIT
     else:
         upper = STATE_COVERED_DEFAULT
@@ -458,43 +466,61 @@ def _mark_crop_visibility(
     body_region: str,
     prompt_lower: str,
     scene_states: dict[str, str] | None,
-    marks_requested: bool,
-) -> str | None:
-    """How this mark's skin stands in this scene: 'exposed', 'unresolved', None.
+) -> tuple[str | None, str]:
+    """How this mark's skin stands in this scene, and why.
 
-    ``None`` means do not route a crop for it.
+    Returns ``(visibility, reason)`` where visibility is ``"exposed"``,
+    ``"unresolved"`` or ``None`` (do not route a crop).
 
-    ``exposed`` is unchanged: the scene resolves that skin as bare.
+    ``exposed`` — the scene resolves that skin as bare.
 
-    ``unresolved`` is the case that used to route nothing at all — the scene
-    ASKS about markings but names no garment, so no region resolves either way.
-    The old answer was to keep the bare whole-body placement sheet instead;
-    this routes the mark's own anatomically-scoped crop, which carries its
-    region and side, and imports no bare torso or legs (see the module note on
-    _placement_sheet_needed's removal).
+    ``unresolved`` — the scene named no garment this region recognises, so
+    coverage is unknown. **The crop routes anyway.** This is the correction the
+    real Summer yellow-dress failures forced: the engine's uncertainty is not
+    the provider's uncertainty. "Summer wearing a yellow summer dress" matched
+    exactly one word of scene vocabulary — "dress", a torso-cover signal — so
+    both arm regions resolved ``covered_default``, no mark was judged exposed,
+    no crop routed, and the compiled prompt mentioned tattoos only in the
+    negative. The provider then read the same sentence, correctly rendered a
+    sleeveless dress, and painted the bare arms it had invented with clean
+    skin. Withholding mark truth on an unresolved region is not conservative;
+    it guarantees the marks vanish whenever the garment vocabulary has a gap,
+    and garment words are unbounded while a character's marks are finite and
+    already structured.
+
+    Routing the scoped crop asserts nothing about bare skin — the prompt's
+    binding clause states visibility conditionally, and the crop is bound to
+    one region and side.
 
     Never routes when:
-      * the scene does not mention markings (nothing asked for),
-      * any region the mark occupies is EXPLICITLY covered (the hard invariant:
-        a covered mark cannot route),
+      * any region the mark occupies is EXPLICITLY covered — the hard
+        invariant: a covered mark cannot route,
       * any region it occupies is AMBIGUOUS (contradictory garment evidence —
         conservative, same as covered),
       * the region cannot be mapped onto the coverage vocabulary at all, so
         coverage cannot be checked (matches mark_location_authority's veto).
+
+    Deliberately NOT gated on whether the scene text mentions markings.
+    Permanent canon exists whether or not the user says the word "tattoo".
     """
     if _mark_region_exposed(body_region, prompt_lower):
-        return "exposed"
-    if not marks_requested or scene_states is None:
-        return None
+        return "exposed", "scene exposes this region"
+    if scene_states is None:
+        return None, "no scene coverage states available"
     from app.services.card_coverage import mark_region_groups
 
     groups = mark_region_groups(body_region)
     if not groups:
-        return None
-    if any(scene_states.get(g) in (STATE_COVERED_EXPLICIT, STATE_AMBIGUOUS)
-           for g in groups):
-        return None
-    return "unresolved"
+        return None, "region not mappable onto the coverage vocabulary"
+    blocked = sorted(
+        g for g in groups
+        if scene_states.get(g) in (STATE_COVERED_EXPLICIT, STATE_AMBIGUOUS)
+    )
+    if blocked:
+        return None, "region " + ", ".join(
+            f"{g}={scene_states.get(g)}" for g in blocked
+        )
+    return "unresolved", "scene leaves this region unresolved"
 
 
 def _collect_exposed_mark_crops(
@@ -502,7 +528,7 @@ def _collect_exposed_mark_crops(
     prompt_lower: str,
     camera: str,
     scene_states: dict[str, str] | None = None,
-    marks_requested: bool = False,
+    decisions: list[dict] | None = None,
 ) -> list["MarkCropBinding"]:
     """Return body-bound crop records for marks whose skin this scene may show.
 
@@ -514,45 +540,92 @@ def _collect_exposed_mark_crops(
     (binding metadata, #1).
 
     Exposed marks route as they always have. Marks whose regions the scene left
-    unresolved route only when the scene itself asks about markings, and carry
-    ``visibility="unresolved"`` so no downstream consumer can read them as a
-    claim that the skin is bare — see :func:`_mark_crop_visibility`.
+    unresolved also route, carrying ``visibility="unresolved"`` so no downstream
+    consumer can read them as a claim that the skin is bare — see
+    :func:`_mark_crop_visibility`.
+
+    ``decisions`` collects a per-mark diagnostic record (region, side,
+    visibility, crop availability, reason) so a future visual QA failure can be
+    diagnosed from the stored generation record instead of replaying the
+    compiler. Diagnostics only — it never affects routing.
     """
     if camera == "portrait_closeup":
+        if decisions is not None:
+            body = load_body_canon(canon)
+            for m in (getattr(body, "permanent_body_marks", None) or []):
+                decisions.append({
+                    "mark_id": getattr(m, "id", "") or "",
+                    "region": getattr(m, "body_region", "") or "",
+                    "side": getattr(m, "side", "") or "",
+                    "visibility": None,
+                    "crop_available": bool(getattr(m, "detail_crop_url", None)
+                                           or getattr(m, "reference_image_url", None)),
+                    "crop_routed": False,
+                    "reason": "portrait close-up routes no body crops",
+                })
         return []
     body = load_body_canon(canon)
     marks = getattr(body, "permanent_body_marks", None) if body else None
     if not marks:
         return []
-    crops: list[MarkCropBinding] = []
+    # Evaluate every mark first, then fill the capped crop slots EXPOSED-FIRST.
+    # Priority matters now that unresolved regions are eligible: a heavily marked
+    # character can have more eligible marks than slots, and skin the scene
+    # actually bares must never lose its crop to skin whose coverage is merely
+    # unknown. Davies proved it — his genuinely visible hand marks were displaced
+    # by an unresolved chest and forearm purely because those marks come first in
+    # the canon list.
+    candidates: list[tuple[object, str, str, str, bool]] = []
     for m in marks:
         # Prefer the dedicated close-up detail crop; fall back to a general ref.
         detail = getattr(m, "detail_crop_url", None)
         url = detail or getattr(m, "reference_image_url", None)
-        if not url:
-            continue  # graceful degrade — no crop available for this mark
-        visibility = _mark_crop_visibility(
+        visibility, reason = _mark_crop_visibility(
             getattr(m, "body_region", ""), prompt_lower, scene_states,
-            marks_requested,
         )
-        if visibility:
-            # Side comes from the structured region when it encodes one, so the
-            # crop's audit metadata cannot disagree with the anatomy the prompt
-            # states (a canon may store region="right_forearm" with side="left").
-            from app.services.canon_compiler import _mark_side
+        candidates.append((m, url or "", visibility or "", reason, bool(detail)))
 
-            side = _mark_side(m) or (getattr(m, "side", "") or "")
-            crops.append(MarkCropBinding(
-                url=url,
-                body_region=getattr(m, "body_region", "") or "",
-                side=side,
-                label=getattr(m, "label", "") or "",
-                visibility=visibility,
-                mark_id=getattr(m, "id", "") or "",
-                source="detail_crop_url" if detail else "reference_image_url",
-            ))
-        if len(crops) >= _MAX_MARK_CROPS:
-            break
+    eligible = [c for c in candidates if c[1] and c[2]]
+    # Stable within each group, so canon order still decides between two marks of
+    # equal standing and the binding slice stays predictable.
+    eligible.sort(key=lambda c: 0 if c[2] == "exposed" else 1)
+    chosen = {id(c[0]) for c in eligible[:_MAX_MARK_CROPS]}
+
+    crops: list[MarkCropBinding] = []
+    for m, url, visibility, reason, has_detail in candidates:
+        routed = id(m) in chosen
+        if decisions is not None:
+            decisions.append({
+                "mark_id": getattr(m, "id", "") or "",
+                "region": getattr(m, "body_region", "") or "",
+                "side": getattr(m, "side", "") or "",
+                "visibility": visibility or None,
+                "crop_available": bool(url),
+                "crop_routed": routed,
+                "reason": (
+                    reason if not visibility
+                    else "no crop image on this mark" if not url
+                    else reason if routed
+                    else f"crop cap of {_MAX_MARK_CROPS} reached; "
+                         "exposed marks take priority"
+                ),
+            })
+        if not routed:
+            continue
+        # Side comes from the structured region when it encodes one, so the
+        # crop's audit metadata cannot disagree with the anatomy the prompt
+        # states (a canon may store region="right_forearm" with side="left").
+        from app.services.canon_compiler import _mark_side
+
+        crops.append(MarkCropBinding(
+            url=url,
+            body_region=getattr(m, "body_region", "") or "",
+            side=_mark_side(m) or (getattr(m, "side", "") or ""),
+            label=getattr(m, "label", "") or "",
+            visibility=visibility,
+            mark_id=getattr(m, "id", "") or "",
+            source="detail_crop_url" if has_detail else "reference_image_url",
+        ))
     return crops
 
 
@@ -795,6 +868,14 @@ class SceneMeta:
     # conflicted (all-bare legacy canon + covered scene). Recorded, never
     # silently treated as compatible.
     coverage_conflict_anchor: str | None = None
+    # ── Per-mark routing decisions (diagnostics only) ─────────────────
+    # One record per registered permanent mark: mark_id, region, side,
+    # visibility ("exposed" | "unresolved" | None), crop_available, crop_routed
+    # and the reason. Exists so a visual-QA failure can be diagnosed from the
+    # persisted generation record instead of replaying the compiler by hand —
+    # which is exactly what the Summer yellow-dress investigation had to do.
+    # Never read by routing.
+    mark_decisions: list[dict] = field(default_factory=list)
 
 
 # ── Card-coverage integration (CANON SKIN/CLOTHING sprint) ────────────
@@ -1022,6 +1103,32 @@ def _resolve_route(
 
 # ── Public API ────────────────────────────────────────────────────────
 
+def routing_diagnostics(meta: "SceneMeta") -> dict:
+    """Flatten a SceneMeta into persistable generation diagnostics.
+
+    Exists because the Summer yellow-dress investigation could only establish
+    what had been sent to the provider by replaying the whole compiler against
+    the live canon. Everything needed to answer "what did we actually supply,
+    and why?" is recorded here instead.
+
+    Diagnostics only. Contains no secrets, no image bytes and no URLs — slot
+    names and structured decisions are enough to reconstruct the routing, and
+    reference URLs are already logged separately with query strings stripped.
+    """
+    return {
+        "route_camera": meta.camera,
+        "route_routed": meta.routed,
+        "route_slots": list(meta.route_slots),
+        "route_refs": len(meta.route_slots) or None,
+        "scene_coverage": dict(meta.scene_coverage),
+        "coverage_suppressed": list(meta.coverage_suppressed),
+        "coverage_conflict_anchor": meta.coverage_conflict_anchor,
+        "body_map_suppressed": meta.body_map_suppressed,
+        "mark_crops_routed": meta.mark_crops,
+        "mark_decisions": list(meta.mark_decisions),
+    }
+
+
 def route_canon_refs(
     prompt: str,
     canon: "CharacterIdentityCanon",
@@ -1095,12 +1202,10 @@ def route_canon_refs(
             conflict_anchor = None
     body_map_suppressed = "body_map" in suppressed
 
-    # Does the scene text itself ask about permanent markings? Gates ONLY the
-    # unresolved-region crop routing below — never reference suppression, and
-    # never a bare whole-body card.
-    from app.services.canon_compiler import scene_requests_marks
-
-    marks_requested = scene_requests_marks(prompt)
+    # Per-mark routing decisions, collected for diagnostics only. Whether the
+    # scene text mentions markings is recorded (below) but gates NOTHING:
+    # permanent canon exists whether or not the user says the word "tattoo".
+    mark_decisions: list[dict] = []
 
     if camera is None:
         fallback_urls = collect_canon_reference_urls(canon)
@@ -1145,7 +1250,7 @@ def route_canon_refs(
         routed_bindings: list["MarkCropBinding"] = []
         crop_slots: list[str] = []
         crops = _collect_exposed_mark_crops(
-            canon, prompt_lower, camera, scene_states, marks_requested)
+            canon, prompt_lower, camera, scene_states, mark_decisions)
         if crops:
             names = slot_names_for_urls(canon, fallback_urls)
             visible: dict[str, str] = {}
@@ -1174,6 +1279,7 @@ def route_canon_refs(
             mark_crops=crop_count,
             mark_crop_bindings=routed_bindings,
             body_map_suppressed=body_map_suppressed,
+            mark_decisions=mark_decisions,
         )
         _fill_coverage_meta(meta, scene_states, cov_views, suppressed, conflict_anchor)
         logger.info(
@@ -1192,7 +1298,7 @@ def route_canon_refs(
     # filtered from the candidate pool first (structured marks REFINE routing;
     # they no longer gate the coverage decision).
     crops = _collect_exposed_mark_crops(
-        canon, prompt_lower, camera, scene_states, marks_requested)
+        canon, prompt_lower, camera, scene_states, mark_decisions)
     slot_urls_visible = {s: u for s, u in slot_urls.items() if s not in suppressed}
     if crops:
         route_slots = _ROUTES.get(camera, _ROUTES["front"])
@@ -1220,6 +1326,7 @@ def route_canon_refs(
         mark_crops=crop_count,
         mark_crop_bindings=routed_bindings,
         body_map_suppressed=body_map_suppressed,
+        mark_decisions=mark_decisions,
     )
     _fill_coverage_meta(meta, scene_states, cov_views, suppressed, conflict_anchor)
     logger.info(

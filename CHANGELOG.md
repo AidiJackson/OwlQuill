@@ -2,6 +2,131 @@
 
 All notable changes to the Ficshon project will be documented in this file.
 
+## [Mark routing] - 2026-08-11 - Permanent mark truth survives unresolved clothing
+
+Found by real browser QA, not by tests. Three generations of **"Summer wearing a
+yellow summer dress"** came back with completely clean arms, while **"Summer in
+her office wearing a white shirt with the sleeves rolled up"** reproduced both of
+her tattoos correctly — same character, same canon, same model, minutes apart.
+
+Forensics on the persisted generation records (2050–2052 vs 2047–2049) found the
+difference was one phrase. "sleeves rolled up" is in the scene vocabulary;
+"summer dress" is not. The yellow-dress scene matched exactly one word of
+anything — "dress", a torso-cover signal — so both arm regions resolved
+`covered_default`, no mark was judged exposed, no crop routed, no anatomy was
+stated, and **every tattoo sentence in the compiled prompt was a negative one**
+("hidden markings remain hidden", "clean-skin truth: no ink on the hands…"). The
+provider read the same sentence, correctly rendered a sleeveless dress, and
+painted the bare arms it had invented with clean skin. It complied with what it
+was sent.
+
+The lesson: **the engine's uncertainty is not the provider's uncertainty.**
+Withholding mark truth on an unresolved region is not conservative — it
+guarantees the marks vanish whenever the garment vocabulary has a gap, and
+garment words are unbounded while a character's marks are finite and structured.
+
+### Fixed
+- **One gate removed** (`scene_router._mark_crop_visibility`,
+  `canon_compiler._mark_binding_clause`). A region that is NOT `covered_explicit`
+  and NOT `ambiguous` — i.e. unresolved — now gets its conditional anatomical
+  binding emitted and its scoped mark crop routed, **whatever the scene text
+  says**. Neither is gated on `scene_requests_marks` any more: permanent canon
+  exists whether or not the user says the word "tattoo". The wording is unchanged
+  and still conditional — it states where the mark belongs and that it is
+  rendered "only where this scene's own clothing leaves that skin bare", never
+  that any skin IS bare. Crops carry `visibility="unresolved"` so nothing
+  downstream can read them as a bare-skin claim.
+  Explicit coverage still wins (no crop, no anatomy named, occlusion only), and
+  contradictory garment evidence still resolves to `ambiguous` and forces nothing.
+- **Naming a sleeve is explicit coverage of the upper arm** (`arm_exposure_states`).
+  Short/rolled-sleeve vocabulary previously left the upper arm merely unresolved,
+  which — once unresolved regions became eligible — would have offered an
+  upper-arm-only design to the provider on a rolled-sleeve scene. That is the
+  original label-driven-anatomy failure, where the design was then painted onto
+  the only bare arm skin in frame. "t-shirt" and "sleeves rolled up" both state
+  that a garment covers the shoulder, so they now say so.
+- **Exposed marks outrank unresolved ones for the capped crop slots**
+  (`_collect_exposed_mark_crops`). Caught on Davies' real canon during
+  implementation: his genuinely visible hand marks lost both crop slots to an
+  unresolved chest and forearm, purely because those come first in the canon
+  list. Skin the scene actually bares must never be displaced by skin whose
+  coverage is merely unknown. Canon order still decides between equals.
+- **An exclusion is agreement, not contradiction** (`_text_contradicts_region`).
+  Summer's butterfly description ends "; hand unmarked" — a statement that the
+  hand is CLEAN. Reading "hand" as a positive claim disjoint from `left_full_arm`
+  discarded the entire description and replaced "Butterflies and wildflowers in
+  fine black line work…" with generic wording on every generation, including the
+  ones that passed. Anatomy mentions in an exclusionary context ("no", "except",
+  "free of", "unmarked", "ending just above…") no longer count as claims.
+- **Design-text fallback order** is now description → label → neutral
+  (`_safe_design_text`). A contradictory description must not cost the design its
+  name when the label is perfectly consistent. Contradictory free text still
+  never overrides `body_region`/`side`.
+
+### Added — diagnostics (no behaviour change)
+- `SceneMeta.mark_decisions` — one record per registered mark: id, region, side,
+  visibility (`exposed` / `unresolved` / `None`), whether a crop image existed,
+  whether it routed, and the reason if not.
+- `scene_router.routing_diagnostics(meta)` — flattens routing into persistable
+  fields (camera, routed, slot order, per-region coverage states, suppressed
+  slots, conflict anchor, body_map suppression, crop count, mark decisions).
+  Contains no URLs, no secrets, no image bytes.
+- `compile_canon_prompt(..., diagnostics={})` — write-only dict reporting which
+  clauses were emitted (`marks_clause`, `geometry_lines`, `binding_clause`,
+  `clean_skin_clause`), `scene_mentions_marks`, whether detail compression or
+  prompt fitting ran, prompt/scene length, and whether the scene survived. Filled
+  on the compile pass that already happens; the returned prompt is byte-identical
+  with and without it.
+- Both generation routes persist the above, plus **`compiled_prompt` bounded at
+  4000 chars instead of 400** (above the 2400 prompt cap, so the stored value is
+  the whole prompt in every non-pathological case) with `compiled_prompt_len` and
+  a short hash. The 400-char cut is why this investigation had to replay the
+  compiler against live canon to discover what had actually been sent.
+- `tests/test_unresolved_clothing_marks.py` — 108 tests on invented characters:
+  unknown garments (yellow summer dress, bandeau, tube top, dashiki, thawb,
+  qipao, no garment at all), explicit coverage, contradictory layers, markless,
+  mirrored pairs, exclusionary descriptions, genuine contradictions, reference
+  cap, crop priority, and emphasis-under-cover.
+
+### Invariant corrections
+Every one of these asserted that an unresolved scene must stay silent. Real
+visual QA established that silence is the failure, so they now assert the
+conditional behaviour instead. None were weakened: each keeps its original
+guarantees (no bare-skin assertion, occlusion stated, scene preserved, no
+essays) and adds the anatomy assertion.
+- `test_mark_routing_gaps`: `test_scene_without_mark_language_is_unchanged`,
+  `test_scene_that_never_mentions_marks_routes_no_unresolved_crops`,
+  `test_ordinary_ink_language_routes_nothing`
+- `test_generic_mark_architecture`: `test_L_a_vague_prompt_routes_nothing…`,
+  `test_N_unrelated_or_negated_language_is_not_a_request`
+- `test_scene_router`: `test_truly_ambiguous_scene_still_falls_back` (crop count
+  only; the fallback behaviour it tests is unchanged)
+- `test_mark_completion`: `test_covered_mark_does_not_route_on_vague_prompt`
+- `test_canon_rebuild`: `test_prompt_is_small` (bound 700 → 1400 for a
+  mark-bearing canon; a new sibling test pins markless canons under 700),
+  `test_beach_no_mask_prompt`, `test_beach_with_mask_prompt`
+
+`scene_requests_marks` survives as **diagnostics only** — it is recorded on the
+generation record so an operator can see whether the user asked, and it is kept
+narrow so that signal stays meaningful, but it gates nothing.
+
+### Known limitations
+- **Torso print-through is the trade to watch.** A torso mark on a vague prompt
+  now routes its scoped crop, and that is the region where the provider is most
+  likely to render clothing — the Davies failure. Two explicit clauses accompany
+  it (the general "never printed, traced or echoed onto the garment" and the
+  region-named "wherever clothing covers the chest and torso…"), and the crop is
+  region-scoped rather than a bare whole-body card. If print-through reappears on
+  torso marks, revisit this first; the fix would be a per-region visibility prior,
+  not a return to silence. Recorded in
+  `test_mark_completion.test_unresolved_mark_routes_on_vague_prompt_with_occlusion_stated`.
+- **Prompts are larger for mark-bearing canons** (~600 chars for the binding
+  clause). Markless canons are unchanged.
+- **Negated garments still read as present** — "no jacket" matches the jacket
+  cover signal. Conservative direction; unchanged.
+- Nothing here is visually confirmed. The next step is a real browser retest,
+  starting with the exact yellow-dress prompt.
+
 ## [Mark routing] - 2026-08-11 - Generic architecture: the blockers below, closed
 
 An audit of the entry below asked one question of it: would this work for a

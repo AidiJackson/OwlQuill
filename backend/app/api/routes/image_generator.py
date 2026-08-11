@@ -58,9 +58,18 @@ from app.services.canon_compiler import (
 )
 from app.services.canon_service import load_face_canon
 from app.services.face_verifier import verify_face_match, passes as _face_passes
-from app.services.scene_router import route_canon_refs, slot_names_for_urls
+from app.services.scene_router import (
+    route_canon_refs,
+    routing_diagnostics as _routing_diagnostics,
+    slot_names_for_urls,
+)
 
 logger = logging.getLogger(__name__)
+
+# Bound on the diagnostic copy of the compiled prompt stored on each image
+# record. Comfortably above _PROMPT_CAP (2400) so the stored value is the
+# whole prompt in every non-pathological case, while still capping storage.
+_STORED_PROMPT_CHARS = 4000
 
 router = APIRouter()
 
@@ -509,6 +518,11 @@ def generate_image(
 
     base_prompt = body.prompt.strip()
 
+    # Filled by the compiler on the pass it already performs (which clauses were
+    # emitted, whether fitting ran) and persisted below, so a visual-QA failure
+    # can be diagnosed from the record rather than by replaying the compiler.
+    prompt_diag: dict = {}
+
     # Cover mode: prepend banner-composition directives before the user's prompt.
     if body.is_cover:
         cover_block = _COVER_BANNER_PREFIX
@@ -537,6 +551,7 @@ def generate_image(
             canon,
             base_prompt,
             include_accessories=True,
+            diagnostics=prompt_diag,
         )
         # P10: scene-aware reference routing replaces static ordering.
         # Route on the raw user scene text (not the cover-prefixed prompt).
@@ -1012,13 +1027,25 @@ def generate_image(
         "canon_used": using_canon,
         "refs_count": len(ref_bytes),
         "refs_deduped": refs_deduped,
-        "compiled_prompt": compiled_prompt[:400],
+        # Bounded well above a normal compiled prompt (_PROMPT_CAP is 2400) so
+        # the stored value IS the prompt in every non-pathological case. The old
+        # 400-char cut silently discarded most of it, and a real visual-QA
+        # investigation had to replay the compiler to recover what was actually
+        # sent. Hash included so a truncated or edited value is still comparable.
+        "compiled_prompt": compiled_prompt[:_STORED_PROMPT_CHARS],
+        "compiled_prompt_len": len(compiled_prompt),
+        "compiled_prompt_sha8": hashlib.sha256(
+            compiled_prompt.encode()).hexdigest()[:8],
     }
+    if prompt_diag:
+        metadata["prompt_diagnostics"] = prompt_diag
     if body.include_character:
         metadata["multi_image_used"] = multi_image_used
         metadata["used_ref"] = used_ref
         metadata["cover_retry_attempted"] = cover_retry_attempted
         metadata["cover_retry_succeeded"] = cover_retry_succeeded
+        if using_canon and scene_meta is not None:
+            metadata.update(_routing_diagnostics(scene_meta))
         if face_verify_meta:
             metadata.update(face_verify_meta)
         if mark_verify_meta:

@@ -83,31 +83,32 @@ _CLOTHING_TRUTH_DIRECTIVE = (
 )
 
 
-# ── Explicit mark request under unspecified clothing ──────────────────
-#
-# The failure this closes: "Summer in her office - any tattoos that should be
-# visible are visible". No garment is named, so every body region resolves to
-# covered_default, so no mark is judged exposed, so the per-mark block above is
-# EMPTY — while the user's own sentence pushes the provider to render ink. The
-# canon contributed no anatomy at all and the model chose freely: it put the
-# left-arm piece on the right forearm and the right-forearm piece on the left.
+# ── Mark anatomy under unresolved clothing ────────────────────────────
 #
 # Two different questions were being answered with one gate:
-#     WHERE a marking belongs   — permanent canon truth, always knowable
+#     WHERE a marking belongs   — permanent canon truth, ALWAYS knowable
 #     WHETHER that skin is bare — scene truth, often unknowable
-# Exposure gating is right for the second and wrong for the first. When the
-# scene explicitly asks for markings, the bindings are stated unconditionally
-# and the VISIBILITY is left conditional, so the canon can no longer be silent
-# about anatomy merely because the wardrobe is unstated.
+# Exposure gating is right for the second and wrong for the first. The binding
+# clause below therefore states anatomy unconditionally for any region the scene
+# left UNRESOLVED, and leaves VISIBILITY conditional.
 #
-# Generic by construction: the trigger is ordinary scene language about
-# markings, and every binding line is built from structured canon fields
-# (region, side, description). No character id, no design-name matching, and no
-# assumption that the character is undressed.
-# Narrow by design. A false positive costs a clause nobody asked for AND, via
-# the router's unresolved-crop gate, a reference slot — so the bar is "this
-# sentence is about the character's own permanent markings", not "this sentence
-# contains a word from the tattoo semantic field".
+# It used to require the scene text to mention markings as well, and the real
+# Summer yellow-dress failures were the result: three generations of "Summer
+# wearing a yellow summer dress" produced completely clean arms. That scene
+# matched exactly one word of scene vocabulary — "dress", a torso-cover signal —
+# so both arm regions resolved covered_default, no mark was exposed, no crop
+# routed, this clause stayed silent, and the ONLY tattoo sentences in the
+# compiled prompt were negative ones. The provider read the same words, rendered
+# a sleeveless dress, and painted the bare arms clean. Permanent canon exists
+# whether or not the user says the word "tattoo".
+#
+# Generic by construction: every binding line is built from structured canon
+# fields (region, side, description). No character id, no design-name matching,
+# no garment special-casing, no assumption that the character is undressed.
+#
+# ``scene_requests_marks`` survives as DIAGNOSTICS only — it is recorded on the
+# generation record so an operator can see whether the user asked, but it gates
+# nothing. Kept narrow so that signal stays meaningful.
 #
 # Deliberately NOT matched: bare "ink" ("an ink pen", "an ink drawing"), bare
 # singular "marking" ("marking papers", "marking the register"), and bare
@@ -148,8 +149,8 @@ _MARK_NEGATION_WINDOW_TRAILING = 20
 _MARK_CLAUSE_BREAKS = (",", ";", ".", " - ", " — ", ":")
 
 _MARK_BINDING_HEADER = (
-    "This scene refers to the character's permanent markings. Their canonical "
-    "anatomy is fixed and is not a matter of interpretation:"
+    "This character has permanent markings. Their canonical anatomy is fixed "
+    "and is not a matter of interpretation:"
 )
 
 # States the visibility rule WITHOUT asserting that any region is bare — the
@@ -247,6 +248,26 @@ _FULL_ARM_GROUPS = frozenset({"upper_arms", "forearms"})
 _TEXT_SIDE_QUALIFIABLE = ("arm", "arms", "side", "leg", "legs", "foot",
                           "ear", "eye", "hip", "flank")
 
+# Wording that makes an anatomy mention EXCLUSIONARY rather than a positive
+# claim. Summer's butterfly description ends "; hand unmarked" — a statement
+# that the hand is CLEAN — and reading the word "hand" as a positive claim
+# disjoint from left_full_arm threw the entire description away, replacing
+# "Butterflies and wildflowers in fine black line work…" with generic wording on
+# every generation. A mark description that says where the mark does NOT go is
+# agreeing with the structured region, not contradicting it.
+_TEXT_EXCLUSION_BEFORE = (
+    "no ", "not ", "never ", "without ", "except", "excluding", "aside from",
+    "apart from", "other than", "free of", "clear of", "bare of", "none on",
+    "nothing on", "stops before", "stopping before", "short of", "above the",
+    "below the", "up to", "down to", "ending at", "ending just", "but not",
+)
+_TEXT_EXCLUSION_AFTER = (
+    "unmarked", "is unmarked", "left unmarked", "remains unmarked", "is clean",
+    "stays clean", "untouched", "is bare", "excluded", "is not marked",
+    "has no", "free of", "kept clear",
+)
+_TEXT_EXCLUSION_WINDOW = 26
+
 # A side word is only an anatomical claim when it qualifies an anatomical term:
 # "the right shoulder" claims a side, "its right wing raised" does not.
 _TEXT_SIDE_CLAIM_RE = re.compile(
@@ -330,12 +351,25 @@ def _text_contradicts_region(text: str, body_region: str,
         if groups != _FULL_ARM_GROUPS:
             return True
 
-    # Region claims must overlap the structured region.
+    # Region claims must overlap the structured region — unless the mention is
+    # exclusionary, in which case it is agreeing with the region, not disputing
+    # it ("…ending just above the wrist; hand unmarked").
     for pattern, claimed in _TEXT_REGION_RES:
-        if pattern.search(t):
+        for m in pattern.finditer(t):
             if not groups or not (claimed & groups):
+                if _is_exclusionary(t, m.start(), m.end()):
+                    continue
                 return True
     return False
+
+
+def _is_exclusionary(text: str, start: int, end: int) -> bool:
+    """True when an anatomy mention says the mark is ABSENT there."""
+    before = text[max(0, start - _TEXT_EXCLUSION_WINDOW):start]
+    if any(w in before for w in _TEXT_EXCLUSION_BEFORE):
+        return True
+    after = text[end:end + _TEXT_EXCLUSION_WINDOW]
+    return any(w in after for w in _TEXT_EXCLUSION_AFTER)
 
 
 def _neutral_design(mark: object, region_phrase: str) -> str:
@@ -356,30 +390,34 @@ def _safe_design_text(
     """Design wording for prompt prose, guaranteed not to contradict the region.
 
     ``prefer`` picks which free-text field leads ("label" for the compact
-    binding lines, "description" for the geometry block). If the chosen text
-    makes an anatomical claim the structured region denies, neutral wording is
-    returned instead and the canon defect is logged. The design is never
-    ANATOMY here — it exists only to tell two of a character's designs apart.
+    binding lines, "description" for the geometry block). Fallback order is
+    preferred field → the other field → neutral structured wording: a
+    contradictory description must not cost the design its name when the label
+    is perfectly consistent (Summer's "Butterfly floral sleeve"). Only when
+    BOTH disagree with the structured region is neutral wording used, and the
+    canon defect is logged either way. The design is never ANATOMY here — it
+    exists only to tell two of a character's designs apart.
     """
-    text = (getattr(mark, prefer, None) or "").strip()
-    other = "description" if prefer == "label" else "label"
-    if not text:
-        text = (getattr(mark, other, None) or "").strip()
     region = getattr(mark, "body_region", "") or ""
     side = _mark_side(mark, char_id)
-    if not text or _text_contradicts_region(text, region, side):
-        if text:
+    other = "description" if prefer == "label" else "label"
+    for field_name in (prefer, other):
+        text = (getattr(mark, field_name, None) or "").strip()
+        if not text:
+            continue
+        if _text_contradicts_region(text, region, side):
             logger.warning(
                 "CANON_MARK_TEXT_ANATOMY_IGNORED character_id=%s region=%r "
                 "field=%s text=%r",
-                char_id, region, prefer, text[:80],
+                char_id, region, field_name, text[:80],
             )
-        return _neutral_design(mark, region_phrase)
-    if max_chars is not None and len(text) > max_chars:
-        head = text[:max_chars]
-        cut = max(head.rfind(", "), head.rfind("; "), head.rfind(" "))
-        text = (head[:cut] if cut > max_chars // 3 else head).rstrip(" ,;")
-    return text
+            continue
+        if max_chars is not None and len(text) > max_chars:
+            head = text[:max_chars]
+            cut = max(head.rfind(", "), head.rfind("; "), head.rfind(" "))
+            text = (head[:cut] if cut > max_chars // 3 else head).rstrip(" ,;")
+        return text
+    return _neutral_design(mark, region_phrase)
 
 # A binding line only has to make one design distinguishable from another well
 # enough that it cannot be swapped onto the wrong side — "Butterfly floral
@@ -697,13 +735,23 @@ def _mark_binding_clause(
     scene_prompt: str,
     budget: int = _MARK_BINDING_BUDGET,
 ) -> str:
-    """Bind each mark to its canonical region/side when the scene asks for marks.
+    """Bind each mark to its canonical region/side when the scene leaves it open.
 
-    Fires only when ALL of:
-      * the scene text itself refers to markings (``scene_requests_marks``),
+    Fires when ALL of:
       * the canon carries structured permanent marks,
       * the frame is not a portrait close-up (no body in shot),
       * and, per mark, the scene has NOT resolved its anatomy either way.
+
+    **Deliberately NOT gated on the scene text mentioning markings.** It was,
+    and the real Summer yellow-dress failures were the result: "Summer wearing
+    a yellow summer dress" says nothing about tattoos and matched no arm
+    vocabulary, so this clause stayed silent, no crop routed, and the only
+    tattoo-related sentences in the compiled prompt were negative ones
+    ("hidden markings remain hidden", "clean-skin truth: no ink on the
+    hands…"). The provider read the same sentence, rendered a sleeveless dress,
+    and painted the bare arms clean. Permanent canon exists whether or not the
+    user says the word "tattoo"; withholding it because they didn't is how a
+    tattoo disappears from skin the image plainly shows.
 
     That last gate is what keeps this from duplicating or contradicting the
     two clauses either side of it:
@@ -715,16 +763,18 @@ def _mark_binding_clause(
                          mistake (the model cuts the garment open to show it),
                          so the occlusion clause keeps sole ownership and this
                          clause stays silent about it.
-      otherwise        → the ambiguous case this exists for: clothing unstated,
-                         so visibility is unknown but ANATOMY is not.
+      ambiguous        → contradictory garment evidence. Conservative, same as
+                         covered: no anatomy stated, because a scene that says
+                         both things must not be resolved by us.
+      otherwise        → UNRESOLVED, the case this exists for: clothing unstated
+                         or unrecognised, so visibility is unknown but ANATOMY
+                         is not. The provider decides what skin its own rendered
+                         garment leaves visible; we supply where the marks live.
 
     Design descriptions are included because the failure was a design/side
     swap: naming the region alone cannot say which of two designs belongs
     there. Visibility is never asserted — see _MARK_BINDING_VISIBILITY.
     """
-    if not scene_requests_marks(scene_prompt):
-        return ""
-
     body = load_body_canon(canon)
     marks = getattr(body, "permanent_body_marks", None) if body else None
     if not marks:
@@ -749,8 +799,13 @@ def _mark_binding_clause(
             continue  # the exposed block owns this mark
         groups = mark_region_groups(region)
         if groups:
-            if all(states.get(g) == "covered_explicit" for g in groups):
-                continue  # explicitly covered — occlusion owns it, never named here
+            # ANY blocked segment is enough. covered_explicit → the occlusion
+            # clause owns it and naming a hidden design is the Davies mistake.
+            # ambiguous → the scene gave contradictory garment evidence and we
+            # must not resolve it in either direction.
+            if any(states.get(g) in ("covered_explicit", "ambiguous")
+                   for g in groups):
+                continue
         elif any_explicitly_covered:
             # The region cannot be mapped onto the coverage vocabulary, so we
             # cannot show this mark is visible. Naming a design that may be
@@ -1205,6 +1260,7 @@ def compile_canon_prompt(
     scene_prompt: str,
     *,
     include_accessories: bool = True,
+    diagnostics: dict | None = None,
 ) -> str:
     """Compile a minimal generation prompt from the user's scene.
 
@@ -1216,6 +1272,10 @@ def compile_canon_prompt(
     Identity is supplied by the routed canon reference cards, not by this
     prompt. No canon prose, marking essays, or relocation/side-lock invariants
     are emitted.
+
+    Pass a dict as ``diagnostics`` to receive which clauses were emitted and
+    whether prompt fitting ran. Write-only, populated on the single compile pass
+    that already happens — it never changes the returned prompt.
     """
     scene = scene_prompt.strip()
     char_id = str(getattr(canon, "character_id", "?"))
@@ -1291,35 +1351,57 @@ def compile_canon_prompt(
         if clean_clause:
             parts.append((_RANK_INVARIANT, clean_clause))
 
-        return parts, marks_clause, clean_clause
+        return parts, marks_clause, clean_clause, binding_clause
 
     # Compress design DETAIL before shedding anything: full mark descriptions
     # and per-design binding names are the most expendable content in the
     # prompt, and shedding a whole clause to keep them would be backwards.
+    compressed = False
     for design_chars, binding_budget in (
         (None, _MARK_BINDING_BUDGET),
         (140, _MARK_BINDING_BUDGET // 2),
         (70, 0),
     ):
-        parts, marks_clause, clean_clause = _build(design_chars, binding_budget)
+        parts, marks_clause, clean_clause, binding_clause = _build(
+            design_chars, binding_budget)
         prompt = _join_parts(parts, scene)
         if len(prompt) <= _PROMPT_CAP:
             break
+        compressed = True
         logger.info(
             "CANON_PROMPT_DETAIL_COMPRESSED character_id=%s design_chars=%s "
             "binding_budget=%d len=%d",
             char_id, design_chars, binding_budget, len(prompt),
         )
 
-    if len(prompt) > _PROMPT_CAP:
+    fitted = len(prompt) > _PROMPT_CAP
+    if fitted:
         prompt = _fit_prompt(parts, scene, _PROMPT_CAP, char_id)
 
     logger.info(
         "CANON_PROMPT character_id=%s accessories=%d marks_clause=%s "
-        "clean_skin_clause=%s prompt_len=%d",
+        "binding_clause=%s clean_skin_clause=%s scene_mentions_marks=%s "
+        "detail_compressed=%s fitted=%s prompt_len=%d",
         canon.character_id, len(requested), bool(marks_clause),
-        bool(clean_clause), len(prompt),
+        bool(binding_clause), bool(clean_clause),
+        scene_requests_marks(scene), compressed, fitted, len(prompt),
     )
+    if diagnostics is not None:
+        diagnostics.update({
+            # marks_clause is non-empty whenever the character has marks (it
+            # carries the clothing-truth directive even with none exposed);
+            # geometry_lines is the stronger signal — per-mark exposed anatomy.
+            "marks_clause": bool(marks_clause),
+            "geometry_lines": _MARKING_HEADER in (marks_clause or ""),
+            "binding_clause": bool(binding_clause),
+            "clean_skin_clause": bool(clean_clause),
+            "scene_mentions_marks": scene_requests_marks(scene),
+            "detail_compressed": compressed,
+            "prompt_fitted": fitted,
+            "prompt_len": len(prompt),
+            "scene_len": len(scene),
+            "scene_preserved": scene in prompt,
+        })
 
     return prompt
 

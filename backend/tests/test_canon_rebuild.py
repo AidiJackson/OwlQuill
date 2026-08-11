@@ -316,18 +316,48 @@ class TestMinimalPrompt:
             assert banned not in prompt, f"Removed prose leaked into prompt: {banned!r}"
 
     def test_prompt_is_small(self):
-        """Compact prompt = safety + identity-priority + compact mark clause + scene.
+        """Compact prompt = safety + identity-priority + mark clauses + scene.
 
-        P13 (A+C) reintroduces a short structured marking clause, so the bound is
+        P13 (A+C) reintroduced a short structured marking clause, so the bound is
         higher than the P12 bare-scene minimum — but still far below the pre-P12
         multi-paragraph essays.
+
+        BOUND RAISED (700 → 1400) as an intentional consequence of preserving
+        mark truth under unresolved clothing. "in a nightclub" names no garment,
+        so this character's arm piece is unresolved and now receives a
+        conditional anatomical binding (~600 chars). Real visual QA established
+        that the alternative — staying silent to keep the prompt small — makes
+        permanent tattoos vanish from skin the provider decides to render bare.
+        A markless canon still compiles small, asserted below, so the P12
+        minimalism holds wherever it can.
         """
         from app.services.canon_compiler import compile_canon_prompt
 
         canon = self._make_canon_with_content()
         scene = "in a nightclub"
         prompt = compile_canon_prompt(canon, scene)
-        assert len(prompt) < 700, f"Prompt unexpectedly large ({len(prompt)} chars): {prompt!r}"
+        assert len(prompt) < 1400, f"Prompt unexpectedly large ({len(prompt)} chars): {prompt!r}"
+        # The pre-P12 essays stay gone: no multi-paragraph canon prose.
+        assert "FACE CANON" not in prompt and "BODY CANON" not in prompt
+
+    def test_a_markless_canon_still_compiles_small(self):
+        """P12 minimalism is unchanged where there is no mark truth to carry."""
+        import json as _json
+        from unittest.mock import MagicMock as _MagicMock
+
+        from app.models.character_identity_canon import CharacterIdentityCanon
+        from app.schemas.canon import BodyCanonData, FaceCanonData
+        from app.services.canon_compiler import compile_canon_prompt
+
+        canon = _MagicMock(spec=CharacterIdentityCanon)
+        canon.character_id = 1
+        canon.face_canon_json = _json.dumps(
+            FaceCanonData(face_description="sharp angular jaw", locked=True).model_dump())
+        canon.body_canon_json = _json.dumps(
+            BodyCanonData(body_description="tall, athletic build", locked=True).model_dump())
+        canon.accessories_json = None
+        prompt = compile_canon_prompt(canon, "in a nightclub")
+        assert len(prompt) < 700, f"markless prompt grew to {len(prompt)}: {prompt!r}"
 
     def test_ambiguous_scene_suppresses_permanence_clause(self):
         """P15 conservative policy: an ambiguous scene with no clothing/exposure
@@ -1049,10 +1079,17 @@ class TestLeonardoPromptScenario:
 
         assert scene in prompt
         assert "Venetian" not in prompt          # mask not triggered
-        # Marks are NOT surfaced/reproduced — no explicit exposure cue present.
+        # Marks are NOT surfaced as visible anatomy — no exposure cue present, so
+        # the exposed-mark geometry block stays absent.
         assert "skin-bound anatomy" not in prompt.lower()
-        assert "gothic script inscription sleeve" not in prompt
-        assert "tribal wolf" not in prompt
+        # INVARIANT CORRECTION: the designs ARE named in a conditional binding.
+        # "beach" resolves nothing, and real visual QA showed that saying nothing
+        # about an unresolved region is how a permanent tattoo vanishes from skin
+        # the provider renders bare.
+        assert "canonical anatomy is fixed" in prompt
+        assert "only where this scene's own clothing leaves that skin bare" in prompt
+        for overclaim in ("arms are bare", "skin is bare", "sleeveless"):
+            assert overclaim not in prompt.lower()
         # Clothing-truth guard still asserted so covered marks stay hidden.
         assert "permanent markings obey scene clothing" in prompt.lower()
         # No bloated canon essays / pre-P12 side-lock prose.
@@ -1073,10 +1110,20 @@ class TestLeonardoPromptScenario:
 
         assert scene in prompt
         assert "ornate Venetian half-mask" in prompt   # mask still triggered
-        # Ambiguous scene → marks are NOT surfaced / reproduced.
+        # Unresolved scene → marks are NOT surfaced as visible anatomy: the
+        # exposed-mark geometry block stays absent, which is what "not forced"
+        # means and what this test is really about.
         assert "skin-bound anatomy" not in low
-        assert "gothic script inscription sleeve" not in prompt
-        assert "tribal wolf" not in low
+        # INVARIANT CORRECTION: the designs ARE now named, in a conditional
+        # binding that states where each belongs and renders it only where the
+        # scene's own clothing leaves that skin bare. Real visual QA showed that
+        # naming nothing is how a tattoo disappears from skin the provider
+        # decides to render bare — see test_unresolved_clothing_marks.py.
+        assert "canonical anatomy is fixed" in prompt
+        assert "only where this scene's own clothing leaves that skin bare" in prompt
+        # ...and visibility is still never asserted.
+        for overclaim in ("arms are bare", "skin is bare", "sleeveless"):
+            assert overclaim not in low
         # Clothing truth remains as the safe default.
         assert "permanent markings obey scene clothing" in low
 

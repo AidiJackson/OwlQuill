@@ -249,12 +249,38 @@ class TestAmbiguousPromptCropRouting:
         _urls, meta = route_canon_refs(OFFICE, self._hand_canon())
         assert meta.route_slots.index("mark_crop") > 0
 
-    def test_covered_mark_does_not_route_on_vague_prompt(self):
-        # Chest is not exposed by a vague office prompt — the crop must not ride
-        # in just because the camera was ambiguous.
+    def test_unresolved_mark_routes_on_vague_prompt_with_occlusion_stated(self):
+        """INVARIANT CORRECTION, forced by real visual QA — read the risk note.
+
+        This asserted that a chest mark must NOT route on a vague office prompt,
+        because the torso is not exposed. Real generations then proved the
+        opposite failure is worse and more common: three "Summer wearing a yellow
+        summer dress" images came back with completely clean arms, because an
+        unresolved region routed no mark evidence and the prompt stated no
+        anatomy while the provider rendered bare skin from the same words.
+
+        ``covered_default`` means UNKNOWN, not covered. It now routes the scoped
+        crop and states anatomy conditionally.
+
+        RISK, recorded deliberately: for a TORSO mark on a vague prompt the
+        provider will usually render clothing, so this is the region where
+        print-through (the Davies failure) is most likely. Two explicit clauses
+        now accompany the crop — asserted below — and the crop is region-scoped
+        rather than a bare whole-body card. If print-through reappears on torso
+        marks in visual QA, this is the trade to revisit first, and the fix would
+        be a per-region visibility prior, not a return to silence.
+        """
         canon = _canon(marks=[_mark("chest", "centre", "crest", HAND_CROP)])
         _urls, meta = route_canon_refs(OFFICE, canon)
-        assert meta.mark_crops == 0
+        assert meta.mark_crops == 1
+        assert meta.mark_crop_bindings[0].visibility == "unresolved"
+
+        prompt = compile_canon_prompt(canon, OFFICE)
+        # The mark is never asserted visible...
+        assert "only where this scene's own clothing leaves that skin bare" in prompt
+        # ...and ink-on-fabric is forbidden twice, generally and by region.
+        assert "never printed, traced or echoed onto the garment" in prompt
+        assert "Wherever clothing covers the chest and torso" in prompt
 
     def test_gloves_suppress_hand_crop_on_vague_prompt(self):
         _urls, meta = route_canon_refs(

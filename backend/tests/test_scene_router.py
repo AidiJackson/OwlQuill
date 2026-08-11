@@ -765,13 +765,26 @@ class TestBodyTruthDominance:
         assert meta.mark_crops >= 1
 
     def test_truly_ambiguous_scene_still_falls_back(self):
-        """No camera, garment, or skin cue → still the static fallback (unchanged)."""
+        """No camera, garment, or skin cue → still the static fallback path.
+
+        INVARIANT CORRECTION on the crop count only: this asserted
+        ``mark_crops == 0``, and real visual QA proved that gate is the failure.
+        Three generations of "Summer wearing a yellow summer dress" produced
+        clean arms because an unresolved region routed no mark evidence and the
+        prompt stated no anatomy, while the provider rendered bare arms from the
+        same words. Unresolved regions now route their scoped crop with
+        ``visibility="unresolved"`` and get conditional anatomy in the prompt.
+
+        The fallback behaviour this test is actually about — no camera detected,
+        static ordering, routed=False — is unchanged.
+        """
         urls, meta = route_canon_refs(
             "standing in a sunny field", _make_canon_with_marks(_arm_marks())
         )
         assert meta.routed is False
         assert meta.camera == "unknown"
-        assert meta.mark_crops == 0
+        assert meta.mark_crops == 2
+        assert all(b.visibility == "unresolved" for b in meta.mark_crop_bindings)
 
     def test_crops_remain_contiguous_for_binding_slice(self):
         """Crops stay contiguous and in input order so crops[:crop_count]

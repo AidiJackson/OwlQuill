@@ -44,7 +44,10 @@ from app.schemas.canon import (
 )
 from app.schemas.character_image import CharacterImageRead
 from app.services.canon_compiler import compile_canon_prompt, has_any_canon_content
-from app.services.scene_router import route_canon_refs
+from app.services.scene_router import (
+    route_canon_refs,
+    routing_diagnostics as _routing_diagnostics,
+)
 from app.services.canon_service import (
     add_accessory,
     add_permanent_mark,
@@ -74,6 +77,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _CANON_IMPORT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Bound on the diagnostic copy of the compiled prompt stored on each image
+# record. Above _PROMPT_CAP (2400) so the stored value is the whole prompt in
+# every non-pathological case, while still capping storage growth. The previous
+# 400-char cut is why a real visual-QA investigation had to replay the compiler
+# to recover what had actually been sent to the provider.
+_STORED_PROMPT_CHARS = 4000
 
 
 # ── Guards ────────────────────────────────────────────────────────────
@@ -521,11 +531,17 @@ def generate_scene_from_canon(
     ).first()
 
     # ── Compile prompt ────────────────────────────────────────────
+    # prompt_diag is filled by the compiler on the pass it already performs
+    # (which clauses were emitted, whether fitting ran) and persisted below, so
+    # a visual-QA failure can be diagnosed from the record rather than by
+    # replaying the compiler.
+    prompt_diag: dict = {}
     if canon and has_any_canon_content(canon):
         compiled_prompt = compile_canon_prompt(
             canon,
             req.prompt,
             include_accessories=req.include_accessories,
+            diagnostics=prompt_diag,
         )
         # P10: scene-aware reference routing replaces static ordering.
         reference_urls, scene_meta = route_canon_refs(req.prompt, canon)
@@ -658,8 +674,15 @@ def generate_scene_from_canon(
             "scene_only": True,
             "canon_used": using_canon,
             "refs_count": len(ref_bytes),
-            "compiled_prompt": compiled_prompt[:400],
+            # Bounded well above _PROMPT_CAP (2400) so the stored value IS the
+            # prompt in every non-pathological case. The old 400-char cut meant a
+            # real visual-QA investigation had to replay the compiler to recover
+            # what was actually sent.
+            "compiled_prompt": compiled_prompt[:_STORED_PROMPT_CHARS],
+            "compiled_prompt_len": len(compiled_prompt),
             "provider": provider_name,
+            **({"prompt_diagnostics": prompt_diag} if prompt_diag else {}),
+            **(_routing_diagnostics(scene_meta) if scene_meta is not None else {}),
             **provider_gate_meta,  # beta provider-gating audit trail (empty unless fallback)
         },
         file_path=file_path,

@@ -300,12 +300,30 @@ class TestExplicitMarkRequest:
         out = compile_canon_prompt(_summer(), EMPHASIS)
         assert "never add a marking that is not listed above" in out
 
-    def test_scene_without_mark_language_is_unchanged(self):
-        """Byte-for-byte: unrelated prompts must not pay for this fix."""
-        canon = _summer()
-        out = compile_canon_prompt(canon, PLAIN_OFFICE)
-        assert "canonical anatomy is fixed" not in out
+    def test_a_scene_without_mark_language_still_gets_the_anatomy(self):
+        """INVARIANT CORRECTION, forced by real visual QA.
+
+        This asserted the opposite: a scene that never said "tattoo" compiled
+        byte-identically, with no anatomy at all. Three real generations of
+        "Summer wearing a yellow summer dress" then came back with completely
+        clean arms. That scene matched one word of scene vocabulary — "dress", a
+        torso-cover signal — so both arms resolved covered_default, no mark was
+        exposed, this clause stayed silent, and every tattoo sentence in the
+        prompt was a negative one. The provider rendered a sleeveless dress and
+        clean skin.
+
+        Permanent canon does not depend on the user's phrasing. The anatomy is
+        stated; visibility stays conditional.
+        """
+        out = compile_canon_prompt(_summer(), PLAIN_OFFICE)
+        assert "canonical anatomy is fixed" in out
+        assert "belongs on the left arm" in out
+        assert "belongs on the right forearm" in out
+        # ...and the scene still ends the prompt, unmodified.
         assert out.endswith(PLAIN_OFFICE)
+        # ...and nothing claims the skin is bare.
+        for overclaim in ("arms are bare", "skin is bare", "sleeveless"):
+            assert overclaim not in out.lower()
 
     def test_asking_does_not_uncover_an_explicitly_covered_mark(self):
         """Requesting tattoos must not name — or reveal — a hidden design.
@@ -444,17 +462,29 @@ class TestSideEvidenceWithoutBareBodyEvidence:
             _summer())
         assert meta.mark_crops == 0
 
-    def test_scene_that_never_mentions_marks_routes_no_unresolved_crops(self):
+    def test_scene_that_never_mentions_marks_still_routes_scoped_crops(self):
+        """INVARIANT CORRECTION — see the yellow-dress note above.
+
+        Crops route on unresolved regions whatever the scene says, because the
+        scene not mentioning tattoos is not evidence that the skin is covered.
+        The bare whole-body sheet is still never resurrected.
+        """
         _urls, meta = route_canon_refs(PLAIN_OFFICE, _summer())
         assert meta.body_map_suppressed is True
-        assert meta.mark_crops == 0
+        assert meta.mark_crops == 2
+        assert all(b.visibility == "unresolved" for b in meta.mark_crop_bindings)
 
-    def test_ordinary_ink_language_routes_nothing(self):
-        """The narrowed trigger matters here: a false positive would spend a
-        reference slot on a scene about stationery."""
-        _urls, meta = route_canon_refs(
-            "Summer writing with an ink pen at her desk", _summer())
-        assert meta.mark_crops == 0
+    def test_ordinary_ink_language_is_recorded_but_gates_nothing(self):
+        """``scene_requests_marks`` survives as diagnostics only.
+
+        It stays narrow so the recorded signal means something, but it can no
+        longer suppress a character's permanent marks — that gate is what the
+        yellow-dress failures were.
+        """
+        scene = "Summer writing with an ink pen at her desk"
+        assert scene_requests_marks(scene) is False
+        _urls, meta = route_canon_refs(scene, _summer())
+        assert meta.mark_crops == 2
 
 
 class TestPromptStaysWhole:

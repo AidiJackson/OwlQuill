@@ -577,12 +577,25 @@ class TestScenePhrasing:
     def canon(self):
         return _canon([_mark(*m) for m in MIRROR_A])
 
-    def test_L_a_vague_prompt_routes_nothing_and_stays_quiet(self):
-        _urls, meta = _routed("Kofi in his office", self.canon())
-        assert meta.mark_crops == 0
-        out = compile_canon_prompt(self.canon(), "Kofi in his office")
-        assert "belongs on the" not in out
-        assert out.rstrip().endswith("Kofi in his office")
+    def test_L_a_vague_prompt_supplies_anatomy_without_claiming_bare_skin(self):
+        """INVARIANT CORRECTION, forced by real visual QA.
+
+        This asserted that a vague prompt routed nothing and said nothing. Real
+        generations of "Summer wearing a yellow summer dress" proved that is the
+        failure, not the safe default: the engine went silent, the provider
+        rendered a sleeveless dress from the same words, and the arms came back
+        clean. Silence on an unresolved region is not conservative.
+        """
+        scene = "Kofi in his office"
+        _urls, meta = _routed(scene, self.canon())
+        assert meta.mark_crops == 2
+        assert all(b.visibility == "unresolved" for b in meta.mark_crop_bindings)
+        out = compile_canon_prompt(self.canon(), scene)
+        assert "belongs on the left arm" in out
+        assert "only where this scene's own clothing leaves that skin bare" in out
+        assert out.rstrip().endswith(scene)
+        for overclaim in ("arms are bare", "skin is bare", "sleeveless"):
+            assert overclaim not in out.lower()
 
     def test_M_an_emphasis_prompt_binds_anatomy_without_claiming_bare_skin(self):
         scene = "Kofi in his office, any tattoos that should be visible are visible"
@@ -600,11 +613,23 @@ class TestScenePhrasing:
         "Kofi in his office, no tattoos visible",
         "Kofi visiting a tattoo parlour with a friend",
     ])
-    def test_N_unrelated_or_negated_language_is_not_a_request(self, scene):
+    def test_N_unrelated_or_negated_language_is_recorded_not_obeyed(self, scene):
+        """INVARIANT CORRECTION. ``scene_requests_marks`` is now diagnostics.
+
+        It still reads these correctly as "not a request about this character's
+        skin" — that signal is persisted on the generation record — but it no
+        longer suppresses permanent canon. A user writing about a pen, or about
+        someone else's tattoos, has not told us their character's arms are
+        covered.
+        """
+        from app.services.canon_compiler import scene_requests_marks
+        assert scene_requests_marks(scene) is False
         _urls, meta = _routed(scene, self.canon())
-        assert meta.mark_crops == 0
+        assert meta.mark_crops == 2
         out = compile_canon_prompt(self.canon(), scene)
-        assert "belongs on the" not in out
+        assert "belongs on the" in out
+        for overclaim in ("arms are bare", "skin is bare", "sleeveless"):
+            assert overclaim not in out.lower()
 
     @pytest.mark.parametrize("scene", [
         "Kofi, no jacket, show his tattoos",
