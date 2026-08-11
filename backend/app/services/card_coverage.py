@@ -74,11 +74,10 @@ _COVER_TORSO_SIGNALS = frozenset({
     "button up", "turtleneck", "sweater", "jumper", "hoodie", "blazer",
     "jacket", "coat", "dress", "gown", "formal wear", "formalwear", "uniform",
 })
-_COVER_ARM_SIGNALS = frozenset({
-    "long sleeve", "long-sleeve", "long sleeved", "long-sleeved",
-    "suit", "tuxedo", "blazer", "jacket", "coat", "sweater", "jumper",
-    "hoodie", "turtleneck", "dress shirt", "gown",
-})
+# NOTE: the arm-covering vocabulary lives in scene_router as
+# ``_COVER_ARM_SIGNALS``, beside the arm-EXPOSURE vocabulary it is weighed
+# against. Arm states come from ``scene_router.arm_exposure_states`` below;
+# this module no longer reads either set directly.
 _COVER_LEG_SIGNALS = frozenset({
     "trousers", "pants", "jeans", "slacks", "suit", "tuxedo", "gown",
     "long skirt", "long dress",
@@ -110,21 +109,25 @@ _COVER_FACE_SIGNALS = frozenset({
 def scene_region_states(prompt_lower: str) -> dict[str, str]:
     """Map each tracked region to its state for this scene.
 
-    States: ``"exposed"`` | ``"covered_explicit"`` | ``"covered_default"``.
-    Precedence per region: exposed > covered_explicit > covered_default —
-    "jacket over a tank top" keeps the arms exposed.
+    States: ``"exposed"`` | ``"covered_explicit"`` | ``"covered_default"`` |
+    ``"ambiguous"`` (see the vocabulary block in scene_router).
 
-    Reuses the router's existing exposure frozensets (imported lazily to avoid
-    a module cycle: scene_router imports this module at top level) so scene
-    exposure has exactly ONE vocabulary — no second exposure engine.
+    Precedence for the regions decided here: exposed > covered_explicit >
+    covered_default. The ARMS are not decided here at all — they come from
+    ``scene_router.arm_exposure_states``, which is the only place allowed to
+    weigh arm exposure against arm coverage, and the only place that can return
+    ``ambiguous`` when a scene says both.
+
+    Reuses the router's existing frozensets (imported lazily to avoid a module
+    cycle: scene_router imports this module at top level) so scene exposure has
+    exactly ONE vocabulary — no second exposure engine.
     """
     from app.services.scene_router import (
         _CROP_BACK_EXPOSE,
-        _CROP_FOREARM_ONLY,
-        _CROP_FULL_ARM,
         _CROP_NECK_COVER,
         _CROP_NECK_EXPOSE,
         _CROP_TORSO_EXPOSE,
+        arm_exposure_states,
     )
 
     def _state(exposed: bool, covered: bool) -> str:
@@ -132,9 +135,7 @@ def scene_region_states(prompt_lower: str) -> dict[str, str]:
             return "exposed"
         return "covered_explicit" if covered else "covered_default"
 
-    full_arm = any(s in prompt_lower for s in _CROP_FULL_ARM)
-    forearm = full_arm or any(s in prompt_lower for s in _CROP_FOREARM_ONLY)
-    arm_cover = any(s in prompt_lower for s in _COVER_ARM_SIGNALS)
+    upper_arm_state, forearm_state = arm_exposure_states(prompt_lower)
     torso_cover = any(s in prompt_lower for s in _COVER_TORSO_SIGNALS)
     neck_covered = any(s in prompt_lower for s in _CROP_NECK_COVER)
 
@@ -145,8 +146,8 @@ def scene_region_states(prompt_lower: str) -> dict[str, str]:
         "torso": _state(any(s in prompt_lower for s in _CROP_TORSO_EXPOSE), torso_cover),
         # Garments that cover the torso cover the back with it.
         "back": _state(any(s in prompt_lower for s in _CROP_BACK_EXPOSE), torso_cover),
-        "upper_arms": _state(full_arm, arm_cover),
-        "forearms": _state(forearm, arm_cover),
+        "upper_arms": upper_arm_state,
+        "forearms": forearm_state,
         "neck": _state(
             (not neck_covered) and any(s in prompt_lower for s in _CROP_NECK_EXPOSE),
             neck_covered,

@@ -2,6 +2,213 @@
 
 All notable changes to the Ficshon project will be documented in this file.
 
+## [Mark routing] - 2026-08-11 - Generic architecture: the blockers below, closed
+
+An audit of the entry below asked one question of it: would this work for a
+character the code has never seen, from structured canon alone? Three of its
+changes would not have. They were generic defects, not character-specific ones,
+and they are corrected here. Read this section as superseding the one that
+follows it.
+
+### Fixed
+- **Contradictory garment evidence no longer resolves as bare skin**
+  (`scene_router.arm_exposure_states`). A definitionally sleeveless garment used
+  to outrank any arm-covering garment, on a layering argument ("jacket over a
+  tank top") with no notion of layer order. The inverse phrasing therefore read
+  identically: "a sports bra under a heavy winter parka" resolved to bare arms,
+  routed a mark crop, asserted bare skin in the prompt, and invited ink onto a
+  coat sleeve — every failure mode this work exists to prevent, on a sentence a
+  real user would write.
+  Arm exposure is now a STATE, not a boolean: `exposed` / `covered_explicit` /
+  `covered_default` / `ambiguous`. Credible evidence both ways yields
+  `ambiguous`, which routes no crop, asserts no bare skin, and asserts no
+  explicit coverage either — so a genuinely sleeveless scene keeps its bare
+  cards. Short/rolled-sleeve vocabulary is deliberately exempt from the
+  contradiction rule: "a long-sleeved shirt with the sleeves rolled up" is not a
+  contradiction, it is how a forearm becomes bare. No clothing parser, no
+  layer-order inference; conservative ambiguity is the whole design.
+  The arm-COVER vocabulary moved to `scene_router` beside the exposure sets it is
+  weighed against, and gained the long-sleeved outerwear the rule needs to be
+  worth anything (parka, anorak, cardigan, overcoat, raincoat, windbreaker,
+  sweatshirt, pullover, peacoat, cloak, poncho, kimono, bathrobe, dressing gown).
+  Deliberately arm-only: claiming torso coverage for these would change card
+  suppression for existing canons, which is outside this correction.
+- **Prompt fitting is by priority, and can no longer evict identity or safety**
+  (`canon_compiler`). The previous repair preserved the user's scene but added a
+  worse branch: when the scene ALONE approached the cap it emitted the scene and
+  nothing else — no safety directive, no identity grounding, no invariants.
+  Measured on a 2.7 kB scene. That branch was mark-independent, so it was a
+  general image-system regression affecting markless and fully clothed
+  characters too.
+  Parts are now ranked. Safety and identity grounding are never shed; structural
+  invariants (anatomy bindings, occlusion, clean-skin truth) are shed only as a
+  last resort and from the end; descriptive prose goes first. Before anything is
+  shed at all, design DETAIL is compressed — mark descriptions clipped, binding
+  lines collapsed toward their general rule. The scene is always represented: it
+  is trimmed to fit rather than dropped, and not trimmed below a floor while any
+  sheddable part remains.
+- **Structured anatomy is the only anatomy the provider reads** (`canon_compiler`).
+  Two independent leaks, both putting a second, contradicting anatomy in the
+  prompt beside the structured one:
+  * `side` is stored independently of `body_region` and nothing validates them
+    against each other. `region="right_forearm"` with `side="left"` produced
+    "belongs on the right forearm … never the right arm"; `side="centre"` on a
+    side-named region silently dropped the side exclusion entirely — the exact
+    protection the clause exists for. Side is now DERIVED from `body_region`
+    whenever it encodes one, the `side` field may only supplement a region that
+    carries none, and a disagreement is logged as the canon data defect it is.
+  * `label` and `description` are free text — the schema's own example label is
+    'Left arm gothic script sleeve'. A mark labelled "Right shoulder eagle" with
+    region `left_forearm` was emitted verbatim beside "belongs on the left
+    forearm". Free text that makes an anatomical claim the structured region
+    denies is now replaced with neutral wording ("the canonical left forearm
+    tattoo") and logged. Whole-arm extent claims ("sleeve", "shoulder to wrist")
+    are checked against the region's exact extent, which closes the original
+    label-driven-anatomy bug at the prose layer as well as the routing layer.
+    Consistent labels are still used — two designs must stay distinguishable.
+- **The mark-request trigger is narrow, and no longer selects references**
+  (`canon_compiler.scene_requests_marks`). It matched bare "ink" ("an ink pen"),
+  bare singular "marking" ("marking papers") and bare "scar" ("the scars of the
+  old city wall"). Those now require a possessive form ("show her ink"). Compound
+  nouns naming a place, object or profession are excluded ("a tattoo parlour"),
+  and a clause-bounded negation guard rejects "no tattoos visible" without
+  cancelling a request that merely sits near an unrelated negation ("no jacket,
+  show his tattoos" — found by adversarial probing after the first fix).
+- **Unmappable mark regions no longer bypass the hidden-design rule**
+  (`canon_compiler`). The "never name a covered design" guard only protected
+  regions the coverage vocabulary could map, so a mark on an invented region
+  (`tailbone`) was named in a fully dressed scene. Unknown anatomy now fails
+  conservatively in every direction: it is never named under an explicitly
+  covered scene, and never routes a crop.
+- **"halter" is no longer a bare noun** (`scene_router`). A horse is led by its
+  halter. Reachable only as "halter top" / "halter neck" / "halterneck" /
+  "halter dress".
+
+### Changed
+- **The bare placement-sheet exception was DELETED** (`scene_router`), replaced
+  by anatomically-scoped crops on the same path. The exception kept the bare
+  `body_map` against the S24I gate whenever a scene mentioned markings, which
+  reintroduced whole-body bare evidence — torso, back and legs included — into
+  scenes whose wardrobe was never stated. That is the reference contamination the
+  card-coverage engine exists to prevent.
+  Measured A/B on a synthetic opposite-side canon (left full-arm design + right
+  forearm design) across five scenarios. On the decisive one — vague scene,
+  explicit tattoo request — the sheet gave 3 references, a bare whole-body card
+  and ZERO per-mark side-bound evidence; scoped crops gave 4 references, no bare
+  card, and both designs bound to their own region and side. Scoped crops
+  dominate on every scenario; the exception is gone. (The sampled arm-swap that
+  motivated it was also measured before any anatomy binding existed in the
+  prompt at all, so it never established that the sheet was needed.)
+  Crops on unresolved regions carry `visibility="unresolved"`, never "exposed",
+  so nothing downstream can read them as a claim that the skin is bare. Every
+  existing guarantee holds: explicitly covered marks route nothing, ambiguous
+  regions route nothing, crops never lead, a body anchor is always required, the
+  six-reference cap is unchanged, and portraits route no body crops.
+- Mark-crop audit metadata now reports the authoritative (region-derived) side,
+  so diagnostics cannot disagree with the anatomy the prompt states.
+
+### Added
+- `tests/test_generic_mark_architecture.py` — the decisive suite, on INVENTED
+  characters only. Fourteen cases (forearm-only, full arm, upper-arm-only, hand
+  + gloves, chest + shirt, markless, opposite limbs, contradictory layers,
+  hostile labels, oversized scenes, unmappable regions, vague prompts, emphasis
+  prompts, unrelated ink language) plus a many-mark character for the reference
+  cap. Mirrored-anatomy pairs are asserted in both directions: a rule that
+  passes for one and fails for its mirror is character-specific.
+
+### Invariant corrections
+- `test_layering_still_bares_the_arms` asserted that "jacket over a tank top"
+  bares the arms. That requirement is what forced exposure to outrank cover
+  unconditionally, and it has been demonstrated unsafe. Replaced with
+  `test_contradictory_layers_resolve_to_ambiguous`. The cost is under-rendering a
+  genuinely bare arm in a contradictory sentence; the alternative is printing a
+  tattoo on a coat.
+- The mark-request vocabulary tests asserted bare "ink" and bare "scars" count
+  as requests. They no longer do, and the predicate now also gates a reference
+  slot, so the bar is "this sentence is about the character's own markings".
+
+### Known limitations
+- **Garment vocabulary is finite.** An unknown garment (bandeau, tube top,
+  dashiki, thawb) leaves marks unrouted and unnamed. Verified to fail closed —
+  under-render, never ink on fabric — but it is the standing cost of
+  deterministic keyword matching, and the vocabulary will keep needing entries.
+- **Negated garments read as present.** "no jacket" matches the jacket cover
+  signal, so the arms read covered. Conservative direction (hides marks, never
+  prints them); not fixed, because a general clothing-negation parser is out of
+  scope.
+- **Segment-blind crops** — unchanged, see the entry below.
+- Nothing in this section has been visually confirmed on generated images. The
+  automated mark verifier remains unreliable and gates nothing; manual visual
+  inspection is still ground truth, and is the next step.
+
+## [Mark routing] - 2026-08-10 - Three routing gaps closed
+
+> Superseded in part by the section above: the placement-sheet exception was
+> deleted, the arm-exposure precedence corrected, and the prompt-fitting policy
+> replaced. The `card_coverage` data work and the diagnostics alignment stand.
+
+### Fixed
+- **Sleeveless garment vocabulary** (`scene_router`): "sports bra", "bralette",
+  "vest top", "strappy top", "spaghetti strap", "halter"/"halterneck" and "singlet"
+  now bare the arms, as "tank top" always has. A second, weaker tier ("crop top",
+  "sundress") bares the arms only when the scene names no arm-covering garment — a
+  crop top is a statement about length, not sleeves, so "long-sleeved sundress"
+  stays covered. Phrases, not bare nouns, wherever the noun would collide: "vest
+  top" (never "vest" — the three-piece-suit false positive), "sports bra" (never
+  "bra" — "bracelet"), "strappy top" (never "strappy" — sandals). Arms only: none
+  of this vocabulary claims torso, back, legs or neck.
+- **One arm-exposure decision** (`scene_router.arm_exposure`): the router's per-mark
+  gate and `card_coverage.scene_region_states` now call the same resolver instead of
+  each reading the frozensets themselves, so the two engines cannot drift.
+- **Explicit mark requests under unspecified clothing** (`canon_compiler`): a scene
+  that asks for markings but names no garment used to emit NO per-mark anatomy at
+  all — every region resolved `covered_default`, so the exposed-mark block stayed
+  empty while the user's own sentence pushed the provider to render ink. It swapped
+  Summer's two designs across arms. Two questions were being answered by one gate;
+  they are now separate: WHERE a mark belongs is canon truth and is stated
+  unconditionally, WHETHER that skin is bare is scene truth and stays conditional
+  ("render only where this scene's clothing leaves that skin bare"). Trigger is
+  generic scene language (word-boundary matched, so "scarf" is not "scar"); every
+  binding line is built from structured canon. Silent on scenes that do not mention
+  markings, and silent for a mark whose regions the scene EXPLICITLY covers —
+  asking for tattoos must not uncover them.
+- **The placement sheet survives an explicit request** (`scene_router`): body_map is
+  the only reference that shows which design sits on which side, and the S24I gate
+  dropped it precisely when a user asked for tattoos without naming clothes. With it
+  suppressed, 2 of 3 samples put the forearm design on the wrong arm despite the
+  prompt naming both sides in words. Kept only when the scene asks for marks AND no
+  region is explicitly covered; a named covering garment still suppresses it.
+- **Prompt fitting no longer deletes the scene** (`canon_compiler`): the cap was a
+  tail cut, and the scene is assembled last, so on a nine-mark character the new
+  bindings pushed the prompt over and the cut discarded the occlusion clause, the
+  clean-skin clause and the user's own sentence. Binding lines are now short (label
+  over full description), budgeted, and compressed toward their general rule before
+  anything else is sacrificed; overflow is summarised, never silently dropped; the
+  scene is preserved whole.
+  (Correction, 2026-08-11: "the scene is preserved whole" was not true in the
+  `head_room <= 0` branch, which emitted the scene ALONE — no safety directive,
+  no identity grounding, no invariants. Replaced by priority-based fitting; see
+  the section above.)
+
+### Added
+- Summer's body cards declare `card_coverage = swimwear`
+  (`scripts/declare_summer_card_coverage.py`). Every one of them is a bikini shot,
+  which was previously `unknown` metadata, so a long-sleeved scene routed bare-skin
+  evidence that contradicted its own wardrobe. Covered scenes now suppress them and
+  retain `body_front` as the conflict anchor; exposed scenes are unchanged.
+- `tests/test_mark_routing_gaps.py` — invariants for all three gaps, plus the
+  prompt-budget and placement-evidence behaviours found while fixing them.
+
+### Known limitation
+- **Segment-blind crops (gap C, not fixed).** A `*_full_arm` mark carries one crop
+  and nothing records which segment it depicts. Summer's butterfly piece spans
+  shoulder to wrist but both of its stored images frame the upper arm, so a short
+  sleeve routes a crop of the covered half. No wrong image has been produced by it —
+  the whole-body cards lead and the design vocabulary is continuous along the arm —
+  but the schema cannot express the distinction. Proposed minimal extension in the
+  handover; deliberately not implemented, since populating it needs new canon
+  imagery.
+
 ## [Canon fact] - 2026-08-10 - Summer's left-arm mark is a full arm, not an upper arm
 
 ### Fixed

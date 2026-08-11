@@ -81,6 +81,11 @@ _SHIRTLESS_EXPOSURE = frozenset({
 
 _SLEEVELESS_EXPOSURE = frozenset({
     "sleeveless", "tank top", "tank",
+    # Same definitionally-sleeveless garments as _CROP_FULL_ARM, so
+    # meta.exposure reports "sleeveless" for them and diagnostics match routing.
+    "sports bra", "sports-bra", "bralette", "vest top", "singlet",
+    "strappy top", "spaghetti strap", "halter top", "halterneck",
+    "halter neck", "halter-neck", "halter dress",
 })
 
 _ROLLED_SLEEVE_EXPOSURE = frozenset({
@@ -143,6 +148,17 @@ _CROP_FULL_ARM = frozenset({
     # "sleeveless", "tank top" and "muscle shirt" — an unambiguous exposure
     # reading requires one of those.
     "muscle shirt", "muscle tee", "camisole", "racerback",
+    # Garments that are sleeveless BY DEFINITION — naming one is an unambiguous
+    # statement that the arms are bare, exactly like "tank top". Each entry is a
+    # phrase, not a bare noun, wherever the bare noun would collide: "sports bra"
+    # and "bralette" (never "bra" — it is inside "bracelet"), "vest top" (never
+    # "vest" — the Davies-era three-piece-suit false positive), "strappy top"
+    # (never "strappy" — strappy sandals say nothing about sleeves).
+    # ("halter" is NOT here as a bare noun — a horse is led by its halter. It is
+    # reachable only as "halter top" / "halter neck" / "halterneck".)
+    "sports bra", "sports-bra", "bralette", "vest top", "singlet",
+    "strappy top", "spaghetti strap", "halter top", "halterneck",
+    "halter neck", "halter-neck", "halter dress",
     "bare arms", "arms bare", "bare arm", "arms out", "arm out",
     "arms visible", "arm visible", "both arms visible", "arms exposed",
     "arm exposed", "exposed arms", "arms uncovered", "arms shown",
@@ -160,6 +176,38 @@ _CROP_FOREARM_ONLY = frozenset({
     "forearm visible", "forearms visible", "forearm exposed", "forearms exposed",
     "forearms out", "bare forearm", "bare forearms", "forearms bare",
 })
+# Garments that USUALLY leave the arms bare but do not say so by definition:
+# a crop top is a statement about LENGTH, a sundress about weight and cut, and
+# either can have sleeves. They therefore expose the arms only when the scene
+# names no arm-covering garment — "long-sleeved sundress" is covered.
+_CROP_ARM_IF_UNCOVERED = frozenset({
+    "crop top", "cropped top", "sundress", "sun dress",
+})
+
+# ── Arm-covering garment vocabulary (owned here, beside the exposure sets) ──
+# Named garments that cover the upper arm AND forearm. This lives next to the
+# exposure vocabulary rather than in card_coverage because it is one half of a
+# single decision — arm_exposure_states() weighs the two against each other,
+# and splitting them across modules is what let them drift before.
+#
+# Deliberately arm-only: a parka covers the torso too, but claiming torso
+# coverage here would change card suppression for existing canons, which is
+# outside this correction. Unclaimed regions stay covered_default, which
+# suppresses nothing and routes nothing — conservative in both directions.
+_COVER_ARM_SIGNALS = frozenset({
+    "long sleeve", "long-sleeve", "long sleeved", "long-sleeved",
+    "suit", "tuxedo", "blazer", "jacket", "coat", "sweater", "jumper",
+    "hoodie", "turtleneck", "dress shirt", "gown",
+    # Outerwear that is long-sleeved by construction. Added because the
+    # contradiction rule below is only as good as its cover vocabulary: without
+    # "parka", "a sports bra under a heavy winter parka" reads as bare arms.
+    "parka", "anorak", "cardigan", "overcoat", "raincoat", "windbreaker",
+    "sweatshirt", "pullover", "peacoat", "pea coat", "cloak", "poncho",
+    # Wrapped garments with long, wide sleeves. Bare "robe" is deliberately
+    # absent: it is a substring of "wardrobe".
+    "kimono", "bathrobe", "dressing gown",
+})
+
 _CROP_NECK_EXPOSE = frozenset({
     "open collar", "open shirt", "shirt open", "unbuttoned", "v-neck", "v neck",
     "scoop neck", "low neckline", "deep neckline", "bare neck", "neck visible",
@@ -224,6 +272,77 @@ _SKIN_EXPOSURE_PROMOTION = (
 # crop routing or occlusion.
 
 
+# ── Region-state vocabulary ───────────────────────────────────────────
+# The four values every region state in this engine may take. Shared with
+# card_coverage.scene_region_states, which returns the same vocabulary.
+#
+#   exposed          the scene resolves this skin as bare
+#   covered_explicit the scene NAMES a garment that covers it
+#   covered_default  the scene says nothing — conservative, unresolved
+#   ambiguous        the scene says BOTH, and neither reading wins
+#
+# "ambiguous" and "covered_default" are both unresolved and both route nothing;
+# they are kept distinct so diagnostics can tell "we were told nothing" from
+# "we were told two contradictory things", and so the conditional occlusion
+# clause (which fires on everything not exposed and not explicitly covered)
+# still protects an ambiguous region.
+STATE_EXPOSED = "exposed"
+STATE_COVERED_EXPLICIT = "covered_explicit"
+STATE_COVERED_DEFAULT = "covered_default"
+STATE_AMBIGUOUS = "ambiguous"
+
+
+def arm_exposure_states(prompt_lower: str) -> tuple[str, str]:
+    """Return (upper_arm_state, forearm_state) for this scene.
+
+    THE arm-exposure decision — the router's per-mark gate, the camera
+    promotion and ``card_coverage.scene_region_states`` all call this, so they
+    cannot drift into disagreeing about the same prompt.
+
+    The rule that matters, and the reason this returns states rather than
+    booleans: **when the scene provides credible evidence both ways, neither
+    wins.** A definitionally sleeveless garment used to beat any cover word
+    outright, on a layering argument ("jacket over a tank top") that has no
+    notion of layer order — so "a sports bra under a heavy winter parka"
+    resolved to bare arms, routed a crop, asserted bare skin, and invited ink
+    onto a parka sleeve. Contradictory evidence now resolves to ``ambiguous``:
+    route nothing, assert nothing bare, assert no explicit coverage either.
+
+    Precedence, highest first:
+      1. definitionally sleeveless garment + arm-covering garment → ambiguous
+      2. definitionally sleeveless garment alone                  → exposed
+      3. usually-sleeveless garment (crop top, sundress)          → exposed only
+         if no arm-covering garment is named, else covered_explicit
+      4. an arm-covering garment alone                            → covered_explicit
+      5. nothing said                                             → covered_default
+
+    Short/rolled-sleeve vocabulary is then applied to the FOREARM only, and it
+    is deliberately NOT subject to the contradiction rule: "a long-sleeved
+    shirt with the sleeves rolled up" is not a contradiction, it is a
+    description of how forearms become bare. That vocabulary talks about the
+    state of the sleeve; tier 1 talks about a different garment.
+
+    No natural-language parsing, no layer-order inference: conservative
+    ambiguity is the whole design.
+    """
+    bare_by_definition = any(s in prompt_lower for s in _CROP_FULL_ARM)
+    bare_unless_covered = any(s in prompt_lower for s in _CROP_ARM_IF_UNCOVERED)
+    forearm_bare = any(s in prompt_lower for s in _CROP_FOREARM_ONLY)
+    covered = any(s in prompt_lower for s in _COVER_ARM_SIGNALS)
+
+    if bare_by_definition:
+        upper = STATE_AMBIGUOUS if covered else STATE_EXPOSED
+    elif bare_unless_covered:
+        upper = STATE_COVERED_EXPLICIT if covered else STATE_EXPOSED
+    elif covered:
+        upper = STATE_COVERED_EXPLICIT
+    else:
+        upper = STATE_COVERED_DEFAULT
+
+    fore = STATE_EXPOSED if forearm_bare else upper
+    return upper, fore
+
+
 def _mark_region_exposed(body_region: str, prompt_lower: str) -> bool:
     """Return True when the scene exposes the skin region a mark sits on.
 
@@ -236,8 +355,9 @@ def _mark_region_exposed(body_region: str, prompt_lower: str) -> bool:
     # side-first form ("right_full_arm") so free-text region drift still matches.
     if region in ("full_right_arm", "full_left_arm"):
         region = "right_full_arm" if "right" in region else "left_full_arm"
-    full_arm = any(s in prompt_lower for s in _CROP_FULL_ARM)
-    forearm = any(s in prompt_lower for s in _CROP_FOREARM_ONLY)
+    upper_state, fore_state = arm_exposure_states(prompt_lower)
+    full_arm = upper_state == STATE_EXPOSED
+    forearm = fore_state == STATE_EXPOSED
 
     # ── Arms ──
     if "forearm" in region or "lower_arm" in region:
@@ -334,12 +454,57 @@ class MarkCropBinding:
     source: str = ""
 
 
+def _mark_crop_visibility(
+    body_region: str,
+    prompt_lower: str,
+    scene_states: dict[str, str] | None,
+    marks_requested: bool,
+) -> str | None:
+    """How this mark's skin stands in this scene: 'exposed', 'unresolved', None.
+
+    ``None`` means do not route a crop for it.
+
+    ``exposed`` is unchanged: the scene resolves that skin as bare.
+
+    ``unresolved`` is the case that used to route nothing at all — the scene
+    ASKS about markings but names no garment, so no region resolves either way.
+    The old answer was to keep the bare whole-body placement sheet instead;
+    this routes the mark's own anatomically-scoped crop, which carries its
+    region and side, and imports no bare torso or legs (see the module note on
+    _placement_sheet_needed's removal).
+
+    Never routes when:
+      * the scene does not mention markings (nothing asked for),
+      * any region the mark occupies is EXPLICITLY covered (the hard invariant:
+        a covered mark cannot route),
+      * any region it occupies is AMBIGUOUS (contradictory garment evidence —
+        conservative, same as covered),
+      * the region cannot be mapped onto the coverage vocabulary at all, so
+        coverage cannot be checked (matches mark_location_authority's veto).
+    """
+    if _mark_region_exposed(body_region, prompt_lower):
+        return "exposed"
+    if not marks_requested or scene_states is None:
+        return None
+    from app.services.card_coverage import mark_region_groups
+
+    groups = mark_region_groups(body_region)
+    if not groups:
+        return None
+    if any(scene_states.get(g) in (STATE_COVERED_EXPLICIT, STATE_AMBIGUOUS)
+           for g in groups):
+        return None
+    return "unresolved"
+
+
 def _collect_exposed_mark_crops(
     canon: "CharacterIdentityCanon",
     prompt_lower: str,
     camera: str,
+    scene_states: dict[str, str] | None = None,
+    marks_requested: bool = False,
 ) -> list["MarkCropBinding"]:
-    """Return body-bound crop records for permanent marks the scene exposes.
+    """Return body-bound crop records for marks whose skin this scene may show.
 
     Portrait close-ups never route body crops. The high-fidelity mark-detail
     card is preferred (detail_crop_url) with a fallback to the general reference
@@ -347,6 +512,11 @@ def _collect_exposed_mark_crops(
     Capped at _MAX_MARK_CROPS. Each record preserves body_region / side / label /
     visibility so the crop stays bound to the correct anatomy downstream
     (binding metadata, #1).
+
+    Exposed marks route as they always have. Marks whose regions the scene left
+    unresolved route only when the scene itself asks about markings, and carry
+    ``visibility="unresolved"`` so no downstream consumer can read them as a
+    claim that the skin is bare — see :func:`_mark_crop_visibility`.
     """
     if camera == "portrait_closeup":
         return []
@@ -361,19 +531,45 @@ def _collect_exposed_mark_crops(
         url = detail or getattr(m, "reference_image_url", None)
         if not url:
             continue  # graceful degrade — no crop available for this mark
-        if _mark_region_exposed(getattr(m, "body_region", ""), prompt_lower):
+        visibility = _mark_crop_visibility(
+            getattr(m, "body_region", ""), prompt_lower, scene_states,
+            marks_requested,
+        )
+        if visibility:
+            # Side comes from the structured region when it encodes one, so the
+            # crop's audit metadata cannot disagree with the anatomy the prompt
+            # states (a canon may store region="right_forearm" with side="left").
+            from app.services.canon_compiler import _mark_side
+
+            side = _mark_side(m) or (getattr(m, "side", "") or "")
             crops.append(MarkCropBinding(
                 url=url,
                 body_region=getattr(m, "body_region", "") or "",
-                side=getattr(m, "side", "") or "",
+                side=side,
                 label=getattr(m, "label", "") or "",
-                visibility="exposed",
+                visibility=visibility,
                 mark_id=getattr(m, "id", "") or "",
                 source="detail_crop_url" if detail else "reference_image_url",
             ))
         if len(crops) >= _MAX_MARK_CROPS:
             break
     return crops
+
+
+# ── Why there is no placement-sheet exception here ────────────────────
+# A previous iteration kept the bare body_map against the S24I suppression gate
+# whenever a scene asked about markings, because the map is the only reference
+# that shows which design sits on which side, and a sampled test swapped two
+# designs across arms without it.
+#
+# It was removed in favour of routing each mark's own anatomically-scoped crop
+# on the same unresolved path (_mark_crop_visibility). Same side evidence, one
+# reference per mark instead of a whole-body bare sheet, and no bare torso or
+# legs imported into a scene whose wardrobe was never stated — which is the
+# reference-contamination class the card-coverage engine exists to prevent.
+# The sampled swap was also measured BEFORE _mark_binding_clause existed, i.e.
+# when the prompt asserted no anatomy at all; it does not establish that the
+# bare sheet is needed now that both the crop and the binding line carry side.
 
 
 def _has_covered_marks(
@@ -859,9 +1055,22 @@ def route_canon_refs(
     # covered scene would be forced onto the body-led route and push a bare card
     # ahead of the face. Cover-only and truly ambiguous prompts fall back to the
     # face-led canonical ordering.
+    arm_upper_state, _arm_fore_state = arm_exposure_states(prompt_lower)
     skin_exposed = [e for e in exposure if e in _SKIN_EXPOSURE_NAMES]
+    if arm_upper_state != STATE_EXPOSED:
+        # A sleeveless GARMENT word cannot promote a scene whose arm exposure it
+        # does not actually resolve. "A sports bra under a heavy winter parka"
+        # sets the "sleeveless" exposure signal, but the arms are ambiguous, and
+        # promoting would push a bare card ahead of the face on a scene that may
+        # well be covered — the exact thing the cover-signals rule below forbids.
+        skin_exposed = [e for e in skin_exposed if e != "sleeveless"]
     if camera is None and (
-        skin_exposed or any(s in prompt_lower for s in _SKIN_EXPOSURE_PROMOTION)
+        skin_exposed
+        or any(s in prompt_lower for s in _SKIN_EXPOSURE_PROMOTION)
+        # Conditionally-sleeveless garments promote only when they actually
+        # resolve to bare arms — a "long-sleeved sundress" must stay on the
+        # face-led fallback like any other covered scene.
+        or arm_upper_state == STATE_EXPOSED
     ):
         camera = "front"
 
@@ -885,6 +1094,13 @@ def route_canon_refs(
         if conflict_anchor == "body_map":
             conflict_anchor = None
     body_map_suppressed = "body_map" in suppressed
+
+    # Does the scene text itself ask about permanent markings? Gates ONLY the
+    # unresolved-region crop routing below — never reference suppression, and
+    # never a bare whole-body card.
+    from app.services.canon_compiler import scene_requests_marks
+
+    marks_requested = scene_requests_marks(prompt)
 
     if camera is None:
         fallback_urls = collect_canon_reference_urls(canon)
@@ -928,7 +1144,8 @@ def route_canon_refs(
         crop_count = 0
         routed_bindings: list["MarkCropBinding"] = []
         crop_slots: list[str] = []
-        crops = _collect_exposed_mark_crops(canon, prompt_lower, camera)
+        crops = _collect_exposed_mark_crops(
+            canon, prompt_lower, camera, scene_states, marks_requested)
         if crops:
             names = slot_names_for_urls(canon, fallback_urls)
             visible: dict[str, str] = {}
@@ -974,7 +1191,8 @@ def route_canon_refs(
     # guaranteeing body_front + body_map survive. Coverage-suppressed slots are
     # filtered from the candidate pool first (structured marks REFINE routing;
     # they no longer gate the coverage decision).
-    crops = _collect_exposed_mark_crops(canon, prompt_lower, camera)
+    crops = _collect_exposed_mark_crops(
+        canon, prompt_lower, camera, scene_states, marks_requested)
     slot_urls_visible = {s: u for s, u in slot_urls.items() if s not in suppressed}
     if crops:
         route_slots = _ROUTES.get(camera, _ROUTES["front"])

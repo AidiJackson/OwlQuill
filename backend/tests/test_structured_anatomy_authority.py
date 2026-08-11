@@ -1,11 +1,17 @@
 """Structured anatomy is the only authority — free text never widens it.
 
-Proven defect this pins closed: Summer's butterfly piece is registered as
-``left_upper_arm`` (shoulder to elbow, per her own body-map legend) but is
-LABELLED "Butterfly floral sleeve". A substring search for "sleeve" over the
-label and description widened its anatomy to include the forearm, so a
-rolled-sleeve scene judged it exposed, described it as visible, routed its
-crop — and the model rendered it on the only bare arm skin in frame.
+Proven defect this pins closed: Summer's butterfly piece was registered as
+``left_upper_arm`` (shoulder to elbow, copied from the text legend on her own
+body-map card) but is LABELLED "Butterfly floral sleeve". A substring search
+for "sleeve" over the label and description widened its anatomy to include the
+forearm, so a rolled-sleeve scene judged it exposed, described it as visible,
+routed its crop — and the model rendered it on the only bare arm skin in frame.
+
+Her real anatomy turned out to be a full sleeve, so the label was right and the
+region wrong — which is exactly why neither may be inferred from the other. The
+canon fact was corrected in the canon (``left_full_arm``); the rule below is
+unchanged, and these cases deliberately keep using a literal ``left_upper_arm``
+mark so they test the RULE rather than one character's data.
 
 The rule these tests enforce:
 

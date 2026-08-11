@@ -64,6 +64,33 @@ ROWS: dict[str, tuple[str, list[str], list[str]]] = {
     "long_sleeve_shirt": (
         "Summer in a buttoned long-sleeve shirt and jeans in a cafe",
         [], ["torso", "upper_arms", "forearms"]),
+    # ── The three routing gaps, as generated scenes ───────────────────
+    # A: a sports bra is sleeveless, but the phrase carried no exposure signal,
+    # so this scene used to render a bare right forearm.
+    "sports_bra": (
+        "Summer in a sports bra and leggings at the gym",
+        ["upper_arms", "forearms"], []),
+    # B: the deployment blocker — clothing unstated, marks explicitly asked
+    # for. Sampled three times because the failure (a left/right swap) is a
+    # sampling outcome, and one clean image would not settle it.
+    "emphasis_1": (
+        "Summer in her office - any tattoos that should be visible are visible",
+        [], []),
+    "emphasis_2": (
+        "Summer in her office - any tattoos that should be visible are visible",
+        [], []),
+    "emphasis_3": (
+        "Summer in her office - any tattoos that should be visible are visible",
+        [], []),
+    # B, second phrasing: an explicit request that also names no garment.
+    "emphasis_show_tattoos": (
+        "Summer at home, show her tattoos",
+        [], []),
+    # B, adversarial: an explicit request AND a garment that covers the arms.
+    # Asking must not uncover them.
+    "emphasis_covered": (
+        "Summer at a formal dinner in a long-sleeved suit and tie, show her tattoos",
+        [], ["upper_arms", "forearms", "torso"]),
 }
 
 
