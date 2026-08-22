@@ -43,7 +43,7 @@ def _canon_with_face():
 
 
 def test_regenerates_on_confident_mismatch_and_recovers():
-    from app.api.routes import image_generator as ig
+    from app.services import image_generation_pipeline as ig
 
     provider = _FakeProvider()
     verdicts = iter([
@@ -69,7 +69,7 @@ def test_regenerates_on_confident_mismatch_and_recovers():
 
 
 def test_keeps_initial_when_verification_passes():
-    from app.api.routes import image_generator as ig
+    from app.services import image_generation_pipeline as ig
 
     provider = _FakeProvider()
     with patch.object(ig, "load_face_canon",
@@ -92,7 +92,7 @@ def test_keeps_initial_when_verification_passes():
 
 
 def test_skips_cleanly_when_no_face_ref():
-    from app.api.routes import image_generator as ig
+    from app.services import image_generation_pipeline as ig
 
     with patch.object(ig, "load_face_canon", return_value=FaceCanonData()):
         png, meta = ig._verify_and_regenerate(

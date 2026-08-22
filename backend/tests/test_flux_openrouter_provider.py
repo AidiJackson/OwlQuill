@@ -483,7 +483,7 @@ def test_admin_can_select_flux_pro(client: TestClient, db_session):
 
     captured: dict = {}
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=_capturing_provider(captured),
     ):
         resp = _post(client, token, cid, {
@@ -507,7 +507,7 @@ def test_admin_can_select_flux_max(client: TestClient, db_session):
 
     captured: dict = {}
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=_capturing_provider(captured),
     ):
         resp = _post(client, token, cid, {
@@ -530,7 +530,7 @@ def test_flux_metadata_includes_model_name(client: TestClient, db_session):
 
     captured: dict = {}
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=_capturing_provider(captured),
     ):
         resp = _post(client, token, cid, {
@@ -558,10 +558,10 @@ def test_flux_refs_not_used_metadata_when_include_character(client: TestClient, 
     provider_mock = _capturing_provider(captured)
 
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=provider_mock,
     ), patch(
-        "app.api.routes.image_generator.load_image_bytes",
+        "app.services.image_generation_pipeline.load_image_bytes",
         return_value=_make_png(),
     ):
         resp = _post(client, token, cid, {

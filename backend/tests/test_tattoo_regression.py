@@ -136,7 +136,7 @@ class TestCanonDrivesMarkings:
 
         captured: dict = {}
         with patch(
-            "app.api.routes.image_generator.get_provider_for_option",
+            "app.services.image_generation_pipeline.get_provider_for_option",
             return_value=_capture_provider(captured),
         ):
             resp = client.post(
@@ -179,7 +179,7 @@ class TestCanonDrivesMarkings:
 
         captured: dict = {}
         with patch(
-            "app.api.routes.image_generator.get_provider_for_option",
+            "app.services.image_generation_pipeline.get_provider_for_option",
             return_value=_capture_provider(captured),
         ):
             resp = client.post(

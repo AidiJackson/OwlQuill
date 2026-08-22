@@ -18,6 +18,52 @@ from app.models.user import User
 from app.services.seeding import is_seeder_account
 
 
+def is_founder_account(user: User) -> bool:
+    """Is this the founder/seeder tier — Aidan (admin) or Lauren (seeder)?
+
+    THE single predicate for "may this account use founder/seeder-only creator
+    tooling". It composes the two existing definitions of account truth and
+    invents nothing:
+
+      * :func:`app.core.dependencies.user_is_admin` — ``is_admin`` flag OR
+        ``ADMIN_EMAILS``.
+      * :func:`app.services.seeding.is_seeder_account` — ``is_admin`` OR
+        ``is_seeder`` flag OR ``ADMIN_EMAILS`` OR ``SEEDER_EMAILS``.
+
+    Before this existed, each founder-only surface wrote its own ``_require_admin``
+    on top of ``user_is_admin`` alone, so a dedicated seeder (``is_seeder`` with
+    no admin rights) was refused everywhere — and separately, image quota exempted
+    only ``ADMIN_EMAILS``, so a DB-flagged admin was still rate-limited. Both
+    inconsistencies were real: they are why the seeding account could not do the
+    work it exists to do. Fix them here, once.
+
+    This is NOT a new authority system and carries no shared secret: it is a
+    read over the same account columns every other guard already reads. It also
+    does not widen ordinary creator access — ``can_use_creator_tools`` is
+    untouched, and a Writer or Wanderer matches none of these terms.
+    """
+    return user_is_admin(user) or is_seeder_account(user)
+
+
+def require_founder(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """FastAPI dependency enforcing founder/seeder access on a route.
+
+    Used by the founder image workflow (upload, manual reference selection,
+    founder generation jobs). Hiding the control in the UI is not enforcement —
+    this is the authoritative gate and it fails closed for every ordinary
+    creator and Wanderer.
+    """
+    if not is_founder_account(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This is a founder tool. Your account doesn't have access to it.",
+        )
+    return current_user
+
+
 def has_writer_unlock(user: User) -> bool:
     """Has this account paid for (or been granted) the Writer Unlock?
 

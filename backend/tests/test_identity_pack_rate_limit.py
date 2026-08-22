@@ -73,15 +73,30 @@ def _db_returning(images: list) -> MagicMock:
     return mock_db
 
 
+def _mock_ordinary_user(email: str) -> MagicMock:
+    """Build a mock User that is genuinely an ordinary creator.
+
+    ``MagicMock(spec=User)`` auto-creates every User attribute as a truthy Mock,
+    so a mock that stubs only ``email`` silently claims ``is_admin`` and
+    ``is_seeder``. That was harmless while the quota exemption read ADMIN_EMAILS
+    alone, and became wrong the moment it read the account flags too. Stub the
+    flags explicitly so these tests model the account they describe.
+    """
+    from app.models.user import User
+    user = MagicMock(spec=User)
+    user.email = email
+    user.is_admin = False
+    user.is_seeder = False
+    return user
+
+
 class TestIdentityPackQuotaService:
     """Unit tests for the quota service layer (mock DB)."""
 
     def test_no_generations_returns_full_remaining(self):
         from app.services.image_quota import get_identity_pack_quota_status
-        from app.models.user import User
 
-        mock_user = MagicMock(spec=User)
-        mock_user.email = "fresh@example.com"
+        mock_user = _mock_ordinary_user("fresh@example.com")
         mock_db = _db_returning([])
 
         from app.core.config import settings
@@ -97,10 +112,8 @@ class TestIdentityPackQuotaService:
     def test_generation_attempts_counted_correctly(self):
         """Each anchor_front image counts as one generation attempt."""
         from app.services.image_quota import get_identity_pack_quota_status
-        from app.models.user import User
 
-        mock_user = MagicMock(spec=User)
-        mock_user.email = "regular@example.com"
+        mock_user = _mock_ordinary_user("regular@example.com")
         images = [
             _make_mock_image("anchor_front"),   # generation 1
             _make_mock_image("anchor_three_quarter"),  # same generation 1
@@ -140,10 +153,8 @@ class TestIdentityPackQuotaService:
 
     def test_check_returns_none_when_under_limit(self):
         from app.services.image_quota import check_identity_pack_quota
-        from app.models.user import User
 
-        mock_user = MagicMock(spec=User)
-        mock_user.email = "under@example.com"
+        mock_user = _mock_ordinary_user("under@example.com")
         images = [_make_mock_image("anchor_front")] * 3  # 3 used of 5
         mock_db = _db_returning(images)
 
@@ -156,10 +167,8 @@ class TestIdentityPackQuotaService:
 
     def test_check_returns_429_at_limit(self):
         from app.services.image_quota import check_identity_pack_quota
-        from app.models.user import User
 
-        mock_user = MagicMock(spec=User)
-        mock_user.email = "exhausted@example.com"
+        mock_user = _mock_ordinary_user("exhausted@example.com")
         images = [_make_mock_image("anchor_front")] * 5  # at limit
         mock_db = _db_returning(images)
 
@@ -195,10 +204,8 @@ class TestIdentityPackQuotaService:
     def test_accept_images_not_double_counted(self):
         """Accepted pack images keep pack_role in metadata — count should still be 1."""
         from app.services.image_quota import get_identity_pack_quota_status
-        from app.models.user import User
 
-        mock_user = MagicMock(spec=User)
-        mock_user.email = "accepted@example.com"
+        mock_user = _mock_ordinary_user("accepted@example.com")
 
         # Simulate: one generation attempt, all 4 images promoted via accept.
         # After accept, kind changes but metadata_json.pack_role is preserved.
@@ -221,11 +228,9 @@ class TestIdentityPackQuotaService:
     def test_non_pack_images_not_counted(self):
         """Moment, sketch, and body-slot images must not count toward the pack limit."""
         from app.services.image_quota import get_identity_pack_quota_status
-        from app.models.user import User
         from app.models.character_image import CharacterImage
 
-        mock_user = MagicMock(spec=User)
-        mock_user.email = "mixed@example.com"
+        mock_user = _mock_ordinary_user("mixed@example.com")
 
         def _img(meta):
             m = MagicMock(spec=CharacterImage)

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,13 @@ from app.core.dependencies import (
     get_owned_character as _get_owned_character,
     user_is_admin,
 )
-from app.core.storage import save_image, file_path_to_url, load_image_bytes
+from app.core.entitlements import require_founder
+from app.core.storage import (
+    save_image,
+    file_path_to_url,
+    load_image_bytes,
+    detect_image_format,
+)
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_dna import CharacterDNA
@@ -435,6 +441,133 @@ def list_character_images(
         for r in rows
         if is_public_gallery_image(r)
     ]
+
+
+# ── 0a) POST /characters/{id}/images/upload ────────────────────────
+
+#: Upload constraints, matching the canon/editor upload paths already in use so
+#: a founder meets one consistent rule everywhere.
+_UPLOAD_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+_UPLOAD_ACCEPTED_CONTENT_TYPES = ("image/png", "image/jpeg", "image/jpg", "image/webp")
+#: Sniffed formats the store may hold, each paired with the signature that
+#: PROVES it.
+#:
+#: The pairing matters. ``detect_image_format`` returns "png" for genuine PNG
+#: bytes *and* as its fallback for anything it does not recognise — that
+#: fallback is correct for its own callers (store unknown bytes exactly as
+#: before) but it means "the sniffer said png" is not evidence of a PNG. So the
+#: signature is re-checked here for the format the sniffer named, and an
+#: unrecognised payload fails the PNG signature and is rejected.
+_UPLOAD_FORMAT_SIGNATURES: dict[str, bytes] = {
+    "png": b"\x89PNG\r\n\x1a\n",
+    "jpg": b"\xff\xd8\xff",
+    "webp": b"RIFF",  # detect_image_format only returns webp for RIFF....WEBP
+}
+
+
+@router.post(
+    "/{character_id}/images/upload",
+    response_model=CharacterImageRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="[Founder/Seeder] Upload an image as private character media",
+    dependencies=[Depends(require_founder)],
+)
+async def upload_character_image(
+    character_id: int,
+    file: UploadFile = File(..., description="PNG, JPEG or WebP image file"),
+    note: str | None = Form(
+        default=None, max_length=200, description="Optional note for the founder's own reference"
+    ),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CharacterImageRead:
+    """Store an image the founder supplied from their own device.
+
+    This is ORDINARY CHARACTER MEDIA and nothing more. Being stored against a
+    character has never conferred authority in Ficshon, and this endpoint is not
+    the exception:
+
+    * it writes ``kind=UPLOADED``, which is absent from ``PUBLIC_GALLERY_KINDS``
+      and from ``POST_ATTACHABLE_IMAGE_KINDS``, so the image cannot reach the
+      public gallery or a post;
+    * it writes ``visibility=PRIVATE``;
+    * it stamps ``not_canon=true`` in metadata;
+    * it never touches ``character_identity_canon`` and never uses an identity
+      or accessory kind. Promoting an image to canon remains an explicit act
+      through the canon API.
+
+    What it IS for: giving a founder a private reference they can hand-pick when
+    generating (see ``REFERENCE_SELECTABLE_IMAGE_KINDS``).
+
+    Content type is checked AND the bytes are sniffed with the same detector the
+    storage layer uses, so a mislabelled or non-image payload is rejected rather
+    than stored as a PNG by the fallback.
+    """
+    character = _get_owned_character(character_id, current_user, db)
+
+    content_type = (file.content_type or "").lower()
+    if content_type not in _UPLOAD_ACCEPTED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only PNG, JPEG or WebP images are accepted.",
+        )
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="That file is empty.",
+        )
+    if len(raw) > _UPLOAD_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Image exceeds the 10 MB limit.",
+        )
+
+    # Magic-byte validation. The declared content type is client-supplied and a
+    # renamed .txt would sail past it; save_image() would then store the bytes as
+    # a .png because its sniffer falls back to PNG for anything unrecognised, and
+    # the file would fail silently later at reference-load time instead of here.
+    detected_ext, detected_mime = detect_image_format(raw)
+    signature = _UPLOAD_FORMAT_SIGNATURES.get(detected_ext)
+    if signature is None or not raw.startswith(signature):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="That file isn't a readable PNG, JPEG or WebP image.",
+        )
+
+    file_path = save_image(raw)
+
+    image = CharacterImage(
+        character_id=character.id,
+        user_id=current_user.id,
+        # NOT an identity/accessory kind, and NOT gallery- or post-eligible.
+        kind=ImageKindEnum.UPLOADED,
+        status=ImageStatusEnum.ACTIVE,
+        visibility=ImageVisibilityEnum.PRIVATE,
+        provider=None,
+        prompt_summary=(note or None),
+        metadata_json={
+            "source": "founder_upload",
+            # Explicit, queryable statement of the invariant. An uploaded image
+            # is not Character Authority and does not become so by being stored.
+            "not_canon": True,
+            "uploaded_by_user_id": current_user.id,
+            "original_filename": (file.filename or "")[:200] or None,
+            "content_type": detected_mime,
+            "bytes": len(raw),
+        },
+        file_path=file_path,
+    )
+    db.add(image)
+    db.commit()
+    db.refresh(image)
+
+    logger.info(
+        "FOUNDER_IMAGE_UPLOAD character_id=%s user_id=%s image_id=%s bytes=%d mime=%s",
+        character_id, current_user.id, image.id, len(raw), detected_mime,
+    )
+    return CharacterImageRead.model_validate(image)
 
 
 # ── 0b) POST /characters/{id}/images/{image_id}/set-avatar ─────────

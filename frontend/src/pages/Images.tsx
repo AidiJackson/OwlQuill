@@ -396,6 +396,10 @@ export default function Images() {
             characters={myCharacters}
             initialCharacterId={onboardingCharId}
             initialPrompt={onboardingPrompt}
+            // Keep the generator on the character the library is showing, so a
+            // founder picks a character once rather than twice. 'all' has no
+            // single character, so it passes null and the panel keeps its own.
+            followCharacterId={typeof charFilter === 'number' ? charFilter : null}
             onGenerated={(image) => {
               setImages((prev) => [image as unknown as LibraryImage, ...prev]);
               setQuota((q) =>

@@ -210,7 +210,7 @@ def test_plain_generation_uses_clean_prompt(client: TestClient):
     mock_provider.generate_image = _mock_generate
     mock_provider.generate_grounded_image = MagicMock(side_effect=NotImplementedError())
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock_provider):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=mock_provider):
         resp = _post(client, token, cid, {
             "prompt": "A simple landscape",
             "include_character": False,
@@ -294,7 +294,7 @@ def test_include_character_with_canon_succeeds(client: TestClient, db_session):
     cid = _create_character(client, token)
     _setup_canon(db_session, cid)
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_mock_provider_succeeds()):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_mock_provider_succeeds()):
         resp = _post(client, token, cid, {
             "prompt": "Standing in a library",
             "include_character": True,
@@ -319,7 +319,7 @@ def test_compiled_prompt_minimal_and_card_driven(client: TestClient, db_session)
     _setup_canon(db_session, cid)
 
     captured: dict = {}
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
             "prompt": "Riding a horse at sunset",
             "include_character": True,
@@ -361,7 +361,7 @@ def test_chain_absent_when_not_requested(client: TestClient, db_session):
     _setup_canon(db_session, cid, accessories=[_CHAIN_ACC])
 
     captured: dict = {}
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
             "prompt": "Leonardo Baptiste standing on a beach in daylight",
             "include_character": True,
@@ -381,7 +381,7 @@ def test_chain_present_when_requested(client: TestClient, db_session):
     _setup_canon(db_session, cid, accessories=[_CHAIN_ACC])
 
     captured: dict = {}
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
             "prompt": "Leonardo Baptiste wearing a silver chain",
             "include_character": True,
@@ -400,7 +400,7 @@ def test_mask_absent_when_not_requested(client: TestClient, db_session):
     _setup_canon(db_session, cid, accessories=[_MASK_ACC])
 
     captured: dict = {}
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
             "prompt": "Leonardo Baptiste standing on a beach in daylight",
             "include_character": True,
@@ -419,7 +419,7 @@ def test_mask_present_when_requested(client: TestClient, db_session):
     _setup_canon(db_session, cid, accessories=[_MASK_ACC])
 
     captured: dict = {}
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
             "prompt": "Leonardo Baptiste wearing his mask at night",
             "include_character": True,
@@ -460,7 +460,7 @@ def test_permanent_marks_are_compact_clause(client: TestClient, db_session):
     _setup_canon(db_session, cid, marks=_TATTOO_MARKS)
 
     captured: dict = {}
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
             "prompt": "Leonardo Baptiste in a sleeveless shirt",
             "include_character": True,
@@ -483,7 +483,7 @@ def test_marks_carry_compact_permanence_directive(client: TestClient, db_session
     _setup_canon(db_session, cid, marks=_TATTOO_MARKS)
 
     captured: dict = {}
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
             "prompt": "Leonardo Baptiste in a sleeveless shirt",
             "include_character": True,
@@ -505,7 +505,7 @@ def test_multi_image_uses_canon_refs(client: TestClient, db_session):
     _setup_canon(db_session, cid)  # with_images=True → face_front + body_front refs
 
     captured: dict = {}
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_capture_prompt_provider(captured)):
         resp = _post(client, token, cid, {
             "prompt": "In a cave",
             "include_character": True,
@@ -538,7 +538,7 @@ def test_grounded_fallback_when_multi_not_supported(client: TestClient, db_sessi
         side_effect=AssertionError("text should not be called when grounded succeeds")
     )
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
             "prompt": "By a river",
             "include_character": True,
@@ -560,7 +560,7 @@ def test_scene_saved_as_scene_only(client: TestClient, db_session):
     cid = _create_character(client, token)
     _setup_canon(db_session, cid)
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_mock_provider_succeeds()):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_mock_provider_succeeds()):
         resp = _post(client, token, cid, {
             "prompt": "Walking through rain",
             "include_character": True,
@@ -586,7 +586,7 @@ def test_scene_generation_does_not_mutate_canon(client: TestClient, db_session):
     ).first()
     face_before, body_before, acc_before = before.face_canon_json, before.body_canon_json, before.accessories_json
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_mock_provider_succeeds()):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_mock_provider_succeeds()):
         resp = _post(client, token, cid, {
             "prompt": "Leonardo Baptiste standing on a beach in daylight",
             "include_character": True,
@@ -625,7 +625,7 @@ def test_metadata_fields_character(client: TestClient, db_session):
     cid = _create_character(client, token)
     _setup_canon(db_session, cid)
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=_mock_provider_succeeds()):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=_mock_provider_succeeds()):
         resp = _post(client, token, cid, {
             "prompt": "Walking through rain",
             "include_character": True,
@@ -692,7 +692,7 @@ def test_canon_provider_refusal_blocks_refless_fallback(client: TestClient, db_s
     mock.generate_image = text_only
     mock._model = "gemini-test"
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
             "prompt": "Standing on a beach in a white bikini",
             "include_character": True,
@@ -733,7 +733,7 @@ def test_canon_transient_multi_failure_does_not_degrade_to_one_reference(
     mock.generate_image = text_only
     mock._model = "gemini-3.1-flash-image"
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
             "prompt": "In a quiet library",
             "include_character": True,
@@ -762,7 +762,7 @@ def test_noncanon_text_only_fallback_still_works(client: TestClient):
     mock.generate_grounded_image = MagicMock(side_effect=NotImplementedError())
     mock.generate_image = text_only
 
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
             "prompt": "A neon city street in the rain",
             "include_character": False,
@@ -796,7 +796,7 @@ def _post_blocked(client, db_session, email, reason, prompt="Standing in his off
     cid = _create_character(client, token)
     _setup_canon(db_session, cid)
     mock = _blocking_provider(reason)
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
             "prompt": prompt,
             "include_character": True,
@@ -860,7 +860,7 @@ def test_image_recitation_is_not_a_sexual_refusal(client, db_session):
 
 def test_image_recitation_classifies_as_image_recitation(client, db_session):
     """The classifier gives recitation its own neutral kind."""
-    from app.api.routes.image_generator import _classify_ref_failure
+    from app.services.image_generation_pipeline import _classify_ref_failure
 
     kind, block_reason, categories = _classify_ref_failure(
         "google_refused_image: IMAGE_RECITATION"
@@ -910,7 +910,7 @@ def _generate_with(client, db_session, email, body_extra, *, admin: bool, provid
         _make_admin(db_session, email)
 
     mock = provider if provider is not None else _mock_provider_succeeds()
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
             "prompt": "Standing in a library",
             "include_character": True,
@@ -937,7 +937,7 @@ def test_block_diagnostic_carries_prod_vs_dev_comparison_fields(
     monkeypatch.setenv("GOOGLE_AI_API_KEY", secret)
     expected_fp = hashlib.sha256(secret.encode()).hexdigest()[:12]
 
-    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+    with caplog.at_level(logging.WARNING, logger="app.services.image_generation_pipeline"):
         resp, _, cid = _post_blocked(
             client, db_session, "imggen_block_compare@example.com",
             "google_prompt_blocked:OTHER:",
@@ -967,7 +967,7 @@ def test_recitation_also_emits_the_reference_set_diagnostic(client, db_session, 
     """
     import logging
 
-    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+    with caplog.at_level(logging.WARNING, logger="app.services.image_generation_pipeline"):
         resp, _, cid = _post_blocked(
             client, db_session, "imggen_recit_diag@example.com",
             "google_refused_image: IMAGE_RECITATION",
@@ -993,7 +993,7 @@ def test_google_block_logs_reference_set_diagnostic(client, db_session, caplog):
     """The block diagnostic must identify the exact reference set involved."""
     import logging
 
-    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+    with caplog.at_level(logging.WARNING, logger="app.services.image_generation_pipeline"):
         resp, _, cid = _post_blocked(
             client, db_session, "imggen_block_diag@example.com",
             "google_prompt_blocked:OTHER:",
@@ -1034,7 +1034,7 @@ def test_google_block_diagnostic_leaks_no_urls_or_bytes(client, db_session, capl
     from app.models.character_identity_canon import CharacterIdentityCanon
 
     secret_prompt = "Zarnak quicksilver bellwether in his office"
-    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+    with caplog.at_level(logging.WARNING, logger="app.services.image_generation_pipeline"):
         resp, _, cid = _post_blocked(
             client, db_session, "imggen_block_noleak@example.com",
             "google_prompt_blocked:OTHER:", prompt=secret_prompt,
@@ -1096,7 +1096,7 @@ def test_google_block_diagnostic_reports_db_image_ids(client, db_session):
     db_session.refresh(row)
 
     mock = _blocking_provider("google_prompt_blocked:OTHER:")
-    import app.api.routes.image_generator as ig
+    import app.services.image_generation_pipeline as ig
     with patch.object(ig, "get_provider_for_option", return_value=mock), \
             patch.object(ig.logger, "warning") as warn:
         resp = _post(client, token, cid, {
@@ -1116,7 +1116,7 @@ def test_non_block_failure_emits_no_reference_diagnostic(client, db_session, cap
     """The reference-set diagnostic is scoped to real provider blocks only."""
     import logging
 
-    with caplog.at_level(logging.WARNING, logger="app.api.routes.image_generator"):
+    with caplog.at_level(logging.WARNING, logger="app.services.image_generation_pipeline"):
         resp, _, _ = _post_blocked(
             client, db_session, "imggen_nodiag@example.com",
             "temporary upstream 503",
@@ -1140,7 +1140,7 @@ def test_canon_success_path_unaffected(client: TestClient, db_session):
     _setup_canon(db_session, cid)
 
     mock = _mock_provider_succeeds()
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=mock):
         resp = _post(client, token, cid, {
             "prompt": "Pan in a black shirt with sleeves rolled to the elbows, in a forest",
             "include_character": True,
@@ -1249,8 +1249,8 @@ def test_no_automatic_provider_switch_on_google_block(client, db_session):
     token = _register_and_login(client, "imggen_noswitch@example.com")
     cid = _create_character(client, token)
     _setup_canon(db_session, cid)
-    with patch("app.api.routes.image_generator.get_provider_for_option", return_value=mock), \
-         patch("app.api.routes.image_generator.get_fallback_provider", return_value=fallback):
+    with patch("app.services.image_generation_pipeline.get_provider_for_option", return_value=mock), \
+         patch("app.services.image_generation_pipeline.get_fallback_provider", return_value=fallback):
         resp = _post(client, token, cid, {
             "prompt": "Standing in a library",
             "include_character": True,
@@ -1300,7 +1300,7 @@ def test_face_verify_regeneration_never_falls_back_to_refless(client, db_session
     that tier discards every reference, and a candidate that happened to score
     better on face verification would have been saved as the final image.
     """
-    from app.api.routes.image_generator import _generate_scene_png
+    from app.services.image_generation_pipeline import _generate_scene_png
 
     provider = MagicMock()
     provider.generate_with_anchors = MagicMock(side_effect=RuntimeError("blocked"))
@@ -1319,7 +1319,7 @@ def test_face_verify_regeneration_never_falls_back_to_refless(client, db_session
 
 def test_refless_generation_still_uses_text_path(client, db_session):
     """With no references selected there is nothing to weaken — text-only stands."""
-    from app.api.routes.image_generator import _generate_scene_png
+    from app.services.image_generation_pipeline import _generate_scene_png
 
     provider = MagicMock()
     provider.generate_image = MagicMock(return_value=b"png")

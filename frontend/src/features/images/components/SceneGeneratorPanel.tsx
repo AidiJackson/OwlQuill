@@ -4,9 +4,14 @@ import { ImageIcon, RefreshCw } from 'lucide-react';
 import { generateImage } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
 import type { Character } from '@/lib/types';
+import type { SelectedReference } from '@/features/images/referenceKinds';
 import { useAuthStore } from '@/lib/store';
+import { isFounder as accountIsFounder } from '@/lib/entitlements';
 import { isAdultAdjacent } from '@/features/images/adultContent';
 import { computeGeneratorGuards } from '@/features/images/generatorReadiness';
+import ReferencePicker from '@/features/images/components/ReferencePicker';
+import UploadImageButton from '@/features/images/components/UploadImageButton';
+import { useGenerationJob } from '@/features/images/useGenerationJob';
 
 const MAX_PROMPT_LENGTH = 800;
 
@@ -30,6 +35,16 @@ interface Props {
   initialCharacterId?: number;
   /** Pre-fill the prompt textarea on first load (onboarding nudge). */
   initialPrompt?: string;
+  /**
+   * Keep the panel's character in step with the page's character selection.
+   *
+   * Distinct from `initialCharacterId`, which fires once. The founder workflow
+   * is "pick a character, then work on it" — having to pick the same character
+   * twice, once for the library and again in the panel, is a step for nothing
+   * and is worse on a tablet than on a laptop. Null (an "all characters" view)
+   * leaves the panel's own selection alone.
+   */
+  followCharacterId?: number | null;
 }
 
 export default function SceneGeneratorPanel({
@@ -39,6 +54,7 @@ export default function SceneGeneratorPanel({
   isCover = false,
   initialCharacterId,
   initialPrompt,
+  followCharacterId,
 }: Props) {
   const [prompt, setPrompt] = useState(initialPrompt ?? '');
   // null = "No character"; number = character id
@@ -51,14 +67,55 @@ export default function SceneGeneratorPanel({
   // Adult-adjacent soft nudge — advisory only, does not block generation.
   const [showAdultNudge, setShowAdultNudge] = useState(false);
 
-  const isAdmin = useAuthStore((s) => !!s.user?.is_admin);
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = !!user?.is_admin;
+  const isFounder = accountIsFounder(user);
   const navigate = useNavigate();
 
-  // Guard: if a non-admin ends up on any admin-only option, snap back to Canon.
+  // ── Founder workflow state ────────────────────────────────────────
+  // Hand-picked references, and a token bumped after an upload so the picker
+  // refetches and the new image is immediately selectable.
+  const [references, setReferences] = useState<SelectedReference[]>([]);
+  const [libraryToken, setLibraryToken] = useState(0);
+
+  // Founders generate through the async job pipeline; everyone else keeps the
+  // original synchronous call. The reason is the request deadline, not the
+  // feature set: a founder generation can carry four provider calls and outlive
+  // the request, and losing it after paying is the failure this removes.
+  const job = useGenerationJob(selectedCharacterId);
+  const useJobs = isFounder;
+
+  // References and uploads are character-scoped, so they need an explicitly
+  // chosen character — "No character" has no image collection to draw on.
+  const founderToolsVisible = isFounder && selectedCharacterId != null;
+
+  // Re-attach to a generation still running for this character (tablet
+  // reconnect, tab reopened, page reloaded). Submits nothing.
   useEffect(() => {
-    const adminOnly: ProviderOption[] = ['option1', 'option3', 'option4', 'option5', 'option6'];
-    if (!isAdmin && adminOnly.includes(providerOption)) setProviderOption('option2');
-  }, [isAdmin, providerOption]);
+    if (!useJobs || selectedCharacterId == null) return;
+    void job.resume();
+    // job.resume is stable per character; re-running on every render would poll
+    // the recovery endpoint continuously.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useJobs, selectedCharacterId]);
+
+  // A reference belongs to one character. Switching character must not carry a
+  // stale selection across — the server would reject those ids anyway, but the
+  // founder should never see another character's picks staged as their own.
+  useEffect(() => {
+    setReferences([]);
+  }, [selectedCharacterId]);
+
+  // Guard: if an account ends up on an option it may not use, snap back to Canon.
+  // OpenAI (option1) is available to admins AND to the founder/seeder tier —
+  // "OpenAI or Google" is the founder workflow. The experimental providers
+  // (FLUX Pro/Max, Together, Grok) stay admin-only. Mirrors the server rule in
+  // image_provider.resolve_canon_provider_option, which is what actually decides.
+  useEffect(() => {
+    const experimental: ProviderOption[] = ['option3', 'option4', 'option5', 'option6'];
+    if (!isAdmin && experimental.includes(providerOption)) setProviderOption('option2');
+    if (!isAdmin && !isFounder && providerOption === 'option1') setProviderOption('option2');
+  }, [isAdmin, isFounder, providerOption]);
 
   // Set default selection once when characters first load
   const didInitRef = useRef(false);
@@ -89,7 +146,45 @@ export default function SceneGeneratorPanel({
     selectedCharacterId,
     selectedChar,
   );
-  const canGenerate = prompt.trim().length > 0 && !loading && !lockedGuardActive && !anchorGuardActive;
+  // `busy` is the single truth for "a generation is in flight", whichever path
+  // is running, so every disabled state and every spinner agrees.
+  const busy = useJobs ? job.busy : loading;
+  const canGenerate =
+    prompt.trim().length > 0 && !busy && !lockedGuardActive && !anchorGuardActive;
+
+  // Follow the page's character selection (see the prop docs). Deliberately
+  // skipped while a generation is in flight: re-pointing the panel mid-run
+  // would leave the founder watching progress under one character's name while
+  // the image is being made for another. Null (an "all characters" view) means
+  // the page has no opinion, so the panel keeps whatever it has.
+  useEffect(() => {
+    if (followCharacterId == null || busy) return;
+    setSelectedCharacterId((current) =>
+      current === followCharacterId ? current : followCharacterId,
+    );
+  }, [followCharacterId, busy]);
+
+  // A completed job hands its image to the parent exactly once, then clears
+  // itself so the panel returns to an idle, ready-to-generate state. The image
+  // lives in the parent's library grid from that moment — which is where the
+  // founder keeps or deletes it, using the controls that already exist there.
+  const deliveredJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (job.phase !== 'completed' || !job.job || !job.image) return;
+    if (deliveredJobRef.current === job.job.job_id) return;
+    deliveredJobRef.current = job.job.job_id;
+    onGenerated(job.image as unknown as CharacterImageRead);
+    setPrompt('');
+    onGeneratingChange?.(false);
+    // onGenerated identity is not stable in every caller; keying on the job id
+    // above is what makes this exactly-once rather than the dependency list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.phase, job.job, job.image]);
+
+  useEffect(() => {
+    if (useJobs) onGeneratingChange?.(job.busy);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useJobs, job.busy]);
 
   const handleGenerate = async (skipAdultCheck = false) => {
     if (!canGenerate) return;
@@ -102,6 +197,24 @@ export default function SceneGeneratorPanel({
     // For "No character", route through the first character (ownership only; include_character=false)
     const routeCharacterId = selectedCharacterId ?? characters[0]?.id;
     if (!routeCharacterId) return;
+
+    // References are character-scoped: they only travel when a character is
+    // actually selected, so a "No character" generation can never smuggle them.
+    const refs = founderToolsVisible ? references : [];
+
+    if (useJobs) {
+      setError('');
+      await job.submit(routeCharacterId, {
+        prompt: prompt.trim(),
+        include_character: selectedCharacterId !== null,
+        provider_option: providerOption,
+        is_cover: isCover,
+        reference_image_ids: refs.map((r) => r.image.id),
+        reference_roles: refs.map((r) => r.role),
+      });
+      return;
+    }
+
     setLoading(true);
     setError('');
     onGeneratingChange?.(true);
@@ -158,7 +271,7 @@ export default function SceneGeneratorPanel({
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         onKeyDown={handleKeyDown}
-        disabled={loading}
+        disabled={busy}
       />
 
       {/* Controls row */}
@@ -172,7 +285,7 @@ export default function SceneGeneratorPanel({
             onChange={(e) =>
               setSelectedCharacterId(e.target.value === 'none' ? null : Number(e.target.value))
             }
-            disabled={loading}
+            disabled={busy}
           >
             <option value="none">No character</option>
             {characters.map((c) => (
@@ -191,7 +304,7 @@ export default function SceneGeneratorPanel({
             <button
               type="button"
               onClick={() => setProviderOption('option2')}
-              disabled={loading}
+              disabled={busy}
               title="Google — the recommended Canon image provider"
               className={`px-3 py-1 transition-colors ${
                 providerOption === 'option2'
@@ -201,26 +314,26 @@ export default function SceneGeneratorPanel({
             >
               Canon · Recommended
             </button>
-            {isAdmin && (
+            {(isAdmin || isFounder) && (
               <button
                 type="button"
                 onClick={() => setProviderOption('option1')}
-                disabled={loading}
-                title="OpenAI — experimental, admin-only"
+                disabled={busy}
+                title="OpenAI — available to founder accounts"
                 className={`px-3 py-1 transition-colors ${
                   providerOption === 'option1'
                     ? 'bg-amber-700 text-white'
                     : 'bg-surface-elevated text-ink-2 hover:bg-amber-900/40 hover:text-amber-300'
                 }`}
               >
-                OpenAI · Admin
+                {isAdmin ? 'OpenAI · Admin' : 'OpenAI'}
               </button>
             )}
             {isAdmin && (
               <button
                 type="button"
                 onClick={() => setProviderOption('option6')}
-                disabled={loading}
+                disabled={busy}
                 title="Grok Imagine (via OpenRouter) — experimental, admin-only"
                 className={`px-3 py-1 transition-colors ${
                   providerOption === 'option6'
@@ -234,6 +347,36 @@ export default function SceneGeneratorPanel({
           </div>
         )}
       </div>
+
+      {/* ── Founder tools: upload + reference selection ──────────────
+          Founder/seeder only, and only with a character actually chosen —
+          references are that character's own images. Ordinary creators never
+          see this block, and the server refuses it for them regardless. */}
+      {founderToolsVisible && (
+        <div className="rounded-xl border border-edge-md bg-surface-elevated/40 p-3 sm:p-4 space-y-4">
+          <UploadImageButton
+            characterId={selectedCharacterId}
+            disabled={busy}
+            onUploaded={(image) => {
+              // Refresh the grid, then stage the new upload as a reference if
+              // there is room — uploading one is almost always the first half of
+              // "use this as a reference", and making the founder hunt for it in
+              // the grid afterwards is a step for nothing.
+              setLibraryToken((t) => t + 1);
+              setReferences((prev) =>
+                prev.length < 4 ? [...prev, { image, role: 'unspecified' }] : prev,
+              );
+            }}
+          />
+          <ReferencePicker
+            characterId={selectedCharacterId}
+            selected={references}
+            onChange={setReferences}
+            disabled={busy}
+            refreshToken={libraryToken}
+          />
+        </div>
+      )}
 
       {/* Locked-character guard message */}
       {lockedGuardActive && (
@@ -249,16 +392,18 @@ export default function SceneGeneratorPanel({
         </p>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <span className={`text-xs ${prompt.length >= MAX_PROMPT_LENGTH ? 'text-red-400' : 'text-ink-3'}`}>
           {prompt.length} / {MAX_PROMPT_LENGTH}
         </span>
         <button
-          className="btn btn-primary text-sm flex items-center gap-2"
+          // Full-width on phones so it is a comfortable thumb target; inline
+          // from `sm` upward where the row has room.
+          className="btn btn-primary text-sm flex items-center justify-center gap-2 w-full sm:w-auto py-3 sm:py-2"
           onClick={() => handleGenerate()}
           disabled={!canGenerate}
         >
-          {loading ? (
+          {busy ? (
             <>
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               Generating…
@@ -272,9 +417,33 @@ export default function SceneGeneratorPanel({
         </button>
       </div>
 
-      {error && (
+      {/* Live job state. This is what makes a long generation survivable on a
+          tablet: the panel keeps telling the founder it is still working, and
+          re-attaches to the same job after a reconnect instead of restarting. */}
+      {useJobs && busy && (
+        <div className="flex items-start gap-2.5 text-sm text-ink-2 bg-gem-soft/40 border border-gem/20 rounded-lg px-4 py-3">
+          <RefreshCw className="w-3.5 h-3.5 mt-0.5 shrink-0 animate-spin text-gem" />
+          <div className="min-w-0">
+            <p>{job.job?.progress_message || 'Starting…'}</p>
+            <p className="text-xs text-ink-3 mt-0.5">
+              This can take a couple of minutes. You can leave this page — the image
+              will be waiting when you come back.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Reference-budget report. The server never drops a reference silently;
+          when it can't send one, it says which and why, and this surfaces it. */}
+      {useJobs && job.phase === 'completed' && job.job?.result?.warning && (
         <p className="text-sm text-amber-400/90 bg-amber-400/10 border border-amber-800/30 rounded-lg px-4 py-2">
-          {error}
+          {job.job.result.warning}
+        </p>
+      )}
+
+      {(error || (useJobs && job.error)) && (
+        <p className="text-sm text-amber-400/90 bg-amber-400/10 border border-amber-800/30 rounded-lg px-4 py-2">
+          {error || job.error}
         </p>
       )}
 

@@ -515,7 +515,7 @@ def test_admin_can_select_together_flux(client: TestClient, db_session):
     _make_admin(db_session, email)
 
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=_together_provider_mock(),
     ):
         resp = _post(client, token, cid, {
@@ -541,7 +541,7 @@ def test_together_metadata_includes_model_name(client: TestClient, db_session):
     mock.model_name = "black-forest-labs/FLUX.2-pro"
 
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=mock,
     ):
         resp = _post(client, token, cid, {
@@ -562,7 +562,7 @@ def test_together_no_fallback_for_admin(client: TestClient, db_session):
     _make_admin(db_session, email)
 
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=_together_provider_mock(),
     ):
         resp = _post(client, token, cid, {
@@ -582,7 +582,7 @@ def test_together_response_mode_not_present_for_scene_only(client: TestClient, d
     _make_admin(db_session, email)
 
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=_together_provider_mock(),
     ):
         resp = _post(client, token, cid, {

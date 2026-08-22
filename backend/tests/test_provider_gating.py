@@ -169,7 +169,7 @@ def test_admin_can_request_openai(client: TestClient, db_session):
 
     captured: dict = {}
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=_capturing_provider(captured),
     ):
         resp = _post(client, token, cid, {

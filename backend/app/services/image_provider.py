@@ -527,6 +527,16 @@ def get_provider_for_option(option: str) -> ImageProvider:
 #   public URLs were available.
 
 _ADMIN_ONLY_PROVIDER_OPTIONS = frozenset({"option1", "option3", "option4", "option5", "option6"})
+
+#: Options a FOUNDER/SEEDER may select without being a full admin.
+#:
+#: The founder image workflow is specified as "OpenAI or Google", so option1 is
+#: opened to the founder/seeder tier alongside the universal Google default.
+#: The experimental providers (FLUX Pro/Max, Together, Grok) stay admin-only —
+#: they exist for internal benchmarking, did not solve canon consistency, and
+#: are not part of the seeding workflow. This is the ONLY widening: an ordinary
+#: creator's gating is byte-for-byte what it was.
+_FOUNDER_PERMITTED_PROVIDER_OPTIONS = frozenset({"option1", "option2"})
 CANON_DEFAULT_PROVIDER_OPTION = "option2"              # option2 == google
 _PROVIDER_OPTION_NAMES = {
     "option1": "openai",
@@ -552,12 +562,18 @@ def resolve_canon_provider_option(
     requested_option: str,
     *,
     is_admin: bool,
+    is_founder: bool = False,
 ) -> tuple[str, dict]:
     """Apply beta provider gating to a requested provider option.
 
     Google (option2) is allowed for everyone.  OpenAI (option1), FLUX Pro
     (option3), and FLUX Max (option4) are admin-only; a non-admin request for
     any of these falls back to Google instead of failing.
+
+    ``is_founder`` additionally permits :data:`_FOUNDER_PERMITTED_PROVIDER_OPTIONS`
+    (OpenAI + Google) so the founder/seeder image workflow can choose between the
+    two named providers. It defaults to False, so every existing caller keeps its
+    exact previous behaviour.
 
     Returns ``(effective_option, fallback_metadata)``. ``fallback_metadata`` is
     ``{}`` when the requested option is allowed; on fallback it records::
@@ -566,7 +582,8 @@ def resolve_canon_provider_option(
         provider_fallback_reason    = <reason string>
     """
     opt = (requested_option or CANON_DEFAULT_PROVIDER_OPTION).lower()
-    if opt in _ADMIN_ONLY_PROVIDER_OPTIONS and not is_admin:
+    permitted = is_admin or (is_founder and opt in _FOUNDER_PERMITTED_PROVIDER_OPTIONS)
+    if opt in _ADMIN_ONLY_PROVIDER_OPTIONS and not permitted:
         reason = _ADMIN_GATE_REASONS.get(opt, "admin_only")
         return CANON_DEFAULT_PROVIDER_OPTION, {
             "original_requested_provider": _PROVIDER_OPTION_NAMES.get(opt, opt),

@@ -397,6 +397,48 @@ export interface LibraryImage {
   created_at: string;
 }
 
+// ── Founder image workflow ────────────────────────────────────────────
+
+// The server's account of what actually reached the provider. `warning` is set
+// only when something the founder chose did NOT get sent.
+export interface GenerationJobResult {
+  refs_source: 'canon' | 'manual' | 'mixed' | 'none';
+  refs_budget: number;
+  canon_refs_sent: number;
+  manual_refs_sent: number;
+  manual_refs_dropped: number;
+  refs_loaded: number;
+  provider: string;
+  manual_refs?: Array<{
+    image_id: number;
+    role: string;
+    position: number;
+    kind: string;
+    sent: boolean;
+    reason?: string;
+  }>;
+  warning?: string;
+}
+
+export interface ImageGenerationJob {
+  job_id: string;
+  character_id: number;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  stage?: string | null;
+  progress_message?: string | null;
+  attempt_count: number;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  // True when the submission was answered by an EXISTING job: nothing new was
+  // started and nothing further was spent.
+  reused: boolean;
+  result?: GenerationJobResult | null;
+  image?: LibraryImage | null;
+}
+
 // A character image as exposed to the PUBLIC — the curated gallery shape.
 // Mirrors backend CharacterImagePublic: no prompt, provider, seed, metadata,
 // status or visibility. The owner/admin variant is LibraryImage above.

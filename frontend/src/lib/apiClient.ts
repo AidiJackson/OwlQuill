@@ -1,5 +1,5 @@
 import { rateLimitMessage } from './rateLimit';
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, CharacterGalleryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus, PostCreatePayload, CommentCreatePayload, ScenePostCreatePayload, SpacePostCreatePayload, CompositionMetrics } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, CharacterGalleryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus, PostCreatePayload, CommentCreatePayload, ScenePostCreatePayload, SpacePostCreatePayload, CompositionMetrics, ImageGenerationJob } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -385,6 +385,73 @@ class ApiClient {
     return this.request<void>(`/characters/${characterId}/images/${imageId}`, {
       method: 'DELETE',
     });
+  }
+
+  // ── Founder image workflow ──────────────────────────────────────────
+
+  // Upload an image from this device as PRIVATE character media (kind=uploaded).
+  // Founder/seeder only — the server is the gate; hiding the button is not.
+  // The result is a reference, not gallery or post material.
+  async uploadCharacterImage(
+    characterId: number,
+    file: File,
+    note?: string,
+  ): Promise<LibraryImage> {
+    const form = new FormData();
+    form.append('file', file);
+    if (note) form.append('note', note);
+    const token = this.getToken();
+    // Not this.request(): a multipart body must NOT carry an explicit
+    // Content-Type — the browser sets it with the boundary.
+    const response = await fetch(`${API_BASE_URL}/characters/${characterId}/images/upload`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  // Submit ONE generation intent. `idempotencyKey` identifies the intent, not
+  // the request: resending it (double-tap, retry, reconnect) returns the SAME
+  // job with reused=true and spends nothing further. Mint a new key only when
+  // the founder genuinely wants another image.
+  async submitImageGenerationJob(
+    characterId: number,
+    payload: {
+      prompt: string;
+      include_character: boolean;
+      provider_option: string;
+      is_cover?: boolean;
+      reference_image_ids?: number[];
+      reference_roles?: string[];
+      idempotency_key: string;
+    },
+  ): Promise<ImageGenerationJob> {
+    return this.request<ImageGenerationJob>(
+      `/characters/${characterId}/image-generator/jobs`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    );
+  }
+
+  async getImageGenerationJob(characterId: number, jobId: string): Promise<ImageGenerationJob> {
+    return this.request<ImageGenerationJob>(
+      `/characters/${characterId}/image-generator/jobs/${jobId}`,
+    );
+  }
+
+  // Refresh recovery: re-attach to the latest generation this account started
+  // for the character, without submitting anything.
+  async getLatestImageGenerationJob(
+    characterId: number,
+  ): Promise<{ job: ImageGenerationJob | null }> {
+    return this.request<{ job: ImageGenerationJob | null }>(
+      `/characters/${characterId}/image-generator/jobs/latest`,
+    );
   }
 
   async saveIdentityAccessory(

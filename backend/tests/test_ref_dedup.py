@@ -38,9 +38,14 @@ def test_duplicate_bytes_dropped_first_kept():
 
 
 def test_route_emits_dedup_metadata(monkeypatch):
-    """The generate endpoint records refs_deduped in image metadata."""
+    """The generation pipeline records refs_deduped in image metadata.
+
+    The pipeline was extracted from the route body so it could also run inside a
+    detached job driver (the request deadline cannot hold a multi-retry
+    generation); this assertion followed the code rather than the route.
+    """
     import inspect
-    from app.api.routes import image_generator
-    src = inspect.getsource(image_generator.generate_image)
+    from app.services import image_generation_pipeline
+    src = inspect.getsource(image_generation_pipeline.run_image_generation)
     assert "refs_deduped" in src
     assert "IMAGE_GEN_REF_DEDUP" in src

@@ -26,6 +26,13 @@ class CharacterImageCreate(BaseModel):
 #: Kind is therefore the safest existing definition — it distinguishes finished,
 #: shareable output from the identity/anchor working references used to build a
 #: character. Documented limitation, not invented behaviour.
+#:
+#: ``UPLOADED`` (founder/seeder device uploads) is deliberately NOT here. An
+#: uploaded image is a private working reference: the founder supplied it to
+#: steer generation, not to publish it, and Ficshon has no provenance for it. It
+#: is likewise absent from ``POST_ATTACHABLE_IMAGE_KINDS``. Adding it to either
+#: list is a product decision that must be taken explicitly, never as a
+#: side effect of adding the upload feature.
 PUBLIC_GALLERY_KINDS = frozenset({
     ImageKindEnum.GENERATED,
     ImageKindEnum.COVER,

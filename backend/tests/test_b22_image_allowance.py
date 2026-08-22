@@ -130,6 +130,10 @@ def test_quota_service_returns_correct_fields():
     now = datetime.utcnow()
     mock_user = MagicMock(spec=User)
     mock_user.email = "normal@example.com"
+    # MagicMock(spec=User) answers every attribute with a truthy Mock, so the
+    # founder flags must be pinned or the exemption reads them as set.
+    mock_user.is_admin = False
+    mock_user.is_seeder = False
     # 3 images at various ages within the window
     images = [
         _make_mock_image(now - timedelta(hours=72)),
@@ -162,6 +166,10 @@ def test_quota_service_remaining_never_negative():
     now = datetime.utcnow()
     mock_user = MagicMock(spec=User)
     mock_user.email = "overused@example.com"
+    # MagicMock(spec=User) answers every attribute with a truthy Mock, so the
+    # founder flags must be pinned or the exemption reads them as set.
+    mock_user.is_admin = False
+    mock_user.is_seeder = False
     images = [_make_mock_image(now - timedelta(hours=i)) for i in range(1, 16)]
     mock_db = _db_with_images(images)
 
@@ -180,6 +188,10 @@ def test_quota_service_admin_gets_unlimited():
 
     mock_user = MagicMock(spec=User)
     mock_user.email = "admin@ficshon.com"
+    # MagicMock(spec=User) answers every attribute with a truthy Mock, so the
+    # founder flags must be pinned or the exemption reads them as set.
+    mock_user.is_admin = False
+    mock_user.is_seeder = False
     mock_db = MagicMock()
 
     from app.core.config import settings
@@ -201,6 +213,10 @@ def test_check_weekly_quota_returns_none_when_available():
     now = datetime.utcnow()
     mock_user = MagicMock(spec=User)
     mock_user.email = "normal@example.com"
+    # MagicMock(spec=User) answers every attribute with a truthy Mock, so the
+    # founder flags must be pinned or the exemption reads them as set.
+    mock_user.is_admin = False
+    mock_user.is_seeder = False
     images = [_make_mock_image(now - timedelta(hours=i)) for i in range(1, 6)]  # 5 images
     mock_db = _db_with_images(images)
 
@@ -220,6 +236,10 @@ def test_check_weekly_quota_returns_429_when_exhausted():
     now = datetime.utcnow()
     mock_user = MagicMock(spec=User)
     mock_user.email = "exhausted@example.com"
+    # MagicMock(spec=User) answers every attribute with a truthy Mock, so the
+    # founder flags must be pinned or the exemption reads them as set.
+    mock_user.is_admin = False
+    mock_user.is_seeder = False
     images = [_make_mock_image(now - timedelta(hours=i)) for i in range(1, 11)]  # 10 images
     mock_db = _db_with_images(images)
 
@@ -239,6 +259,10 @@ def test_check_weekly_quota_admin_bypass():
 
     mock_user = MagicMock(spec=User)
     mock_user.email = "boss@ficshon.com"
+    # MagicMock(spec=User) answers every attribute with a truthy Mock, so the
+    # founder flags must be pinned or the exemption reads them as set.
+    mock_user.is_admin = False
+    mock_user.is_seeder = False
     mock_db = MagicMock()
 
     from app.core.config import settings
@@ -259,6 +283,10 @@ def test_quota_reset_at_null_when_no_images():
 
     mock_user = MagicMock(spec=User)
     mock_user.email = "fresh@example.com"
+    # MagicMock(spec=User) answers every attribute with a truthy Mock, so the
+    # founder flags must be pinned or the exemption reads them as set.
+    mock_user.is_admin = False
+    mock_user.is_seeder = False
     mock_db = _db_with_images([])  # no images in window
 
     from app.core.config import settings
@@ -287,6 +315,10 @@ def test_quota_reset_in_seconds_reflects_oldest_image():
     ]
     mock_user = MagicMock(spec=User)
     mock_user.email = "resetcheck@example.com"
+    # MagicMock(spec=User) answers every attribute with a truthy Mock, so the
+    # founder flags must be pinned or the exemption reads them as set.
+    mock_user.is_admin = False
+    mock_user.is_seeder = False
     mock_db = _db_with_images(images)
 
     from app.core.config import settings
@@ -309,6 +341,10 @@ def test_quota_429_includes_reset_at():
     now = datetime.utcnow()
     mock_user = MagicMock(spec=User)
     mock_user.email = "exhausted2@example.com"
+    # MagicMock(spec=User) answers every attribute with a truthy Mock, so the
+    # founder flags must be pinned or the exemption reads them as set.
+    mock_user.is_admin = False
+    mock_user.is_seeder = False
     images = [_make_mock_image(now - timedelta(hours=i)) for i in range(1, 6)]
     mock_db = _db_with_images(images)
 
@@ -362,7 +398,7 @@ def test_generation_allowed_when_quota_available(client: TestClient, monkeypatch
     cid = _create_character(client, token)
 
     monkeypatch.setattr(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         lambda _opt: _mock_provider_succeeds(),
     )
     resp = _generate(client, token, cid)
@@ -375,7 +411,7 @@ def test_generation_increments_quota_used(client: TestClient, monkeypatch):
     cid = _create_character(client, token)
 
     monkeypatch.setattr(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         lambda _opt: _mock_provider_succeeds(),
     )
 
@@ -400,7 +436,7 @@ def test_generation_blocked_when_quota_exhausted(client: TestClient, monkeypatch
     cid = _create_character(client, token)
 
     monkeypatch.setattr(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         lambda _opt: _mock_provider_succeeds(),
     )
 
@@ -433,7 +469,7 @@ def test_admin_bypass_ignores_quota(client: TestClient, monkeypatch):
     cid = _create_character(client, token)
 
     monkeypatch.setattr(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         lambda _opt: _mock_provider_succeeds(),
     )
 
@@ -492,7 +528,7 @@ def test_single_deduction_on_canon_success(client: TestClient, db_session, monke
     setup_canon(db_session, cid)
 
     monkeypatch.setattr(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         lambda _opt: _mock_provider_succeeds(),
     )
 

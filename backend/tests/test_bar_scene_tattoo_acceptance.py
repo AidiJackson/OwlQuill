@@ -257,7 +257,7 @@ def _generate(client: TestClient, token: str, cid: int, prompt: str):
     mock_provider.generate_image = _text
 
     with patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         return_value=mock_provider,
     ):
         resp = client.post(

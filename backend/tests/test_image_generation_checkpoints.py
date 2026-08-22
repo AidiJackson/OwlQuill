@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import settings
 
-ROUTE_LOGGER = "app.api.routes.image_generator"
+ROUTE_LOGGER = "app.services.image_generation_pipeline"
 
 SECRET_PROMPT = "A lakeside at dusk with zzsecretpromptmarkerzz in the scene"
 
@@ -67,7 +67,7 @@ def generated(client: TestClient, caplog):
     provider.supports_multi_image_input = False
     provider.generate_image = MagicMock(return_value=_stub_png_bytes())
     with caplog.at_level(logging.INFO, logger=ROUTE_LOGGER), patch(
-        "app.api.routes.image_generator.get_provider_for_option", return_value=provider
+        "app.services.image_generation_pipeline.get_provider_for_option", return_value=provider
     ):
         resp = client.post(
             f"/characters/{cid}/image-generator/generate",
@@ -88,10 +88,10 @@ def generated_placeholder(client: TestClient, caplog):
     token = _register_and_login(client, "checkpoints_stub@example.com")
     cid = _create_character(client, token)
     with caplog.at_level(logging.INFO, logger=ROUTE_LOGGER), patch(
-        "app.api.routes.image_generator.get_provider_for_option",
+        "app.services.image_generation_pipeline.get_provider_for_option",
         side_effect=RuntimeError("no credentials"),
     ), patch(
-        "app.api.routes.image_generator.get_fallback_provider", return_value=None
+        "app.services.image_generation_pipeline.get_fallback_provider", return_value=None
     ):
         resp = client.post(
             f"/characters/{cid}/image-generator/generate",

@@ -50,6 +50,22 @@ export function canCreateCharacter(user: MaybeUser): boolean {
 }
 
 /**
+ * Is this the founder/seeder tier — Aidan (admin) or Lauren (seeder)?
+ *
+ * Mirror of backend `app.core.entitlements.is_founder_account`. Gates the
+ * founder image workflow: uploading reference images and hand-picking them for
+ * a generation.
+ *
+ * As always, this is a UI affordance and not access control — every founder
+ * route depends on `require_founder` server-side, which is what actually
+ * decides. The mirror exists so the controls aren't offered to an account that
+ * would only be refused.
+ */
+export function isFounder(user: MaybeUser): boolean {
+  return !!(user?.is_admin || user?.is_seeder);
+}
+
+/**
  * Is this a Wanderer — a complete, permanent account type with no character
  * and no Writer Unlock? Never "an account that hasn't finished signing up".
  */

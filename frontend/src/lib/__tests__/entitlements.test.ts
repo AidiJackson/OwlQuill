@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canUseCreatorTools, hasActingCharacter } from '../entitlements';
+import { canUseCreatorTools, hasActingCharacter, isFounder } from '../entitlements';
 import type { User } from '../types';
 
 function makeUser(overrides: Partial<User>): User {
@@ -40,5 +40,25 @@ describe('hasActingCharacter', () => {
   it('is true only when a character exists', () => {
     expect(hasActingCharacter(makeUser({ character_count: 2 }))).toBe(true);
     expect(hasActingCharacter(makeUser({ character_count: 0 }))).toBe(false);
+  });
+});
+
+describe('isFounder', () => {
+  it('is true for an admin and for a dedicated seeder', () => {
+    // Lauren's account is the seeder shape: is_seeder, no admin rights.
+    expect(isFounder(makeUser({ is_admin: true }))).toBe(true);
+    expect(isFounder(makeUser({ is_seeder: true }))).toBe(true);
+  });
+
+  it('is false for a Writer and for a Wanderer', () => {
+    // The founder image workflow must not widen ordinary creator access.
+    expect(isFounder(makeUser({ character_count: 3 }))).toBe(false);
+    expect(isFounder(makeUser({ writer_unlocked: true }))).toBe(false);
+    expect(isFounder(makeUser({ character_count: 0 }))).toBe(false);
+  });
+
+  it('is false when there is no user', () => {
+    expect(isFounder(null)).toBe(false);
+    expect(isFounder(undefined)).toBe(false);
   });
 });

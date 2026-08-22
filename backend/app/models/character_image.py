@@ -31,14 +31,23 @@ class ImageKindEnum(str, enum.Enum):
     ACCESSORY_FIT = "accessory_fit"                # accessory on character (fit reference)
     # Identity OS Beta — scene images are NOT canon unless explicitly promoted
     SCENE_ONLY = "scene_only"                      # generated scene — not canon, not identity ref
+    # Founder/seeder upload — an image the founder supplied from their own
+    # device. It is ordinary creator media held against a character so it can be
+    # picked as a generation reference. It is NOT canon, NOT an identity slot,
+    # and NOT gallery or post material: deliberately absent from both
+    # POST_ATTACHABLE_IMAGE_KINDS below and PUBLIC_GALLERY_KINDS in
+    # app/schemas/character_image.py. Storing an image against a character has
+    # never conferred authority, and this kind must not become the exception.
+    UPLOADED = "uploaded"
 
 
 #: Kinds a character may attach to a public post.
 #:
 #: An allowlist, not a denylist, so a newly added kind is private by default and
 #: has to be opted in deliberately. Everything omitted here — identity sketches,
-#: face and body references, anchors, accessory sheets — is private production
-#: material that exists to drive generation, not to be published.
+#: face and body references, anchors, accessory sheets, founder uploads — is
+#: private production material that exists to drive generation, not to be
+#: published.
 #:
 #: The client mirrors this list in ``frontend/src/components/attachImageKinds.ts``
 #: for what it *offers*; this is what the server will *accept*, and it is the one
@@ -48,6 +57,28 @@ POST_ATTACHABLE_IMAGE_KINDS = frozenset(
         ImageKindEnum.GENERATED.value,
         ImageKindEnum.COVER.value,
         ImageKindEnum.SCENE_ONLY.value,
+    }
+)
+
+
+#: Kinds a founder may hand-pick as a MANUAL generation reference.
+#:
+#: An allowlist for the same reason as the one above: a kind added later is
+#: unselectable until someone opts it in deliberately.
+#:
+#: The identity/anchor/accessory kinds are excluded ON PURPOSE. Those are canon
+#: production material, and which of them reaches a provider is decided by the
+#: scene-aware reference router (``services/scene_router.route_canon_refs``)
+#: from locked canon. Letting a founder hand-pick them here would create a
+#: second, unaudited path for canon slots to reach the provider and would blur
+#: exactly the canon-vs-manual boundary this feature has to keep sharp. Manual
+#: references are ordinary media — uploads and previously generated output.
+REFERENCE_SELECTABLE_IMAGE_KINDS = frozenset(
+    {
+        ImageKindEnum.UPLOADED.value,
+        ImageKindEnum.GENERATED.value,
+        ImageKindEnum.SCENE_ONLY.value,
+        ImageKindEnum.COVER.value,
     }
 )
 

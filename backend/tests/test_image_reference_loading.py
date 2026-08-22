@@ -195,7 +195,7 @@ from tests.test_image_generator import (  # noqa: E402
     _setup_canon,
 )
 
-ROUTE = "app.api.routes.image_generator"
+ROUTE = "app.services.image_generation_pipeline"
 
 
 def _generate(client, token, cid, **overrides):

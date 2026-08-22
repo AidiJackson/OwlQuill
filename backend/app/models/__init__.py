@@ -41,6 +41,7 @@ from app.models.adult_identity import (
 from app.models.adult_founder_job import AdultFounderJob
 from app.models.editor_job import EditorJob
 from app.models.identity_pack_job import IdentityPackJob
+from app.models.image_generation_job import ImageGenerationJob
 from app.models.provenance import Provenance, ProvenanceMixin
 from app.models.composition import CompositionSession, SessionStatus
 from app.models.ai_fingerprint import AIOutputFingerprint
@@ -58,6 +59,7 @@ __all__ = [
     "AdultFounderJob",
     "EditorJob",
     "IdentityPackJob",
+    "ImageGenerationJob",
     "AdultIdentityModel",
     "AdultIdentityModelVersion",
     "AdultIdentityTrainingJob",

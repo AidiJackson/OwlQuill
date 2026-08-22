@@ -21,8 +21,25 @@ _WINDOW_DAYS = 7
 _IDENTITY_PACK_WINDOW_HOURS = 24
 
 
-def _is_admin(user: User) -> bool:
-    return user.email.lower() in settings.get_admin_emails()
+def _is_quota_exempt(user: User) -> bool:
+    """True when this account is exempt from image allowances.
+
+    Named for what it decides. It was ``_is_admin``, which stopped being
+    accurate the moment the exemption covered seeders as well as admins.
+
+    Delegates to the single founder/seeder predicate. It previously read
+    ``ADMIN_EMAILS`` alone, which made the exemption disagree with every other
+    admin check in the codebase: an account carrying ``is_admin=True`` in the DB
+    but absent from the env list was rate-limited as an ordinary creator, and the
+    dedicated seeding account — whose entire purpose is bulk character seeding —
+    was capped at ``IMAGE_WEEKLY_LIMIT`` images a week.
+
+    The exemption is deliberately NOT widened past founder/seeder: ordinary
+    creators and Wanderers keep the weekly allowance exactly as before.
+    """
+    from app.core.entitlements import is_founder_account  # lazy: avoids a cycle
+
+    return is_founder_account(user)
 
 
 def get_quota_status(user: User, db: Session) -> dict:
@@ -33,7 +50,7 @@ def get_quota_status(user: User, db: Session) -> dict:
     plus reset_in_seconds and reset_at showing when the oldest image in the
     window expires (i.e. when the first slot reopens).
     """
-    if _is_admin(user):
+    if _is_quota_exempt(user):
         return {
             "used": 0,
             "limit": None,
@@ -128,7 +145,7 @@ def get_identity_pack_quota_status(character_id: int, user: User, db: Session) -
     Admins are unlimited.  Regular users get used/limit/remaining for the
     rolling 24-hour window scoped to this character.
     """
-    if _is_admin(user):
+    if _is_quota_exempt(user):
         return {
             "used": 0,
             "limit": None,
@@ -155,7 +172,7 @@ def check_identity_pack_quota(character_id: int, user: User, db: Session) -> JSO
     Only counts generate attempts that actually run the generation pipeline —
     dry-run calls and accept/lock operations are not counted.
     """
-    if _is_admin(user):
+    if _is_quota_exempt(user):
         return None
 
     status = get_identity_pack_quota_status(character_id, user, db)
@@ -185,7 +202,7 @@ def check_weekly_quota(user: User, db: Session) -> JSONResponse | None:
     Deduction happens only on successful generation — caller's responsibility
     to stamp user_id on the saved CharacterImage record.
     """
-    if _is_admin(user):
+    if _is_quota_exempt(user):
         return None
 
     quota = get_quota_status(user, db)
