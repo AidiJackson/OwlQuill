@@ -66,6 +66,10 @@ db.sqlite3-journal
 
 # Database files
 *.db
+# SQLite write-ahead-log sidecars. *.db does not match these suffixes,
+# so they surfaced as untracked next to every ignored .db file.
+*.db-shm
+*.db-wal
 
 # Flask stuff:
 instance/
