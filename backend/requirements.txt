@@ -21,6 +21,31 @@ slowapi==0.1.9
 Pillow==12.1.0
 openai>=1.0.0
 
+# Reference isolation (app/services/reference_isolation.py)
+#
+# Required, not optional, and required AT IMPORT TIME. reference_isolation
+# imports cv2 and numpy at module scope; image_generator.py and
+# image_generation_pipeline.py import it at module scope in turn, and both are
+# on the route chain main.py imports at startup. Without these the deployment
+# does not merely lose reference isolation — app.main fails to import and the
+# whole service is down. Same failure mode as the boto3 note below: present in
+# the dev-local .pythonlibs, absent from .deploy-python, invisible until deploy.
+#
+# HEADLESS is deliberate. Full opencv-python links libGL/libgthread, which the
+# Cloud Run runtime image does not carry, so it fails with
+# "ImportError: libGL.so.1: cannot open shared object file". The module uses
+# only imgproc + objdetect (CascadeClassifier) and cv2.data's bundled Haar
+# cascade XMLs — no GUI API — so the headless wheel is a complete substitute.
+#
+# numpy is pinned explicitly rather than inherited from opencv's numpy>=2:
+# reference_isolation imports it directly, and the rule in this file is that
+# what the code imports, this file pins.
+#
+# Cost: ~225 MB installed (opencv ~157 MB, numpy ~68 MB). Prebuilt manylinux
+# wheels, so build time grows by download only, not compilation.
+opencv-python-headless==4.13.0.92
+numpy==2.4.6
+
 # Object storage (Cloudflare R2 via the S3 API)
 #
 # Required, not optional: production runs with USE_OBJECT_STORAGE=true, so both
