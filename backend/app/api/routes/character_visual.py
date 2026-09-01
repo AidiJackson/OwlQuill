@@ -34,6 +34,8 @@ from app.schemas.character_image import (
     CharacterImageRead,
     CharacterImagePublic,
     is_public_gallery_image,
+    is_public_surface_safe,
+    PUBLIC_SURFACE_UNSAFE_MESSAGE,
 )
 from app.schemas.character_visual import (
     IdentityPackGenerateRequest,
@@ -612,6 +614,16 @@ def set_avatar(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Cannot use a temporary image as avatar.",
+        )
+
+    # The second avatar-write path (the first is POST /characters/{id}/avatar).
+    # Both must apply the public-surface rule, or the guard on one is merely a
+    # detour around the other. 422 here matches this route's own convention;
+    # the sibling route answers 400, matching its neighbours.
+    if not is_public_surface_safe(image):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=PUBLIC_SURFACE_UNSAFE_MESSAGE,
         )
 
     avatar_url = file_path_to_url(image.file_path)

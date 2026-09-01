@@ -106,6 +106,58 @@ NON_PUBLIC_IMAGE_PROVIDERS = frozenset({"replicate_nsfw", "self_hosted"})
 #: explicit review of Editor Studio output — not a permanent judgement on it.
 NON_PUBLIC_METADATA_FLAGS = ("adult_studio", "editor_generated")
 
+#: User-facing explanation when a write is refused by the safety rule. Defined
+#: beside the predicate so the three avatar/cover routes cannot drift apart on
+#: how they describe the same refusal.
+PUBLIC_SURFACE_UNSAFE_MESSAGE = (
+    "This image was produced in a studio whose output cannot be shown on a "
+    "public surface. It remains in your library."
+)
+
+
+def is_public_surface_safe(image) -> bool:
+    """True when *image* may be presented on an ANONYMOUS/PUBLIC surface.
+
+    The cross-surface launch-safety rule, and only that. It deliberately knows
+    nothing about galleries — no kind allowlist, no status, no ``is_temp`` —
+    because those are gallery semantics, and a character's avatar, cover and
+    post attachments answer to different rules about kind and lifecycle while
+    answering to the SAME rule about studio provenance.
+
+    Three presentation paths reach an anonymous viewer — the public gallery,
+    the character's avatar/cover, and a post's attached image. Before this
+    existed each was free to invent its own denylist, and two of them had
+    simply never been given one. This is the one definition they share.
+
+    Duck-typed on ``provider`` and ``metadata_json``, so it holds for both
+    ``CharacterImage`` and ``UserImage`` rows; the avatar and cover routes
+    accept either.
+
+    Excludes, in three redundant layers so a writing path that sets only one
+    signal is still caught:
+
+    * ``provider`` column in :data:`NON_PUBLIC_IMAGE_PROVIDERS`;
+    * ``provider`` recorded inside the metadata payload, same set;
+    * any of :data:`NON_PUBLIC_METADATA_FLAGS` present and truthy.
+
+    Fail-closed throughout: any truthy marker excludes, so a row whose marker
+    is present but malformed is withheld rather than published on the strength
+    of a value nobody can parse.
+
+    Says nothing about ownership. A founder keeps full access to their own
+    material through the owner and admin paths, which never consult this.
+    """
+    metadata = getattr(image, "metadata_json", None) or {}
+
+    if (getattr(image, "provider", None) or "") in NON_PUBLIC_IMAGE_PROVIDERS:
+        return False
+    if (metadata.get("provider") or "") in NON_PUBLIC_IMAGE_PROVIDERS:
+        return False
+    if any(metadata.get(flag) for flag in NON_PUBLIC_METADATA_FLAGS):
+        return False
+
+    return True
+
 
 def is_public_gallery_image(image) -> bool:
     """True when *image* belongs in the character's public gallery.
@@ -134,19 +186,10 @@ def is_public_gallery_image(image) -> bool:
         return False
     if image.status != ImageStatusEnum.ACTIVE:
         return False
-
-    metadata = image.metadata_json or {}
-    if metadata.get("is_temp", False):
+    if (image.metadata_json or {}).get("is_temp", False):
         return False
 
-    if (image.provider or "") in NON_PUBLIC_IMAGE_PROVIDERS:
-        return False
-    if (metadata.get("provider") or "") in NON_PUBLIC_IMAGE_PROVIDERS:
-        return False
-    if any(metadata.get(flag) for flag in NON_PUBLIC_METADATA_FLAGS):
-        return False
-
-    return True
+    return is_public_surface_safe(image)
 
 
 class CharacterImageRead(BaseModel):

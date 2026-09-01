@@ -21,6 +21,10 @@ from app.models.character_image import CharacterImage, ImageStatusEnum
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.user_image import UserImage
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult
+from app.schemas.character_image import (
+    PUBLIC_SURFACE_UNSAFE_MESSAGE,
+    is_public_surface_safe,
+)
 from app.services.pack_version import compute_identity_health
 from app.services.seeding import is_seeder_account
 
@@ -517,6 +521,15 @@ def set_character_avatar(
         if (img.metadata_json or {}).get("is_temp", False):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
 
+    # An avatar is shown wherever the character is — including to anonymous
+    # visitors — so it answers to the public-surface rule even though the image
+    # itself is the owner's and stays in their library untouched.
+    if not is_public_surface_safe(img):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=PUBLIC_SURFACE_UNSAFE_MESSAGE,
+        )
+
     if img.file_path.startswith(("http://", "https://")):
         # R2-hosted image: use the URL directly, no local disk read needed.
         avatar_url = img.file_path
@@ -571,6 +584,14 @@ def set_character_cover(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image is not active")
         if (img.metadata_json or {}).get("is_temp", False):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
+
+    # A cover is the character's most public surface of all — the hero image on
+    # the profile. Same rule as the avatar.
+    if not is_public_surface_safe(img):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=PUBLIC_SURFACE_UNSAFE_MESSAGE,
+        )
 
     # Use the original image directly as the cover URL.
     # CSS object-fit:cover + object-position handles all positioning at render time.
