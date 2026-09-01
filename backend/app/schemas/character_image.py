@@ -84,17 +84,69 @@ def _file_path_to_url(file_path: str) -> str:
     return f"/{path}"
 
 
+#: Providers whose output is never public, whatever kind it carries.
+#:
+#: ``replicate_nsfw`` is the Adult Studio image-to-image backend. ``self_hosted``
+#: is the Editor Studio RunPod transform pod, which applies no content filter.
+#: This is a STRUCTURAL signal — a column the writing path sets alongside the
+#: metadata — so it still holds if a metadata payload is rewritten or partial.
+#: It is defence in depth, not the primary Editor Studio identifier: the dev
+#: audit found the one editor row that actually reached the public gallery came
+#: from ``gpt-image``, not ``self_hosted``. ``editor_generated`` below is what
+#: catches that one.
+NON_PUBLIC_IMAGE_PROVIDERS = frozenset({"replicate_nsfw", "self_hosted"})
+
+#: Metadata flags marking output that is ineligible for public surfaces.
+#:
+#: ``adult_studio`` — Adult Studio output. Permanently ineligible: Ficshon's
+#: initial public product carries no explicit sexual imagery.
+#: ``editor_generated`` — Editor Studio output, across all three writing paths
+#: (the sync route, the async RunPod driver, and the E1 validation script) and
+#: every provider it uses. A launch-safety exclusion, fail-closed pending an
+#: explicit review of Editor Studio output — not a permanent judgement on it.
+NON_PUBLIC_METADATA_FLAGS = ("adult_studio", "editor_generated")
+
+
 def is_public_gallery_image(image) -> bool:
     """True when *image* belongs in the character's public gallery.
 
-    Requires an allowlisted kind, ACTIVE status, and that the image is not a
-    temporary pack preview that was never accepted.
+    Requires an allowlisted kind, ACTIVE status, that the image is not a
+    temporary pack preview that was never accepted, and that it carries no
+    launch-ineligible provider or studio marker.
+
+    The studio exclusions are a DENYLIST layered under the kind allowlist, and
+    they are deliberately redundant: provider column, provider recorded inside
+    the metadata payload, and per-studio metadata flags are three independent
+    signals, any one of which is enough to exclude. A path that sets only one
+    of them is still caught.
+
+    They read as fail-closed: any truthy value excludes, matching how ``is_temp``
+    has always been read here. A row whose marker is present but malformed is
+    withheld from the public rather than published on the strength of a value
+    nobody can parse.
+
+    This is the single chokepoint for public gallery eligibility — route code
+    must call it rather than filtering in parallel, or the two rules drift.
+    Owner and admin views do NOT pass through here: a founder keeps full access
+    to their own material, which this function has no opinion about.
     """
     if image.kind not in PUBLIC_GALLERY_KINDS:
         return False
     if image.status != ImageStatusEnum.ACTIVE:
         return False
-    return not (image.metadata_json or {}).get("is_temp", False)
+
+    metadata = image.metadata_json or {}
+    if metadata.get("is_temp", False):
+        return False
+
+    if (image.provider or "") in NON_PUBLIC_IMAGE_PROVIDERS:
+        return False
+    if (metadata.get("provider") or "") in NON_PUBLIC_IMAGE_PROVIDERS:
+        return False
+    if any(metadata.get(flag) for flag in NON_PUBLIC_METADATA_FLAGS):
+        return False
+
+    return True
 
 
 class CharacterImageRead(BaseModel):
