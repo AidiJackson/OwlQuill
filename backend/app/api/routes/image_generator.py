@@ -34,11 +34,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.storage import load_image_bytes
 from app.core.dependencies import get_current_user, user_is_admin
 from app.core.entitlements import is_founder_account, require_creator, require_founder
 from app.models.character import Character as CharacterModel
@@ -52,7 +53,21 @@ from app.services.image_generation_pipeline import (
     run_image_generation,
 )
 from app.services.image_quota import check_weekly_quota
-from app.services.manual_references import ManualReferenceError, resolve_manual_references
+from app.services.manual_references import (
+    REFERENCE_MODE_AUGMENT,
+    REFERENCE_MODE_DELIBERATE,
+    ManualReferenceError,
+    board_is_self_describing,
+    build_reference_notes,
+    has_ambiguous_refinement_subject,
+    parse_role,
+    resolve_manual_references,
+)
+from app.services.reference_isolation import (
+    IsolationError,
+    isolate as isolate_reference,
+    should_isolate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,15 +81,50 @@ _GENERATED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static"
 # ── Request schemas ───────────────────────────────────────────────────
 
 
+#: Mirror of app.services.manual_references.ReferenceRole. The first five are
+#: what /images offers and compile exactly as they always have; the rest are the
+#: Admin Creator vocabulary and only carry meaning under deliberate mode.
 ReferenceRoleLiteral = Literal[
-    "character_appearance", "clothing", "environment", "other", "unspecified"
+    "character_appearance",
+    "character_1",
+    "character_2",
+    "clothing",
+    "environment",
+    "tattoo_mark",
+    "pose_composition",
+    # Attribute-authority roles: evidence for one named feature, never for
+    # identity. Admin Creator / deliberate mode only — under augment they
+    # compile to nothing, exactly like the roles above them.
+    "eyes",
+    "nose",
+    "mouth_lips",
+    "face_shape",
+    "eyebrows",
+    "hair",
+    "facial_hair",
+    "skin_complexion",
+    "other",
+    "unspecified",
 ]
+
+#: What grounds this generation. "augment" is the long-standing canon-driven
+#: policy and the default for every caller that does not name a mode.
+#: "deliberate" is Admin Creator's reference-driven policy: the hand-picked
+#: cards and the prompt are the only inputs, canon is bypassed entirely, and the
+#: selected character owns the result without contributing to it. See
+#: app.services.manual_references and the pipeline's canon bypass.
+ReferenceModeLiteral = Literal["augment", "deliberate"]
 
 
 class ImageGenerateRequest(BaseModel):
     """Request body for the generate routes."""
 
-    prompt: str = Field(..., min_length=1, max_length=800)
+    # May be EMPTY, but only for an Admin Creator board that already states a
+    # complete operation — enforced in _validate_prompt_presence, not here,
+    # because the decision depends on the reference roles and this field cannot
+    # see them. Every other caller (including /images) is still refused an empty
+    # prompt, exactly as when this was min_length=1.
+    prompt: str = Field(..., min_length=0, max_length=800)
     include_character: bool = False
     # Beta: Google (option2) is the default Canon provider. OpenAI (option1) is
     # additionally available to founders/seeders. FLUX Pro (option3), FLUX Max
@@ -93,6 +143,11 @@ class ImageGenerateRequest(BaseModel):
     reference_roles: list[ReferenceRoleLiteral] = Field(
         default_factory=list, max_length=MAX_MANUAL_REFERENCES
     )
+    # Which merge policy applies to those references. Absent for every existing
+    # caller — including the Image Generator on /images — which is why the
+    # default is the unchanged canon-first behaviour. Only Admin Creator sends
+    # "deliberate", and only a founder/seeder may (enforced below).
+    reference_mode: ReferenceModeLiteral = REFERENCE_MODE_AUGMENT
 
 
 class ImageGenerateJobRequest(ImageGenerateRequest):
@@ -185,8 +240,12 @@ def _guard_manual_references(
 ) -> None:
     """Reject a manual-reference selection this account may not make.
 
-    Two separate refusals, in order:
+    Three separate refusals, in order:
 
+    * Asking for a non-default reference mode is a founder/seeder capability.
+      Checked FIRST and independently of whether any ids were sent, because
+      ``reference_mode`` changes how canon references are budgeted even on its
+      own — it is not merely a modifier on a selection.
     * Selecting references at all is a founder/seeder capability — an ordinary
       creator who sends ids gets 403 rather than having them silently ignored,
       because silently ignoring them would produce an image that is not the one
@@ -195,7 +254,15 @@ def _guard_manual_references(
       this character, ACTIVE, selectable kind). Validating at submission means
       the founder learns immediately, instead of discovering it in a failed job.
     """
+    if getattr(body, "reference_mode", REFERENCE_MODE_AUGMENT) != REFERENCE_MODE_AUGMENT:
+        if not is_founder_account(user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Deliberate reference mode is a founder tool.",
+            )
     if not body.reference_image_ids:
+        # No cards means nothing can describe the generation but the prompt.
+        _validate_prompt_presence(body, [])
         return
     if not is_founder_account(user):
         raise HTTPException(
@@ -203,7 +270,7 @@ def _guard_manual_references(
             detail="Selecting reference images is a founder tool.",
         )
     try:
-        resolve_manual_references(
+        resolved = resolve_manual_references(
             db,
             character_id=character_id,
             image_ids=body.reference_image_ids,
@@ -211,6 +278,82 @@ def _guard_manual_references(
         )
     except ManualReferenceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    _validate_refinement_subject(body, resolved)
+    _validate_prompt_presence(body, resolved)
+
+
+def _validate_refinement_subject(body, resolved: list) -> None:
+    """Refuse a feature change that has no single starting image.
+
+    Deliberate mode only. Under ``augment`` the feature roles compile to nothing
+    at all, so the board carries no change instruction to be ambiguous about and
+    /images keeps its existing behaviour exactly.
+
+    See ``has_ambiguous_refinement_subject`` for why this is refused rather than
+    resolved.
+    """
+    if getattr(body, "reference_mode", REFERENCE_MODE_AUGMENT) != REFERENCE_MODE_DELIBERATE:
+        return
+    if not has_ambiguous_refinement_subject([r.role for r in resolved]):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=(
+            "Feature refinement needs a single current Person A image. This board "
+            "has more than one Character 1 reference, so there is no one starting "
+            "image to change. Keep the most recent Character 1 card and remove the "
+            "others, or drop the feature references to generate a scene instead."
+        ),
+    )
+
+
+def _validate_prompt_presence(body, resolved: list) -> None:
+    """Refuse a blank prompt unless the board itself states the operation.
+
+    Two independent conditions, both required — the shape check alone would be
+    a rule about roles, and this needs to be a guarantee about what the provider
+    actually receives:
+
+    1. the board is a self-describing shape (feature roles, or Person A with a
+       pose), and
+    2. compiling it actually yields reference instructions.
+
+    (2) is what makes an empty compiled prompt unreachable rather than merely
+    unlikely. It re-runs the real compiler, so it cannot drift from what the
+    pipeline will send.
+
+    Deliberate mode only. /images sends augment, where the Admin Creator roles
+    compile to nothing at all, so a blank prompt there is refused exactly as it
+    always was.
+    """
+    if body.prompt.strip():
+        return
+
+    mode = getattr(body, "reference_mode", REFERENCE_MODE_AUGMENT)
+    roles = [r.role for r in resolved]
+    if (
+        mode == REFERENCE_MODE_DELIBERATE
+        and resolved
+        and board_is_self_describing(roles)
+        and build_reference_notes(
+            resolved,
+            canon_ref_count=0,
+            canon_grounded=False,
+            refs_before_manual=0,
+            mode=REFERENCE_MODE_DELIBERATE,
+        ).strip()
+    ):
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=(
+            "Describe what you want generated. A prompt is optional only when "
+            "the reference cards already state the change — a Character 1 card "
+            "with feature references, feature references on their own, or "
+            "Character 1 with a pose reference."
+        ),
+    )
 
 
 # ── Synchronous route (preserved) ─────────────────────────────────────
@@ -361,3 +504,68 @@ def get_generation_job(
     if job is None or int(job.character_id) != int(character_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     return _job_to_view(db, job)
+
+
+# ── Isolation preview ─────────────────────────────────────────────────
+
+
+@router.get(
+    "/{character_id}/image-generator/references/{image_id}/isolated",
+    summary="Preview what the provider actually receives for a feature reference",
+    dependencies=[Depends(require_founder)],
+)
+def preview_isolated_reference(
+    character_id: int,
+    image_id: int,
+    role: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Re-derive one feature reference and return it as an image.
+
+    "Original → what the model receives", answered by running the SAME
+    deterministic transform generation runs. Nothing is persisted: there is no
+    derived CharacterImage, no cache and no second copy of anyone's photograph
+    — the bytes are computed on request and discarded. That is the whole reason
+    the transform has to be deterministic.
+
+    Access is the founder gate plus the ordinary ownership checks: the character
+    must be this account's, and ``resolve_manual_references`` re-validates that
+    the image belongs to that character and is a selectable kind — the same
+    validation a generation submission passes. A founder therefore cannot
+    preview an image they could not already have selected as a reference.
+    """
+    _owned_character(db, character_id, current_user)
+    try:
+        parsed = parse_role(role)
+    except ManualReferenceError as exc:
+        # An unrecognised role is a client bug, not a server fault — without
+        # this it escaped as a 500.
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    if not should_isolate(parsed):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That reference type is not isolated.",
+        )
+    try:
+        resolved = resolve_manual_references(
+            db, character_id=character_id, image_ids=[image_id], roles=[role]
+        )
+    except ManualReferenceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    try:
+        derived = isolate_reference(load_image_bytes(resolved[0].file_path), parsed)
+    except IsolationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"This reference could not be safely isolated. {exc.reason}",
+        ) from exc
+
+    return Response(
+        content=derived,
+        media_type="image/png",
+        # Never cached: it is a derived view of someone's photograph, and the
+        # transform may change with the derivation version.
+        headers={"Cache-Control": "no-store"},
+    )

@@ -390,6 +390,27 @@ export default function Images() {
           </div>
         )}
 
+        {/* Admin Creator entry point — founder/seeder only, and deliberately a
+            plain labelled link rather than a polished promo: it is an internal
+            A/B of two creation workflows, not a feature being sold. The Image
+            Generator below is unchanged and remains the normal path. */}
+        {isFounder && (
+          <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-dashed border-edge-md px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm text-ink-2">Admin Creator</p>
+              <p className="text-xs text-ink-3">
+                Experimental four-reference workflow. Internal testing only.
+              </p>
+            </div>
+            <Link
+              to="/admin-creator"
+              className="shrink-0 rounded-lg border border-edge-md px-3 py-1.5 text-xs text-ink-2 hover:text-ink hover:border-gem/40 transition-colors"
+            >
+              Open Admin Creator
+            </Link>
+          </div>
+        )}
+
         {/* Image generator */}
         {myCharacters.length > 0 && (
           <SceneGeneratorPanel

@@ -387,6 +387,39 @@ class ApiClient {
     });
   }
 
+  /**
+   * "What the model receives" for one feature reference.
+   *
+   * Re-derives the isolated representation on the server using the SAME
+   * transform generation uses — nothing is stored, so this cannot drift from
+   * what is actually sent, and no second copy of anyone's photograph exists.
+   *
+   * Returns an object URL the caller MUST revoke; the response is an image, not
+   * JSON, so it bypasses `request()`.
+   */
+  async fetchIsolatedReference(
+    characterId: number,
+    imageId: number,
+    role: string,
+  ): Promise<string> {
+    const token = this.getToken();
+    const response = await fetch(
+      `${API_BASE_URL}/characters/${characterId}/image-generator/references/${imageId}` +
+        `/isolated?role=${encodeURIComponent(role)}`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      },
+    );
+    if (!response.ok) {
+      // The server's refusal text names what to do about it ("Use a clear
+      // front-facing photo…"), so it is surfaced rather than replaced.
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.detail || 'Could not isolate this reference.');
+    }
+    return URL.createObjectURL(await response.blob());
+  }
+
   // ── Founder image workflow ──────────────────────────────────────────
 
   // Upload an image from this device as PRIVATE character media (kind=uploaded).
@@ -429,6 +462,8 @@ class ApiClient {
       is_cover?: boolean;
       reference_image_ids?: number[];
       reference_roles?: string[];
+      // Omitted by the Image Generator; the server defaults to "augment".
+      reference_mode?: 'augment' | 'deliberate';
       idempotency_key: string;
     },
   ): Promise<ImageGenerationJob> {

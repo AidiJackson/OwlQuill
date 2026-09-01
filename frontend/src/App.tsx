@@ -31,6 +31,7 @@ import PublishedStoryReader from '@/pages/PublishedStoryReader';
 import Notifications from '@/pages/Notifications';
 import Studio18Plus from '@/pages/Studio18Plus';
 import EditorStudio from '@/pages/EditorStudio';
+import AdminCreator from '@/pages/AdminCreator';
 import WandererNotice from '@/components/WandererNotice';
 import BecomeAWriter from '@/pages/BecomeAWriter';
 import { canCreateCharacter, canUseCreatorTools } from '@/lib/entitlements';
@@ -203,6 +204,20 @@ function App() {
           element={
             <CreatorRoute workspaceName="Editor Studio" description="Editor Studio is where creators refine and edit their generated images.">
               <EditorStudio />
+            </CreatorRoute>
+          }
+        />
+
+        {/* Admin Creator — experimental four-reference workflow, founder/seeder
+            only. CreatorRoute keeps Wanderers out of the route entirely; the
+            page itself then re-checks canUseAdminCreator, so an ordinary
+            creator who reaches the URL gets "Not available" rather than the
+            tool. The server authorises every call independently. */}
+        <Route
+          path="/admin-creator"
+          element={
+            <CreatorRoute workspaceName="Admin Creator" description="Admin Creator is an internal tool for testing image generation workflows.">
+              <AdminCreator />
             </CreatorRoute>
           }
         />

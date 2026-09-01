@@ -47,6 +47,12 @@ export interface GenerationSubmission {
   is_cover?: boolean;
   reference_image_ids?: number[];
   reference_roles?: string[];
+  // How the server should budget references against canon. OPTIONAL and unset
+  // by the Image Generator, which therefore keeps the server default
+  // ("augment", canon-first). Only Admin Creator sends "deliberate". The field
+  // lives on the shared type because both surfaces submit through this hook;
+  // leaving it out of the payload is what preserves /images behaviour.
+  reference_mode?: 'augment' | 'deliberate';
 }
 
 /** Mint a fresh intent key. Only called when the founder wants a NEW image. */
@@ -136,6 +142,44 @@ export function useGenerationJob(characterId: number | null) {
     [applyJob],
   );
 
+  /**
+   * Re-attach to ONE known job by its public id. Submits nothing.
+   *
+   * Distinct from `resume()` in the two ways that matter to a caller which
+   * remembered what it submitted:
+   *
+   *   * it asks about a SPECIFIC job rather than "the latest for this
+   *     character", so it can never adopt a generation this session did not
+   *     start;
+   *   * it restores a TERMINAL job as well as a running one. `resume()`
+   *     deliberately ignores finished jobs, because on /images a completed job
+   *     from a previous session reappearing would be a surprise. A caller that
+   *     persisted this exact id is in the opposite position: the result is the
+   *     thing it lost, and it has already been paid for.
+   *
+   * Returns the job it attached to, or null. Added for Admin Creator; /images
+   * does not call it and its `resume()` semantics are untouched.
+   */
+  const resumeJob = useCallback(
+    async (charId: number, jobId: string): Promise<ImageGenerationJob | null> => {
+      try {
+        const found = await apiClient.getImageGenerationJob(charId, jobId);
+        if (!mountedRef.current) return null;
+        // The in-flight job owns its own key; a terminal one has none to own.
+        intentKeyRef.current = null;
+        startedAtRef.current = Date.now();
+        applyJob(found);
+        if (found.status === 'queued' || found.status === 'running') poll(charId, jobId);
+        return found;
+      } catch {
+        // Best-effort, exactly as resume(): a 404 (job pruned, wrong account)
+        // or an unreachable API leaves the founder no worse off than before.
+        return null;
+      }
+    },
+    [applyJob, poll],
+  );
+
   /** Re-attach to the latest job for this character. Submits nothing. */
   const resume = useCallback(async () => {
     if (characterId == null) return;
@@ -156,8 +200,16 @@ export function useGenerationJob(characterId: number | null) {
     }
   }, [characterId, applyJob, poll]);
 
+  /**
+   * Submit one generation intent.
+   *
+   * Returns the submitted job, or null if the submission did not reach the
+   * server. A caller that wants to survive losing the page needs the job's
+   * public id at exactly this moment — state set here is not readable until the
+   * next render, and the page may not get one. /images ignores the return value.
+   */
   const submit = useCallback(
-    async (charId: number, payload: GenerationSubmission) => {
+    async (charId: number, payload: GenerationSubmission): Promise<ImageGenerationJob | null> => {
       stopPolling();
       setError('');
       setPhase('submitting');
@@ -170,19 +222,21 @@ export function useGenerationJob(characterId: number | null) {
           ...payload,
           idempotency_key: intentKeyRef.current,
         });
-        if (!mountedRef.current) return;
+        if (!mountedRef.current) return submitted;
         applyJob(submitted);
         if (submitted.status === 'queued' || submitted.status === 'running') {
           poll(charId, submitted.job_id);
         }
+        return submitted;
       } catch (err) {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current) return null;
         // The key is deliberately NOT cleared. This branch includes the case
         // where the server accepted the submission and the response was lost in
         // transit — retrying with the same key re-attaches to that job rather
         // than starting a second paid one.
         setPhase('failed');
         setError(err instanceof Error ? err.message : "We couldn't start that generation.");
+        return null;
       }
     },
     [applyJob, poll, stopPolling],
@@ -205,5 +259,5 @@ export function useGenerationJob(characterId: number | null) {
   const image: LibraryImage | null = job?.image ?? null;
   const busy = phase === 'submitting' || phase === 'running';
 
-  return { phase, job, image, error, busy, submit, resume, reset };
+  return { phase, job, image, error, busy, submit, resume, resumeJob, reset };
 }

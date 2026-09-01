@@ -25,12 +25,20 @@ carried over unchanged and by construction, not by re-implementation:
   * failure classification (sexual refusal vs provider block vs recitation);
   * full provenance/diagnostic metadata on the saved row.
 
-What is new: MANUAL REFERENCES. A founder may hand-pick up to four of their own
-character images as extra evidence for one generation. They AUGMENT canon and
-never replace it — see ``app.services.manual_references`` for the merge policy,
-which is applied here and reported in the saved metadata.
+MANUAL REFERENCES. A founder may hand-pick up to four of their own character
+images as evidence for one generation. What grounds that generation is decided
+by ``params.reference_mode``:
 
-Canon is never written by this module.
+  * ``augment`` (default, and what /images sends) — canon-driven. The cards
+    AUGMENT canon and never replace it: canon compiled into the prompt, canon
+    references routed first, cards in the remaining capacity.
+  * ``deliberate`` (Admin Creator) — reference-driven. The cards and the prompt
+    are the entire brief: canon is not queried, compiled or routed, and the
+    selected character serves only as the owner of the resulting row.
+
+See ``app.services.manual_references`` for the merge policy. Both modes save an
+ordinary SCENE_ONLY row against the selected character, and canon is never
+written by this module under either.
 """
 from __future__ import annotations
 
@@ -65,12 +73,40 @@ from app.services.image_providers.google_provider import (
 )
 from app.services.manual_references import (
     MAX_MANUAL_REFERENCES,
+    REFERENCE_MODE_AUGMENT,
+    REFERENCE_MODE_DELIBERATE,
     ResolvedReference,
     build_reference_notes,
+    describe_board_operation,
     merge_reference_sets,
+    normalise_reference_mode,
     refs_source as _refs_source,
     resolve_manual_references,
 )
+from app.services.reference_isolation import (
+    DERIVATION_VERSION,
+    IsolationError,
+    isolate as isolate_reference,
+    isolation_audit,
+    should_isolate,
+)
+
+#: Founder-facing names for the roles that can fail isolation. The error names
+#: the CARD the founder chose, so "Hair reference 2" points at something they
+#: can see and replace — never at a detector or a coordinate frame.
+_ROLE_DISPLAY: dict[str, str] = {
+    "hair": "Hair",
+    "eyes": "Eyes",
+    "eyebrows": "Eyebrows",
+    "nose": "Nose",
+    "mouth_lips": "Mouth / Lips",
+    "skin_complexion": "Skin / Complexion",
+    "face_shape": "Face Shape / Jaw",
+}
+
+
+def _role_display(role) -> str:
+    return _ROLE_DISPLAY.get(getattr(role, "value", str(role)), "Feature")
 from app.services.provider_capabilities import Capability, provider_supports, ref_support_level
 from app.services.scene_router import (
     MAX_PROVIDER_REFS,
@@ -202,6 +238,12 @@ class GenerationParams:
     is_cover: bool = False
     reference_image_ids: list[int] = field(default_factory=list)
     reference_roles: list[str] = field(default_factory=list)
+    # Which surface submitted this, expressed as the reference-merge policy it
+    # asked for: "augment" (canon-first — the Image Generator and every existing
+    # caller) or "deliberate" (manual-first — Admin Creator). Stored inside the
+    # existing params_json blob, so a job row written before this field existed
+    # deserialises to "augment" and replays under the original policy.
+    reference_mode: str = REFERENCE_MODE_AUGMENT
     # Entitlement snapshot taken at submission — never client input.
     is_admin: bool = False
     is_founder: bool = False
@@ -214,6 +256,7 @@ class GenerationParams:
             "is_cover": self.is_cover,
             "reference_image_ids": list(self.reference_image_ids),
             "reference_roles": list(self.reference_roles),
+            "reference_mode": self.reference_mode,
             "is_admin": self.is_admin,
             "is_founder": self.is_founder,
         }
@@ -227,6 +270,7 @@ class GenerationParams:
             is_cover=bool(data.get("is_cover")),
             reference_image_ids=list(data.get("reference_image_ids") or []),
             reference_roles=list(data.get("reference_roles") or []),
+            reference_mode=normalise_reference_mode(data.get("reference_mode")),
             is_admin=bool(data.get("is_admin")),
             is_founder=bool(data.get("is_founder")),
         )
@@ -496,6 +540,21 @@ def _verify_and_regenerate(
     }
 
 
+# Human-readable policy names. Two mappings because the log line and the image
+# metadata have always carried slightly different strings, and both augment
+# values are kept EXACTLY as they were before deliberate mode existed: an
+# /images record stays byte-identical to its predecessors and an existing log
+# grep still matches.
+_REF_LOG_POLICY = {
+    REFERENCE_MODE_AUGMENT: "canon_first_manual_tail_trimmed",
+    REFERENCE_MODE_DELIBERATE: "manual_first_canon_tail_trimmed",
+}
+_REF_META_POLICY = {
+    REFERENCE_MODE_AUGMENT: "canon_first_manual_appended_tail_trimmed",
+    REFERENCE_MODE_DELIBERATE: "manual_first_canon_tail_trimmed",
+}
+
+
 def _reference_budget(provider, provider_name: str) -> int:
     """How many references may be sent to this provider in one request.
 
@@ -539,7 +598,8 @@ def run_image_generation(
     Architecture (Identity OS — canon single source):
         Generate Images → CharacterIdentityCanon → canon_compiler → provider
 
-    When ``include_character`` is set:
+    When ``include_character`` is set AND the mode is ``augment`` (i.e. every
+    /images generation):
       - CharacterIdentityCanon is required. If missing or incomplete, raises a
         409 "Character canon incomplete".
       - The prompt is compiled by canon_compiler.compile_canon_prompt in strict
@@ -547,12 +607,17 @@ def run_image_generation(
         locked-canon clause.
       - Canon reference images are the locked face/body slots selected by the
         scene-aware reference router (route_canon_refs).
+      - Manual references (``params.reference_image_ids``) are appended AFTER
+        the canon set, never in place of it, and never written back to canon.
 
-    Manual references (``params.reference_image_ids``) are appended AFTER the
-    canon set, never in place of it, and never written back to canon.
+    When the mode is ``deliberate`` (Admin Creator) none of that runs. The
+    character is an ownership and storage destination only: canon is not queried,
+    not compiled, not routed, and not required to be complete; the scene router
+    is never consulted; and the provider receives the founder's cards and prompt
+    alone. See the bypass below.
 
-    Scene images always save as SCENE_ONLY (or COVER for is_cover); canon is
-    never mutated here.
+    Scene images always save as SCENE_ONLY (or COVER for is_cover) against the
+    selected character in both modes; canon is never mutated here.
 
     Ownership and entitlement are the CALLER's responsibility — both the
     synchronous route and the job submission validate them before this runs.
@@ -568,6 +633,12 @@ def run_image_generation(
         image_ids=params.reference_image_ids,
         roles=params.reference_roles,
     )
+
+    # ── Reference mode: what grounds this generation ──────────────────
+    # Resolved before anything reads canon, because in deliberate mode the
+    # answer is "nothing does" and the canon block below must not run at all.
+    ref_mode = normalise_reference_mode(params.reference_mode)
+    deliberate = ref_mode == REFERENCE_MODE_DELIBERATE
 
     # ── Provider resolution + beta gating ──────────────────────────
     requested_option = (
@@ -604,7 +675,25 @@ def run_image_generation(
     using_canon = False
     scene_meta = None
 
-    if params.include_character:
+    # Deliberate mode is reference-driven: the selected character is an ownership
+    # and storage destination, not a generation input. Its canon is neither
+    # compiled into the prompt nor routed into the reference set, the scene
+    # router is never consulted, and incomplete canon is not an error — the
+    # founder's cards and prompt are the whole brief.
+    #
+    # The bypass is enforced HERE rather than trusted from the client. A client
+    # that sends include_character=true alongside reference_mode="deliberate" —
+    # by regression, by a stale bundle, or by hand — must not be able to
+    # reintroduce the silent canon injection this mode exists to prevent.
+    canon_grounded = params.include_character and not deliberate
+    if deliberate and params.include_character:
+        logger.info(
+            "IMAGE_GEN_CANON_BYPASS character_id=%s mode=%s reason=deliberate_overrides_"
+            "include_character",
+            character_id, ref_mode,
+        )
+
+    if canon_grounded:
         canon = (
             db.query(CharacterIdentityCanon)
             .filter(CharacterIdentityCanon.character_id == character_id)
@@ -640,26 +729,51 @@ def run_image_generation(
         provider = None
 
     # ── Merge canon + manual references under one bounded budget ──────
-    # Canon first and never trimmed; manual appended in the founder's order;
-    # overflow dropped from the manual tail and REPORTED. See
-    # app.services.manual_references for the full policy.
+    # augment (default, /images): canon first and never trimmed; manual appended
+    # in the founder's order; overflow dropped from the manual tail.
+    # deliberate (Admin Creator): canon_urls is empty by the bypass above, so
+    # this resolves to the cards alone. The manual-first branch is retained as a
+    # SAFETY NET rather than as live policy: if the bypass ever regresses, the
+    # founder's cards still lead the payload instead of being silently crowded
+    # out — the exact failure this whole surface exists to fix.
+    # Either way every omission is REPORTED. See app.services.manual_references
+    # for the full policy — this call is the only place the two differ.
     budget = _reference_budget(provider, resolved_provider_name)
     reference_urls, manual_sent, manual_dropped = merge_reference_sets(
-        canon_urls=canon_urls, manual=manual_refs, budget=budget
+        canon_urls=canon_urls, manual=manual_refs, budget=budget, mode=ref_mode
     )
-    canon_sent_count = min(len(canon_urls), budget)
+    # Whatever is in the payload that is not a manual reference is canon, in both
+    # orderings. Derived rather than re-computed so the two can never disagree.
+    canon_sent_count = len(reference_urls) - len(manual_sent)
+    canon_dropped_count = max(0, len(canon_urls) - canon_sent_count)
     if manual_dropped:
         logger.warning(
-            "IMAGE_GEN_REF_BUDGET character_id=%s budget=%d canon=%d manual_selected=%d "
-            "manual_sent=%d manual_dropped=%s policy=canon_first_manual_tail_trimmed",
-            character_id, budget, canon_sent_count, len(manual_refs),
+            "IMAGE_GEN_REF_BUDGET character_id=%s mode=%s budget=%d canon=%d "
+            "manual_selected=%d manual_sent=%d manual_dropped=%s policy=%s",
+            character_id, ref_mode, budget, canon_sent_count, len(manual_refs),
             len(manual_sent), [r.image_id for r in manual_dropped],
+            _REF_LOG_POLICY[ref_mode],
+        )
+    if canon_dropped_count:
+        # Canon losing capacity is the deliberate mode's whole trade, and it is
+        # stated rather than left for someone to infer from a reference count.
+        logger.info(
+            "IMAGE_GEN_REF_CANON_TRIMMED character_id=%s mode=%s budget=%d "
+            "canon_selected=%d canon_sent=%d canon_dropped=%d manual_sent=%d policy=%s",
+            character_id, ref_mode, budget, len(canon_urls), canon_sent_count,
+            canon_dropped_count, len(manual_sent), _REF_LOG_POLICY[ref_mode],
         )
 
     # Role notes ride at the TAIL of the compiled prompt, so canon compilation
     # is byte-identical to what it produced before manual references existed.
+    # The numbering follows the PAYLOAD order, which the mode decides: under
+    # deliberate the manual block leads, so nothing precedes it.
     reference_notes = build_reference_notes(
-        manual_sent, canon_ref_count=canon_sent_count, canon_grounded=using_canon
+        manual_sent,
+        canon_ref_count=canon_sent_count,
+        canon_grounded=using_canon,
+        refs_before_manual=0 if deliberate else canon_sent_count,
+        mode=ref_mode,
     )
     if reference_notes:
         compiled_prompt = compiled_prompt + reference_notes
@@ -680,6 +794,17 @@ def run_image_generation(
     # Query strings are stripped before logging: a signed storage URL carries its
     # credential there, and reference URLs are operator diagnostics, not secrets.
     requested_refs = reference_urls[:budget]
+    # Role per PAYLOAD POSITION, derived from the same ordering the merge just
+    # chose — deliberate puts the cards first, augment puts canon first. This is
+    # what lets the loader below know that position 2 is a Hair card and must be
+    # isolated; the loop otherwise sees only URLs. Canon positions are None:
+    # canon is identity truth and is never transformed.
+    payload_roles: list[Any] = (
+        [r.role for r in manual_sent] + [None] * (len(reference_urls) - len(manual_sent))
+        if deliberate
+        else [None] * canon_sent_count + [r.role for r in manual_sent]
+    )
+    payload_roles = payload_roles[:budget]
     logger.info(
         "IMAGE_GEN_REF_LOAD_START character_id=%s refs_requested=%d",
         character_id, len(requested_refs),
@@ -699,8 +824,13 @@ def run_image_generation(
     # canon (which is always first) always wins a tie against a manual repeat.
     refs_deduped = 0
     _seen_ref_hashes: set[str] = set()
-    for url in requested_refs:
+    # Isolation provenance per manual reference, keyed by image id. Consumed by
+    # the audit below so a past generation records what the provider actually
+    # received, without any derived image ever being persisted.
+    isolation_audit_by_id: dict[int, dict[str, Any]] = {}
+    for _pos, url in enumerate(requested_refs):
         safe_url = url.split("?", 1)[0]
+        _role = payload_roles[_pos] if _pos < len(payload_roles) else None
         try:
             b = load_image_bytes(url)
         except Exception as exc:
@@ -712,6 +842,45 @@ def run_image_generation(
                 character_id, safe_url, type(exc).__name__, str(exc),
             )
             continue
+        # ── Feature isolation (deliberate Admin Creator boards only) ──
+        # The donor's whole face would otherwise reach the provider with only
+        # prose scoping it, which is the leak this closes. A failure here is
+        # FATAL for the generation: sending the untouched donor instead would
+        # silently restore the leak the founder believes was removed.
+        if deliberate and should_isolate(_role):
+            try:
+                b = isolate_reference(b, _role)
+            except IsolationError as exc:
+                logger.warning(
+                    "IMAGE_GEN_REF_ISOLATION_FAILED character_id=%s position=%d "
+                    "role=%s status=%s",
+                    character_id, _pos + 1, _role.value, exc.status,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"{_role_display(_role)} reference {_pos + 1} could not be "
+                        f"safely isolated. {exc.reason}"
+                    ),
+                ) from exc
+            # Under deliberate the cards lead the payload, so the position IS
+            # the card index — the same correspondence payload_roles was built
+            # from.
+            if _pos < len(manual_sent):
+                isolation_audit_by_id[manual_sent[_pos].image_id] = isolation_audit(
+                    _role, "applied", applied=True
+                )
+            logger.info(
+                "IMAGE_GEN_REF_ISOLATED character_id=%s position=%d role=%s version=%d",
+                character_id, _pos + 1, _role.value, DERIVATION_VERSION,
+            )
+
+        # Dedup on the bytes actually SENT, not the bytes loaded. One donor
+        # selected as both Hair and Eyebrows derives two different images and
+        # must reach the provider as two references; hashing the original would
+        # drop the second as a duplicate and silently lose a card. For every
+        # untransformed reference the derived bytes ARE the original, so this is
+        # byte-identical to the previous behaviour.
         content_hash = hashlib.sha256(b).hexdigest()
         if content_hash in _seen_ref_hashes:
             refs_deduped += 1
@@ -1137,7 +1306,10 @@ def run_image_generation(
             logger.info("cover_retry_failed_using_first_pass character_id=%s", character_id)
 
     # ── Reference audit: what was ACTUALLY sent, and what was not ─────
-    manual_audit = [r.describe(sent=True) for r in manual_sent] + [
+    manual_audit = [
+        r.describe(sent=True, isolation=isolation_audit_by_id.get(r.image_id))
+        for r in manual_sent
+    ] + [
         r.describe(sent=False, reason="reference_budget_exceeded") for r in manual_dropped
     ]
     source = _refs_source(canon_count=canon_sent_count, manual_count=len(manual_sent))
@@ -1162,17 +1334,30 @@ def run_image_generation(
         # compiled from locked canon". It is NOT a statement about the reference
         # payload — refs_source below is.
         "canon_used": using_canon,
+        # canon_used=False has two very different causes and they must not read
+        # the same in a diagnostic. False with canon_bypassed=False means "no
+        # character was included in this generation"; False with
+        # canon_bypassed=True means "a character WAS selected and its canon was
+        # deliberately withheld as an input" — the Admin Creator contract. The
+        # character still owns the row either way.
+        "canon_bypassed": deliberate,
+        "canon_bypass_reason": "deliberate_reference_mode" if deliberate else None,
         "refs_count": len(ref_bytes),
         "refs_deduped": refs_deduped,
         # Reference provenance (founder image workflow).
         "refs_source": source,
         "refs_budget": budget,
         "canon_refs_sent": canon_sent_count,
+        # Canon references the router selected but the payload could not carry.
+        # Always zero for an /images generation under the default budget, and the
+        # measured cost of the deliberate cards when Admin Creator supplied them.
+        "canon_refs_dropped": canon_dropped_count,
         "manual_refs_selected": len(manual_refs),
         "manual_refs_sent": len(manual_sent),
         "manual_refs_dropped": len(manual_dropped),
         "manual_refs": manual_audit,
-        "manual_ref_policy": "canon_first_manual_appended_tail_trimmed",
+        "reference_mode": ref_mode,
+        "manual_ref_policy": _REF_META_POLICY[ref_mode],
         # Bounded well above a normal compiled prompt (_PROMPT_CAP is 2400) so
         # the stored value IS the prompt in every non-pathological case. The old
         # 400-char cut silently discarded most of it, and a real visual-QA
@@ -1233,7 +1418,14 @@ def run_image_generation(
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
         provider=actual_provider_name,
-        prompt_summary=params.prompt[:200],
+        # A promptless Admin Creator generation would otherwise save a blank
+        # summary, leaving an unidentifiable row in the founder's library. The
+        # board states the operation, so the board names the row.
+        prompt_summary=(
+            params.prompt[:200]
+            if params.prompt.strip()
+            else describe_board_operation([r.role for r in manual_sent])[:200]
+        ),
         metadata_json=metadata,
         file_path=file_path,
     )
@@ -1252,11 +1444,11 @@ def run_image_generation(
 
     logger.info(
         "image_generator_result image_id=%s character_id=%s provider=%s "
-        "provider_option=%s include_character=%s canon_used=%s refs=%d "
-        "refs_source=%s manual_sent=%d manual_dropped=%d",
+        "provider_option=%s include_character=%s canon_used=%s canon_bypassed=%s "
+        "mode=%s refs=%d refs_source=%s manual_sent=%d manual_dropped=%d",
         img.id, character_id, actual_provider_name, effective_option,
-        params.include_character, using_canon, len(ref_bytes),
-        source, len(manual_sent), len(manual_dropped),
+        params.include_character, using_canon, deliberate, ref_mode,
+        len(ref_bytes), source, len(manual_sent), len(manual_dropped),
     )
 
     summary = build_summary(
@@ -1268,6 +1460,9 @@ def run_image_generation(
         manual_dropped=len(manual_dropped),
         refs_loaded=len(ref_bytes),
         provider=actual_provider_name,
+        reference_mode=ref_mode,
+        canon_dropped=canon_dropped_count,
+        canon_bypassed=deliberate,
     )
     return img, summary
 
@@ -1282,6 +1477,9 @@ def build_summary(
     manual_dropped: int,
     refs_loaded: int,
     provider: str,
+    reference_mode: str = REFERENCE_MODE_AUGMENT,
+    canon_dropped: int = 0,
+    canon_bypassed: bool = False,
 ) -> dict[str, Any]:
     """Safe, user-facing account of what reached the provider.
 
@@ -1289,23 +1487,52 @@ def build_summary(
     only. ``warning`` is populated ONLY when something the founder chose did not
     reach the provider, so the client can say so plainly instead of the founder
     discovering it by looking at the image.
+
+    ``canon_bypassed`` records that canon was WITHHELD on purpose rather than
+    simply absent, so a deliberate result is never mistaken for a canon-grounded
+    one that happened to route nothing.
+
+    The canon-displacement note below cannot fire while the bypass holds
+    (deliberate generations carry no canon references to displace). It is kept
+    as the reporting half of that safety net: if the bypass ever regressed, the
+    founder would be told their cards had cost canon capacity rather than
+    discovering it in the image.
     """
     summary: dict[str, Any] = {
         "refs_source": refs_source,
         "refs_budget": budget,
         "canon_refs_sent": canon_refs_sent,
+        "canon_refs_dropped": canon_dropped,
+        "canon_bypassed": canon_bypassed,
         "manual_refs_sent": manual_sent,
         "manual_refs_dropped": manual_dropped,
         "refs_loaded": refs_loaded,
         "provider": provider,
         "manual_refs": manual_refs,
+        "reference_mode": reference_mode,
     }
+    notes: list[str] = []
     if manual_dropped:
-        summary["warning"] = (
+        notes.append(
             f"{manual_dropped} of your reference images could not be sent: this "
             f"character's canon already fills the {budget}-reference limit for "
             "this provider. Canon references are never dropped."
+            if reference_mode == REFERENCE_MODE_AUGMENT
+            else (
+                f"{manual_dropped} of your reference cards could not be sent: this "
+                f"provider accepts only {budget} reference images in one request."
+            )
         )
+    if canon_dropped and reference_mode == REFERENCE_MODE_DELIBERATE:
+        notes.append(
+            f"Your {manual_sent} selected reference "
+            f"{'card' if manual_sent == 1 else 'cards'} took priority, so "
+            f"{canon_dropped} lower-priority canon reference "
+            f"{'image was' if canon_dropped == 1 else 'images were'} not sent. "
+            "The character's locked canon description still governs identity."
+        )
+    if notes:
+        summary["warning"] = " ".join(notes)
     return summary
 
 
@@ -1327,6 +1554,9 @@ def params_from_request(
         is_cover=bool(getattr(body, "is_cover", False)),
         reference_image_ids=list(getattr(body, "reference_image_ids", None) or []),
         reference_roles=list(getattr(body, "reference_roles", None) or []),
+        # A request model that predates the field (or any caller that simply does
+        # not set it) resolves to augment — the pre-existing policy.
+        reference_mode=normalise_reference_mode(getattr(body, "reference_mode", None)),
         is_admin=is_admin,
         is_founder=is_founder,
     )
