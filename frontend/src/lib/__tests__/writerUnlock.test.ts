@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 // typechecks without @types/node, which this project does not depend on.
 import homeSource from '../../pages/Home.tsx?raw';
 import appSource from '../../App.tsx?raw';
+import routeGuardsSource from '../../components/routeGuards.tsx?raw';
 import becomeAWriterSource from '../../pages/BecomeAWriter.tsx?raw';
 import { canCreateCharacter, canUseCreatorTools, isWanderer } from '../entitlements';
 import type { User } from '../types';
@@ -65,10 +66,11 @@ describe('canUseCreatorTools includes the unlock', () => {
   });
 });
 
-// The Commons and the creation route are checked at the source level: there is
-// no DOM test environment in this project (vitest runs in `node`), and these
+// The Commons and the creation route are checked at the source level: these
 // two facts are exactly what regressed — a prompt or a raw route creeping back
-// in is the failure mode worth catching.
+// in is the failure mode worth catching, and neither shows up in behaviour
+// until a Wanderer meets it. (Route *behaviour* is covered for real in
+// components/__tests__/routeGuards.test.tsx, which opts itself into jsdom.)
 describe('the Commons shows no direct character-creation prompt', () => {
   const home = homeSource;
 
@@ -96,8 +98,11 @@ describe('/characters/new is gated on the Writer entitlement', () => {
   });
 
   it('WriterRoute renders the upgrade gate when the entitlement is missing', () => {
-    expect(app).toContain('if (!canCreateCharacter(user))');
-    expect(app).toContain('<BecomeAWriter />');
+    // The guard moved to components/routeGuards.tsx when the auth-resolution
+    // race was fixed; the entitlement it binds is unchanged.
+    const guard = routeGuardsSource.slice(routeGuardsSource.indexOf('export function WriterRoute'));
+    expect(guard).toContain('allow={canCreateCharacter}');
+    expect(guard).toContain('fallback={<BecomeAWriter />}');
   });
 });
 

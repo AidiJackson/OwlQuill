@@ -17,6 +17,18 @@ class ApiClient {
     localStorage.removeItem('token');
   }
 
+  /**
+   * Is a token persisted for this browser?
+   *
+   * The auth store needs this synchronously, before any request is made, to
+   * tell "we have not checked yet" from "there is nothing to check". It asks
+   * here rather than reading localStorage itself so the storage key stays
+   * owned by one module.
+   */
+  hasToken(): boolean {
+    return !!this.getToken();
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}

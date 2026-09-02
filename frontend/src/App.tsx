@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
+import { ProtectedRoute, PublicOnlyRoute, CreatorRoute, WriterRoute } from '@/components/routeGuards';
 import Layout from '@/components/Layout';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
@@ -32,9 +33,7 @@ import Notifications from '@/pages/Notifications';
 import Studio18Plus from '@/pages/Studio18Plus';
 import EditorStudio from '@/pages/EditorStudio';
 import AdminCreator from '@/pages/AdminCreator';
-import WandererNotice from '@/components/WandererNotice';
 import BecomeAWriter from '@/pages/BecomeAWriter';
-import { canCreateCharacter, canUseCreatorTools } from '@/lib/entitlements';
 
 function RouteLogger() {
   const location = useLocation();
@@ -46,95 +45,24 @@ function RouteLogger() {
   return null;
 }
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <>{children}</>;
-}
-
-/**
- * Gate a creator workspace. Authentication alone is not enough — a Wanderer who
- * types the URL must be met with an honest explanation, not the workspace. This
- * is the frontend half of the entitlement; the backend enforces the same rule
- * on the underlying endpoints (a hidden nav link is not access control).
- */
-function CreatorRoute({
-  workspaceName,
-  description,
-  children,
-}: {
-  workspaceName: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const isLoading = useAuthStore((state) => state.isLoading);
-  const user = useAuthStore((state) => state.user);
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  // Wait for the user to resolve before judging entitlement, so a slow /me
-  // fetch doesn't flash the notice at a genuine creator.
-  if (isLoading || !user) {
-    return null;
-  }
-  if (!canUseCreatorTools(user)) {
-    return <WandererNotice workspaceName={workspaceName} description={description} />;
-  }
-  return <>{children}</>;
-}
-
-/**
- * Gate character creation on the Writer entitlement.
- *
- * A Wanderer who reaches /characters/new — by typing it, by a stale link, or
- * by a redirect we missed — gets the upgrade gate, never the creation flow.
- * The backend refuses `POST /characters/` on the same rule, so this is the
- * courteous half of the enforcement, not the enforcement itself.
- */
-function WriterRoute({ children }: { children: React.ReactNode }) {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const isLoading = useAuthStore((state) => state.isLoading);
-  const user = useAuthStore((state) => state.user);
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  // Wait for /me before judging entitlement, so a slow fetch doesn't flash the
-  // paywall at a genuine Writer.
-  if (isLoading || !user) {
-    return null;
-  }
-  if (!canCreateCharacter(user)) {
-    return <BecomeAWriter />;
-  }
-  return <>{children}</>;
-}
-
 function App() {
-  const fetchUser = useAuthStore((state) => state.fetchUser);
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const initializeAuth = useAuthStore((state) => state.initializeAuth);
 
+  // One resolution pass per app start. The store already opened in the right
+  // status from token presence alone, so this confirms the token rather than
+  // discovering it — nothing renders a redirect while it is in flight.
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      fetchUser();
-    }
-  }, [fetchUser]);
+    initializeAuth();
+  }, [initializeAuth]);
 
   return (
     <BrowserRouter>
       <Routes>
         <Route path="*" element={<RouteLogger />} />
-        <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <Login />} />
-        <Route path="/register" element={isAuthenticated ? <Navigate to="/" /> : <Register />} />
-        <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/" /> : <ForgotPassword />} />
-        <Route path="/reset-password" element={isAuthenticated ? <Navigate to="/" /> : <ResetPassword />} />
+        <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
+        <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
+        <Route path="/forgot-password" element={<PublicOnlyRoute><ForgotPassword /></PublicOnlyRoute>} />
+        <Route path="/reset-password" element={<PublicOnlyRoute><ResetPassword /></PublicOnlyRoute>} />
 
         <Route
           element={

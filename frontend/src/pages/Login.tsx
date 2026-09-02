@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
+import { returnToFromState } from '@/lib/returnTo';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -8,6 +9,11 @@ export default function Login() {
   const [error, setError] = useState('');
   const login = useAuthStore((state) => state.login);
   const navigate = useNavigate();
+  const location = useLocation();
+  // Where the redirect that sent them here was headed. Read once, at render,
+  // so the destination is fixed before the form is submitted; validated, so an
+  // external URL can never be navigated to. Absent or unsafe becomes '/'.
+  const returnTo = returnToFromState(location.state);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -15,7 +21,9 @@ export default function Login() {
 
     try {
       await login(email, password);
-      navigate('/');
+      // `replace` so the back button returns to wherever they were before the
+      // interrupted deep link, not to a login form they have already used.
+      navigate(returnTo, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     }
