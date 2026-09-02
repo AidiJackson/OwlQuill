@@ -41,6 +41,11 @@ class Character(Base):
     tags = Column(String, nullable=True)  # Stored as comma-separated for MVP
     visibility = Column(SQLEnum(VisibilityEnum), default=VisibilityEnum.PUBLIC, nullable=False)
     visual_locked = Column(Boolean, default=False, nullable=False, server_default="false")
+    # Founder-granted permission for this character to have an anonymous public
+    # Character Home. Permission only — it never overrides ``visibility``; a
+    # Character Home is publishable only when BOTH this flag and PUBLIC
+    # visibility hold. See app.services.character_publication.
+    public_home_enabled = Column(Boolean, default=False, nullable=False, server_default="false")
     identity_spec_json = Column(Text, nullable=True)      # Structured identity spec (JSON string)
     identity_spec_version = Column(Integer, default=0, nullable=False, server_default="0")
     identity_anchor_json = Column(Text, nullable=True)    # Compact anchor snapshot saved on lock

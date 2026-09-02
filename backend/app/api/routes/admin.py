@@ -1,4 +1,4 @@
-"""Admin-only endpoints: report review + user ban/unban."""
+"""Admin-only endpoints: report review, user ban/unban, Character Home publication."""
 from datetime import datetime
 from typing import Optional
 
@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, user_is_admin
+from app.models.character import Character
 from app.models.report import Report, ReportStatusEnum, ReportTargetTypeEnum
 from app.models.user import User
+from app.services.character_publication import character_home_is_publishable
 
 router = APIRouter()
 
@@ -46,6 +48,11 @@ class ReportAdminRead(BaseModel):
 
 class BanRequest(BaseModel):
     reason: Optional[str] = None
+
+
+class PublicHomeRequest(BaseModel):
+    """Founder grant/revoke of a character's Character Home publication permission."""
+    enabled: bool
 
 
 # ── Report endpoints ──────────────────────────────────────────────────────────
@@ -122,3 +129,33 @@ def unban_user(
     target.ban_reason = None
     db.commit()
     return {"user_id": user_id, "is_banned": False}
+
+
+# ── Character Home publication gate ───────────────────────────────────────────
+
+@router.post("/characters/{character_id}/public-home", status_code=status.HTTP_200_OK)
+def set_character_public_home(
+    character_id: int,
+    body: PublicHomeRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Grant or revoke permission for a character to have a public Character Home.
+
+    Founder-only, and deliberately not reachable through ``PATCH /characters/{id}``
+    — a creator must not be able to self-publish. The flag is permission only: it
+    never overrides ``visibility``, so the response reports ``publishable``, the
+    conjunction that actually governs the anonymous surface.
+    """
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if character is None:
+        raise HTTPException(status_code=404, detail="Character not found.")
+    character.public_home_enabled = body.enabled
+    db.commit()
+    db.refresh(character)
+    return {
+        "character_id": character.id,
+        "public_home_enabled": character.public_home_enabled,
+        "visibility": character.visibility.value,
+        "publishable": character_home_is_publishable(character),
+    }
