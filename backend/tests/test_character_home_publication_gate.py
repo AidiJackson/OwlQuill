@@ -7,6 +7,11 @@ flag can be set (founder only) and cannot be set (ordinary character update).
 
 They also pin what must NOT change: the authenticated ``GET /characters/{id}``
 contract and ordinary owner workflows are not gated by the new flag.
+
+Step 4 later moved the *anonymous* branch of ``GET /characters/{id}/images``
+onto this predicate — the anonymous surfaces are covered in
+``test_character_home_read_api.py``; what stays here is the proof that the
+authenticated branch did not move with it.
 """
 import pytest
 
@@ -368,12 +373,23 @@ def test_owner_workflows_are_not_gated_by_the_flag(client, db_session):
     ).status_code == 200
 
 
-def test_anonymous_images_endpoint_behaviour_is_unchanged(client, db_session):
-    """Pre-existing endpoint, deliberately not moved onto the new predicate:
-    a PUBLIC character with the flag false still serves it anonymously."""
+def test_authenticated_images_endpoint_is_not_gated_by_the_flag(client, db_session):
+    """The signed-in branch of the images endpoint never consults the flag.
+
+    Step 4 put the anonymous branch behind the publication predicate, but the
+    flag must stay publication permission rather than becoming a second
+    authorization requirement for members. A PUBLIC character with the flag
+    false is still readable inside Ficshon, by its owner and by a stranger.
+    """
     owner = get_auth_token(client, email="phe-img@test.com", username="pheimg")
     character_id = _create_character(client, owner, "Summer")
     assert _row(db_session, character_id).public_home_enabled is False
 
-    resp = client.get(f"/characters/{character_id}/images")
-    assert resp.status_code == 200, resp.text
+    assert client.get(
+        f"/characters/{character_id}/images", headers=auth_headers(owner)
+    ).status_code == 200
+
+    stranger = get_auth_token(client, email="phe-img2@test.com", username="pheimg2")
+    assert client.get(
+        f"/characters/{character_id}/images", headers=auth_headers(stranger)
+    ).status_code == 200

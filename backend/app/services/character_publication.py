@@ -14,11 +14,20 @@ The rule has two independent halves and needs both:
 with the flag set stays unpublishable, which is why the flag is read *with*
 visibility here rather than instead of it anywhere downstream.
 
-This predicate governs the *anonymous* Character Home surface only. Existing
-authenticated character access — ``GET /characters/{id}``, owner/creator
-workflows, the pre-existing anonymous images endpoint — deliberately does not
-call it: adding it there would turn a publication permission into a second
-authorization requirement for functionality that already works.
+This predicate governs the *anonymous* Character Home surface only, and every
+anonymous surface must route through it:
+
+* ``GET /characters/{id}/public-home`` — the Home profile itself (Step 4);
+* ``GET /characters/{id}/images`` — the Home's gallery, for anonymous callers
+  only. That endpoint predates the gate and was open to any PUBLIC character,
+  which published a character's media while its Home stayed unpublished; Step 4
+  closed that.
+
+Existing *authenticated* character access — ``GET /characters/{id}``,
+owner/creator workflows, and the signed-in branch of the images endpoint —
+deliberately does not call it: adding it there would turn a publication
+permission into a second authorization requirement for functionality that
+already works.
 """
 from typing import Optional
 

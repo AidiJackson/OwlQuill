@@ -139,6 +139,12 @@ def surface(client, db_session):
     token = get_auth_token(client, email="surf@test.com", username="surfowner")
     owner_id = db_session.query(User).filter(User.email == "surf@test.com").first().id
     cid = _create_character(client, token)
+    # Published Home: since Step 4 that is what makes the gallery anonymously
+    # reachable. These tests are about which media is safe, not about the gate.
+    from app.models.character import Character
+    db_session.query(Character).filter(Character.id == cid).first(
+        ).public_home_enabled = True
+    db_session.commit()
 
     return {
         "token": token,

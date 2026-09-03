@@ -46,6 +46,7 @@ from app.schemas.character_visual import (
     IdentitySketchGenerateRequest,
     IdentitySketchGenerateResponse,
 )
+from app.services.character_publication import character_home_is_publishable
 from app.services.character_visual import upsert_character_dna, get_character_dna
 from app.services.identity_evolution import write_pack_stages
 from app.services.image_quota import check_identity_pack_quota
@@ -404,8 +405,24 @@ def list_character_images(
       are working references, not gallery pieces; prompts, provider names,
       seeds, raw metadata and the owning account id never leave the server.
 
-    Public characters are viewable by anyone. Non-public characters require the
-    caller to be the owner or an admin.
+    ACCESS is split by whether the caller is signed in at all, because the two
+    callers are asking different questions (Character Home Step 4):
+
+    * Anonymous → this is the PUBLIC Character Home's media, so it answers to
+      the Home's publication rule: ``character_home_is_publishable``, PUBLIC
+      visibility AND the founder grant together. Anything else is 404, the same
+      answer a nonexistent id gets, so walking the id space reveals neither
+      private characters nor unpublished ones. Before Step 4 this endpoint was
+      open to any PUBLIC character regardless of the grant, which meant a
+      character's gallery was already published while its Home was not — the
+      one place the publication gate could be walked around.
+    * Authenticated → unchanged. Inside Ficshon a PUBLIC character's gallery is
+      readable as it always was, and non-public characters remain owner/admin
+      only with the same 403. ``public_home_enabled`` is publication
+      permission, never a second authorization requirement for members, so it
+      is deliberately not consulted on this branch.
+
+    Owner and admin access is untouched on both branches.
     """
     character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not character:
@@ -414,9 +431,12 @@ def list_character_images(
     is_admin = current_user is not None and user_is_admin(current_user)
     is_owner = current_user is not None and character.owner_id == current_user.id
 
-    if character.visibility != VisibilityEnum.PUBLIC:
-        if current_user is None:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authenticated.")
+    if current_user is None:
+        if not character_home_is_publishable(character):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Character not found."
+            )
+    elif character.visibility != VisibilityEnum.PUBLIC:
         if not is_owner and not is_admin:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed.")
 

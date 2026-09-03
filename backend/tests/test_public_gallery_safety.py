@@ -170,13 +170,23 @@ def _insert_image(db_session, character_id, user_id, *, kind, provider, metadata
 
 @pytest.fixture()
 def gallery(client, db_session):
-    """A PUBLIC character holding one clean image and three ineligible ones."""
+    """A PUBLIC character holding one clean image and three ineligible ones.
+
+    Its Character Home is published, because since Step 4 that is what makes
+    the gallery reachable anonymously at all. These tests are about WHICH
+    images an anonymous viewer gets, not whether they get in — the gate itself
+    is pinned in test_character_home_read_api.py.
+    """
+    from app.models.character import Character
     from app.models.user import User
 
     token = get_auth_token(client, email="gal-owner@test.com", username="galowner")
     owner_id = db_session.query(User).filter(
         User.email == "gal-owner@test.com").first().id
     character_id = _create_character(client, token)
+    db_session.query(Character).filter(Character.id == character_id).first(
+        ).public_home_enabled = True
+    db_session.commit()
 
     clean = _insert_image(
         db_session, character_id, owner_id,
