@@ -3,7 +3,13 @@ from datetime import datetime
 from typing import Any, Optional
 from pydantic import BaseModel, computed_field
 
-from app.models.character_image import ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
+from app.models.character_image import (
+    POST_ATTACHABLE_IMAGE_KINDS,
+    CharacterImage,
+    ImageKindEnum,
+    ImageStatusEnum,
+    ImageVisibilityEnum,
+)
 
 
 class CharacterImageCreate(BaseModel):
@@ -187,6 +193,47 @@ def is_public_gallery_image(image) -> bool:
     if image.status != ImageStatusEnum.ACTIVE:
         return False
     if (image.metadata_json or {}).get("is_temp", False):
+        return False
+
+    return is_public_surface_safe(image)
+
+
+def is_public_post_image(image) -> bool:
+    """True when *image* may be shown as a post attachment to an ANONYMOUS viewer.
+
+    The third composition of :func:`is_public_surface_safe`, alongside
+    :func:`is_public_gallery_image`. Same shared provenance rule, different
+    lifecycle rules, because a post attachment is not a gallery piece:
+
+    * the shared studio-provenance exclusions;
+    * the row is still ACTIVE. Archiving IS the owner's delete — ``DELETE
+      /characters/{id}/images/{image_id}`` flips the status rather than
+      removing the row — and a post's ``image_url`` is a denormalised string
+      that keeps pointing at it afterwards. Without this check, deleting an
+      image would leave it published on every post that ever carried it. Read
+      duck-typed so it holds for ``UserImage`` too, whose ``status`` is the
+      plain string ``"active"`` that ``ImageStatusEnum.ACTIVE`` compares equal
+      to;
+    * for a ``CharacterImage``, the kind is still in
+      :data:`POST_ATTACHABLE_IMAGE_KINDS`. This is not a new policy: it is the
+      exact allowlist ``POST /realms/{id}/posts`` enforced when the image was
+      attached, re-asserted at read time because ``kind`` is mutable — the
+      identity-pack accept path rewrites it — so a row that was attachable when
+      the post was written may since have become private production material.
+
+    The kind allowlist is deliberately NOT applied to ``UserImage``: the
+    attachment path never imposed one there (account images are checked for
+    ownership alone), so requiring one on read would suppress attachments that
+    were legitimately made.
+
+    Nothing here belongs in ``is_public_surface_safe`` itself. That predicate is
+    about where an image CAME FROM, and stays free of lifecycle and kind so the
+    avatar, cover, gallery and post surfaces can each answer those differently
+    while sharing one provenance rule.
+    """
+    if getattr(image, "status", None) != ImageStatusEnum.ACTIVE:
+        return False
+    if isinstance(image, CharacterImage) and image.kind not in POST_ATTACHABLE_IMAGE_KINDS:
         return False
 
     return is_public_surface_safe(image)
