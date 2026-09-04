@@ -15,6 +15,7 @@ import Profile from '@/pages/Profile';
 import SceneDetail from '@/pages/SceneDetail';
 import CharacterCreationFlow from '@/features/characterCreation/CharacterCreationFlow';
 import CharacterDetail from '@/pages/CharacterDetail';
+import CharacterHome from '@/pages/CharacterHome';
 import MessageNew from '@/pages/MessageNew';
 import ConversationsList from '@/features/messaging/ConversationsList';
 import ConversationThread from '@/features/messaging/ConversationThread';
@@ -63,6 +64,17 @@ function App() {
         <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
         <Route path="/forgot-password" element={<PublicOnlyRoute><ForgotPassword /></PublicOnlyRoute>} />
         <Route path="/reset-password" element={<PublicOnlyRoute><ResetPassword /></PublicOnlyRoute>} />
+
+        {/* Public Character Home — Ficshon's front door.
+
+            Outside ProtectedRoute AND outside Layout, with no guard of any
+            kind. Not PublicOnlyRoute either: that redirects an authenticated
+            visitor away, and this page must render identically for everyone,
+            matching the backend endpoints that take no auth dependency.
+
+            /c/:id is temporary. The destination is /@handle; when handles land
+            this route keeps working and /c/:id becomes a redirect. */}
+        <Route path="/c/:id" element={<CharacterHome />} />
 
         <Route
           element={

@@ -25,6 +25,7 @@ import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import CharacterImagePicker from '@/features/images/components/CharacterImagePicker';
 import { hasActingCharacter } from '@/lib/entitlements';
+import { avatarTransformStyle } from '@/lib/media';
 
 type Tab = 'timeline' | 'stories' | 'media' | 'mentions' | 'manage';
 
@@ -382,10 +383,7 @@ export default function CharacterDetail() {
                       src={character.avatar_url}
                       alt={character.name}
                       className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                      style={avatarScale > 1.001 ? {
-                        transformOrigin: 'center center',
-                        transform: `scale(${avatarScale}) translate(${(0.5 - avatarPosX) * (avatarScale - 1) / avatarScale * 100}%, ${(0.5 - avatarPosY) * (avatarScale - 1) / avatarScale * 100}%)`,
-                      } : undefined}
+                      style={avatarTransformStyle(avatarScale, avatarPosX, avatarPosY)}
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
                   ) : isOwner ? (

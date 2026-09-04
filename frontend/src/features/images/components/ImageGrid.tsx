@@ -18,6 +18,10 @@ interface Props {
   newestId?: number | null;
   /** Whether the newest image has reached its opaque end-state (driven by a RAF tick in the parent). */
   newestVisible?: boolean;
+  /** Column density. Defaults to the workspace's 3-up grid at every width;
+   *  "public" drops to 2 columns on narrow screens, where 3 tiles across a
+   *  phone are too small to be worth tapping on a page built to be shared. */
+  columns?: 'workspace' | 'public';
 }
 
 export default function ImageGrid({
@@ -30,11 +34,12 @@ export default function ImageGrid({
   showPlaceholder,
   newestId,
   newestVisible,
+  columns = 'workspace',
 }: Props) {
   if (images.length === 0 && !showPlaceholder) return null;
 
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className={`grid gap-3 ${columns === 'public' ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3'}`}>
       {showPlaceholder && (
         <div className="rounded-lg border border-edge bg-surface-elevated aspect-[2/3] animate-pulse" />
       )}

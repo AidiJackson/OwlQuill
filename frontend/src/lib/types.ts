@@ -440,6 +440,52 @@ export interface ImageGenerationJob {
 }
 
 // A character image as exposed to the PUBLIC — the curated gallery shape.
+// ── Public Character Home ────────────────────────────────────────────
+//
+// Mirrors the backend's anonymous Character Home schemas EXACTLY. These are
+// allowlists on the wire, so they are allowlists here: a field that is not in
+// `schemas/character_home.py` must not be added below in the hope the server
+// will start sending it.
+//
+// Everything is what an anonymous visitor receives, which is also what a
+// signed-in visitor, the creator and an admin receive — the endpoints take no
+// authentication dependency, so there is exactly one shape.
+
+/** GET /characters/{id}/public-home */
+export interface CharacterHomePublic {
+  id: number;
+  name: string;
+  alias: string | null;
+  role: string | null;
+  era: string | null;
+  species: string | null;
+  short_bio: string | null;
+  long_bio: string | null;
+  tags: string | null;
+  avatar_url: string | null;
+  avatar_position_x: number | null;
+  avatar_position_y: number | null;
+  avatar_scale: number | null;
+  cover_url: string | null;
+  cover_position_x: number | null;
+  cover_position_y: number | null;
+  cover_scale: number | null;
+}
+
+/** GET /characters/{id}/public-home/posts */
+export interface CharacterHomePostPublic {
+  id: number;
+  title: string | null;
+  content: string;
+  content_type: string;
+  post_kind: string | null;
+  provenance: string | null;
+  created_at: string;
+  image_url: string | null;
+  realm_id: number;
+  realm_name: string;
+}
+
 // Mirrors backend CharacterImagePublic: no prompt, provider, seed, metadata,
 // status or visibility. The owner/admin variant is LibraryImage above.
 export interface CharacterImagePublic {

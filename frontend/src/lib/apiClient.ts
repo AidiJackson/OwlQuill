@@ -1,5 +1,5 @@
 import { rateLimitMessage } from './rateLimit';
-import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, CharacterGalleryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus, PostCreatePayload, CommentCreatePayload, ScenePostCreatePayload, SpacePostCreatePayload, CompositionMetrics, ImageGenerationJob } from './types';
+import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, CharacterGalleryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus, PostCreatePayload, CommentCreatePayload, ScenePostCreatePayload, SpacePostCreatePayload, CompositionMetrics, ImageGenerationJob, CharacterHomePublic, CharacterHomePostPublic, CharacterImagePublic } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -342,6 +342,42 @@ class ApiClient {
   // so there is no client-side flag to get wrong.
   async listCharacterImages(characterId: number): Promise<CharacterGalleryImage[]> {
     return this.request<CharacterGalleryImage[]>(`/characters/${characterId}/images`);
+  }
+
+  // ── Public Character Home ──────────────────────────────────────────
+  //
+  // The only endpoints in the client that answer without credentials. They are
+  // grouped and named `public…` so that fact is visible at the call site.
+  //
+  // `request()` still attaches the bearer token when one exists; that is
+  // harmless and deliberate — the endpoints take no authentication dependency,
+  // so the response is identical with or without it. The public Character Home
+  // must never branch on the viewer, and this is the client half of that.
+  //
+  // A rejected promise here means 404 (the character has no public Home —
+  // unpublished, private, or nonexistent, deliberately indistinguishable) or a
+  // transport failure. The caller decides which state to render.
+
+  async getPublicCharacterHome(characterId: number): Promise<CharacterHomePublic> {
+    return this.request<CharacterHomePublic>(`/characters/${characterId}/public-home`);
+  }
+
+  async getPublicCharacterHomePosts(
+    characterId: number,
+    limit = 20,
+  ): Promise<CharacterHomePostPublic[]> {
+    return this.request<CharacterHomePostPublic[]>(
+      `/characters/${characterId}/public-home/posts?limit=${limit}`,
+    );
+  }
+
+  async getPublicCharacterHomeImages(
+    characterId: number,
+    limit = 24,
+  ): Promise<CharacterImagePublic[]> {
+    return this.request<CharacterImagePublic[]>(
+      `/characters/${characterId}/public-home/images?limit=${limit}`,
+    );
   }
 
   async setAvatar(imageType: 'character' | 'user', imageId: number): Promise<{ avatar_url: string }> {
