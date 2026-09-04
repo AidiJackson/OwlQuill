@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""The safe path for intentional DEV database shell access.
+
+    scripts/devdb                      # interactive psql on the DEV database
+    scripts/devdb -c 'SELECT 1'        # extra arguments go to psql
+    scripts/devdb pg_dump -t users     # pg_dump instead of psql
+    scripts/devdb --check              # validate the target, connect to nothing
+
+Use this instead of a bare ``psql``. It does three things a bare ``psql`` does
+not:
+
+1. **Connects only to the application's own DATABASE_URL.** The URL is handed to
+   the client verbatim — never reassembled from parts, so query parameters such
+   as ``sslmode`` survive exactly as the application uses them.
+2. **Validates the destination before launching anything.** The target must
+   classify as DEV (see ``assert_dev_db.py``). Missing, malformed, Neon,
+   local, non-PostgreSQL and simply-unrecognised targets are all refused, and
+   the refusal happens before any client process is spawned.
+3. **Strips ambient libpq variables from the child environment.** ``PGHOST``,
+   ``PGPORT``, ``PGUSER``, ``PGPASSWORD`` and ``PGDATABASE`` are removed
+   unconditionally, so a connection string that omits a field cannot have it
+   filled in from residue left by some other integration.
+
+Written in Python rather than shell so it shares one classification
+implementation with ``assert_dev_db.py``. A shell reimplementation of "is this
+DEV?" would be a second definition, and the two would eventually disagree.
+
+On the URL reaching argv: the connection string is passed as the client's
+argument, so it is visible in ``ps`` to this user. That is not an escalation —
+the same user already holds ``DATABASE_URL`` in its own environment and can read
+``/proc/self/environ`` — and the alternative, rebuilding the URL into ``PG*``
+variables, would mean dropping or hand-mapping query parameters and
+reintroducing exactly the variables this wrapper exists to remove.
+
+Deliberately small. It is a guard around two client binaries, not a database
+CLI: no query helpers, no migrations, no schema tooling, no production mode.
+Production database access is a separate, deliberate act and has no path here.
+"""
+from __future__ import annotations
+
+import importlib.util
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+
+
+def _load_guard():
+    """Import ``assert_dev_db`` from this script's own directory.
+
+    Loaded by path rather than by name so the wrapper works when invoked from
+    any working directory, without requiring the repository on ``sys.path`` or a
+    package layout that ``scripts/`` does not have.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "assert_dev_db", _HERE / "assert_dev_db.py"
+    )
+    if spec is None or spec.loader is None:  # pragma: no cover - defensive
+        raise RuntimeError("could not load scripts/assert_dev_db.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+guard = _load_guard()
+
+#: Clients this wrapper will launch. An allowlist: a name that is not here is
+#: treated as an argument to psql, never executed as a command, so the wrapper
+#: cannot be talked into running an arbitrary binary.
+TOOLS = ("psql", "pg_dump")
+
+
+def parse_args(argv: list[str]) -> tuple[str, list[str], bool]:
+    """Split *argv* into (tool, client arguments, check_only).
+
+    The tool is the first argument when it is exactly ``psql`` or ``pg_dump``;
+    otherwise the tool is ``psql`` and every argument belongs to it. That keeps
+    ``devdb -c 'SELECT 1'`` working without an option parser that would try to
+    interpret the client's own flags.
+    """
+    args = list(argv)
+    check_only = False
+    if args and args[0] == "--check":
+        check_only = True
+        args = args[1:]
+
+    tool = "psql"
+    if args and args[0] in TOOLS:
+        tool = args[0]
+        args = args[1:]
+
+    return tool, args, check_only
+
+
+def _execute(command: list[str], env: dict[str, str]) -> int:
+    """Run the client. Isolated so tests can replace it and assert on the
+    boundary without a PostgreSQL binary or a database being present."""
+    return subprocess.call(command, env=env)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    tool, client_args, check_only = parse_args(argv)
+
+    url = os.environ.get("DATABASE_URL")
+
+    # Validate FIRST. Nothing is spawned, and no environment is prepared, until
+    # the destination is known to be DEV.
+    try:
+        guard.assert_dev_database(url, purpose=f"to run {tool}")
+    except guard.DatabaseTargetError as exc:
+        # exc carries a classification, never the connection details.
+        print(f"devdb: {exc}", file=sys.stderr)
+        return 2
+
+    stripped = [name for name in guard.AMBIENT_LIBPQ_VARS if name in os.environ]
+    if stripped:
+        print(
+            "devdb: ignoring ambient libpq variables "
+            f"({', '.join(stripped)}) — connecting via DATABASE_URL",
+            file=sys.stderr,
+        )
+
+    if check_only:
+        print(f"devdb: target classified DEV; {tool} not launched (--check)")
+        return 0
+
+    env = guard.sanitized_libpq_env(os.environ)
+    return _execute([tool, url, *client_args], env)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

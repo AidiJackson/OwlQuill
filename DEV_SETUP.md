@@ -135,6 +135,48 @@ cd backend
 alembic upgrade head
 ```
 
+## Database access
+
+`DATABASE_URL` is the canonical connection for both the application and Alembic.
+Everything derives from it: `backend/app/core/database.py`,
+`backend/alembic/env.py`, and every script that goes through
+`app.core.database.SessionLocal`.
+
+**For a DEV database shell, use the wrapper — not a bare `psql`:**
+
+```bash
+./scripts/devdb                      # interactive psql on the DEV database
+./scripts/devdb -c 'SELECT 1'        # extra arguments pass through to psql
+./scripts/devdb pg_dump -t users     # pg_dump instead of psql
+./scripts/devdb --check              # validate the target, connect to nothing
+```
+
+`scripts/devdb` connects using `DATABASE_URL`, refuses to launch anything unless
+the destination classifies as the known DEV database, and strips ambient
+`PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE` from the client's
+environment. A bare `psql` does none of that: when those variables are set, it
+silently connects to whatever they name.
+
+**Writing a maintenance or data-touching script?** Assert the target first:
+
+```python
+from assert_dev_db import assert_dev_database   # scripts/assert_dev_db.py
+
+assert_dev_database(purpose="to backfill image URLs")
+```
+
+It raises rather than returning a URL for anything it cannot positively identify
+as DEV, and its errors never contain connection details.
+
+**Do not set `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD` or `PGDATABASE` in this
+workspace.** Nothing in the repository reads them, and ambient values pointing
+at non-DEV infrastructure are how a routine local command reaches the wrong
+database. If an integration re-provisions them, remove them again.
+
+**Production database access is deliberate and separate.** It is never something
+ambient workspace variables should make possible, and there is no path to it
+through `scripts/devdb`.
+
 ### Port already in use
 Kill the processes using ports 8000 or 5173:
 ```bash

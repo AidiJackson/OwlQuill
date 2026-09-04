@@ -85,7 +85,21 @@ Preferred communication style: Simple, everyday language.
 
 **Database Setup**:
 - Run `alembic upgrade head` in backend directory for migrations
-- SQLite database file created at `./ficshon.db`
+- SQLite database file created at `./ficshon.db` when no `DATABASE_URL` is set
+- On Replit, `DATABASE_URL` points at the managed DEV PostgreSQL and is the
+  canonical connection for both the app and Alembic
+
+**Database Access Safety**:
+- Use `./scripts/devdb` for a DEV database shell — it validates the destination
+  before launching `psql`/`pg_dump` and strips ambient libpq variables. Do not
+  use a bare `psql`.
+- Maintenance scripts must call `assert_dev_database()` from
+  `scripts/assert_dev_db.py` before creating an engine or session.
+- Do not set `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE` in this
+  workspace. Nothing reads them, and ambient values pointing elsewhere are how a
+  routine command reaches the wrong database. (Such a set existed and was
+  removed on 4 September 2026.)
+- Production database access must be a deliberate, separate action.
 
 **Testing**: pytest with httpx TestClient
 - Test fixtures create isolated SQLite database per test
@@ -111,7 +125,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Environment Configuration
 Key environment variables (set in `.env` or Replit Secrets):
-- `DATABASE_URL`: Database connection string
+- `DATABASE_URL`: Database connection string (the canonical DEV/app connection)
 - `SECRET_KEY`: JWT signing key (required in production)
 - `DEBUG`: Enable debug mode (defaults to false)
 - `BACKEND_CORS_ORIGINS`: Comma-separated allowed origins
