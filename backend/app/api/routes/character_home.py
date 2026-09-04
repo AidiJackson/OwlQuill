@@ -1,7 +1,7 @@
 """Anonymous Character Home read API (Character Home Steps 4 and 5).
 
 The surfaces in Ficshon that answer a request carrying no token at all — the
-Home's profile, and its chronological timeline.
+Home's profile, its gallery, and its chronological timeline.
 It is kept in its own module for exactly that reason: everything here is public
 by construction, so "is this route anonymous?" is answered by which file it
 lives in rather than by reading its dependencies.
@@ -13,7 +13,19 @@ they drift:
   all (PUBLIC *and* founder-granted permission, read together);
 * :func:`resolve_public_media_url` / :func:`resolve_public_post_image_url` —
   whether a given avatar, cover or post attachment may be shown to an anonymous
-  viewer.
+  viewer;
+* :func:`is_public_gallery_visible` — whether a given image belongs in the
+  Home's gallery, being the creator's selection AND Ficshon's own eligibility
+  rule, composed but never merged.
+
+NOT ONE of these routes takes an authentication dependency, optional or
+otherwise. A Character Home is a public projection: the same visitor sees the
+same Home whether they arrive logged out, logged in as a stranger, logged in as
+the creator, or as an admin. Making the result depend on who is asking would
+mean the creator could never see what they had actually published, and it is
+precisely how an unselected working image ends up on a public page. A creator
+who wants their full library uses the authenticated image routes, which are a
+different surface answering a different question.
 
 Nothing authenticated changes shape because of this file. ``GET
 /characters/{id}`` keeps its own visibility rule and its own schema.
@@ -25,9 +37,11 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.character import Character as CharacterModel
+from app.models.character_image import CharacterImage as CharacterImageModel, ImageStatusEnum
 from app.models.post import Post as PostModel
 from app.models.realm import Realm as RealmModel
 from app.schemas.character_home import CharacterHomePostPublic, CharacterHomePublic
+from app.schemas.character_image import CharacterImagePublic, is_public_gallery_visible
 from app.services.character_home_media import (
     resolve_public_media_url,
     resolve_public_post_image_url,
@@ -79,7 +93,7 @@ def get_public_character_home(
     later cannot appear here without someone adding it to the schema too.
 
     Neither the gallery nor the timeline is embedded. The Home's media lives
-    behind ``GET /characters/{id}/images`` and its posts behind
+    behind ``GET /characters/{id}/public-home/images`` and its posts behind
     ``GET /characters/{id}/public-home/posts``, both admitted by the same
     predicate — one contract per surface, each independently testable, and no
     second pagination story to keep in step with the first.
@@ -105,6 +119,84 @@ def get_public_character_home(
         cover_position_y=character.cover_position_y,
         cover_scale=character.cover_scale,
     )
+
+
+@router.get(
+    "/{character_id}/public-home/images",
+    response_model=list[CharacterImagePublic],
+    summary="Public Character Home gallery (no authentication)",
+)
+def get_public_character_home_images(
+    character_id: int,
+    limit: int = Query(60, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> list[CharacterImagePublic]:
+    """The anonymous gallery for a published Character Home.
+
+    THE canonical Character Home gallery contract. ``GET
+    /characters/{id}/images`` is a different surface — the creator's working
+    library, authenticated — and is no longer a public gallery at all.
+
+    ADMISSION is three independent layers, all required, and none able to stand
+    in for another:
+
+    1. the Home is published — :func:`character_home_is_publishable`, applied by
+       ``_publishable_or_404`` exactly as the profile and timeline apply it, so
+       a gallery can never be reachable for a character whose Home is not;
+    2. the creator selected the image — ``public_gallery_enabled``;
+    3. Ficshon will expose the image — :func:`is_public_gallery_image`, which
+       covers kind, ACTIVE status, unaccepted temp previews and studio
+       provenance.
+
+    Layers 2 and 3 are composed by :func:`is_public_gallery_visible` and are
+    deliberately NOT merged: creator selection is checked alongside the safety
+    rule, never inside it, so selecting an image can only ever subtract from
+    what Ficshon allows and never add to it. That is also why the ``status ==
+    ACTIVE`` filter below duplicates a condition the predicate already enforces
+    — the query narrows for cost, the predicate decides for correctness, and
+    removing either leaves the other still correct.
+
+    THE RESULT DOES NOT DEPEND ON WHO IS ASKING. This route takes no
+    authentication dependency at all, not even an optional one, so a token
+    cannot widen it: logged out, signed-in stranger, the creator and an admin
+    all receive byte-identical output. A creator inspecting their own Home sees
+    what visitors see, which is the only way "what have I actually published?"
+    has an honest answer. Their full working library remains at ``GET
+    /characters/{id}/images`` and ``GET /users/me/character-images``.
+
+    The response is :class:`CharacterImagePublic` — id, character_id, kind,
+    created_at, url and nothing else. ``public_gallery_enabled`` is absent on
+    purpose: it is the creator's own curation state, and to a visitor looking at
+    an image that is already on the page it is not information. Provider names,
+    prompts, seeds, raw metadata, owning account id, internal visibility and
+    status are absent from the schema rather than merely unset, so none of them
+    can leak by someone later handing this route an ORM row.
+
+    Ordering is newest-first with ``id`` as a tie-break, matching the timeline,
+    so a gallery is stable when seeded rows share a timestamp. ``limit`` is
+    bounded because this is an unauthenticated endpoint; its default is higher
+    than the timeline's because a gallery grid shows more at once than a page of
+    posts.
+    """
+    _publishable_or_404(db, character_id)
+
+    rows = (
+        db.query(CharacterImageModel)
+        .filter(
+            CharacterImageModel.character_id == character_id,
+            CharacterImageModel.status == ImageStatusEnum.ACTIVE,
+            CharacterImageModel.public_gallery_enabled.is_(True),
+        )
+        .order_by(CharacterImageModel.created_at.desc(), CharacterImageModel.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        CharacterImagePublic.from_image(row)
+        for row in rows
+        if is_public_gallery_visible(row)
+    ]
 
 
 @router.get(

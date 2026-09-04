@@ -14,9 +14,13 @@ more weight than usual. Three things are pinned:
 3. **The gallery.** ``GET /characters/{id}/images`` moved its ANONYMOUS branch
    onto the same predicate — it previously served any PUBLIC character, which
    published a character's media while its Home stayed unpublished — while its
-   authenticated branch is untouched. Step 6.5 later added creator selection on
-   top of that same branch; the curation layer itself is pinned in
-   ``test_character_home_gallery_selection.py``.
+   authenticated branch is untouched. Step 6.5 added creator selection on top of
+   that branch, and Step 6.6 moved the surface out altogether: the anonymous
+   gallery is now ``GET /characters/{id}/public-home/images`` and the old route
+   is authenticated-only. The curation layer is pinned in
+   ``test_character_home_gallery_selection.py`` and the projection in
+   ``test_character_home_gallery_projection.py``; what stays here is the
+   publication rule they both answer to.
 """
 import json
 
@@ -400,6 +404,11 @@ def test_unsafe_user_image_behind_a_cover_is_also_caught(client, db_session, pub
 
 
 # ── D. The anonymous gallery ──────────────────────────────────────────────────
+#
+# Step 6.6 moved this surface to ``GET /characters/{id}/public-home/images`` and
+# made the old route authenticated-only; the publication rule these tests pin is
+# unchanged, and the projection itself is covered in
+# ``test_character_home_gallery_projection.py``.
 
 def test_anonymous_gallery_is_404_when_home_is_disabled(client, db_session):
     """The bypass Step 4 closes: PUBLIC alone used to be enough here."""
@@ -409,7 +418,7 @@ def test_anonymous_gallery_is_404_when_home_is_disabled(client, db_session):
     _insert_image(db_session, cid, uid, file_path="static/generated/g1.png")
     assert _row(db_session, cid).public_home_enabled is False
 
-    assert client.get(f"/characters/{cid}/images").status_code == 404
+    assert client.get(f"/characters/{cid}/public-home/images").status_code == 404
 
 
 def test_anonymous_gallery_works_when_home_is_publishable(client, db_session, published):
@@ -418,7 +427,7 @@ def test_anonymous_gallery_works_when_home_is_publishable(client, db_session, pu
     image_id = _insert_image(db_session, cid, uid, file_path="static/generated/g2.png",
                              selected=True)
 
-    resp = client.get(f"/characters/{cid}/images")
+    resp = client.get(f"/characters/{cid}/public-home/images")
     assert resp.status_code == 200, resp.text
     assert [i["id"] for i in resp.json()] == [image_id]
 
@@ -441,7 +450,7 @@ def test_anonymous_gallery_still_filters_unsafe_media(client, db_session, publis
         kind=ImageKindEnum.ANCHOR_FRONT, selected=True,
     )
 
-    resp = client.get(f"/characters/{cid}/images")
+    resp = client.get(f"/characters/{cid}/public-home/images")
     assert resp.status_code == 200, resp.text
     assert {i["id"] for i in resp.json()} == {clean}
 
@@ -452,7 +461,14 @@ def test_anonymous_gallery_hides_private_characters_as_404(client, db_session):
     cid = _create_character(client, token, "Hidden", visibility="private")
     _publish(db_session, cid)
 
-    assert client.get(f"/characters/{cid}/images").status_code == 404
+    assert client.get(f"/characters/{cid}/public-home/images").status_code == 404
+
+
+def test_the_old_images_route_is_no_longer_anonymous(client, db_session, published):
+    """Step 6.6: the second public gallery was retired, not kept as an alias."""
+    cid = published["character_id"]
+    assert client.get(f"/characters/{cid}/public-home/images").status_code == 200
+    assert client.get(f"/characters/{cid}/images").status_code in (401, 403)
 
 
 # ── E. Authenticated behaviour is unchanged ───────────────────────────────────

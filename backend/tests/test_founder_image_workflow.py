@@ -161,14 +161,15 @@ def test_anonymous_visitor_gets_the_curated_public_shape(client, db_session):
                   selected=True)
     _insert_image(db_session, cid, uid, "anchor_front", prompt="anchor reference",
                   selected=True)
-    # Since Step 4 an anonymous caller also needs the Home published; the
-    # curated SHAPE asserted below is what this test is actually about.
+    # Since Step 4 an anonymous caller also needs the Home published, and since
+    # Step 6.6 the anonymous gallery is /public-home/images rather than this
+    # route. The curated SHAPE asserted below is what this test is about.
     from app.models.character import Character
     db_session.query(Character).filter(Character.id == cid).first(
         ).public_home_enabled = True
     db_session.commit()
 
-    resp = client.get(f"/characters/{cid}/images")  # no Authorization header
+    resp = client.get(f"/characters/{cid}/public-home/images")  # no Authorization header
     assert resp.status_code == 200, resp.text
     imgs = resp.json()
     assert len(imgs) == 1
@@ -187,10 +188,11 @@ def test_private_character_gallery_is_closed_to_outsiders(client, db_session):
     uid = _user_id(db_session, "privowner@test.com")
     _insert_image(db_session, cid, uid, "generated")
 
-    # Anonymous callers get 404, not 403: since Step 4 this endpoint answers
-    # anonymously only for a published Character Home, and a refusal must not
-    # confirm that a private character exists.
-    assert client.get(f"/characters/{cid}/images").status_code == 404
+    # The anonymous Character Home gallery answers 404, not 403: a refusal must
+    # not confirm that a private character exists. The old route no longer
+    # answers anonymously at all (Step 6.6).
+    assert client.get(f"/characters/{cid}/public-home/images").status_code == 404
+    assert client.get(f"/characters/{cid}/images").status_code in (401, 403)
 
     stranger = get_auth_token(client, email="privstranger@test.com", username="privstranger")
     resp = client.get(f"/characters/{cid}/images", headers=auth_headers(stranger))

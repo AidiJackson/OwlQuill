@@ -257,5 +257,7 @@ def test_owner_still_holds_and_sees_the_unsafe_rows(client, surface, db_session)
 
 
 def test_anonymous_still_sees_only_the_safe_image(client, surface):
-    resp = client.get(f"/characters/{surface['character_id']}/images")
+    """Step 6.6: the anonymous gallery is /public-home/images. Every fixture row
+    is selected, so media safety is the only thing filtering here."""
+    resp = client.get(f"/characters/{surface['character_id']}/public-home/images")
     assert {i["id"] for i in resp.json()} == {surface["ok"]}

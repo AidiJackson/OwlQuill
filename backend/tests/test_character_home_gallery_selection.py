@@ -8,6 +8,11 @@ anonymous viewer takes THREE independent layers, all required:
 2. the creator selected this image — ``public_gallery_enabled``;
 3. Ficshon is willing to expose it — ``is_public_gallery_image``.
 
+Since Step 6.6 the anonymous gallery is
+``GET /characters/{id}/public-home/images`` and the old ``/characters/{id}/images``
+route is authenticated-only; the curation layer these tests pin is the same one,
+read through the canonical public endpoint.
+
 What these tests pin, in order of what would hurt most if it broke:
 
 * **Selection never overrides safety.** A selected image that is Adult Studio
@@ -217,7 +222,7 @@ def test_generated_images_are_not_selected_by_default(client, db_session, publis
     image_id = _insert_image(db_session, cid, uid, file_path="static/generated/d1.png")
 
     assert _image(db_session, image_id).public_gallery_enabled is False
-    assert client.get(f"/characters/{cid}/images").json() == []
+    assert client.get(f"/characters/{cid}/public-home/images").json() == []
 
 
 # ── B. The predicate: selection AND safety, never selection alone ─────────────
@@ -274,7 +279,7 @@ def test_anonymous_gallery_shows_only_selected_images(client, db_session, publis
                           selected=True)
     _insert_image(db_session, cid, uid, file_path="static/generated/c2.png")
 
-    resp = client.get(f"/characters/{cid}/images")
+    resp = client.get(f"/characters/{cid}/public-home/images")
     assert resp.status_code == 200, resp.text
     assert [i["id"] for i in resp.json()] == [shown]
 
@@ -295,7 +300,7 @@ def test_anonymous_gallery_still_withholds_selected_unsafe_media(client, db_sess
     _insert_image(db_session, cid, uid, file_path="static/generated/c7.png",
                   metadata={"is_temp": True}, selected=True)
 
-    resp = client.get(f"/characters/{cid}/images")
+    resp = client.get(f"/characters/{cid}/public-home/images")
     assert resp.status_code == 200, resp.text
     assert {i["id"] for i in resp.json()} == {clean}
 
@@ -308,7 +313,7 @@ def test_selection_does_not_publish_an_unpublished_home(client, db_session):
     _insert_image(db_session, cid, uid, file_path="static/generated/c8.png", selected=True)
     assert _row(db_session, cid).public_home_enabled is False
 
-    assert client.get(f"/characters/{cid}/images").status_code == 404
+    assert client.get(f"/characters/{cid}/public-home/images").status_code == 404
 
 
 def test_selection_does_not_publish_a_private_character(client, db_session):
@@ -319,17 +324,17 @@ def test_selection_does_not_publish_a_private_character(client, db_session):
     uid = _user_id(db_session, "sel-priv@test.com")
     _insert_image(db_session, cid, uid, file_path="static/generated/c9.png", selected=True)
 
-    assert client.get(f"/characters/{cid}/images").status_code == 404
+    assert client.get(f"/characters/{cid}/public-home/images").status_code == 404
 
 
 def test_unselecting_withdraws_an_image_from_the_anonymous_gallery(client, db_session, published):
     cid, uid, token = published["character_id"], published["owner_id"], published["token"]
     image_id = _insert_image(db_session, cid, uid, file_path="static/generated/c10.png",
                              selected=True)
-    assert [i["id"] for i in client.get(f"/characters/{cid}/images").json()] == [image_id]
+    assert [i["id"] for i in client.get(f"/characters/{cid}/public-home/images").json()] == [image_id]
 
     assert _select(client, token, cid, image_id, enabled=False).status_code == 200
-    assert client.get(f"/characters/{cid}/images").json() == []
+    assert client.get(f"/characters/{cid}/public-home/images").json() == []
 
 
 def test_the_anonymous_gallery_shape_carries_no_selection_field(client, db_session, published):
@@ -337,7 +342,7 @@ def test_the_anonymous_gallery_shape_carries_no_selection_field(client, db_sessi
     cid, uid = published["character_id"], published["owner_id"]
     _insert_image(db_session, cid, uid, file_path="static/generated/c11.png", selected=True)
 
-    body = client.get(f"/characters/{cid}/images").json()
+    body = client.get(f"/characters/{cid}/public-home/images").json()
     assert len(body) == 1
     assert set(body[0].keys()) == {"id", "character_id", "kind", "created_at", "url"}
 
@@ -385,7 +390,8 @@ def test_admin_media_is_unaffected_by_selection(client, db_session, published):
 
 
 def test_signed_in_stranger_gallery_is_unchanged_by_selection(client, db_session, published):
-    """Pinned deliberately: curation is an anonymous-surface rule for now.
+    """Pinned deliberately: curation governs the public Home, not the in-product
+    library.
 
     Applying it to the signed-in branch would empty every in-product gallery on
     the day the column ships, since no image has ever been selected. That is a
@@ -525,10 +531,10 @@ def test_selection_works_before_the_home_is_published(client, db_session):
 
     assert _select(client, token, cid, image_id).status_code == 200
     # Still unpublished, so still invisible.
-    assert client.get(f"/characters/{cid}/images").status_code == 404
+    assert client.get(f"/characters/{cid}/public-home/images").status_code == 404
 
     _publish(db_session, cid)
-    assert [i["id"] for i in client.get(f"/characters/{cid}/images").json()] == [image_id]
+    assert [i["id"] for i in client.get(f"/characters/{cid}/public-home/images").json()] == [image_id]
 
 
 def test_the_route_is_also_mounted_under_api(client, db_session, published):
@@ -603,7 +609,7 @@ def test_avatar_and_cover_do_not_answer_to_the_gallery_flag(client, db_session, 
     assert body["avatar_url"] == "/static/generated/g1.png"
     assert body["cover_url"] == "/static/generated/g2.png"
     # ...and the gallery beside them is still empty, because nothing is selected.
-    assert client.get(f"/characters/{cid}/images").json() == []
+    assert client.get(f"/characters/{cid}/public-home/images").json() == []
 
 
 def test_set_avatar_still_works_for_an_unselected_image(client, db_session, published):
@@ -631,4 +637,4 @@ def test_post_attachments_do_not_answer_to_the_gallery_flag(client, db_session, 
     assert timeline.status_code == 200, timeline.text
     assert [p["image_url"] for p in timeline.json()] == ["/static/generated/g4.png"]
     # The same image is still absent from the curated gallery.
-    assert client.get(f"/characters/{cid}/images").json() == []
+    assert client.get(f"/characters/{cid}/public-home/images").json() == []

@@ -221,8 +221,14 @@ def gallery(client, db_session):
 
 
 def test_anonymous_gallery_excludes_studio_imagery(client, gallery):
-    """The headline contract: no studio imagery reaches an anonymous viewer."""
-    resp = client.get(f"/characters/{gallery['character_id']}/images")
+    """The headline contract: no studio imagery reaches an anonymous viewer.
+
+    Step 6.6 moved the anonymous gallery to
+    ``GET /characters/{id}/public-home/images``; the old route is authenticated
+    only. The rule under test is unchanged — every fixture row is selected, so
+    what excludes these images is media safety alone.
+    """
+    resp = client.get(f"/characters/{gallery['character_id']}/public-home/images")
     assert resp.status_code == 200, resp.text
     returned = {item["id"] for item in resp.json()}
 
@@ -234,7 +240,7 @@ def test_anonymous_gallery_excludes_studio_imagery(client, gallery):
 
 def test_anonymous_gallery_never_exposes_provider_or_metadata(client, gallery):
     """The public schema stays narrow — the exclusion signals are server-side."""
-    resp = client.get(f"/characters/{gallery['character_id']}/images")
+    resp = client.get(f"/characters/{gallery['character_id']}/public-home/images")
     for item in resp.json():
         for leaked in ("provider", "metadata_json", "prompt_summary", "seed",
                        "user_id", "status", "visibility"):

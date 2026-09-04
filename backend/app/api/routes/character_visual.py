@@ -14,7 +14,6 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import (
     get_current_user,
-    get_current_user_optional,
     get_owned_character as _get_owned_character,
     user_is_admin,
 )
@@ -34,7 +33,6 @@ from app.schemas.character_image import (
     CharacterImageRead,
     CharacterImagePublic,
     is_public_gallery_image,
-    is_public_gallery_visible,
     is_public_surface_safe,
     PublicGallerySelectionRequest,
     PUBLIC_SURFACE_UNSAFE_MESSAGE,
@@ -48,7 +46,6 @@ from app.schemas.character_visual import (
     IdentitySketchGenerateRequest,
     IdentitySketchGenerateResponse,
 )
-from app.services.character_publication import character_home_is_publishable
 from app.services.character_visual import upsert_character_dna, get_character_dna
 from app.services.identity_evolution import write_pack_stages
 from app.services.image_quota import check_identity_pack_quota
@@ -392,65 +389,57 @@ def generate_body_front(character: CharacterModel) -> bytes:
 )
 def list_character_images(
     character_id: int,
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return a character's images, scoped to what the viewer may see.
+    """Return a character's images, scoped to what the signed-in viewer may see.
 
-    The response shape is VIEWER-AWARE, which is what keeps the public Media
-    tab a curated gallery rather than a window into the character's workshop:
+    AN AUTHENTICATED, INTERNAL SURFACE. Since Step 6.6 this route is no longer a
+    public gallery and no longer answers an anonymous request at all; the
+    Character Home's gallery is ``GET /characters/{id}/public-home/images``,
+    which is the one public contract and is the only one applying creator
+    selection.
+
+    Why the anonymous branch was removed rather than kept as a delegating
+    alias: an anonymous caller here would have been a SECOND public gallery,
+    and two public rules for one surface is how they drift apart. Nothing
+    consumed it anonymously — the only client caller, ``CharacterDetail``, sits
+    behind ``ProtectedRoute`` and always sends a token — so there was no
+    compatibility to preserve.
+
+    The response shape stays VIEWER-AWARE for signed-in callers, which is what
+    keeps the in-product Media tab a gallery rather than a window into someone
+    else's workshop:
 
     * Owner or admin → the full working set (every ACTIVE non-temp image) with
       full metadata, because this is their own material. ``public_gallery_enabled``
-      is reported per image but changes nothing about what they are shown.
-    * Anonymous → the CURATED Character Home gallery: gallery-eligible images
-      the creator has SELECTED, and nothing else (Character Home Step 6.5).
-    * Signed-in non-owner → only gallery-eligible kinds, unchanged.
+      is reported per image but changes nothing about what they are shown: an
+      image the creator has not published is still theirs to see here.
+    * Signed-in non-owner → only gallery-eligible kinds, in the narrow
+      ``CharacterImagePublic`` shape. Identity sketches, anchors and face refs
+      are working references, not gallery pieces; prompts, provider names,
+      seeds, raw metadata and the owning account id never leave the server.
 
-    In every non-owner case the narrow ``CharacterImagePublic`` shape is used.
-    Identity sketches, anchors and face refs are working references, not gallery
-    pieces; prompts, provider names, seeds, raw metadata and the owning account
-    id never leave the server.
+    This branch deliberately does NOT apply creator selection. Inside Ficshon a
+    PUBLIC character's gallery is readable exactly as it always was; requiring
+    selection here would empty every in-product gallery on the day the column
+    ships, since no image has ever been selected. That is a product decision
+    about Ficshon's own surfaces, separate from publishing a Character Home,
+    and it must not be made as a side effect of this route losing its anonymous
+    branch.
 
-    ACCESS is split by whether the caller is signed in at all, because the two
-    callers are asking different questions (Character Home Step 4):
-
-    * Anonymous → this is the PUBLIC Character Home's media, so it answers to
-      the Home's publication rule: ``character_home_is_publishable``, PUBLIC
-      visibility AND the founder grant together. Anything else is 404, the same
-      answer a nonexistent id gets, so walking the id space reveals neither
-      private characters nor unpublished ones. Before Step 4 this endpoint was
-      open to any PUBLIC character regardless of the grant, which meant a
-      character's gallery was already published while its Home was not — the
-      one place the publication gate could be walked around.
-    * Authenticated → unchanged. Inside Ficshon a PUBLIC character's gallery is
-      readable as it always was, and non-public characters remain owner/admin
-      only with the same 403. ``public_home_enabled`` is publication
-      permission, never a second authorization requirement for members, so it
-      is deliberately not consulted on this branch.
-
-    Owner and admin access is untouched on both branches.
-
-    CURATION applies to the anonymous branch only (Step 6.5). An anonymous
-    viewer sees the images the creator selected; a signed-in member still sees
-    every gallery-eligible image, as they always did. Applying selection to the
-    signed-in branch too would empty every in-product gallery on the day the
-    column ships, since no image has ever been selected — a product decision
-    about Ficshon's own surfaces, not part of publishing the Character Home.
+    ACCESS: non-public characters remain owner/admin only with the same 403.
+    ``public_home_enabled`` is publication permission, never a second
+    authorization requirement for members, so it is not consulted here at all.
     """
     character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not character:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
 
-    is_admin = current_user is not None and user_is_admin(current_user)
-    is_owner = current_user is not None and character.owner_id == current_user.id
+    is_admin = user_is_admin(current_user)
+    is_owner = character.owner_id == current_user.id
 
-    if current_user is None:
-        if not character_home_is_publishable(character):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Character not found."
-            )
-    elif character.visibility != VisibilityEnum.PUBLIC:
+    if character.visibility != VisibilityEnum.PUBLIC:
         if not is_owner and not is_admin:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed.")
 
@@ -470,15 +459,6 @@ def list_character_images(
             CharacterImageRead.model_validate(r)
             for r in rows
             if not (r.metadata_json or {}).get("is_temp", False)
-        ]
-
-    if current_user is None:
-        # The anonymous Character Home gallery: creator selection AND Ficshon's
-        # own eligibility rule, in that order and both required.
-        return [
-            CharacterImagePublic.from_image(r)
-            for r in rows
-            if is_public_gallery_visible(r)
         ]
 
     return [
