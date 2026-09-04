@@ -34,7 +34,9 @@ from app.schemas.character_image import (
     CharacterImageRead,
     CharacterImagePublic,
     is_public_gallery_image,
+    is_public_gallery_visible,
     is_public_surface_safe,
+    PublicGallerySelectionRequest,
     PUBLIC_SURFACE_UNSAFE_MESSAGE,
 )
 from app.schemas.character_visual import (
@@ -399,11 +401,16 @@ def list_character_images(
     tab a curated gallery rather than a window into the character's workshop:
 
     * Owner or admin → the full working set (every ACTIVE non-temp image) with
-      full metadata, because this is their own material.
-    * Everyone else → only gallery-eligible kinds, in the narrow
-      ``CharacterImagePublic`` shape. Identity sketches, anchors and face refs
-      are working references, not gallery pieces; prompts, provider names,
-      seeds, raw metadata and the owning account id never leave the server.
+      full metadata, because this is their own material. ``public_gallery_enabled``
+      is reported per image but changes nothing about what they are shown.
+    * Anonymous → the CURATED Character Home gallery: gallery-eligible images
+      the creator has SELECTED, and nothing else (Character Home Step 6.5).
+    * Signed-in non-owner → only gallery-eligible kinds, unchanged.
+
+    In every non-owner case the narrow ``CharacterImagePublic`` shape is used.
+    Identity sketches, anchors and face refs are working references, not gallery
+    pieces; prompts, provider names, seeds, raw metadata and the owning account
+    id never leave the server.
 
     ACCESS is split by whether the caller is signed in at all, because the two
     callers are asking different questions (Character Home Step 4):
@@ -423,6 +430,13 @@ def list_character_images(
       is deliberately not consulted on this branch.
 
     Owner and admin access is untouched on both branches.
+
+    CURATION applies to the anonymous branch only (Step 6.5). An anonymous
+    viewer sees the images the creator selected; a signed-in member still sees
+    every gallery-eligible image, as they always did. Applying selection to the
+    signed-in branch too would empty every in-product gallery on the day the
+    column ships, since no image has ever been selected — a product decision
+    about Ficshon's own surfaces, not part of publishing the Character Home.
     """
     character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not character:
@@ -456,6 +470,15 @@ def list_character_images(
             CharacterImageRead.model_validate(r)
             for r in rows
             if not (r.metadata_json or {}).get("is_temp", False)
+        ]
+
+    if current_user is None:
+        # The anonymous Character Home gallery: creator selection AND Ficshon's
+        # own eligibility rule, in that order and both required.
+        return [
+            CharacterImagePublic.from_image(r)
+            for r in rows
+            if is_public_gallery_visible(r)
         ]
 
     return [
@@ -651,6 +674,91 @@ def set_avatar(
     db.commit()
     db.refresh(image)
 
+    return CharacterImageRead.model_validate(image)
+
+
+# ── 0b2) POST /characters/{id}/images/{image_id}/public-gallery ────
+
+@router.post(
+    "/{character_id}/images/{image_id}/public-gallery",
+    response_model=CharacterImageRead,
+    summary="Select or unselect an image for the Character Home gallery",
+)
+def set_image_public_gallery_selection(
+    character_id: int,
+    image_id: int,
+    body: PublicGallerySelectionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CharacterImageRead:
+    """Set whether this image is shown in the character's Character Home gallery.
+
+    Named for what it does. This is GALLERY SELECTION — "show this on the
+    Character Home" — not a visibility change: ``visibility``, ``kind``,
+    ``status``, ``provider`` and ``metadata_json`` are all left exactly as they
+    were, and the only column written is ``public_gallery_enabled``.
+
+    Owner or admin only, matching the sibling per-image routes (``set-avatar``,
+    ``DELETE .../images/{image_id}``) rather than inventing a third rule. It is
+    deliberately NOT founder-gated: whether a character has a public Home at all
+    is the founder's decision (``POST /admin/characters/{id}/public-home``);
+    which of their own images appear in it is the creator's.
+
+    SELECTION IS NOT PUBLICATION. Setting this to ``true`` puts the image in
+    the gallery only if the Character Home is published *and* the image passes
+    ``is_public_gallery_image`` at read time. Those checks run on every read and
+    are never consulted here as a substitute — an image that becomes
+    launch-ineligible later stops being served even though it stays selected.
+
+    Enabling is refused for an image that is not gallery-eligible *now* (422),
+    for the same reason ``set-avatar`` refuses one: a creator who is told
+    nothing would toggle "show this" and watch nothing appear. This is feedback,
+    not the safety guarantee — the read path is — and it applies to enabling
+    only. Unselecting always succeeds, so a creator can always withdraw an
+    image, whatever state it is in.
+
+    The Media UI control for this is specified as "Show on Character Home" /
+    "Hide from Character Home" — named for the surface, never as a generic
+    visibility toggle, so it cannot be confused with the image's ``visibility``
+    column or with the founder publication gate. Not built yet.
+    """
+    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found.")
+
+    if character.owner_id != current_user.id and not user_is_admin(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed.")
+
+    image = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.id == image_id,
+            CharacterImage.character_id == character_id,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .first()
+    )
+    if not image:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found.")
+
+    if body.enabled and not is_public_gallery_image(image):
+        detail = (
+            PUBLIC_SURFACE_UNSAFE_MESSAGE
+            if not is_public_surface_safe(image)
+            else "This image cannot be shown on the Character Home. It remains in your library."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail
+        )
+
+    image.public_gallery_enabled = body.enabled
+    db.commit()
+    db.refresh(image)
+
+    logger.info(
+        "CHARACTER_HOME_GALLERY_SELECTION character_id=%s image_id=%s user_id=%s enabled=%s",
+        character_id, image_id, current_user.id, body.enabled,
+    )
     return CharacterImageRead.model_validate(image)
 
 

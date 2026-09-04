@@ -23,8 +23,15 @@ def _create_character(client, token, name="Shadow", visibility="public"):
     return resp.json()["id"]
 
 
-def _insert_image(db_session, character_id, user_id, kind, prompt="secret prompt"):
-    """Insert a CharacterImage directly (bypasses generation/quota)."""
+def _insert_image(db_session, character_id, user_id, kind, prompt="secret prompt",
+                  selected=False):
+    """Insert a CharacterImage directly (bypasses generation/quota).
+
+    ``selected`` is the Step 6.5 Character Home gallery choice, false by default
+    exactly as a real image is. Only the anonymous-visitor test needs it: since
+    Step 6.5 an anonymous caller sees the images the creator selected, while a
+    signed-in viewer's kind-allowlisted view is unchanged.
+    """
     from app.models.character_image import (
         CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum,
     )
@@ -34,6 +41,7 @@ def _insert_image(db_session, character_id, user_id, kind, prompt="secret prompt
         kind=ImageKindEnum(kind),
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
+        public_gallery_enabled=selected,
         provider="stub",
         prompt_summary=prompt,
         seed="12345",
@@ -149,8 +157,10 @@ def test_anonymous_visitor_gets_the_curated_public_shape(client, db_session):
     owner = get_auth_token(client, email="anonowner@test.com", username="anonowner")
     cid = _create_character(client, owner, "Public Face", visibility="public")
     uid = _user_id(db_session, "anonowner@test.com")
-    _insert_image(db_session, cid, uid, "generated", prompt="gallery piece")
-    _insert_image(db_session, cid, uid, "anchor_front", prompt="anchor reference")
+    _insert_image(db_session, cid, uid, "generated", prompt="gallery piece",
+                  selected=True)
+    _insert_image(db_session, cid, uid, "anchor_front", prompt="anchor reference",
+                  selected=True)
     # Since Step 4 an anonymous caller also needs the Home published; the
     # curated SHAPE asserted below is what this test is actually about.
     from app.models.character import Character

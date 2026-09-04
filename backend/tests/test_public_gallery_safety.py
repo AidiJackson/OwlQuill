@@ -157,6 +157,11 @@ def _insert_image(db_session, character_id, user_id, *, kind, provider, metadata
         kind=kind,
         status=S.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
+        # Step 6.5: every fixture row is SELECTED for the Character Home
+        # gallery, so what these tests exercise is the safety rule alone — and
+        # each exclusion below is now also proof that a creator cannot select
+        # past it.
+        public_gallery_enabled=True,
         provider=provider,
         prompt_summary="fixture",
         metadata_json=metadata,

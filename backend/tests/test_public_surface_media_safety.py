@@ -123,6 +123,9 @@ def _insert(db_session, character_id, user_id, *, provider, metadata,
     img = CharacterImage(
         character_id=character_id, user_id=user_id, kind=kind,
         status=S.ACTIVE, visibility=ImageVisibilityEnum.PRIVATE,
+        # Step 6.5: selected for the Character Home gallery, so the anonymous
+        # assertions below turn on media safety alone.
+        public_gallery_enabled=True,
         provider=provider, prompt_summary="fixture", metadata_json=metadata,
         file_path=f"static/generated/surface-{name}.png",
     )

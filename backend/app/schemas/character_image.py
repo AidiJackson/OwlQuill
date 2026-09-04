@@ -198,6 +198,48 @@ def is_public_gallery_image(image) -> bool:
     return is_public_surface_safe(image)
 
 
+def is_selected_for_public_gallery(image) -> bool:
+    """True when the CREATOR has selected *image* for the Character Home gallery.
+
+    The curation layer, and only that. It asks one question — did a creator
+    pick this image to be shown on the Character Home? — and knows nothing
+    about provenance, kind, status or whether the Home is published at all.
+
+    Read through ``getattr`` with a false default so a row predating the column,
+    or any duck-typed stand-in that never had it, reads as UNSELECTED. Selection
+    fails closed: an image is shown publicly because someone chose it, never
+    because a value was missing.
+    """
+    return bool(getattr(image, "public_gallery_enabled", False))
+
+
+def is_public_gallery_visible(image) -> bool:
+    """True when *image* may be shown in the ANONYMOUS Character Home gallery.
+
+    The conjunction of the two per-image layers, kept separate on purpose:
+
+    * :func:`is_selected_for_public_gallery` — the creator chose to show it;
+    * :func:`is_public_gallery_image` — Ficshon is willing to expose it.
+
+    The third layer, whether the Character Home is published at all, is
+    ``character_home_is_publishable`` and belongs to the character, not the
+    image, so the route applies it before reaching here.
+
+    The ordering is the point. Creator selection is checked FIRST and the safety
+    rule still runs afterwards, so selecting an image can never publish
+    something the safety rule withholds — a creator curates *within* what
+    Ficshon allows, never around it. That is also why the selection check lives
+    here rather than inside :func:`is_public_gallery_image`: that predicate is
+    Ficshon's own eligibility rule, it governs surfaces that have no notion of
+    gallery curation, and folding a creator-controlled flag into it would make
+    a safety chokepoint answerable to creator input.
+
+    Owner and admin views do NOT pass through here. A creator sees their whole
+    library whatever they have selected, exactly as before.
+    """
+    return is_selected_for_public_gallery(image) and is_public_gallery_image(image)
+
+
 def is_public_post_image(image) -> bool:
     """True when *image* may be shown as a post attachment to an ANONYMOUS viewer.
 
@@ -239,6 +281,16 @@ def is_public_post_image(image) -> bool:
     return is_public_surface_safe(image)
 
 
+class PublicGallerySelectionRequest(BaseModel):
+    """Creator selection of one image for the Character Home gallery.
+
+    A single field on purpose. This endpoint changes the creator's gallery
+    choice and nothing else — never kind, status, visibility or provenance —
+    so there is nothing else to send.
+    """
+    enabled: bool
+
+
 class CharacterImageRead(BaseModel):
     """Schema returned when reading a character image."""
     id: int
@@ -246,6 +298,12 @@ class CharacterImageRead(BaseModel):
     kind: ImageKindEnum
     status: ImageStatusEnum
     visibility: ImageVisibilityEnum
+    #: Creator selection for the Character Home gallery. Present in the OWNER's
+    #: view (this schema) because it is the creator's own choice and the Media
+    #: UI has to render its state; deliberately absent from
+    #: ``CharacterImagePublic``, which describes an image already shown to a
+    #: visitor and to whom the curation state is not information.
+    public_gallery_enabled: bool = False
     provider: Optional[str] = None
     prompt_summary: Optional[str] = None
     seed: Optional[str] = None

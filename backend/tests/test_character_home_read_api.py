@@ -14,7 +14,9 @@ more weight than usual. Three things are pinned:
 3. **The gallery.** ``GET /characters/{id}/images`` moved its ANONYMOUS branch
    onto the same predicate — it previously served any PUBLIC character, which
    published a character's media while its Home stayed unpublished — while its
-   authenticated branch is untouched.
+   authenticated branch is untouched. Step 6.5 later added creator selection on
+   top of that same branch; the curation layer itself is pinned in
+   ``test_character_home_gallery_selection.py``.
 """
 import json
 
@@ -73,13 +75,21 @@ def _user_id(db_session, email) -> int:
 
 
 def _insert_image(db_session, character_id, user_id, *, file_path,
-                  kind=ImageKindEnum.GENERATED, provider="fal", metadata=None):
+                  kind=ImageKindEnum.GENERATED, provider="fal", metadata=None,
+                  selected=False):
+    """``selected`` is the Step 6.5 Character Home gallery choice.
+
+    False by default, as a real image is. The avatar/cover tests leave it alone
+    — those surfaces do not answer to it — and only the anonymous gallery tests
+    below set it.
+    """
     img = CharacterImage(
         character_id=character_id,
         user_id=user_id,
         kind=kind,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
+        public_gallery_enabled=selected,
         provider=provider,
         prompt_summary="fixture",
         metadata_json=metadata if metadata is not None else {"library": True},
@@ -403,8 +413,10 @@ def test_anonymous_gallery_is_404_when_home_is_disabled(client, db_session):
 
 
 def test_anonymous_gallery_works_when_home_is_publishable(client, db_session, published):
+    """A published Home serves the images the creator selected (Step 6.5)."""
     cid, uid = published["character_id"], published["owner_id"]
-    image_id = _insert_image(db_session, cid, uid, file_path="static/generated/g2.png")
+    image_id = _insert_image(db_session, cid, uid, file_path="static/generated/g2.png",
+                             selected=True)
 
     resp = client.get(f"/characters/{cid}/images")
     assert resp.status_code == 200, resp.text
@@ -412,16 +424,21 @@ def test_anonymous_gallery_works_when_home_is_publishable(client, db_session, pu
 
 
 def test_anonymous_gallery_still_filters_unsafe_media(client, db_session, published):
-    """The publication gate is added ON TOP of Step 1/1.5, not instead of it."""
+    """The publication gate is added ON TOP of Step 1/1.5, not instead of it.
+
+    Every row here is selected, so the exclusions are the safety rule's doing
+    and not the curation layer's — creator selection cannot reach past it.
+    """
     cid, uid = published["character_id"], published["owner_id"]
-    clean = _insert_image(db_session, cid, uid, file_path="static/generated/g3.png")
+    clean = _insert_image(db_session, cid, uid, file_path="static/generated/g3.png",
+                          selected=True)
     _insert_image(
         db_session, cid, uid, file_path="static/generated/g4.png",
-        provider="replicate_nsfw", metadata={"adult_studio": True},
+        provider="replicate_nsfw", metadata={"adult_studio": True}, selected=True,
     )
     _insert_image(
         db_session, cid, uid, file_path="static/generated/g5.png",
-        kind=ImageKindEnum.ANCHOR_FRONT,
+        kind=ImageKindEnum.ANCHOR_FRONT, selected=True,
     )
 
     resp = client.get(f"/characters/{cid}/images")

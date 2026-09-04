@@ -1,6 +1,15 @@
 """Character Image model — stores anchor and generated images."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Enum as SQLEnum
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Enum as SQLEnum,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+)
 from sqlalchemy.orm import relationship
 import enum
 
@@ -132,6 +141,33 @@ class CharacterImage(Base):
         SQLEnum(ImageVisibilityEnum, values_callable=lambda obj: [e.value for e in obj]),
         default=ImageVisibilityEnum.PRIVATE,
         nullable=False,
+    )
+
+    # Creator selection for the Character Home gallery (Character Home Step 6.5).
+    #
+    # Means ONE thing: "the creator has picked this image to be displayed in the
+    # Character Home gallery." It is not a visibility level, not a permission,
+    # and not a statement about the image's provenance or lifecycle.
+    #
+    # Deliberately a column of its own rather than a new state on ``visibility``.
+    # ``visibility`` keeps whatever general meaning it was always intended to
+    # have; overloading it with gallery curation would give one field two jobs
+    # and make every future read of it ambiguous.
+    #
+    # Selection is one of THREE independent layers an image must clear to reach
+    # an anonymous viewer's Character Home gallery, and it is the weakest of
+    # them:
+    #
+    #   1. the Character Home is published    (character_home_is_publishable)
+    #   2. the creator selected this image    (this column)
+    #   3. Ficshon will expose this image     (is_public_gallery_image)
+    #
+    # Selecting an image can therefore never publish something the safety rule
+    # withholds. Defaults false everywhere — existing rows by migration server
+    # default, new rows by this Python-side default — so no image has ever been
+    # selected without a creator saying so.
+    public_gallery_enabled = Column(
+        Boolean, default=False, nullable=False, server_default="false"
     )
 
     provider = Column(String, nullable=True)       # e.g. "stub", "dall-e-3"
