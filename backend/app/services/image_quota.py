@@ -63,6 +63,8 @@ def get_quota_status(user: User, db: Session) -> dict:
     now = datetime.utcnow()
     since = now - timedelta(days=_WINDOW_DAYS)
 
+    # Counts by owning account (``CharacterImage.user_id``, Phase 4B1). See
+    # check_weekly_quota's docstring for why this stays owner-keyed for now.
     # Single query ordered oldest-first: lets us count and find the reset anchor.
     images_in_window: list[CharacterImage] = (
         db.query(CharacterImage)
@@ -201,6 +203,14 @@ def check_weekly_quota(user: User, db: Session) -> JSONResponse | None:
     Returns None if generation may proceed (within limit or admin bypass).
     Deduction happens only on successful generation — caller's responsibility
     to stamp user_id on the saved CharacterImage record.
+
+    ``user_id`` is the asset's OWNING ACCOUNT (Phase 4B1), not "the generator".
+    Counting it is legacy accounting that predates that meaning and is left
+    unchanged here deliberately: the two coincide on every path except admin
+    generation onto another account's character, which stamps the character's
+    owner. The requester already has a proper home in
+    ``image_generation_jobs.user_id``; moving quota onto it is a separate
+    increment, not a side effect of renaming what ownership means.
     """
     if _is_quota_exempt(user):
         return None

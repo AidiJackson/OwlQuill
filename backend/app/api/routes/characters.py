@@ -509,8 +509,12 @@ def set_character_avatar(
         img = db.query(CharacterImage).filter(CharacterImage.id == req.image_id).first()
         if not img:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
-        src_char = db.query(CharacterModel).filter(CharacterModel.id == img.character_id).first()
-        if not src_char or src_char.owner_id != current_user.id:
+        # Two DIFFERENT questions, and they stay separate. The target character
+        # was ownership-checked above ("may I edit this character?"). This one
+        # is "is this asset mine?", and Phase 4B1 makes the asset's own owning
+        # account the authority for it instead of a second hop through the
+        # character the image happens to hang off.
+        if img.user_id != current_user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your image")
         if img.status != ImageStatusEnum.ACTIVE:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image is not active")
@@ -572,8 +576,10 @@ def set_character_cover(
         img = db.query(CharacterImage).filter(CharacterImage.id == req.image_id).first()
         if not img:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
-        src_char = db.query(CharacterModel).filter(CharacterModel.id == img.character_id).first()
-        if not src_char or src_char.owner_id != current_user.id:
+        # Same split as the avatar route above: the target character's
+        # ownership was checked separately; this asks only whether the source
+        # asset belongs to this account.
+        if img.user_id != current_user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your image")
         if img.status != ImageStatusEnum.ACTIVE:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image is not active")

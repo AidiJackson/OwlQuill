@@ -153,7 +153,7 @@ SAFETY_POLICY_VERSION_NONE = 0
 
 
 class CharacterImage(Base):
-    """Ficshon's canonical persisted-image asset (Phase 4A).
+    """Ficshon's canonical persisted-image asset (Phase 4A/4B1).
 
     Historically "an image associated with a character". It is becoming the one
     row that must exist for every persisted image, which is why the safety and
@@ -161,15 +161,13 @@ class CharacterImage(Base):
     tables describing the same bytes would drift, and one of them would end up
     being the one nobody checks.
 
-    Four things this increment deliberately does NOT yet mean
-    ---------------------------------------------------------
-    * **``user_id`` is not yet authoritative ownership.** It still carries its
-      original meaning — which account generated the image, for the weekly
-      quota — and is NULL on 318 of the 1,429 DEV rows. Ownership is still
-      established by joining ``Character`` (see ``/users/me/character-images``).
-      A later increment backfills it from ``characters.owner_id`` (verified
-      lossless: zero rows disagree today) and moves ownership onto it. Until
-      then, do not read it as "who owns this asset".
+    Phase 4B1 established the first half of that: ``user_id`` is now the
+    authoritative owning account (see the column), and every ownership question
+    reads it instead of joining ``Character``. ``character_id`` keeps its own,
+    separate job — association — and stays NOT NULL until Phase 4C.
+
+    Three things this row deliberately does NOT yet mean
+    ----------------------------------------------------
     * **``storage_key`` is not populated.** Every row has NULL. ``file_path``
       remains the only storage identity in use, and every resolver still reads
       it. The backfill is a separate, reviewable script because deriving the key
@@ -205,8 +203,33 @@ class CharacterImage(Base):
         nullable=False,
         index=True,
     )
-    # user_id tracks which user generated this image (used for weekly quota).
-    # Nullable for legacy images created before quota enforcement.
+    #: The OWNING ACCOUNT for this asset (Phase 4B1).
+    #:
+    #: This is what "does this user own this image?" is answered with, and it is
+    #: answered here rather than by joining ``Character`` — ownership of an
+    #: asset is a fact about the asset, not about whichever character it is
+    #: currently associated with. ``character_id`` continues to answer the
+    #: separate question "which character is this associated with?", and the two
+    #: must not be used interchangeably: a post authored by one character may
+    #: still only attach that character's media, however many characters the
+    #: account owns.
+    #:
+    #: It originally meant "which account generated this, for the weekly quota",
+    #: and ``services/image_quota`` still counts it — that is LEGACY ACCOUNTING
+    #: riding on the column, not the definition of it. Quota wants the
+    #: generation requester; ownership is what this column now states. The two
+    #: agree everywhere except admin generation on another account's character
+    #: (``routes/adult_studio_admin`` deliberately stamps ``character.owner_id``),
+    #: which is recorded technical debt: the requester already has a proper home
+    #: in ``image_generation_jobs.user_id``, and quota should eventually read it
+    #: there. Not changed here — 4B1 changes what the field MEANS, not what
+    #: quota counts.
+    #:
+    #: Still nullable, and still ``ON DELETE SET NULL``. Every row carries an
+    #: owner as of the 4B1 backfill, but making that a constraint requires
+    #: choosing an account-deletion policy first: ``NOT NULL`` combined with
+    #: ``SET NULL`` is not a stricter schema, it is a schema in which deleting
+    #: an account raises. That decision is Phase 4B2.
     user_id = Column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),

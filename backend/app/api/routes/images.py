@@ -96,16 +96,17 @@ def list_library_images(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List the current user's library images (newest first)."""
-    char_ids = (
-        db.query(Character.id)
-        .filter(Character.owner_id == current_user.id)
-        .subquery()
-    )
+    """List the current user's library images (newest first).
+
+    Ownership is ``CharacterImage.user_id`` (Phase 4B1). It was previously a
+    ``character_id IN (characters I own)`` subquery — the same question routed
+    through the character association. The ``library`` metadata filter and the
+    ordering are unchanged.
+    """
     images = (
         db.query(CharacterImage)
         .filter(
-            CharacterImage.character_id.in_(char_ids),
+            CharacterImage.user_id == current_user.id,
             CharacterImage.metadata_json["library"].as_boolean() == True,  # noqa: E712
         )
         .order_by(CharacterImage.created_at.desc())

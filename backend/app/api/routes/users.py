@@ -455,9 +455,12 @@ def set_avatar(
         img = db.query(CharacterImage).filter(CharacterImage.id == req.image_id).first()
         if not img:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
-        # Verify ownership via character
-        char = db.query(CharacterModel).filter(CharacterModel.id == img.character_id).first()
-        if not char or char.owner_id != current_user.id:
+        # "Is this asset mine?" — answered by the asset's own owning account
+        # (Phase 4B1), not by re-deriving it from whichever character the image
+        # happens to hang off. An account avatar is account-level media: there
+        # is no character in this request to scope it to, and the old join
+        # existed only because the asset had no owner of its own to ask.
+        if img.user_id != current_user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your image")
         if img.status != ImageStatusEnum.ACTIVE:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image is not active")
@@ -516,6 +519,16 @@ def list_my_character_images(
     ``character_id`` is verified against ownership rather than merely added to
     the WHERE clause — asking for a character you don't own is an error, not an
     empty list, so the endpoint can't be used to probe which ids exist.
+
+    Ownership comes from ``CharacterImage.user_id`` (Phase 4B1). It used to be
+    an INNER JOIN to ``characters`` filtered by ``owner_id``, which made "whose
+    library is this?" a question about the character rather than about the
+    asset. On today's data the two answer identically — every row's ``user_id``
+    equals its character's ``owner_id``, verified before the switch — so this is
+    a change of authority, not of result. It matters because the join is also a
+    filter: a row whose character association is later removed would silently
+    drop out of its owner's library, which is exactly what a library must never
+    do.
     """
     if character_id is not None:
         character = (
@@ -533,13 +546,9 @@ def list_my_character_images(
                 detail="That character isn't yours.",
             )
 
-    query = (
-        db.query(CharacterImage)
-        .join(CharacterModel, CharacterImage.character_id == CharacterModel.id)
-        .filter(
-            CharacterModel.owner_id == current_user.id,
-            CharacterImage.status == ImageStatusEnum.ACTIVE,
-        )
+    query = db.query(CharacterImage).filter(
+        CharacterImage.user_id == current_user.id,
+        CharacterImage.status == ImageStatusEnum.ACTIVE,
     )
 
     if character_id is not None:

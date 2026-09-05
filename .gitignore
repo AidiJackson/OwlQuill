@@ -303,3 +303,8 @@ scripts/e4_validation_final.png
 
 # Permanent-mark soak artefacts (test images + metadata, regenerable)
 backend/soak_runs/
+
+# Rollback manifests from scripts/backfill_character_image_owners.py. Each one
+# describes ONE run against ONE database at one moment; a committed manifest
+# would be read as a description of the current state, which it never is.
+scripts/ownership_backfill_manifests/

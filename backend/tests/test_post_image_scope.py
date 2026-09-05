@@ -32,8 +32,22 @@ def _make_character(client, token, name):
 
 def _seed_image(db, character_id, file_path, kind=ImageKindEnum.GENERATED,
                 status=ImageStatusEnum.ACTIVE):
+    """Seed an image OWNED by the character's owner.
+
+    ``user_id`` is stamped from ``Character.owner_id`` because that is what
+    every real write path does, and since Phase 4B1 it is what ownership means:
+    a row with no ``user_id`` belongs to nobody and correctly appears in no
+    account's library. Leaving it NULL here would test a state the application
+    cannot produce.
+    """
+    from app.models.character import Character
+
+    owner_id = db.query(Character.owner_id).filter(
+        Character.id == character_id
+    ).scalar()
     img = CharacterImage(
         character_id=character_id,
+        user_id=owner_id,
         file_path=file_path,
         kind=kind,
         status=status,

@@ -64,7 +64,7 @@ def _gather_counts(db: Session, user_id: int) -> dict[str, int]:
     counts["reactions"] = c(Reaction, Reaction.user_id)
     counts["notifications"] = c(Notification, Notification.user_id)
     counts["realm_memberships"] = c(RealmMembership, RealmMembership.user_id)
-    counts["character_images (as generator)"] = c(CharacterImage, CharacterImage.user_id)
+    counts["character_images (owned assets)"] = c(CharacterImage, CharacterImage.user_id)
     counts["password_reset_tokens"] = c(PasswordResetToken, PasswordResetToken.user_id)
     return counts
 
@@ -168,6 +168,11 @@ def main() -> None:
         print()
         print("  On delete: CASCADE rows are removed; character_images.user_id and")
         print("  post/comment mentions are SET NULL; public attribution stays character-first.")
+        print()
+        print("  NOTE: character_images.user_id is the asset's OWNING ACCOUNT (Phase 4B1),")
+        print("  not 'who generated it'. Its SET NULL is inert today — this script refuses")
+        print("  while any character is owned, and an image cannot outlive its character.")
+        print("  That stops being true in Phase 4C; the owning FK is settled in 4B2 first.")
         print()
 
         if not mutate:
