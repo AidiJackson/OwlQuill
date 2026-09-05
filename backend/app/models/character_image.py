@@ -71,6 +71,27 @@ POST_ATTACHABLE_IMAGE_KINDS = frozenset(
 )
 
 
+#: Kinds that CANNOT be archived by their owner — the identity anchors.
+#:
+#: These are canon working references: the character's visual identity is
+#: compiled from them, and removing one silently changes what every future
+#: generation looks like. Resetting the character is the deliberate way to
+#: discard them.
+#:
+#: Defined here rather than in a route module because Phase 4C gave archiving
+#: two entrances — the character-scoped ``DELETE /characters/{id}/images/{id}``
+#: and the account-scoped ``DELETE /users/me/character-images/{id}`` — and a
+#: protection that exists on only one of them is not a protection.
+PROTECTED_IMAGE_KINDS = frozenset(
+    {
+        ImageKindEnum.ANCHOR_FRONT,
+        ImageKindEnum.ANCHOR_THREE_QUARTER,
+        ImageKindEnum.ANCHOR_TORSO,
+        ImageKindEnum.ANCHOR_FULL_BODY,
+    }
+)
+
+
 #: Kinds a founder may hand-pick as a MANUAL generation reference.
 #:
 #: An allowlist for the same reason as the one above: a kind added later is
@@ -197,10 +218,29 @@ class CharacterImage(Base):
     __tablename__ = "character_images"
 
     id = Column(Integer, primary_key=True, index=True)
+    #: The character this asset is ASSOCIATED with — optional (Phase 4C).
+    #:
+    #: Nullable with ``ON DELETE SET NULL``. Deleting a character is a statement
+    #: about a character, not a demolition order for the person's images: the
+    #: association disappears and the asset survives, keeping its owner, its
+    #: safety decision, its provenance, its lineage and its storage pointer.
+    #:
+    #: Read this together with ``user_id`` below. They are the two halves of one
+    #: rule and neither can stand in for the other::
+    #:
+    #:     user_id      = ownership   — mandatory, RESTRICT
+    #:     character_id = association — optional,  SET NULL
+    #:
+    #: An asset with no character still belongs to somebody and still appears in
+    #: their library. It is NOT reachable through any character-scoped route:
+    #: every one of those filters ``character_id == <path id>``, and NULL never
+    #: equals an integer, so a characterless asset cannot be claimed by another
+    #: character merely because the same account owns both. There is
+    #: deliberately no re-association route.
     character_id = Column(
         Integer,
-        ForeignKey("characters.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("characters.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     #: The OWNING ACCOUNT for this asset (Phase 4B1).
@@ -231,6 +271,14 @@ class CharacterImage(Base):
     #: has decided. ``CASCADE`` would have destroyed rows and their safety
     #: decisions while leaving the objects in the bucket; ``SET NULL`` would
     #: have produced exactly the ownerless rows this column exists to prevent.
+    #:
+    #: THE WRITER RULE (Phase 4C). A writer that HAS a character writes
+    #: ``character.owner_id``. A writer with NO character — account-level media,
+    #: which ``character_id`` being optional now permits — writes the owning
+    #: account directly. What a writer must never write is "whoever made the
+    #: request": that is the requester, it is not always the owner (an admin may
+    #: act on someone else's character), and it has its own home in
+    #: ``image_generation_jobs.user_id`` / ``editor_jobs.user_id``.
     #:
     #: There is deliberately NO ``User.images`` relationship for this table. An
     #: ORM cascade would delete these rows itself and the FK would never be

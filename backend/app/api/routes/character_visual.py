@@ -27,7 +27,13 @@ from app.core.storage import (
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_dna import CharacterDNA
-from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
+from app.models.character_image import (
+    PROTECTED_IMAGE_KINDS,
+    CharacterImage,
+    ImageKindEnum,
+    ImageStatusEnum,
+    ImageVisibilityEnum,
+)
 from app.schemas.character_dna import CharacterDNACreate, CharacterDNARead
 from app.schemas.character_image import (
     CharacterImageRead,
@@ -565,7 +571,10 @@ async def upload_character_image(
 
     image = CharacterImage(
         character_id=character.id,
-        user_id=current_user.id,
+        # Owner, not uploader. Same account here (owner-only route), stated
+        # rather than implied. ``uploaded_by_user_id`` in the metadata below
+        # already records who performed the upload.
+        user_id=character.owner_id,
         # NOT an identity/accessory kind, and NOT gallery- or post-eligible.
         kind=ImageKindEnum.UPLOADED,
         status=ImageStatusEnum.ACTIVE,
@@ -744,12 +753,10 @@ def set_image_public_gallery_selection(
 
 # ── 0c) DELETE /characters/{id}/images/{image_id} ─────────────────
 
-_PROTECTED_KINDS = {
-    ImageKindEnum.ANCHOR_FRONT,
-    ImageKindEnum.ANCHOR_THREE_QUARTER,
-    ImageKindEnum.ANCHOR_TORSO,
-    ImageKindEnum.ANCHOR_FULL_BODY,
-}
+#: Alias kept so this module reads unchanged; the definition now lives beside
+#: the model (Phase 4C) so the account-scoped archive route enforces the very
+#: same set rather than a copy of it.
+_PROTECTED_KINDS = PROTECTED_IMAGE_KINDS
 
 
 @router.delete(
@@ -2198,7 +2205,8 @@ def generate_identity_sketch(
     # Persist new sketch image
     sketch_img = CharacterImage(
         character_id=character_id,
-        user_id=current_user.id,
+        # Owner, not requester — owner-only route, stated explicitly.
+        user_id=character.owner_id,
         kind=ImageKindEnum.IDENTITY_SKETCH,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

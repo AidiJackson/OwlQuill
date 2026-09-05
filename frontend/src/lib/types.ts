@@ -385,7 +385,11 @@ export interface ScenePost {
 
 export interface LibraryImage {
   id: number;
-  character_id: number;
+  // Optional since Phase 4C: an owned asset may have no character (its
+  // character was deleted). It stays in the library; every character-scoped
+  // action on it is unavailable. Never build a /characters/:id URL from this
+  // without checking for null first.
+  character_id: number | null;
   kind: string;
   status: string;
   visibility: string;
@@ -422,7 +426,9 @@ export interface GenerationJobResult {
 
 export interface ImageGenerationJob {
   job_id: string;
-  character_id: number;
+  // Optional since Phase 4C: the job outlives the character it ran for, so the
+  // record of who requested the generation survives the association.
+  character_id: number | null;
   status: 'queued' | 'running' | 'completed' | 'failed';
   stage?: string | null;
   progress_message?: string | null;
@@ -490,7 +496,8 @@ export interface CharacterHomePostPublic {
 // status or visibility. The owner/admin variant is LibraryImage above.
 export interface CharacterImagePublic {
   id: number;
-  character_id: number;
+  // Optional since Phase 4C — see LibraryImage.character_id.
+  character_id: number | null;
   kind: string;
   url: string;
   created_at: string;

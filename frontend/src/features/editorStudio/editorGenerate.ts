@@ -75,7 +75,8 @@ export type EditorQualityStatus = 'pass' | 'needs_review' | 'failed';
 
 export interface EditorJob {
   id: number;
-  character_id: number;
+  // Optional since Phase 4C — see ImageGenerationJob.character_id.
+  character_id: number | null;
   provider: string;
   prompt: string;
   state: EditorJobState | string;

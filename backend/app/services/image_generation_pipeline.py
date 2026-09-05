@@ -1409,7 +1409,11 @@ def run_image_generation(
 
     img = CharacterImage(
         character_id=character_id,
-        user_id=user.id,  # B22: stamp for quota tracking
+        # Owner, not requester. Both entry points to this pipeline go through
+        # an owner-only guard with no admin bypass, so ``user`` IS the owner —
+        # but ownership is the character's, and saying so keeps one rule across
+        # every writer. The weekly quota still reads this column (B22).
+        user_id=character.owner_id,
         # Identity OS: generated scenes default to SCENE_ONLY — promotion to
         # face/body canon must be explicit via the canon flow. A manual
         # reference NEVER changes this: hand-picking an image as evidence does

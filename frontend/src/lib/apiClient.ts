@@ -436,6 +436,20 @@ class ApiClient {
   }
 
   /**
+   * Archive an owned image without naming a character (Phase 4C).
+   *
+   * The server authorises on ownership alone, so this works for an asset with
+   * no character as well as one that still has one. Use it whenever the
+   * image's `character_id` is null — the character-scoped route would build
+   * `/characters/null/...`, which is not a request anyone can answer.
+   */
+  async archiveMyCharacterImage(imageId: number): Promise<void> {
+    return this.request<void>(`/users/me/character-images/${imageId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
    * "What the model receives" for one feature reference.
    *
    * Re-derives the isolated representation on the server using the SAME

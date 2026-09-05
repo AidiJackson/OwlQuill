@@ -218,7 +218,15 @@ export default function Images() {
     setDeletingImage(true);
     setDeleteError('');
     try {
-      await apiClient.deleteCharacterImage(lightboxImage.character_id, lightboxImage.id);
+      // An asset with no character has no character-scoped URL to delete
+      // through — the account-scoped archive authorises on ownership alone and
+      // reaches both kinds. The character-scoped call is kept for associated
+      // assets so that route stays exercised and stays association-scoped.
+      if (lightboxImage.character_id === null) {
+        await apiClient.archiveMyCharacterImage(lightboxImage.id);
+      } else {
+        await apiClient.deleteCharacterImage(lightboxImage.character_id, lightboxImage.id);
+      }
       if (!mountedRef.current) return;
       setImages((prev) => prev.filter((img) => img.id !== lightboxImage.id));
       closeLightbox();
@@ -322,10 +330,14 @@ export default function Images() {
     const byChar = new Map<number, LibraryImage[]>();
     const orphans: LibraryImage[] = [];
     for (const img of displayedImages) {
-      const c = charById.get(img.character_id);
-      if (!c) { orphans.push(img); continue; }
-      if (!byChar.has(img.character_id)) byChar.set(img.character_id, []);
-      byChar.get(img.character_id)!.push(img);
+      // character_id is null once the character is deleted (Phase 4C). It was
+      // already possible for the lookup to miss — an admin asset on a character
+      // this account does not own — so both cases land in the same section.
+      const cid = img.character_id;
+      const c = cid === null ? undefined : charById.get(cid);
+      if (!c || cid === null) { orphans.push(img); continue; }
+      if (!byChar.has(cid)) byChar.set(cid, []);
+      byChar.get(cid)!.push(img);
     }
     const groups: { char: Character | null; images: LibraryImage[] }[] = myCharacters
       .filter((c) => byChar.has(c.id))

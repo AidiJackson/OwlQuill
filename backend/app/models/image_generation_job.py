@@ -59,8 +59,14 @@ class ImageGenerationJob(Base):
     user_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    #: Phase 4C: nullable with ``ON DELETE SET NULL``. This row is the record
+    #: of WHO REQUESTED a generation, and 4B2 kept requester identity off the
+    #: image on the grounds that it lives here. That only holds if this row
+    #: outlives the image: under the previous ``CASCADE`` deleting a character
+    #: destroyed the job at the same moment 4C starts preserving the image it
+    #: produced. ``user_id`` above is untouched and remains the requester.
     character_id = Column(
-        Integer, ForeignKey("characters.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer, ForeignKey("characters.id", ondelete="SET NULL"), nullable=True, index=True
     )
     status = Column(String(16), nullable=False, server_default="queued", index=True)
     stage = Column(String(64), nullable=True)

@@ -58,6 +58,40 @@ class Character(Base):
     posts = relationship("Post", back_populates="character")
     comments = relationship("Comment", back_populates="character")
     dna = relationship("CharacterDNA", back_populates="character", uselist=False, cascade="all, delete-orphan")
-    images = relationship("CharacterImage", back_populates="character", cascade="all, delete-orphan")
+    #: Phase 4C: ``delete`` and ``delete-orphan`` are deliberately ABSENT.
+    #:
+    #: Deleting a character must not delete the images it was associated with.
+    #: They belong to an account (``CharacterImage.user_id``, NOT NULL since
+    #: 4B2), they carry a safety decision, provenance, lineage and a pointer to
+    #: bytes in a bucket, and none of that stops mattering because a character
+    #: was removed. The association is dropped instead — ``character_id``
+    #: becomes NULL — and the asset stays in its owner's library.
+    #:
+    #: ``save-update, merge`` is SQLAlchemy's default cascade. It is spelled out
+    #: rather than omitted so that the absence of ``delete`` reads as a decision
+    #: instead of an oversight.
+    #:
+    #: ``passive_deletes`` is deliberately left unset (False). With it False the
+    #: ORM issues an explicit ``UPDATE character_images SET character_id=NULL``
+    #: before deleting the character, which behaves identically on PostgreSQL
+    #: and on SQLite regardless of ``PRAGMA foreign_keys``. Setting it True
+    #: would delegate the nulling entirely to the database FK — correct on DEV,
+    #: but the shared test fixture does not enable SQLite foreign keys, so the
+    #: whole suite would silently leave ``character_id`` pointing at a deleted
+    #: character and prove nothing about the invariant this exists to create.
+    #: The database still carries ``ON DELETE SET NULL`` as well, for the paths
+    #: that never touch the ORM.
+    #:
+    #: This is also what makes account deletion reach
+    #: ``character_images_user_id_fkey``. While this cascade deleted the image
+    #: rows first, ``DELETE FROM users`` found nothing referencing the account
+    #: and the RESTRICT was never asked. ``User.characters`` is unchanged and
+    #: still ``all, delete-orphan``; it did not need to change, because the
+    #: bypass was always this hop.
+    images = relationship(
+        "CharacterImage",
+        back_populates="character",
+        cascade="save-update, merge",
+    )
     style_elements = relationship("CharacterStyleElement", back_populates="character", cascade="all, delete-orphan")
     identity_canon = relationship("CharacterIdentityCanon", back_populates="character", uselist=False, cascade="all, delete-orphan")

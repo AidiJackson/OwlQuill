@@ -4,7 +4,8 @@
 
 export interface CharacterImageRead {
   id: number;
-  character_id: number;
+  // Optional since Phase 4C: an owned asset may have no character.
+  character_id: number | null;
   kind: string;
   status: string;
   visibility: string;

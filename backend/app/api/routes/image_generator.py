@@ -170,7 +170,9 @@ class ImageGenerationJobView(BaseModel):
     """Owner-visible job state. ``diag_json`` is internal and never serialised."""
 
     job_id: str
-    character_id: int
+    #: Optional since Phase 4C: a job outlives the character it ran for, so
+    #: the record of who requested a generation survives the association.
+    character_id: Optional[int] = None
     status: str  # queued | running | completed | failed
     stage: Optional[str] = None
     progress_message: Optional[str] = None
@@ -501,7 +503,10 @@ def get_generation_job(
     """Poll a job by its public id. Scoped to the submitting account."""
     _owned_character(db, character_id, current_user)
     job = _jobs.get_job_for_owner(db, user_id=current_user.id, public_id=public_id)
-    if job is None or int(job.character_id) != int(character_id):
+    # ``job.character_id`` may be NULL since 4C (its character was deleted).
+    # Compare without coercing — ``int(None)`` raises — and a job with no
+    # character is correctly not found under a character-scoped route.
+    if job is None or job.character_id != character_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     return _job_to_view(db, job)
 

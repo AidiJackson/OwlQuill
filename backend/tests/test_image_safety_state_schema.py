@@ -428,11 +428,22 @@ def test_the_resolvers_still_key_on_file_path_not_storage_key(owned):
 
 # ── G. Schema/lineage invariants ──────────────────────────────────────────────
 
-def test_character_id_is_still_not_nullable():
-    """Nullability is a later increment — serializers, cascade, ownership and
-    quota all still assume a character.
+def test_character_id_became_nullable_in_a_later_increment():
+    """This assertion has flipped, on purpose.
+
+    Phase 4A wrote it as ``character_id is still NOT NULL``, with the note that
+    nullability was "a later increment — serializers, cascade, ownership and
+    quota all still assume a character". Those four are exactly what 4B1, 4B2
+    and 4C then dealt with, in that order, and Phase 4C landed the nullability
+    the note was deferring.
+
+    Kept rather than deleted because 4A's real claim was that the safety columns
+    did not depend on the association — and that claim is worth more now that
+    the association can be absent. ``test_optional_character_association.py``
+    proves the safety audit survives a character deletion in full.
     """
-    assert CharacterImage.__table__.c.character_id.nullable is False
+    assert CharacterImage.__table__.c.character_id.nullable is True
+    assert CharacterImage.__table__.c.user_id.nullable is False
 
 
 def test_lifecycle_and_safety_remain_separate_columns():

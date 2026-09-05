@@ -334,7 +334,11 @@ def generate_scene_image(
     # They do not contaminate canon. Promotion is explicit via promote_to_canon.
     img = CharacterImage(
         character_id=character_id,
-        user_id=current_user.id,  # S24AZ: stamp for weekly quota deduction
+        # Owner, not requester. This route is owner-only (403 above), so the
+        # two are the same account; naming the owner states the rule. The
+        # weekly quota still counts this column — see the note on
+        # ``CharacterImage.user_id`` about that legacy accounting.
+        user_id=character.owner_id,
         kind=ImageKindEnum.SCENE_ONLY,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

@@ -36,8 +36,13 @@ class EditorJob(Base):
     __tablename__ = "editor_jobs"
 
     id = Column(Integer, primary_key=True, index=True)
+    #: Phase 4C: nullable with ``ON DELETE SET NULL``. Same reasoning as
+    #: ``image_generation_jobs`` — this row is the requester of record for an
+    #: editor asset (4B2 says so explicitly), so it must not be destroyed by the
+    #: character deletion that the asset itself now survives. ``user_id`` below
+    #: is untouched and remains the requester.
     character_id = Column(
-        Integer, ForeignKey("characters.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer, ForeignKey("characters.id", ondelete="SET NULL"), nullable=True, index=True
     )
     user_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True

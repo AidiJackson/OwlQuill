@@ -26,7 +26,11 @@ from app.core.admin_seed import auto_join_commons
 from app.models.user import User as UserModel
 from app.models.user_image import UserImage
 from app.models.character import Character as CharacterModel, VisibilityEnum
-from app.models.character_image import CharacterImage, ImageStatusEnum
+from app.models.character_image import (
+    PROTECTED_IMAGE_KINDS,
+    CharacterImage,
+    ImageStatusEnum,
+)
 from app.models.post import Post as PostModel
 from app.models.post_mention import PostMention as PostMentionModel
 from app.models.scene import Scene as SceneModel, SceneVisibilityEnum
@@ -577,6 +581,78 @@ def list_my_character_images(
     if limit is not None:
         images = images[:limit]
     return images
+
+
+@router.delete(
+    "/me/character-images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Archive (soft-delete) an owned image, with or without a character",
+)
+def archive_my_character_image(
+    image_id: int,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Archive one image this account OWNS.
+
+    The account-scoped counterpart to ``DELETE /characters/{id}/images/{id}``,
+    added in Phase 4C because that route cannot reach every owned asset any
+    more. ``character_id`` is optional now, and the character-scoped route
+    authorises through the character and filters on it — so an asset whose
+    character was deleted became undeletable by the person who owns it. A
+    library you cannot remove things from is not a library.
+
+    AUTHORISATION IS OWNERSHIP, AND ONLY OWNERSHIP: ``CharacterImage.user_id ==
+    current_user.id``. No character is consulted, because for a characterless
+    asset there is none to consult and for an associated one the owner is the
+    same account either way. This route therefore works for both, which is the
+    point of it.
+
+    Everything else matches the character-scoped route deliberately, so the two
+    entrances cannot drift into meaning different things:
+
+    * the identity anchors in :data:`PROTECTED_IMAGE_KINDS` are refused — those
+      are canon working references and removing one silently changes every
+      future generation;
+    * archiving is a LIFECYCLE change, not a deletion. The row, its owner, its
+      safety decision, its provenance and its storage pointer all survive;
+      ``status`` becomes ARCHIVED, which is what already suppresses the image
+      from post attachments and public surfaces;
+    * an image belonging to somebody else is reported as 404, never 403. A 403
+      would confirm the row exists and that it is not yours, which is a fact
+      about another account's library that this endpoint has no business
+      disclosing. The character-scoped route can afford a 403 because the
+      caller already named a character it verified they own.
+
+    This route does NOT re-associate anything, and there is deliberately no
+    endpoint that does. An asset that has lost its character keeps no path back
+    to one until somebody designs that operation explicitly.
+    """
+    image = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.id == image_id,
+            CharacterImage.user_id == current_user.id,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .first()
+    )
+    if image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found."
+        )
+
+    if image.kind in PROTECTED_IMAGE_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Identity anchor images cannot be deleted. Reset the character "
+                "to start over."
+            ),
+        )
+
+    image.status = ImageStatusEnum.ARCHIVED
+    db.commit()
 
 
 @router.get("/me/images", response_model=List[UserImageRead])

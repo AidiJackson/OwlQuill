@@ -7,8 +7,8 @@ different things:
 * **No ownerless row can be created.** NOT NULL, enforced by the column.
 * **No account can be deleted out from under its assets.** RESTRICT, enforced
   by the foreign key — and only when the delete actually reaches the foreign
-  key. ``test_orm_account_delete_still_routes_around_restrict`` records the one
-  path that does not, which is Phase 4C's business.
+  key. Phase 4C removed the ORM cascade that used to walk around it, so
+  ``test_orm_account_delete_is_now_refused`` proves the refusal is reached.
 
 These tests use their own engine with ``PRAGMA foreign_keys=ON``. SQLite ignores
 foreign keys unless asked, so the shared ``db_session`` fixture would report a
@@ -110,16 +110,33 @@ def test_user_id_is_not_null_with_on_delete_restrict(fk_engine):
     assert fk["options"].get("ondelete") == "RESTRICT"
 
 
-def test_character_id_is_untouched_by_this_phase(fk_engine):
-    """4B2 changes ownership only. Association stays exactly as it was."""
-    columns = {c["name"]: c for c in inspect(fk_engine).get_columns("character_images")}
-    assert columns["character_id"]["nullable"] is False
+def test_ownership_and_association_are_different_rules(fk_engine):
+    """The two columns say different things and must not converge.
 
-    fk = next(
-        fk for fk in inspect(fk_engine).get_foreign_keys("character_images")
-        if fk["constrained_columns"] == ["character_id"]
-    )
-    assert fk["options"].get("ondelete") == "CASCADE"
+    This assertion used to read "4B2 changes ownership only; association stays
+    exactly as it was" and pinned ``character_id`` as NOT NULL/CASCADE. That was
+    true of 4B2 and is no longer true of the schema: Phase 4C made association
+    optional. What survives from the original intent — and what is worth pinning
+    permanently — is that the two columns are governed by DIFFERENT rules, so
+    neither phase's change can quietly be applied to the other column::
+
+        user_id      mandatory, RESTRICT   ownership
+        character_id optional,  SET NULL   association
+
+    The 4C half is proven in full in ``test_optional_character_association.py``;
+    it is asserted here so that re-tightening ``character_id``, or loosening
+    ``user_id``, fails in the ownership suite too.
+    """
+    columns = {c["name"]: c for c in inspect(fk_engine).get_columns("character_images")}
+    assert columns["user_id"]["nullable"] is False
+    assert columns["character_id"]["nullable"] is True
+
+    fks = {
+        tuple(fk["constrained_columns"]): fk
+        for fk in inspect(fk_engine).get_foreign_keys("character_images")
+    }
+    assert fks[("user_id",)]["options"].get("ondelete") == "RESTRICT"
+    assert fks[("character_id",)]["options"].get("ondelete") == "SET NULL"
 
 
 def test_no_orm_relationship_navigates_from_user_to_character_images():
@@ -255,33 +272,40 @@ def test_an_owner_becomes_deletable_once_the_assets_are_gone(session_factory, ow
         db.close()
 
 
-def test_orm_account_delete_still_routes_around_restrict(session_factory, owned_asset):
-    """DOCUMENTED GAP, not an endorsement — this is what Phase 4C must close.
+def test_orm_account_delete_is_now_refused(session_factory, owned_asset):
+    """Phase 4C closed the gap this test used to pin open.
 
-    ``Session.delete(user)`` succeeds today. ``User.characters`` is
-    ``all, delete-orphan`` and so is ``Character.images``, so SQLAlchemy deletes
-    the image rows itself, in order, and the foreign key is never asked. The
-    RESTRICT is real but unreachable along this path.
+    It previously asserted the OPPOSITE: that ``Session.delete(user)``
+    succeeded, because ``User.characters`` and ``Character.images`` were both
+    ``all, delete-orphan``, so SQLAlchemy deleted the image rows itself and
+    ``DELETE FROM users`` found nothing referencing the account. The RESTRICT
+    was real and unreachable. That test carried an instruction to invert the
+    day the cascade changed; 4C is that day.
 
-    That cascade is explicitly out of scope for 4B2 (changing it without a
-    nullable ``character_id`` changes nothing observable — see the Phase 4B
-    inspection), and rewriting it is the substance of Phase 4C. Nothing in the
-    application reaches this path today: there is no account-deletion route, and
-    ``scripts/reset_account.py`` refuses while any character is owned.
-
-    Pinned as a test so the day 4C changes the cascade, this assertion fails and
-    somebody re-reads it rather than discovering the behaviour by accident.
+    ``Character.images`` no longer cascades deletes, so the image row survives
+    the character, still referencing the account — and the foreign key is
+    finally the thing that answers. ``User.characters`` was NOT changed and is
+    still ``all, delete-orphan``: the bypass was always the second hop.
     """
     db = session_factory()
     try:
         user = db.get(User, owned_asset["owner_id"])
-        db.delete(user)
-        db.commit()
-        assert db.get(CharacterImage, owned_asset["image_id"]) is None, (
-            "If this now survives, the ORM cascade changed — RESTRICT has "
-            "started to bite, and this test should become an assertion that "
-            "the deletion is REFUSED."
-        )
+        with pytest.raises(IntegrityError):
+            db.delete(user)
+            db.commit()
+        db.rollback()
+    finally:
+        db.close()
+
+    db = session_factory()
+    try:
+        assert db.get(User, owned_asset["owner_id"]) is not None
+        image = db.get(CharacterImage, owned_asset["image_id"])
+        assert image is not None
+        assert image.user_id == owned_asset["owner_id"]
+        # The whole attempt rolled back together, so the character deletion
+        # that the ORM had already emitted did not survive either.
+        assert image.character_id == owned_asset["character_id"]
     finally:
         db.close()
 

@@ -316,7 +316,9 @@ class EditorJobRead(BaseModel):
     """Editor async job snapshot (queued|running|completed|failed)."""
 
     id: int
-    character_id: int
+    #: Optional since Phase 4C: the job — and the record of who requested it —
+    #: survives the deletion of the character it ran for.
+    character_id: Optional[int] = None
     provider: str
     prompt: str
     state: str
@@ -352,9 +354,13 @@ def _job_to_read(db: Session, job: EditorJob) -> EditorJobRead:
     )
 
 
-def _require_admin_and_character(
-    db: Session, current_user: User, character_id: int
-) -> CharacterModel:
+def _require_admin(current_user: User) -> None:
+    """Admin gate for the async editor job routes.
+
+    Gates the PROVIDER, not the data. ``self_hosted`` is a RunPod GPU pod with a
+    real per-run cost, and the E5 commit that introduced these routes restricted
+    them to admins for that reason.
+    """
     from app.core.config import settings
 
     is_admin = bool(current_user.is_admin) or (
@@ -365,11 +371,58 @@ def _require_admin_and_character(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Self-hosted editor jobs are admin-only for now.",
         )
+
+
+def _require_admin_and_existing_character(
+    db: Session, current_user: User, character_id: int
+) -> CharacterModel:
+    """Admin gate, then load the character — WITHOUT an ownership check.
+
+    STATED EXPLICITLY BECAUSE IT IS SURPRISING. An admin may start an editor job
+    against ANY character, including one they do not own. Its sibling route
+    ``POST /editor/generate`` performs a full owner-or-admin check; these job
+    routes never had one, and the previous name (``_require_admin_and_character``)
+    read as though they did.
+
+    This is NOT changed here. Phase 4C is a schema phase, and the question it
+    would have to answer — whether founder tooling should reach arbitrary
+    creators' characters — is a product decision, not a migration's. It is
+    recorded as founder-tooling debt. What HAS been settled, by Phase 4B2, is
+    the part that matters for safety: whoever runs the job, the resulting asset
+    belongs to the character's owner, never to the admin who requested it.
+    """
+    _require_admin(current_user)
     character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not character:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Character not found.")
     return character
+
+
+def _require_admin_for_job(db: Session, current_user: User, job: EditorJob) -> None:
+    """Authorise reading or cancelling *job*, whose character may be gone.
+
+    Since Phase 4C ``job.character_id`` may be NULL — the character was deleted
+    while the job outlived it. The admin gate still applies; the character
+    lookup is skipped rather than 404-ing, because a job with no character must
+    remain cancellable. An orphaned RUNNING job still owns a GPU pod that costs
+    money every minute, and making it unreachable would be a way to leak spend,
+    not a way to be careful.
+
+    This grants nothing new. These routes already admit any admin to any
+    character's jobs (see :func:`_require_admin_and_existing_character`); this
+    applies the same policy to a job whose character no longer exists.
+    """
+    _require_admin(current_user)
+    if job.character_id is not None:
+        character = (
+            db.query(CharacterModel)
+            .filter(CharacterModel.id == job.character_id)
+            .first()
+        )
+        if not character:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                                detail="Character not found.")
 
 
 @router.post(
@@ -401,7 +454,7 @@ async def editor_job_start(
             detail="Async editor jobs support only the self_hosted provider; "
                    "use POST /editor/generate for gpt-image and grok.",
         )
-    _require_admin_and_character(db, current_user, character_id)
+    _require_admin_and_existing_character(db, current_user, character_id)
 
     quota_error = check_weekly_quota(current_user, db)
     if quota_error is not None:
@@ -478,7 +531,7 @@ def editor_job_latest(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> EditorJobEnvelope:
-    _require_admin_and_character(db, current_user, character_id)
+    _require_admin_and_existing_character(db, current_user, character_id)
     job = get_latest_job(db, character_id)
     return EditorJobEnvelope(job=_job_to_read(db, job) if job else None)
 
@@ -497,7 +550,7 @@ def editor_job_get(
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Editor job not found.")
-    _require_admin_and_character(db, current_user, job.character_id)
+    _require_admin_for_job(db, current_user, job)
     return _job_to_read(db, job)
 
 
@@ -516,7 +569,7 @@ def editor_job_cancel(
     if existing is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Editor job not found.")
-    _require_admin_and_character(db, current_user, existing.character_id)
+    _require_admin_for_job(db, current_user, existing)
     try:
         job = cancel_job(db, job_id)
     except EditorJobError as exc:

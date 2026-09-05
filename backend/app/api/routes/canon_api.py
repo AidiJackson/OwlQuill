@@ -664,7 +664,11 @@ def generate_scene_from_canon(
     # ── Save as SCENE_ONLY — NEVER update canon ───────────────────
     img = CharacterImage(
         character_id=character_id,
-        user_id=current_user.id,
+        # The character's owner, not the requester. This route is owner-only
+        # (``_get_owned_character`` above), so the two are the same account —
+        # naming the owner states the rule instead of relying on the guard to
+        # imply it. See the ownership rule on ``CharacterImage.user_id``.
+        user_id=char.owner_id,
         kind=ImageKindEnum.SCENE_ONLY,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

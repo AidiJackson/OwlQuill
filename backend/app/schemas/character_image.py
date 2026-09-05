@@ -57,7 +57,12 @@ class CharacterImagePublic(BaseModel):
     ``status`` and ``visibility``.
     """
     id: int
-    character_id: int
+    #: Optional since Phase 4C — an asset may outlive its character. A
+    #: characterless asset cannot actually reach this schema (the public gallery
+    #: route is character-scoped and 404s once the character is gone), but the
+    #: type states the column's shape rather than an assumption about which rows
+    #: happen to arrive here.
+    character_id: Optional[int] = None
     kind: ImageKindEnum
     created_at: datetime
     url: str
@@ -294,7 +299,11 @@ class PublicGallerySelectionRequest(BaseModel):
 class CharacterImageRead(BaseModel):
     """Schema returned when reading a character image."""
     id: int
-    character_id: int
+    #: Optional since Phase 4C. ``null`` means the asset has no character — it
+    #: is still owned, still in its owner's library, and every character-scoped
+    #: action on it is unavailable. Clients must not build a character URL from
+    #: this without checking it first.
+    character_id: Optional[int] = None
     kind: ImageKindEnum
     status: ImageStatusEnum
     visibility: ImageVisibilityEnum
