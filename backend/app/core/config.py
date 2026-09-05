@@ -1,8 +1,22 @@
 """Application configuration using Pydantic Settings."""
+import logging
 import os
 import json
 from typing import Literal, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+#: The placeholder ``FRONTEND_URL`` carries when nobody has configured one.
+#:
+#: Named because two callers have to recognise it and they need opposite things
+#: from it: ``get_frontend_url`` treats it as a usable last resort for a local
+#: reset link, while ``get_public_base_url`` treats it as "unset" — a canonical
+#: URL pointing at localhost is worse than no canonical URL at all.
+DEFAULT_FRONTEND_URL = "http://localhost:5173"
+
+#: Whether the "no public base URL" warning has already been emitted.
+_WARNED_NO_PUBLIC_BASE_URL = False
 
 
 class Settings(BaseSettings):
@@ -305,6 +319,54 @@ class Settings(BaseSettings):
         if replit_domain:
             return f"https://{replit_domain}"
         return self.FRONTEND_URL
+
+    def get_public_base_url(self) -> Optional[str]:
+        """The origin this site is publicly reachable at, or None if unknown.
+
+        Deliberately NOT :meth:`get_frontend_url`, whose last resort is
+        ``http://localhost:5173``. That is a reasonable fallback for a password
+        reset link a developer clicks locally, and a bad one for a canonical
+        URL or an ``og:image``, which are published claims about where this
+        content lives. Emitting localhost there would tell every crawler that a
+        character's Home is at an address nobody can reach — worse than
+        emitting nothing, which is why this returns None instead.
+
+        Resolution order:
+
+        1. an explicitly configured ``FRONTEND_URL`` — production sets this;
+        2. ``REPLIT_DEV_DOMAIN``, so the Replit preview is correct for free;
+        3. in development only, the localhost placeholder, which is honest
+           there because localhost really is where the site is;
+        4. otherwise None, with a warning — a production deployment with no
+           configured origin is a misconfiguration, and it should say so in the
+           logs rather than quietly publish a wrong address.
+
+        Never consults the request's ``Host`` header. That header is
+        attacker-controlled, and a canonical URL derived from it lets anyone
+        with a proxy declare their own domain canonical for this content.
+        """
+        explicit = (self.FRONTEND_URL or "").strip().rstrip("/")
+        if explicit and explicit != DEFAULT_FRONTEND_URL:
+            return explicit
+
+        replit_domain = os.environ.get("REPLIT_DEV_DOMAIN", "").strip()
+        if replit_domain:
+            return f"https://{replit_domain}"
+
+        if self.is_dev_mode():
+            return explicit or None
+
+        # Once per process, not once per request: this is consulted on every
+        # /c/{id} hit, and a crawler sweep would otherwise fill the deployment
+        # log with the same line thousands of times and bury everything else.
+        global _WARNED_NO_PUBLIC_BASE_URL
+        if not _WARNED_NO_PUBLIC_BASE_URL:
+            _WARNED_NO_PUBLIC_BASE_URL = True
+            logger.warning(
+                "No public base URL configured: set FRONTEND_URL to the site's "
+                "public origin. Canonical, og:url and og:image will be omitted."
+            )
+        return None
 
     def get_cors_origins(self) -> list[str]:
         """Parse CORS origins from env.

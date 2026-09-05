@@ -335,6 +335,20 @@ if _SERVE_SPA:
         name="spa-assets",
     )
 
+    # The public Character Home is the one SPA route that is pasted into other
+    # apps, so it is the one route whose HTML must carry per-character metadata:
+    # link-preview crawlers read <head> and never execute the bundle. Registered
+    # BEFORE the catch-all below, which would otherwise answer /c/{id} with the
+    # static index and its one-title-for-every-route head.
+    #
+    # Only the head differs. An unpublished or nonexistent character gets the
+    # catch-all's exact bytes, so the two stay indistinguishable.
+    from app.api.routes.character_home_shell import (
+        create_character_home_shell_router,
+    )
+
+    app.include_router(create_character_home_shell_router(_FRONTEND_DIST))
+
     # Registered last, so every real API route, /static and /assets mount, and
     # /health match first. Only unmatched GETs land here.
     @app.get("/{full_path:path}", include_in_schema=False)
