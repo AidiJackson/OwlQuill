@@ -56,7 +56,27 @@ def create_character_image(
     *,
     owner_id: int,
 ) -> CharacterImage:
-    """Insert a single CharacterImage record owned by *owner_id*.
+    """LEGACY. Insert a single CharacterImage record owned by *owner_id*.
+
+    SUPERSEDED BY ``asset_persistence.persist_image_asset`` (Phase 4D1). Not
+    deprecated by taste — it cannot be the canonical seam for two structural
+    reasons:
+
+    * it takes bytes that are ALREADY persisted, as a ``file_path`` inside
+      ``CharacterImageCreate``, so it cannot own the storage/database ordering
+      or compensate a failed write. The orphan objects on DEV were all created
+      by that split;
+    * it calls ``db.commit()`` itself, so a route that fails after it leaves the
+      row behind.
+
+    It also takes ``owner_id`` as a bare int, which cannot distinguish the
+    asset's owner from whoever made the request — the exact ambiguity 4B1/4B2/4C
+    spent three phases removing. ``OwnedBy.character()`` / ``OwnedBy.account()``
+    make that a compile-time-visible choice instead.
+
+    Its two callers are scheduled for Phase 4D2. Until then it stays, unchanged,
+    and ``tests/test_legacy_save_image_inventory.py`` prevents a third from
+    appearing. DO NOT CALL IT FROM NEW CODE.
 
     ``owner_id`` is required and keyword-only (Phase 4B2). ``user_id`` is NOT
     NULL, so an owner has to be supplied at INSERT time — both callers used to
