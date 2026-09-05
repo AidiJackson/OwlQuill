@@ -3,6 +3,18 @@ import type { CharacterHomePublic } from '@/lib/types';
 import { avatarTransformStyle, coverObjectPosition } from '@/lib/media';
 
 /**
+ * The one species that says nothing about a character.
+ *
+ * Every other value here — Fae, revenant, wolf — is a fact about who this is.
+ * "human" is the default answer, and standing alone above a name it reads as a
+ * field that was filled in rather than a character that was described.
+ *
+ * Compared case-insensitively and trimmed, because this is creator-entered
+ * free text and "Human" is the same non-statement as "human".
+ */
+const GENERIC_SPECIES = 'human';
+
+/**
  * The establishing shot of a public Character Home.
  *
  * Adapted from the authenticated character page's hero so a visitor and a
@@ -21,15 +33,21 @@ import { avatarTransformStyle, coverObjectPosition } from '@/lib/media';
 export default function CharacterHomeHero({ character }: { character: CharacterHomePublic }) {
   // role · species · era, from whichever the server actually sent. The whole
   // line disappears when all three are empty rather than leaving a gap.
-  //
-  // Species is included even though a character with only `species` populated
-  // shows a lone "human", which reads more like a database value than an
-  // introduction. That is a content problem — a character with no role and no
-  // era has not been described yet — and hiding the one populated field would
-  // not fix it.
-  const metaLine = [character.role, character.species, character.era]
-    .filter(Boolean)
-    .join(' · ');
+  const metaParts = [character.role, character.species, character.era].filter(Boolean);
+
+  // ...and it disappears in one more case: when the only thing left to say is
+  // that the character is human. A lone "HUMAN" over the name is a database
+  // value wearing a label, and the hero is better with nothing there than with
+  // that. Deliberately narrow — the suppression needs species to be the ONLY
+  // populated value, so "immortal king · human · timeless" is untouched, and it
+  // keys on the generic value alone, so a distinctive species still introduces
+  // a character that has nothing else filled in yet.
+  const isLoneGenericSpecies =
+    metaParts.length === 1 &&
+    !!character.species &&
+    character.species.trim().toLowerCase() === GENERIC_SPECIES;
+
+  const metaLine = isLoneGenericSpecies ? '' : metaParts.join(' · ');
 
   return (
     <section className="relative">

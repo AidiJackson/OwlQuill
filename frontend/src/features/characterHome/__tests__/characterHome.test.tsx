@@ -203,18 +203,79 @@ describe('sparse Home', () => {
     expect(screen.queryByText(/yet/i)).toBeNull();
   });
 
-  it('renders whichever meta fields exist, and omits the line when none do', async () => {
-    getPublicCharacterHome.mockResolvedValue(BARE_HOME);
-    renderHome();
-    await screen.findByRole('heading', { level: 1, name: 'Pan' });
-    // BARE_HOME still carries species, so the line renders with just that.
-    expect(screen.getByText('human')).toBeTruthy();
-
-    cleanup();
+  it('omits the meta line when no meta field exists', async () => {
     getPublicCharacterHome.mockResolvedValue({ ...BARE_HOME, species: null });
     renderHome();
     await screen.findByRole('heading', { level: 1, name: 'Pan' });
     expect(screen.queryByText('human')).toBeNull();
+  });
+});
+
+// ── B2. The hero meta line, and the one value that says nothing ─────────────
+
+/**
+ * `role · species · era` composes from whatever the server sent — with a single
+ * exception. A character whose ONLY populated field is `species: human` gets no
+ * meta line at all, because a lone "HUMAN" above the name reads as a database
+ * column rather than an introduction.
+ *
+ * The exception is deliberately narrow, and these tests are what keeps it that
+ * way. It must not widen into "hide species", which would cost every non-human
+ * character its one distinguishing word, and it must not widen into "hide
+ * human", which would punch a hole in the middle of a composed line.
+ */
+describe('hero meta line', () => {
+  const meta = (over: Partial<CharacterHomePublic>) => ({
+    ...BARE_HOME, role: null, species: null, era: null, ...over,
+  });
+
+  it('omits the line when human is the only value', async () => {
+    getPublicCharacterHome.mockResolvedValue(meta({ species: 'human' }));
+    renderHome();
+    await screen.findByRole('heading', { level: 1, name: 'Pan' });
+    expect(screen.queryByText('human')).toBeNull();
+  });
+
+  it('matches the generic value case-insensitively and ignores surrounding space', async () => {
+    for (const species of ['Human', 'HUMAN', '  human  ']) {
+      getPublicCharacterHome.mockResolvedValue(meta({ species }));
+      renderHome();
+      await screen.findByRole('heading', { level: 1, name: 'Pan' });
+      expect(screen.queryByText(/human/i)).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('keeps a distinctive species standing alone', async () => {
+    // The whole point of the field for anyone who is not human. A character
+    // with nothing else filled in still gets to say what they are.
+    for (const species of ['Fae', 'revenant', 'half-human']) {
+      getPublicCharacterHome.mockResolvedValue(meta({ species }));
+      renderHome();
+      await screen.findByRole('heading', { level: 1, name: 'Pan' });
+      expect(screen.getByText(species)).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it('keeps human when it is composed with a role or an era', async () => {
+    getPublicCharacterHome.mockResolvedValue(meta({ role: 'innkeeper', species: 'human' }));
+    renderHome();
+    await screen.findByRole('heading', { level: 1, name: 'Pan' });
+    expect(screen.getByText('innkeeper · human')).toBeTruthy();
+
+    cleanup();
+    getPublicCharacterHome.mockResolvedValue(meta({ species: 'human', era: 'the long winter' }));
+    renderHome();
+    await screen.findByRole('heading', { level: 1, name: 'Pan' });
+    expect(screen.getByText('human · the long winter')).toBeTruthy();
+  });
+
+  it('still renders a role or era that stands alone', async () => {
+    getPublicCharacterHome.mockResolvedValue(meta({ role: 'immortal king' }));
+    renderHome();
+    await screen.findByRole('heading', { level: 1, name: 'Pan' });
+    expect(screen.getByText('immortal king')).toBeTruthy();
   });
 });
 
@@ -328,5 +389,158 @@ describe('gallery lightbox', () => {
     fireEvent.click(screen.getByRole('button', { name: /close/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), { timeout: 1500 });
     expect(screen.getByRole('heading', { level: 1, name: 'Pan' })).toBeTruthy();
+  });
+
+  /**
+   * The close control has to sit on the picture.
+   *
+   * It is absolutely positioned against its panel, so the panel's box and the
+   * drawn image have to be the same rectangle. They were not: `w-full` on the
+   * image forced the box to the panel's full 672px while `object-contain` drew
+   * a portrait photo at ~578px inside it, and the button — correctly placed at
+   * the box's top-right — landed in the backdrop, clear of the photo. Every
+   * image in a character gallery is portrait, so it happened every time.
+   *
+   * jsdom runs no layout engine and loads no Tailwind, so the gutter itself
+   * cannot be measured here. What these assertions pin is its cause, which is
+   * the part a future edit would reintroduce.
+   */
+  async function openLightbox() {
+    getPublicCharacterHomeImages.mockResolvedValue([IMAGE]);
+    renderHome();
+    await screen.findByText('Gallery');
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.querySelector('img'))!);
+    const dialog = await screen.findByRole('dialog');
+    const closeButton = screen.getByRole('button', { name: /close/i });
+    return { dialog, closeButton, image: dialog.querySelector('img')! };
+  }
+
+  it('anchors the close control to the image box, not a wider container', async () => {
+    const { closeButton, image } = await openLightbox();
+    const panel = closeButton.parentElement!;
+
+    // One box holds both, so "top-right of the panel" is "top-right of the
+    // photo" — but only while the panel shrink-wraps the image.
+    expect(panel.contains(image)).toBe(true);
+    expect(panel.className).toContain('relative');
+    expect(panel.className).toContain('w-fit');
+    expect(panel.className).not.toMatch(/\bw-full\b/);
+
+    // The image must size itself from its own aspect ratio. A forced full width
+    // is exactly what reopens the gap between the box and the drawn pixels.
+    expect(image.className).not.toMatch(/\bw-full\b/);
+    expect(image.className).toMatch(/max-h-\[85vh\]/);
+  });
+
+  it('still lets the image span a phone screen', async () => {
+    const { image } = await openLightbox();
+    // The cap is `min(panel width, viewport − margins)`, so on a narrow screen
+    // the viewport term wins and the image fills it — the same result the old
+    // `w-full mx-4` gave. Pinned as written because the viewport term is the
+    // half that mobile depends on.
+    expect(image.className).toContain('max-w-[min(42rem,calc(100vw-2rem))]');
+  });
+});
+
+// ── F. The Home holds still while the lightbox is open ──────────────────────
+
+/**
+ * Scroll lock.
+ *
+ * Without it the page scrolls behind the backdrop under a wheel or a touch
+ * drag, and closing the lightbox drops the visitor somewhere they never chose
+ * to be. What these tests care about as much as the lock is the RESTORE: a
+ * component that leaves `overflow: hidden` behind has frozen the whole site,
+ * and it fails silently — the lightbox itself still looks correct.
+ */
+describe('lightbox scroll lock', () => {
+  /** Give jsdom, which lays nothing out, a viewport with a scrollbar in it. */
+  function withScrollbar(width: number) {
+    Object.defineProperty(window, 'innerWidth', {
+      value: 1000, writable: true, configurable: true,
+    });
+    Object.defineProperty(document.documentElement, 'clientWidth', {
+      value: 1000 - width, writable: true, configurable: true,
+    });
+  }
+
+  afterEach(() => {
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+    Object.defineProperty(document.documentElement, 'clientWidth', {
+      value: 0, writable: true, configurable: true,
+    });
+  });
+
+  async function open() {
+    getPublicCharacterHomeImages.mockResolvedValue([IMAGE]);
+    const view = renderHome();
+    await screen.findByText('Gallery');
+    fireEvent.click(screen.getAllByRole('button').find((b) => b.querySelector('img'))!);
+    await screen.findByRole('dialog');
+    return view;
+  }
+
+  it('locks the body while open and unlocks it on close', async () => {
+    await open();
+    expect(document.body.style.overflow).toBe('hidden');
+
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), { timeout: 1500 });
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  it('unlocks when the lightbox unmounts mid-transition', async () => {
+    const { unmount } = await open();
+    expect(document.body.style.overflow).toBe('hidden');
+
+    // A visitor navigating away between the close click and the 200ms unmount
+    // must not leave a frozen document behind.
+    unmount();
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  it('restores a pre-existing inline value rather than clearing it', async () => {
+    // Restoring means putting back exactly what was there. Blanking the
+    // property instead would quietly discard another owner's setting.
+    document.body.style.overflow = 'auto';
+    document.body.style.paddingRight = '7px';
+
+    const { unmount } = await open();
+    expect(document.body.style.overflow).toBe('hidden');
+
+    unmount();
+    expect(document.body.style.overflow).toBe('auto');
+    expect(document.body.style.paddingRight).toBe('7px');
+  });
+
+  it('pads for the vanishing scrollbar so the page does not jump sideways', async () => {
+    withScrollbar(15);
+    const { unmount } = await open();
+    // Hiding overflow removes the scrollbar and widens the viewport; the page
+    // would shift left by its width without this.
+    expect(document.body.style.paddingRight).toBe('15px');
+
+    unmount();
+    expect(document.body.style.paddingRight).toBe('');
+  });
+
+  it('adds the scrollbar width to padding the body already had', async () => {
+    withScrollbar(15);
+    document.body.style.paddingRight = '10px';
+    const { unmount } = await open();
+    expect(document.body.style.paddingRight).toBe('25px');
+
+    unmount();
+    expect(document.body.style.paddingRight).toBe('10px');
+  });
+
+  it('locks without padding when there is no scrollbar to compensate for', async () => {
+    // Phones, and any environment that reports no layout. The lock is the part
+    // that must always apply; the compensation is only ever a nicety.
+    withScrollbar(0);
+    await open();
+    expect(document.body.style.overflow).toBe('hidden');
+    expect(document.body.style.paddingRight).toBe('');
   });
 });
