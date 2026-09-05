@@ -2,6 +2,7 @@
 from datetime import datetime
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Enum as SQLEnum,
@@ -104,8 +105,96 @@ class ImageVisibilityEnum(str, enum.Enum):
     PUBLIC = "public"
 
 
+# ── Safety state (Phase 4A) ───────────────────────────────────────────────────
+#
+# Plain strings, not a PostgreSQL enum, and not a Python enum bound to a column
+# type. Adding a state later — ``review_required`` is the expected one — must be
+# a CHECK edit, because this project has already been forced through
+# ``ALTER TYPE ... ADD VALUE`` three times for ``imagekindenum`` and that
+# operation cannot be rolled back.
+
+#: No Ficshon decision exists for this asset. The default, and the state every
+#: row created before Phase 4A carries. It says "nobody looked", which is a
+#: different and more honest claim than "an old denylist did not object".
+SAFETY_STATE_UNREVIEWED = "unreviewed"
+
+#: An explicit moderation decision was made under a stated policy version, and
+#: the asset may be shown beyond its owner once enforcement is switched on.
+#:
+#: NEVER written by inference. Not by a migration, not by a provenance
+#: evaluation, not by "the denylist did not fire". Anything that writes this
+#: must also record ``safety_policy_version``, ``safety_decided_at`` and
+#: ``safety_decision_source`` — the CHECK constraint below enforces exactly that,
+#: so the invariant survives code nobody remembers writing.
+SAFETY_STATE_APPROVED = "approved"
+
+#: An explicit decision that this asset must not be shown beyond its owner.
+SAFETY_STATE_REJECTED = "rejected"
+
+SAFETY_STATES = frozenset({
+    SAFETY_STATE_UNREVIEWED,
+    SAFETY_STATE_APPROVED,
+    SAFETY_STATE_REJECTED,
+})
+
+#: A person made the call, through a moderation surface.
+SAFETY_DECISION_SOURCE_HUMAN = "human"
+
+#: A policy run made the call, with no human in the loop.
+SAFETY_DECISION_SOURCE_AUTOMATED = "automated"
+
+SAFETY_DECISION_SOURCES = frozenset({
+    SAFETY_DECISION_SOURCE_HUMAN,
+    SAFETY_DECISION_SOURCE_AUTOMATED,
+})
+
+#: Policy version meaning "never evaluated". A decided row must exceed it.
+SAFETY_POLICY_VERSION_NONE = 0
+
+
 class CharacterImage(Base):
-    """An image associated with a character (anchor or generated)."""
+    """Ficshon's canonical persisted-image asset (Phase 4A).
+
+    Historically "an image associated with a character". It is becoming the one
+    row that must exist for every persisted image, which is why the safety and
+    storage columns below live here rather than in a parallel asset table: two
+    tables describing the same bytes would drift, and one of them would end up
+    being the one nobody checks.
+
+    Four things this increment deliberately does NOT yet mean
+    ---------------------------------------------------------
+    * **``user_id`` is not yet authoritative ownership.** It still carries its
+      original meaning — which account generated the image, for the weekly
+      quota — and is NULL on 318 of the 1,429 DEV rows. Ownership is still
+      established by joining ``Character`` (see ``/users/me/character-images``).
+      A later increment backfills it from ``characters.owner_id`` (verified
+      lossless: zero rows disagree today) and moves ownership onto it. Until
+      then, do not read it as "who owns this asset".
+    * **``storage_key`` is not populated.** Every row has NULL. ``file_path``
+      remains the only storage identity in use, and every resolver still reads
+      it. The backfill is a separate, reviewable script because deriving the key
+      requires stripping an environment-specific URL prefix, which does not
+      belong in a migration.
+    * **``safety_state`` is not presentation authority.** No predicate reads it
+      — not ``is_public_surface_safe``, ``is_public_post_image``,
+      ``is_public_gallery_image``, nor any resolver. What may be shown is still
+      decided exactly as it was before this column existed. Enforcement is a
+      later, deliberate flip, and when it comes the existing denylist stays as
+      the floor: an approval must never publish something the denylist rejects.
+    * **``approved`` is never inferred.** It represents an explicit moderation
+      decision under a stated policy version. Nothing derives it from provider,
+      provenance or the absence of a denylist hit — that inference is the exact
+      confusion these columns exist to end. The CHECK constraints make a
+      decision without its policy version, timestamp and source unrepresentable,
+      so the rule holds against code that has not been written yet.
+
+    Lifecycle (``status``) and safety (``safety_state``) stay orthogonal.
+    ``status`` answers "does the owner still have this?" — and ARCHIVED already
+    IS the owner's delete, since ``DELETE /characters/{id}/images/{image_id}``
+    sets it and no hard-delete route exists. ``safety_state`` answers "may
+    anyone else see it?". The two genuinely disagree in practice: an ARCHIVED
+    row is ineligible as a post attachment and perfectly eligible as an avatar.
+    """
 
     __tablename__ = "character_images"
 
@@ -178,5 +267,143 @@ class CharacterImage(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    # Relationships
+    # ── Safety audit (Phase 4A) ──────────────────────────────────────────
+    #
+    # Read together, these five answer one question honestly six months from
+    # now: did Ficshon actually review this, or did some historical code merely
+    # fail to reject its provider?
+    #
+    # ``server_default`` is kept permanently on the two non-nullable columns,
+    # rather than dropped after migration. An INSERT from a writing path nobody
+    # remembered to update must land on "not reviewed" at the DDL level. That is
+    # not hypothetical: thirteen modules currently call ``save_image()`` and
+    # write no row at all, and when they are fixed their rows must default safe
+    # without anyone having to remember.
+    safety_state = Column(
+        String(32),
+        nullable=False,
+        default=SAFETY_STATE_UNREVIEWED,
+        server_default=SAFETY_STATE_UNREVIEWED,
+        index=True,
+    )
+
+    #: Which version of the safety policy produced the decision; 0 = never
+    #: evaluated. Exists so that when the policy changes in November, the rows
+    #: approved under the old one can be found and re-reviewed — exactly those,
+    #: and not everything. It is also what makes a future ``review_required``
+    #: derivable (``approved AND version < CURRENT``) rather than stored.
+    safety_policy_version = Column(
+        Integer, nullable=False, default=SAFETY_POLICY_VERSION_NONE, server_default="0"
+    )
+
+    #: When the decision was made. Not derivable from anything else — this table
+    #: has no ``updated_at`` — and it is what answers "which rows went through
+    #: the auto-approver during the window it was broken?".
+    safety_decided_at = Column(DateTime, nullable=True)
+
+    #: The human account that decided, where one exists and still exists.
+    #:
+    #: ON DELETE SET NULL, so this going NULL does NOT mean "automated" — it may
+    #: equally mean the moderator later deleted their account. Never infer the
+    #: mechanism from this column; that is what ``safety_decision_source`` is
+    #: for, and it is why the CHECK constraint requires the source rather than
+    #: this FK on a decided row.
+    safety_decided_by = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    #: How the decision was made — ``human`` or ``automated``. Survives the
+    #: deletion of the deciding account, which is the whole reason it is a
+    #: separate column from ``safety_decided_by``.
+    safety_decision_source = Column(String(32), nullable=True)
+
+    #: Short human-readable justification, chiefly for rejections. Deliberately
+    #: NOT required by any constraint: forcing a reason onto automated decisions
+    #: would produce placeholder text, which is worse than an honest NULL, and
+    #: an automated decision's structured reasoning belongs with its policy
+    #: version rather than in free text.
+    safety_reason = Column(String(500), nullable=True)
+
+    # ── Lineage and storage identity (Phase 4A) ──────────────────────────
+
+    #: The image row this one was produced from — an avatar or cover crop, an
+    #: Editor Studio transform, a future redraw.
+    #:
+    #: Answers the question the current schema cannot: "this crop was never
+    #: vetted; what was it cropped FROM, and was that approved?" Nothing
+    #: represents this today — a scan of all 1,425 rows carrying metadata found
+    #: zero occurrences of ``source_image_id``, ``derived_from``,
+    #: ``parent_image_id``, ``origin`` or ``crop``.
+    #:
+    #: Sufficient for one-to-one derivation, which is what actually causes
+    #: today's unresolvable-avatar bug. A many-to-one redraw will need a link
+    #: table later; this column then means "the primary source". SET NULL rather
+    #: than CASCADE: deleting a source must not delete everything derived from
+    #: it.
+    #:
+    #: Inert until the crop paths start writing rows at all. The column is the
+    #: schema half of that fix, not the fix.
+    derived_from_image_id = Column(
+        Integer, ForeignKey("character_images.id", ondelete="SET NULL"), nullable=True
+    )
+
+    #: Bucket-relative object key — no scheme, no host, no bucket name.
+    #:
+    #: The eventual replacement for ``file_path`` as the row's storage identity,
+    #: so that identity no longer depends on a permanent anonymous delivery URL
+    #: (today 1,409 of 1,429 rows store a public R2 URL verbatim). NULL on every
+    #: row until a deterministic backfill has run; ``file_path`` stays the sole
+    #: working identity, unchanged, and every resolver still reads it.
+    #:
+    #: No unique index yet. All 1,429 current ``file_path`` values are already
+    #: distinct and none is shared with ``user_images``, so uniqueness is
+    #: achievable with no dedup work — but the index is created after the
+    #: backfill has run and been checked for collisions, not before.
+    storage_key = Column(String(512), nullable=True)
+
+    # ── Relationships ────────────────────────────────────────────────────
     character = relationship("Character", back_populates="images")
+
+    #: The asset this one was derived from, and the assets derived from it.
+    #: ``remote_side`` names the "parent" end of the self-join.
+    derived_from = relationship(
+        "CharacterImage", remote_side=[id], backref="derivatives"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "safety_state IN ('unreviewed', 'approved', 'rejected')",
+            name="ck_character_images_safety_state",
+        ),
+        CheckConstraint(
+            "safety_decision_source IS NULL "
+            "OR safety_decision_source IN ('human', 'automated')",
+            name="ck_character_images_safety_decision_source",
+        ),
+        # An unreviewed row carries NO decision residue; a decided row carries a
+        # COMPLETE decision. Nothing in between is representable, so a partial
+        # write fails loudly at the database rather than producing a row that
+        # claims a review nobody performed.
+        #
+        # ``safety_decided_by`` is constrained on the unreviewed side only. On
+        # the decided side it must stay free: an automated decision has no human
+        # to name, and the FK is ON DELETE SET NULL, so requiring it would make
+        # that FK action illegal — deleting a moderator would leave their
+        # decisions unsatisfiable. ``safety_decision_source`` is what survives
+        # both cases, which is why it is the required field.
+        CheckConstraint(
+            "("
+            " safety_state = 'unreviewed'"
+            " AND safety_policy_version = 0"
+            " AND safety_decided_at IS NULL"
+            " AND safety_decision_source IS NULL"
+            " AND safety_decided_by IS NULL"
+            ") OR ("
+            " safety_state IN ('approved', 'rejected')"
+            " AND safety_policy_version > 0"
+            " AND safety_decided_at IS NOT NULL"
+            " AND safety_decision_source IS NOT NULL"
+            ")",
+            name="ck_character_images_safety_audit_coherent",
+        ),
+    )
