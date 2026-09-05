@@ -62,7 +62,7 @@ def get_feed(
         posts_q = posts_q.filter(PostModel.author_user_id.notin_(blocked))
 
     posts = posts_q.order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
-    return serialize_posts_for_viewer(posts, current_user)
+    return serialize_posts_for_viewer(posts, current_user, db)
 
 
 @router.post("/realms/{realm_id}/posts", response_model=Post, status_code=status.HTTP_201_CREATED)
@@ -246,7 +246,7 @@ def list_realm_posts(
     ).filter(
         PostModel.realm_id == realm_id
     ).order_by(PostModel.created_at.desc()).offset(skip).limit(limit).all()
-    return serialize_posts_for_viewer(posts, current_user)
+    return serialize_posts_for_viewer(posts, current_user, db)
 
 
 @router.get("/{post_id}", response_model=Post)
@@ -282,7 +282,7 @@ def get_post(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Post not found"
             )
-    return serialize_post_for_viewer(post, current_user)
+    return serialize_post_for_viewer(post, current_user, db)
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -38,7 +38,12 @@ from app.schemas.character import CharacterSearchResult
 from app.schemas.character_image import CharacterImageRead
 from app.services.identity import build_user_out
 from app.services.image_provider import get_image_provider
-from app.services.seeding import roster_visible_to, serialize_post_for_viewer
+from app.services.seeding import (
+    post_image_resolution,
+    roster_visible_to,
+    serialize_post_for_viewer,
+    serialize_posts_for_viewer,
+)
 
 router = APIRouter()
 
@@ -608,7 +613,7 @@ def get_user_mentions(
         .limit(limit)
         .all()
     )
-    return [serialize_post_for_viewer(p, current_user) for p in posts]
+    return serialize_posts_for_viewer(posts, current_user, db)
 
 
 @router.get("/{username}", response_model=PublicUserProfile)
@@ -703,13 +708,18 @@ def get_user_timeline(
         .limit(limit)
         .all()
     )
+    # One resolution pass for the whole page — the loop below would otherwise
+    # issue two queries per post.
+    post_images = post_image_resolution(db, [p for p, _ in posts])
     for post, realm_name in posts:
         items.append({
             "type": "post",
             "created_at": post.created_at,
             "realm_id": post.realm_id,
             "realm_name": realm_name,
-            "payload": serialize_post_for_viewer(post, current_user).model_dump(),
+            "payload": serialize_post_for_viewer(
+                post, current_user, db, resolved_images=post_images
+            ).model_dump(),
         })
 
     # Scenes created by target user (only in realms viewer can see)

@@ -340,14 +340,20 @@ def test_suppressed_media_keeps_its_positioning_fields(client, db_session, publi
     assert body["cover_position_y"] == 0.5
 
 
-def test_unresolvable_historical_media_is_returned_unchanged(client, db_session, published):
-    """The temporary V1 exception, and the reason it exists.
+def test_unresolvable_historical_media_is_suppressed(client, db_session, published):
+    """The V1 exception, removed. This is the day it tightened.
 
     ``POST /characters/{id}/avatar`` crops its source and saves a NEW file with
-    no image row behind it, so most historical avatars resolve to nothing.
-    Blanking them would suppress a large number of legitimate portraits, and
-    doing so buys nothing while no Home is enabled. Pinned explicitly so the
-    day this rule tightens, it tightens deliberately.
+    no image row behind it, so most historical avatars resolve to nothing. That
+    used to be returned unchanged, justified by no Home being enabled — an
+    argument that expired the moment one was, and an audit then found the live
+    Home's avatar was exactly this shape: served anonymously, and emitted as
+    ``og:image``, with no eligibility decision ever applied.
+
+    A URL that resolves to no row is a URL whose provenance cannot be
+    established, and this surface withholds it. Legitimate historical portraits
+    do disappear until they are re-pointed; that is the accepted cost, and it
+    is recoverable in a way that publishing an unvetted image is not.
     """
     cid = published["character_id"]
     _set_media(
@@ -357,8 +363,19 @@ def test_unresolvable_historical_media_is_returned_unchanged(client, db_session,
     )
 
     body = client.get(f"/characters/{cid}/public-home").json()
-    assert body["avatar_url"] == "/static/generated/deadbeefdeadbeef.png"
-    assert body["cover_url"] == "https://cdn.example.test/legacy/cover.png"
+    assert body["avatar_url"] is None
+    assert body["cover_url"] is None
+
+
+def test_suppression_does_not_touch_the_stored_pointer(client, db_session, published):
+    """Suppression is presentation. The character's own columns are untouched,
+    so re-pointing (or a later backfill) restores the image with no recovery.
+    """
+    cid = published["character_id"]
+    _set_media(db_session, cid, avatar_url="/static/generated/deadbeefdeadbeef.png")
+
+    assert client.get(f"/characters/{cid}/public-home").json()["avatar_url"] is None
+    assert _row(db_session, cid).avatar_url == "/static/generated/deadbeefdeadbeef.png"
 
 
 def test_media_absent_on_the_character_stays_null(client, published):

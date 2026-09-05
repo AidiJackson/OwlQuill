@@ -473,6 +473,20 @@ class TestPublicationGate:
                 file_path="static/generated/unsafe.png",
             )
         )
+        # The avatar needs a row of its own now that unresolvable media is
+        # suppressed — otherwise this would pass for the wrong reason, with
+        # BOTH images dropped rather than the cover falling through to a
+        # genuinely eligible avatar.
+        db_session.add(
+            CharacterImage(
+                character_id=cid,
+                kind=ImageKindEnum.GENERATED,
+                status=ImageStatusEnum.ACTIVE,
+                visibility=ImageVisibilityEnum.PRIVATE,
+                provider="fal",
+                file_path="https://r2.test/safe-avatar.png",
+            )
+        )
         db_session.commit()
 
         h = parse(render_character_home_shell(db_session, cid, SHELL, BASE))

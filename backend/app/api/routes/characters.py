@@ -360,7 +360,7 @@ def get_character_posts(
         Realm as RealmModel,
         RealmMembership as RealmMembershipModel,
     )
-    from app.services.seeding import serialize_post_for_viewer
+    from app.services.seeding import post_image_resolution, serialize_post_for_viewer
 
     _get_visible_character(db, character_id, current_user)
 
@@ -385,13 +385,16 @@ def get_character_posts(
         .limit(limit)
         .all()
     )
+    post_images = post_image_resolution(db, [p for p, _ in rows])
     return [
         {
             "type": "post",
             "created_at": post.created_at,
             "realm_id": post.realm_id,
             "realm_name": realm_name,
-            "payload": serialize_post_for_viewer(post, current_user).model_dump(),
+            "payload": serialize_post_for_viewer(
+                post, current_user, db, resolved_images=post_images
+            ).model_dump(),
         }
         for post, realm_name in rows
     ]
@@ -414,7 +417,7 @@ def get_character_mentions(
         Realm as RealmModel,
         RealmMembership as RealmMembershipModel,
     )
-    from app.services.seeding import serialize_post_for_viewer
+    from app.services.seeding import post_image_resolution, serialize_post_for_viewer
 
     _get_visible_character(db, character_id, current_user)
 
@@ -440,13 +443,16 @@ def get_character_mentions(
         .limit(limit)
         .all()
     )
+    post_images = post_image_resolution(db, [p for p, _ in rows])
     return [
         {
             "type": "post",
             "created_at": post.created_at,
             "realm_id": post.realm_id,
             "realm_name": realm_name,
-            "payload": serialize_post_for_viewer(post, current_user).model_dump(),
+            "payload": serialize_post_for_viewer(
+                post, current_user, db, resolved_images=post_images
+            ).model_dump(),
         }
         for post, realm_name in rows
     ]
