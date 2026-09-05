@@ -687,7 +687,7 @@ def test_the_wrapped_routes_also_resolve_once_for_the_whole_page(
     """The four routes that serialise inside their own loop pay page cost too.
 
     They cannot call ``serialize_posts_for_viewer`` — each row is zipped with a
-    realm name — so they take the mapping from ``post_image_resolution``
+    realm name — so they take the mapping from ``post_media_resolution``
     instead. That is the part a later edit is most likely to drop back to a
     per-post call without anyone noticing, because it would still be correct.
     """
@@ -712,12 +712,12 @@ def test_the_wrapped_routes_also_resolve_once_for_the_whole_page(
 def test_a_url_missing_from_the_mapping_resolves_to_none(client, db_session, surfaces):
     """The batch path's guard against a caller that maps a different post set.
 
-    ``resolved_images`` is built by the route, from a list the route also
+    ``resolved_media`` is built by the route, from a list the route also
     serialises. Should those two ever diverge, the missing url must fail closed
     rather than fall through to the raw column — the exact failure this whole
     increment exists to remove.
     """
-    from app.services.seeding import serialize_post_for_viewer
+    from app.services.seeding import PostMedia, serialize_post_for_viewer
 
     _char_image(db_session, surfaces["character_id"], surfaces["owner_id"],
                 file_path="static/generated/post-safe.png")
@@ -726,12 +726,15 @@ def test_a_url_missing_from_the_mapping_resolves_to_none(client, db_session, sur
 
     with_it = serialize_post_for_viewer(
         post, viewer, db_session,
-        resolved_images={"/static/generated/post-safe.png": "/static/generated/post-safe.png"},
+        resolved_media=PostMedia(
+            images={"/static/generated/post-safe.png": "/static/generated/post-safe.png"},
+            avatars={},
+        ),
     )
     assert with_it.image_url == "/static/generated/post-safe.png"
 
     without_it = serialize_post_for_viewer(
-        post, viewer, db_session, resolved_images={},
+        post, viewer, db_session, resolved_media=PostMedia(images={}, avatars={}),
     )
     assert without_it.image_url is None
 

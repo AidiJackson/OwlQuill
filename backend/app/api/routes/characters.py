@@ -360,7 +360,7 @@ def get_character_posts(
         Realm as RealmModel,
         RealmMembership as RealmMembershipModel,
     )
-    from app.services.seeding import post_image_resolution, serialize_post_for_viewer
+    from app.services.seeding import post_media_resolution, serialize_post_for_viewer
 
     _get_visible_character(db, character_id, current_user)
 
@@ -385,7 +385,7 @@ def get_character_posts(
         .limit(limit)
         .all()
     )
-    post_images = post_image_resolution(db, [p for p, _ in rows])
+    post_media = post_media_resolution(db, [p for p, _ in rows])
     return [
         {
             "type": "post",
@@ -393,7 +393,7 @@ def get_character_posts(
             "realm_id": post.realm_id,
             "realm_name": realm_name,
             "payload": serialize_post_for_viewer(
-                post, current_user, db, resolved_images=post_images
+                post, current_user, db, resolved_media=post_media
             ).model_dump(),
         }
         for post, realm_name in rows
@@ -417,7 +417,7 @@ def get_character_mentions(
         Realm as RealmModel,
         RealmMembership as RealmMembershipModel,
     )
-    from app.services.seeding import post_image_resolution, serialize_post_for_viewer
+    from app.services.seeding import post_media_resolution, serialize_post_for_viewer
 
     _get_visible_character(db, character_id, current_user)
 
@@ -443,7 +443,7 @@ def get_character_mentions(
         .limit(limit)
         .all()
     )
-    post_images = post_image_resolution(db, [p for p, _ in rows])
+    post_media = post_media_resolution(db, [p for p, _ in rows])
     return [
         {
             "type": "post",
@@ -451,7 +451,7 @@ def get_character_mentions(
             "realm_id": post.realm_id,
             "realm_name": realm_name,
             "payload": serialize_post_for_viewer(
-                post, current_user, db, resolved_images=post_images
+                post, current_user, db, resolved_media=post_media
             ).model_dump(),
         }
         for post, realm_name in rows

@@ -122,4 +122,4 @@ def list_post_comments(
         selectinload(CommentModel.author_user),
         selectinload(CommentModel.character),
     ).order_by(CommentModel.created_at.asc()).all()
-    return serialize_comments_for_viewer(comments, current_user)
+    return serialize_comments_for_viewer(comments, current_user, db)

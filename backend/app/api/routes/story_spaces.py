@@ -274,12 +274,28 @@ def list_channels(
     return [_to_channel_read(ch) for ch in channels]
 
 
-def _to_post_read(post: StorySpacePost) -> StorySpacePostRead:
+def _to_post_read(
+    post: StorySpacePost, *, viewer_user_id: int, resolved_avatars: dict
+) -> StorySpacePostRead:
+    """Serialise one Story Space post for *viewer_user_id*.
+
+    A Space is collaborative, so a co-member reading this is not the character's
+    owner, and the avatar denormalised off ``Character.avatar_url`` reaches them
+    under exactly the rule that governs it beside a Commons post: resolvable and
+    eligible, or nothing. The author keeps their own.
+
+    ``resolved_avatars`` is a batch from ``character_avatar_resolution``-shaped
+    resolution; a url missing from it resolves to ``None``, so a caller that
+    builds the map from a different set of posts fails closed.
+    """
     character_name = None
     character_avatar_url = None
     if post.character:
         character_name = post.character.name
-        character_avatar_url = post.character.avatar_url
+        if post.author_user_id == viewer_user_id:
+            character_avatar_url = post.character.avatar_url
+        else:
+            character_avatar_url = resolved_avatars.get(post.character.avatar_url)
     return StorySpacePostRead(
         id=post.id,
         space_id=post.space_id,
@@ -343,7 +359,8 @@ def create_post(
     link_commit(db, decision.session, kind="story_space_post", obj_id=post.id)
     db.commit()
     db.refresh(post)
-    return _to_post_read(post)
+    # The author reading back what they just wrote — no shared surface here.
+    return _to_post_read(post, viewer_user_id=member.user_id, resolved_avatars={})
 
 
 @router.get(
@@ -367,7 +384,15 @@ def list_posts(
         .order_by(StorySpacePost.created_at.asc())
         .all()
     )
-    return [_to_post_read(p) for p in posts]
+    from app.services.character_home_media import resolve_public_media_urls
+
+    resolved = resolve_public_media_urls(
+        db, [p.character.avatar_url if p.character else None for p in posts]
+    )
+    return [
+        _to_post_read(p, viewer_user_id=member.user_id, resolved_avatars=resolved)
+        for p in posts
+    ]
 
 
 # ── publish ───────────────────────────────────────────────────────────────────

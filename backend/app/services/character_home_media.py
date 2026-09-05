@@ -39,8 +39,17 @@ re-pointed at an image that resolves. A portrait that vanishes is recoverable;
 an unvetted image on an anonymous surface is not.
 
 Nothing here decides what an OWNER sees. Both resolvers govern shared surfaces
-only — the anonymous Character Home, and posts shown to someone other than
-their author. A creator's own library and their own posts are unaffected.
+only — the anonymous Character Home, and posts and comments shown to someone
+other than their author. A creator's own library, their own posts and their own
+comments are unaffected.
+
+The avatar rule reaches further than the Home. A character's avatar is
+denormalised onto every post and comment that character writes
+(``Post.character_avatar_url``, ``Comment.character_avatar_url``), and those
+travel to readers who are not its owner — including anonymous ones, since
+``GET /posts/{id}/comments`` serves a public realm's comments with no token.
+Those paths read the same column the Home reads, so they ask this same
+question through :func:`resolve_public_media_urls`.
 
 Presentation only. Nothing here reads or writes a character's stored pointer,
 an image row, or a file on disk — the owner keeps everything they had.
@@ -166,21 +175,21 @@ def resolve_public_post_image_url(db: Session, url: Optional[str]) -> Optional[s
     return None
 
 
-def resolve_public_post_image_urls(
-    db: Session, urls: "Iterable[Optional[str]]"
+def _resolve_batch(
+    db: Session, urls: "Iterable[Optional[str]]", predicate
 ) -> dict[str, Optional[str]]:
-    """Batched :func:`resolve_public_post_image_url` — two queries, not two per url.
+    """Apply *predicate* to a whole page of urls in two queries, not two per url.
 
-    Same decision, same fail-closed semantics, same helpers. The only thing that
-    differs is how many round trips it takes, and that difference is the whole
-    reason this exists: a feed page serialises every post through the resolver,
-    and the single-url form issues two queries each. Twenty posts became forty
-    queries. This issues two, whatever the page size.
+    The batched form of the single-url resolvers above, shared by both because
+    the batching is the only part that is the same: which rows a url resolves
+    to has never differed between the avatar and post rules, only what is then
+    asked of those rows. *predicate* is that question.
 
     Returns a mapping from the ORIGINAL url string to its resolved value, so a
     caller looks up by the string it already holds. Falsy urls are skipped
-    entirely rather than mapped to ``None``: a post with no image has no
-    decision to record, and a caller that asks for ``""`` should not find a key.
+    entirely rather than mapped to ``None``: a post with no image, or a
+    characterless post with no avatar, has no decision to record, and a caller
+    that asks for ``""`` should not find a key.
 
     Correctness rests on the mapping being per-url rather than global. Candidate
     spellings are unioned to fetch in one go, but each url is then matched only
@@ -189,6 +198,10 @@ def resolve_public_post_image_urls(
     borrow each other's verdicts. That is the one thing a batch rewrite of a
     per-item predicate can quietly get wrong, so it is asserted directly in
     ``test_post_image_safety_on_shared_surfaces.py``.
+
+    Fail-closed on both branches, exactly as the single-url forms are: no
+    matching row means ``None``, and one failing match withholds the url even
+    when others pass.
     """
     wanted = [u for u in urls if u]
     if not wanted:
@@ -218,8 +231,39 @@ def resolve_public_post_image_urls(
         matches = [row for path in candidates for row in by_path.get(path, [])]
         if not matches:
             resolved[url] = None
-        elif all(is_public_post_image(row) for row in matches):
+        elif all(predicate(row) for row in matches):
             resolved[url] = url
         else:
             resolved[url] = None
     return resolved
+
+
+def resolve_public_post_image_urls(
+    db: Session, urls: "Iterable[Optional[str]]"
+) -> dict[str, Optional[str]]:
+    """Batched :func:`resolve_public_post_image_url`.
+
+    Exists because a feed page serialises every post through the resolver, and
+    the single-url form issues two queries each. Twenty posts became forty
+    queries. This issues two, whatever the page size. Same decision, same
+    fail-closed semantics, same helpers — see :func:`_resolve_batch`.
+    """
+    return _resolve_batch(db, urls, is_public_post_image)
+
+
+def resolve_public_media_urls(
+    db: Session, urls: "Iterable[Optional[str]]"
+) -> dict[str, Optional[str]]:
+    """Batched :func:`resolve_public_media_url`.
+
+    The avatar/cover rule at page scale. A post and a comment each carry the
+    avatar of the character that wrote them, so a page of twenty posts asks
+    this question twenty times about (usually) one or two distinct urls; the
+    per-url form would issue forty queries to answer it.
+
+    Deliberately the SAME predicate the anonymous Character Home applies to
+    ``Character.avatar_url``, not a second rule that happens to agree today.
+    An avatar the Home withholds is withheld beside a post as well, and the
+    two cannot drift because there is only one of them.
+    """
+    return _resolve_batch(db, urls, is_public_surface_safe)

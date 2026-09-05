@@ -39,7 +39,7 @@ from app.schemas.character_image import CharacterImageRead
 from app.services.identity import build_user_out
 from app.services.image_provider import get_image_provider
 from app.services.seeding import (
-    post_image_resolution,
+    post_media_resolution,
     roster_visible_to,
     serialize_post_for_viewer,
     serialize_posts_for_viewer,
@@ -710,7 +710,7 @@ def get_user_timeline(
     )
     # One resolution pass for the whole page — the loop below would otherwise
     # issue two queries per post.
-    post_images = post_image_resolution(db, [p for p, _ in posts])
+    post_media = post_media_resolution(db, [p for p, _ in posts])
     for post, realm_name in posts:
         items.append({
             "type": "post",
@@ -718,7 +718,7 @@ def get_user_timeline(
             "realm_id": post.realm_id,
             "realm_name": realm_name,
             "payload": serialize_post_for_viewer(
-                post, current_user, db, resolved_images=post_images
+                post, current_user, db, resolved_media=post_media
             ).model_dump(),
         })
 

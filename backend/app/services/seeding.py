@@ -22,7 +22,7 @@ payloads for non-owner viewers) are PERMANENT product decisions and are applied
 directly in the route/serialization layer — they are intentionally NOT gated by
 ``SEEDING_MODE``.
 """
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from app.core.config import settings
 from app.models.user import User
@@ -62,26 +62,72 @@ def roster_visible_to(viewer: Optional[User], target_user_id: int) -> bool:
     return viewer is not None and viewer.id == target_user_id
 
 
-def post_image_resolution(db, posts) -> dict:
-    """Resolve the image of every post in *posts* in one batch.
+class PostMedia(NamedTuple):
+    """The two media verdicts a page of posts needs, each keyed by its own url.
+
+    Two maps rather than one because the two answers come from DIFFERENT
+    predicates — an attachment answers to the post rule, an avatar to the
+    avatar/cover rule — and the same url string could in principle appear in
+    both. Merging them would let one surface's verdict decide the other's.
+    """
+
+    images: dict
+    avatars: dict
+
+
+def post_media_resolution(db, posts) -> PostMedia:
+    """Resolve the attachment AND the character avatar of every post, in batches.
 
     Exists so the four routes that serialise posts inside their own loop —
     where :func:`serialize_posts_for_viewer` cannot be used because each row is
-    zipped with a realm name — can still pay two queries instead of two per
-    post. Pass the result to :func:`serialize_post_for_viewer` as
-    ``resolved_images``.
+    zipped with a realm name — can still pay a fixed number of queries instead
+    of a number that grows with the page. Pass the result to
+    :func:`serialize_post_for_viewer` as ``resolved_media``.
+
+    Four image-table queries per page, not two, now that the avatar is resolved
+    too. Still constant in the page size, which is the property that matters;
+    folding the two into one fetch would mean carrying a per-url predicate
+    through the batch, and the cost of that complexity outweighs two queries.
+
+    Reading ``character_avatar_url`` adds no query of its own: the property
+    walks ``post.character``, which :func:`serialize_post_for_viewer` loads for
+    every post anyway when it validates the schema.
 
     Imported lazily for the same reason the schema is: the media resolver pulls
     in the model and schema layers, and this module is imported early.
     """
-    from app.services.character_home_media import resolve_public_post_image_urls
+    from app.services.character_home_media import (
+        resolve_public_media_urls,
+        resolve_public_post_image_urls,
+    )
 
-    return resolve_public_post_image_urls(
-        db, [getattr(p, "image_url", None) for p in posts]
+    posts = list(posts)
+    return PostMedia(
+        images=resolve_public_post_image_urls(
+            db, [getattr(p, "image_url", None) for p in posts]
+        ),
+        avatars=resolve_public_media_urls(
+            db, [getattr(p, "character_avatar_url", None) for p in posts]
+        ),
     )
 
 
-def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_images=None):
+def character_avatar_resolution(db, rows) -> dict:
+    """Batch the avatar verdict for any rows exposing ``character_avatar_url``.
+
+    Comments carry the same denormalised avatar posts do, and reach the same
+    non-owner readers — more of them, in fact, since a public realm's comments
+    are served without a token at all. They have no attachment, so they need
+    only this half of :func:`post_media_resolution`.
+    """
+    from app.services.character_home_media import resolve_public_media_urls
+
+    return resolve_public_media_urls(
+        db, [getattr(r, "character_avatar_url", None) for r in rows]
+    )
+
+
+def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_media=None):
     """Serialize a Post ORM row to its schema, for a viewer who may not be the author.
 
     Two policies, both about what a NON-AUTHOR may see.
@@ -94,23 +140,33 @@ def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_imag
     normal ``@username`` attribution so they can link to the creator's profile.
     This is a permanent policy and is NOT gated by seeding mode.
 
-    **Media.** An attached image is resolved through the same predicate the
-    anonymous Character Home uses, so a post attachment that Ficshon will not
-    publish is suppressed for every viewer but its author — being logged in is
-    not a reason to see it. Before this, the resolver ran on the anonymous Home
-    alone and every authenticated surface returned ``image_url`` straight from
-    the row, so an image the Home withheld was served in full to the Commons
-    feed. The post's text is untouched; only the image is dropped.
+    **Media.** A post carries TWO images, and both are resolved through the
+    predicates the anonymous Character Home uses, so neither reaches a viewer
+    who is not the author when Ficshon would not publish it — being logged in
+    is not a reason to see it.
+
+    * the ATTACHMENT (``image_url``), through the post-attachment rule. Before
+      this, the resolver ran on the anonymous Home alone and every
+      authenticated surface returned ``image_url`` straight from the row, so an
+      image the Home withheld was served in full to the Commons feed.
+    * the character's AVATAR (``character_avatar_url``), through the
+      avatar/cover rule. It is denormalised off ``Character.avatar_url`` by a
+      model property, which is the same column the Home resolves — and it was
+      being read straight through, so an avatar the Home suppressed still
+      rendered beside every post that character had written.
+
+    The post's text, its attribution and every other field are untouched; only
+    the images are dropped, and each independently of the other.
 
     ``db`` is REQUIRED rather than optional on purpose. An optional session
     would let a new call site omit it and silently fall back to publishing the
     raw URL, which is exactly the failure this change exists to remove.
 
-    ``resolved_images`` is the batched form: a mapping produced by
-    :func:`post_image_resolution`. When given, it is consulted instead of
-    querying per post. A url missing from the mapping resolves to ``None``,
+    ``resolved_media`` is the batched form: a :class:`PostMedia` produced by
+    :func:`post_media_resolution`. When given, it is consulted instead of
+    querying per post. A url missing from either mapping resolves to ``None``,
     which keeps the batch path fail-closed against a caller that builds the
-    map from a different set of posts than it serialises.
+    maps from a different set of posts than it serialises.
     """
     # Imported here to avoid importing the schema layer at module load time.
     from app.schemas.post import Post as PostSchema
@@ -122,15 +178,30 @@ def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_imag
         schema.author_username = None
         schema.author_user_id = None
 
-    # The author keeps their own attachment whatever its provenance — this is
-    # their library shown back to them. Everyone else is a shared surface.
-    if schema.image_url and not is_author:
-        if resolved_images is None:
-            from app.services.character_home_media import resolve_public_post_image_url
+    # The author keeps their own media whatever its provenance — this is their
+    # library shown back to them. Everyone else is a shared surface.
+    if not is_author:
+        if schema.image_url:
+            if resolved_media is None:
+                from app.services.character_home_media import (
+                    resolve_public_post_image_url,
+                )
 
-            schema.image_url = resolve_public_post_image_url(db, schema.image_url)
-        else:
-            schema.image_url = resolved_images.get(schema.image_url)
+                schema.image_url = resolve_public_post_image_url(db, schema.image_url)
+            else:
+                schema.image_url = resolved_media.images.get(schema.image_url)
+
+        if schema.character_avatar_url:
+            if resolved_media is None:
+                from app.services.character_home_media import resolve_public_media_url
+
+                schema.character_avatar_url = resolve_public_media_url(
+                    db, schema.character_avatar_url
+                )
+            else:
+                schema.character_avatar_url = resolved_media.avatars.get(
+                    schema.character_avatar_url
+                )
 
     return schema
 
@@ -138,18 +209,18 @@ def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_imag
 def serialize_posts_for_viewer(posts, viewer: Optional[User], db):
     """Apply :func:`serialize_post_for_viewer` across an iterable of posts.
 
-    Resolves every attachment in one batch first, so a feed page costs two
-    queries rather than two per post.
+    Resolves every attachment and every avatar in batches first, so a feed page
+    costs a fixed number of queries rather than a number per post.
     """
     posts = list(posts)
-    resolved = post_image_resolution(db, posts)
+    resolved = post_media_resolution(db, posts)
     return [
-        serialize_post_for_viewer(p, viewer, db, resolved_images=resolved)
+        serialize_post_for_viewer(p, viewer, db, resolved_media=resolved)
         for p in posts
     ]
 
 
-def serialize_comment_for_viewer(comment, viewer: Optional[User]):
+def serialize_comment_for_viewer(comment, viewer: Optional[User], db, *, resolved_avatars=None):
     """Serialize a Comment ORM row, applying the same character-first policy as
     :func:`serialize_post_for_viewer`.
 
@@ -162,6 +233,23 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User]):
     * **Wanderer** (characterless comment) — the public Wanderer username and
       the account sigil are kept, because for a Wanderer that *is* the public
       identity, not a leak of a private one.
+
+    And the same MEDIA policy as posts, for the same reason: a comment carries
+    the writing character's avatar, denormalised off ``Character.avatar_url``
+    by a model property. It is resolved through the avatar/cover rule for every
+    viewer but the author.
+
+    This surface needs it more than posts do, not less. ``GET
+    /posts/{id}/comments`` authenticates optionally — a public realm's comments
+    are served to a caller with no token at all — so an unresolved avatar here
+    was reaching genuinely anonymous readers, which is precisely the audience
+    the Character Home resolver was written for.
+
+    ``db`` is required for the same reason it is on the post serializer: an
+    optional session is an invitation for a new call site to publish the raw
+    url. ``resolved_avatars`` is the batched form, from
+    :func:`character_avatar_resolution`; a url missing from it resolves to
+    ``None``, keeping the batch path fail-closed.
     """
     from app.schemas.comment import Comment as CommentSchema
 
@@ -172,9 +260,31 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User]):
         schema.author_username = None
         schema.author_user_id = None
         schema.author_avatar_url = None
+
+    if schema.character_avatar_url and not is_author:
+        if resolved_avatars is None:
+            from app.services.character_home_media import resolve_public_media_url
+
+            schema.character_avatar_url = resolve_public_media_url(
+                db, schema.character_avatar_url
+            )
+        else:
+            schema.character_avatar_url = resolved_avatars.get(
+                schema.character_avatar_url
+            )
     return schema
 
 
-def serialize_comments_for_viewer(comments, viewer: Optional[User]):
-    """Apply :func:`serialize_comment_for_viewer` across an iterable of comments."""
-    return [serialize_comment_for_viewer(c, viewer) for c in comments]
+def serialize_comments_for_viewer(comments, viewer: Optional[User], db):
+    """Apply :func:`serialize_comment_for_viewer` across an iterable of comments.
+
+    Resolves every avatar in one batch first — a busy post's comment list would
+    otherwise pay two queries per comment to answer the same question about the
+    same one or two characters.
+    """
+    comments = list(comments)
+    resolved = character_avatar_resolution(db, comments)
+    return [
+        serialize_comment_for_viewer(c, viewer, db, resolved_avatars=resolved)
+        for c in comments
+    ]
