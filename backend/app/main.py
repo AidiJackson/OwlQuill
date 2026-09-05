@@ -30,47 +30,10 @@ from app.api.routes import character_home
 logger = logging.getLogger(__name__)
 
 
-def _db_identity() -> dict:
-    """TEMP DIAG (remove after prod DB is confirmed): redacted DB host + name.
-
-    Exposes only the database hostname and database name parsed from
-    DATABASE_URL — never the user, password, port, or query string. Used to
-    identify which database the running process is connected to without needing
-    authentication.
-    """
-    from urllib.parse import urlparse
-    try:
-        p = urlparse(settings.DATABASE_URL)
-        return {"host": p.hostname, "name": (p.path or "").lstrip("/")}
-    except Exception:
-        return {"host": None, "name": None}
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
-    # TEMP DIAG (remove after prod DB is confirmed): emit a single consolidated
-    # line identifying the connected database + counts. Uses print(flush=True)
-    # (PYTHONUNBUFFERED=1 in start-prod.sh) so it reaches the deployment logs
-    # regardless of logging configuration. Never raises — startup must not break.
-    try:
-        _ident = _db_identity()
-        from app.core.database import SessionLocal as _diag_sl
-        from sqlalchemy import text as _diag_text
-        _diag_db = _diag_sl()
-        try:
-            _u = _diag_db.execute(_diag_text("SELECT count(*) FROM users")).scalar()
-            _c = _diag_db.execute(_diag_text("SELECT count(*) FROM characters")).scalar()
-        finally:
-            _diag_db.close()
-        print(
-            f"TEMP DIAG host={_ident.get('host')} db={_ident.get('name')} "
-            f"users={_u} characters={_c}",
-            flush=True,
-        )
-    except Exception as _diag_e:  # pragma: no cover - diagnostic only
-        print(f"TEMP DIAG host=? db=? counts_error={type(_diag_e).__name__}", flush=True)
     if settings.SMTP_HOST:
         logger.info("Email: SMTP enabled (host=%s)", settings.SMTP_HOST)
     else:
@@ -269,27 +232,26 @@ app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 @app.get("/health")
 def health_check() -> dict:
-    """Health check endpoint."""
-    resp: dict = {"status": "ok", "service": "ficshon-backend"}
-    # TEMP DIAG (remove after prod DB is confirmed): unauthenticated database
-    # identity + aggregate counts, so the deployment's database can be identified
-    # without login. Exposes only redacted host/db name and row counts — no
-    # credentials, no PII. Wrapped so /health never fails (start-prod.sh readiness
-    # depends on it): any DB error degrades to an error tag, status stays "ok".
-    diag: dict = {"db": _db_identity()}
-    try:
-        from app.core.database import SessionLocal
-        from sqlalchemy import text
-        _db = SessionLocal()
-        try:
-            diag["users"] = _db.execute(text("SELECT count(*) FROM users")).scalar()
-            diag["characters"] = _db.execute(text("SELECT count(*) FROM characters")).scalar()
-        finally:
-            _db.close()
-    except Exception as e:  # pragma: no cover - diagnostic only
-        diag["counts_error"] = type(e).__name__
-    resp["_diag"] = diag
-    return resp
+    """Liveness signal. Unauthenticated, and therefore deliberately empty.
+
+    "Is this process serving?" is the whole question, and the answer needs no
+    database. The endpoint previously attached a ``_diag`` payload naming the
+    database host and database, plus live user and character counts, to every
+    response — readable by anyone who could reach the port, which on this
+    deployment is the public internet, since .replit maps localPort 8000 to
+    externalPort 8000. That was added to identify which database a deployment
+    had connected to and was always marked temporary.
+
+    Nothing here touches the database. That is not only about disclosure: this
+    is the readiness probe, so a health check that queried the DB would report
+    a process as unhealthy whenever the database was merely slow, and it added
+    two round trips to every call.
+
+    Keep it this shape. A field that names infrastructure, counts rows, or
+    reports internal state does not belong on an unauthenticated endpoint —
+    ``/admin/diagnostics`` exists for that and is behind admin auth.
+    """
+    return {"status": "ok", "service": "ficshon-backend"}
 
 
 @app.get("/")
