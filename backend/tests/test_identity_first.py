@@ -13,7 +13,7 @@ Covers:
     PUBLIC-visibility images; private characters 404;
   * mentions resolve to public characters only — usernames stay unresolved.
 """
-from tests.conftest import get_auth_token, auth_headers
+from tests.conftest import get_auth_token, auth_headers, character_owner_id
 
 
 _CHAR = {"name": "Pan", "species": "human", "short_bio": "A founding character."}
@@ -308,15 +308,18 @@ def test_character_media_library_visible_on_public_character(client, db_session)
         ImageStatusEnum,
     )
 
+    owner_id = character_owner_id(db_session, char_id)
     db_session.add_all([
         CharacterImage(
             character_id=char_id,
+            user_id=owner_id,
             kind=ImageKindEnum.GENERATED,
             status=ImageStatusEnum.ACTIVE,
             file_path="/static/generated/one.png",
         ),
         CharacterImage(
             character_id=char_id,
+            user_id=owner_id,
             kind=ImageKindEnum.GENERATED,
             status=ImageStatusEnum.ACTIVE,
             file_path="/static/generated/temp.png",

@@ -20,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
+from tests.conftest import character_owner_id
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────
@@ -1085,6 +1086,7 @@ def test_google_block_diagnostic_reports_db_image_ids(client, db_session):
     face_url = load_face_canon(canon).face_front_image_url
     row = CharacterImage(
         character_id=cid,
+        user_id=character_owner_id(db_session, cid),
         kind=ImageKindEnum.ANCHOR_FRONT,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import auth_headers, get_auth_token
+from tests.conftest import auth_headers, character_owner_id, get_auth_token
 
 ENDPOINT = "/editor/generate"
 
@@ -264,6 +264,7 @@ def test_library_image_id_source(client, db_session):
     fp = save_image(_PNG_BYTES)
     src = CharacterImage(
         character_id=cid,
+        user_id=character_owner_id(db_session, cid),
         kind=ImageKindEnum.SCENE_ONLY,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
@@ -457,3 +458,89 @@ def test_library_image_id_wrong_character(client, db_session):
     )
     assert resp.status_code == 422
     assert "not found" in resp.json()["detail"].lower()
+
+
+# ── Phase 4B2: the edited asset belongs to the character's owner ──────
+
+
+def _user_id_for(email: str) -> int:
+    from tests.conftest import TestingSessionLocal
+    from app.models.user import User
+
+    db = TestingSessionLocal()
+    try:
+        return db.query(User).filter(User.email == email).one().id
+    finally:
+        db.close()
+
+
+def test_admin_edit_of_another_users_character_is_owned_by_the_owner(client, db_session):
+    """An admin editing someone else's character produces the OWNER's asset.
+
+    ``CharacterImage.user_id`` is the account that owns the image, not the one
+    that requested it (Phase 4B2). This route deliberately admits admins onto
+    other people's characters, which is the one path where those two accounts
+    differ — and the one that used to file a creator's image in the founder's
+    library, where the creator could neither see it nor answer for it.
+    """
+    from tests.conftest import make_admin
+
+    owner_token = get_auth_token(
+        client, email="owner4b2@test.com", username="owner4b2"
+    )
+    cid = _create_character(client, owner_token, name="Owned By Someone Else")
+    owner_id = _user_id_for("owner4b2@test.com")
+
+    admin_token = get_auth_token(
+        client, email="admin4b2@test.com", username="admin4b2"
+    )
+    make_admin("admin4b2@test.com")
+    admin_id = _user_id_for("admin4b2@test.com")
+    assert admin_id != owner_id
+
+    with patch(
+        "app.api.routes.editor_studio.get_editor", return_value=_mock_editor()
+    ):
+        resp = client.post(
+            ENDPOINT,
+            data=_form(cid),
+            files=[_png_file()],
+            headers=auth_headers(admin_token),
+        )
+    assert resp.status_code == 200, resp.text
+
+    from app.models.character_image import CharacterImage
+
+    img = db_session.query(CharacterImage).get(resp.json()["image"]["id"])
+    assert img is not None
+    assert img.user_id == owner_id, (
+        "The edited image must be owned by the character's owner, not by the "
+        "admin who requested the edit."
+    )
+    assert img.user_id != admin_id
+    # The requester is deliberately NOT recorded on the image row; that truth
+    # belongs to the job/audit layer.
+    assert "requested_by_user_id" not in (img.metadata_json or {})
+
+
+def test_owner_edit_is_still_owned_by_the_owner(client, db_session):
+    """The ordinary path is unchanged: requester and owner are the same account."""
+    token = get_auth_token(client, email="selfedit4b2@test.com", username="selfedit4b2")
+    cid = _create_character(client, token, name="Self Edited")
+    owner_id = _user_id_for("selfedit4b2@test.com")
+
+    with patch(
+        "app.api.routes.editor_studio.get_editor", return_value=_mock_editor()
+    ):
+        resp = client.post(
+            ENDPOINT,
+            data=_form(cid),
+            files=[_png_file()],
+            headers=auth_headers(token),
+        )
+    assert resp.status_code == 200, resp.text
+
+    from app.models.character_image import CharacterImage
+
+    img = db_session.query(CharacterImage).get(resp.json()["image"]["id"])
+    assert img.user_id == owner_id

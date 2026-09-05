@@ -79,13 +79,27 @@ def rebuild_for_character(db, character: CharacterModel, *, dry_run: bool = Fals
     except Exception as exc:
         return f"ERROR {name} (id={char_id}) — crop failed: {exc}"
 
+    # Phase 4B2: ``user_id`` is NOT NULL and means "the account that owns this
+    # asset". A rebuilt face_ref belongs to whoever owns the character it was
+    # cropped from — never to whoever happens to be running this script, which
+    # is an operator with no claim on the image. Resolved before any bytes are
+    # written so an unattributable character costs nothing.
+    owner_id = character.owner_id
+    if not owner_id:
+        logger.error(
+            "%s (id=%d) has no owner_id; refusing to create an ownerless face_ref",
+            name, char_id,
+        )
+        return f"ERROR {name} (id={char_id}) — character has no owner; refusing to write an ownerless image"
+
     if dry_run:
-        return f"DRY   {name} (id={char_id}) — would create face_ref from {front_img.file_path[:60]}"
+        return f"DRY   {name} (id={char_id}) — would create face_ref from {front_img.file_path[:60]} owned by user {owner_id}"
 
     try:
         face_ref_path = save_image(face_ref_bytes)
         face_ref_img = CharacterImage(
             character_id=char_id,
+            user_id=owner_id,
             kind=ImageKindEnum.IDENTITY_FACE_REF,
             status=ImageStatusEnum.ACTIVE,
             visibility=ImageVisibilityEnum.PRIVATE,

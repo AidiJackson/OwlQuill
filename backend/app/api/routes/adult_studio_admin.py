@@ -562,10 +562,12 @@ def replicate_test_adult_studio(
                 "experimental": True,
             },
         ),
+        # An admin generating onto someone else's character: the asset belongs
+        # to the CHARACTER'S OWNER, never to the founder who requested it. This
+        # route already made that call before ownership was formalised; it is
+        # now stated at INSERT time rather than patched in afterwards.
+        owner_id=character.owner_id,
     )
-    image.user_id = character.owner_id
-    db.commit()
-    db.refresh(image)
 
     strength_used = float(
         settings.ADULT_STUDIO_REPLICATE_IMG2IMG_STRENGTH if body.strength is None else body.strength

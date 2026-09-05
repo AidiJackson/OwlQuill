@@ -27,7 +27,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tests.canon_test_utils import setup_canon, stub_png_bytes
-from tests.conftest import TestingSessionLocal, auth_headers, get_auth_token
+from tests.conftest import (
+    TestingSessionLocal,
+    auth_headers,
+    character_owner_id,
+    get_auth_token,
+)
 
 PIPELINE = "app.services.image_generation_pipeline"
 
@@ -408,6 +413,7 @@ class TestManualReferenceValidation:
         token, cid = founder
         row = CharacterImage(
             character_id=cid,
+            user_id=character_owner_id(db_session, cid),
             kind=ImageKindEnum.IDENTITY_FACE_REF,
             status=ImageStatusEnum.ACTIVE,
             visibility=ImageVisibilityEnum.PRIVATE,

@@ -246,7 +246,15 @@ async def editor_generate(
     file_path = save_image(png_bytes)
     img = CharacterImage(
         character_id=character_id,
-        user_id=current_user.id,
+        # Phase 4B2: ``user_id`` is the account that OWNS the asset, not the one
+        # that asked for it. This route admits admins onto other people's
+        # characters (see the 403 above), so ``current_user.id`` would file a
+        # creator's image in a founder's library and leave the creator unable to
+        # see, use, or be accountable for their own character's edit. The
+        # requester is already recorded where requester identity belongs: the
+        # EDITOR_GENERATE_START log line here, and the EditorJob row on the
+        # async path. It does not go on the image.
+        user_id=character.owner_id,
         kind=ImageKindEnum.SCENE_ONLY,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

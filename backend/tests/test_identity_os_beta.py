@@ -16,7 +16,7 @@ Verifies the layered canon architecture:
   13. Admin canon-import accepts all new slots
 """
 
-from tests.conftest import auth_headers, get_auth_token
+from tests.conftest import auth_headers, character_owner_id, get_auth_token
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -861,6 +861,7 @@ class TestBackwardsCompatibility:
         db_session.expire_all()
         legacy_img = CharacterImage(
             character_id=char_id,
+            user_id=character_owner_id(db_session, char_id),
             kind=ImageKindEnum.GENERATED,
             status=ImageStatusEnum.ACTIVE,
             visibility=ImageVisibilityEnum.PRIVATE,

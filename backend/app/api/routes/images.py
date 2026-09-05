@@ -81,12 +81,10 @@ def generate_library_image(
         prompt_summary=body.prompt[:80],
         metadata_json={"library": True, "prompt": body.prompt},
     )
-    image = create_character_image(db, character.id, data)
-
-    # Stamp user_id for weekly quota tracking
-    image.user_id = current_user.id
-    db.commit()
-    db.refresh(image)
+    # The character was picked from this account's own characters, so its owner
+    # IS the caller; naming character.owner_id rather than current_user.id keeps
+    # one rule across every writer — the asset belongs to the character's owner.
+    image = create_character_image(db, character.id, data, owner_id=character.owner_id)
 
     return image
 

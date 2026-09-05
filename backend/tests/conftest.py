@@ -198,6 +198,19 @@ def ensure_character(client, token: str, name: str = "Fixture Character") -> int
     return resp.json()["id"]
 
 
+def character_owner_id(db, character_id: int) -> int:
+    """The account that owns a character.
+
+    ``CharacterImage.user_id`` is NOT NULL as of Phase 4B2 and means "the
+    account that owns this asset", so a hand-built image row in a test has to
+    name an owner the same way production writers do — from the character, not
+    from whoever happened to be authenticated.
+    """
+    from app.models.character import Character
+
+    return db.query(Character).filter(Character.id == character_id).one().owner_id
+
+
 def make_admin(email: str) -> None:
     """Promote an existing test user to admin (is_admin=True).
 

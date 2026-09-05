@@ -225,15 +225,22 @@ class CharacterImage(Base):
     #: there. Not changed here — 4B1 changes what the field MEANS, not what
     #: quota counts.
     #:
-    #: Still nullable, and still ``ON DELETE SET NULL``. Every row carries an
-    #: owner as of the 4B1 backfill, but making that a constraint requires
-    #: choosing an account-deletion policy first: ``NOT NULL`` combined with
-    #: ``SET NULL`` is not a stricter schema, it is a schema in which deleting
-    #: an account raises. That decision is Phase 4B2.
+    #: NOT NULL with ``ON DELETE RESTRICT`` (Phase 4B2). Every asset has an
+    #: owner, and an account cannot be deleted while it still owns assets — the
+    #: database refuses, loudly, rather than picking a disposal policy nobody
+    #: has decided. ``CASCADE`` would have destroyed rows and their safety
+    #: decisions while leaving the objects in the bucket; ``SET NULL`` would
+    #: have produced exactly the ownerless rows this column exists to prevent.
+    #:
+    #: There is deliberately NO ``User.images`` relationship for this table. An
+    #: ORM cascade would delete these rows itself and the FK would never be
+    #: consulted, quietly reinstating the destruction ``RESTRICT`` was chosen to
+    #: refuse. Ownership is read through this column; it is not navigated from
+    #: the account.
     user_id = Column(
         Integer,
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
         index=True,
     )
 

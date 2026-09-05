@@ -44,6 +44,7 @@ def write_report(payload: dict) -> None:
 def main() -> int:
     from app.core.database import SessionLocal
     from app.core.storage import file_path_to_url, load_image_bytes, save_image
+    from app.models.character import Character as CharacterModel
     from app.models.character_image import (
         CharacterImage,
         ImageKindEnum,
@@ -67,11 +68,29 @@ def main() -> int:
         params = job.params_json or {}
         prompt = job.prompt
         character_id = job.character_id
-        user_id = job.user_id
         source_ids = params.get("source_image_ids") or []
+
+        # Phase 4B2: the produced image is owned by the character's owner, not
+        # by ``job.user_id``. Editor jobs are admin-only and carry NO ownership
+        # check, so the requester is routinely somebody other than the owner;
+        # ``job.user_id`` remains the requester of record on the EditorJob row,
+        # which is where requester identity belongs.
+        character = (
+            db.query(CharacterModel)
+            .filter(CharacterModel.id == character_id)
+            .first()
+        )
+        owner_id = character.owner_id if character is not None else None
         source_png = load_image_bytes(params["source_file_path"])
     finally:
         db.close()
+
+    if not owner_id:
+        write_report({"terminal": True, "success": False,
+                      "quality_status": "failed",
+                      "error": f"character {character_id} has no owning account; "
+                               "refusing to run an unattributable edit"})
+        return 1
 
     from PIL import Image
 
@@ -126,7 +145,7 @@ def main() -> int:
             file_path = save_image(png)
             img = CharacterImage(
                 character_id=character_id,
-                user_id=user_id,
+                user_id=owner_id,
                 kind=ImageKindEnum.SCENE_ONLY,
                 status=ImageStatusEnum.ACTIVE,
                 visibility=ImageVisibilityEnum.PRIVATE,

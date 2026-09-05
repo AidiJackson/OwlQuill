@@ -284,6 +284,10 @@ def _refresh_face_ref(db: Session, character: Character, candidate: CandidateSlo
 
     db.add(CharacterImage(
         character_id=character.id,
+        # Service-level writer: the owner is derived once, here, from the
+        # character this function was handed. No requester is in scope and none
+        # is wanted — ownership is not "who triggered the promotion".
+        user_id=character.owner_id,
         kind=ImageKindEnum.IDENTITY_FACE_REF,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

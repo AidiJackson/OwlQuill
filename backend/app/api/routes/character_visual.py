@@ -1037,6 +1037,9 @@ def generate_identity_pack(
     def _make_image_record(role: str, file_path: str, provider_name: str) -> CharacterImage:
         return CharacterImage(
             character_id=character_id,
+            # Owned from the moment it exists, even as an unaccepted preview:
+            # a temp row still points at bytes somebody has to answer for.
+            user_id=character.owner_id,
             kind=ImageKindEnum.GENERATED,
             status=ImageStatusEnum.ACTIVE,
             visibility=ImageVisibilityEnum.PRIVATE,
@@ -1691,6 +1694,7 @@ def accept_identity_pack(
             _face_ref_path = save_image(_face_ref_bytes)
             _face_ref_img = CharacterImage(
                 character_id=character_id,
+                user_id=character.owner_id,
                 kind=ImageKindEnum.IDENTITY_FACE_REF,
                 status=ImageStatusEnum.ACTIVE,
                 visibility=ImageVisibilityEnum.PRIVATE,
@@ -1784,6 +1788,7 @@ def accept_identity_pack(
 
             db.add(CharacterImage(
                 character_id=character_id,
+                user_id=character.owner_id,
                 kind=ImageKindEnum.IDENTITY_BODY_FRONT,
                 status=ImageStatusEnum.ACTIVE,
                 visibility=ImageVisibilityEnum.PRIVATE,
@@ -2447,6 +2452,7 @@ def generate_moment_image(
 
     img = CharacterImage(
         character_id=character_id,
+        user_id=character.owner_id,
         kind=ImageKindEnum.GENERATED,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

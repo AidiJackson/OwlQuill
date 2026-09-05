@@ -60,7 +60,12 @@ from app.services.character_home_share import (
     render_character_home_shell,
     truncate_description,
 )
-from tests.conftest import TestingSessionLocal, auth_headers, get_auth_token
+from tests.conftest import (
+    TestingSessionLocal,
+    auth_headers,
+    character_owner_id,
+    get_auth_token,
+)
 
 BASE = "https://ficshon.com"
 
@@ -463,9 +468,11 @@ class TestPublicationGate:
         row = db_session.query(Character).filter(Character.id == cid).first()
         row.cover_url = "/static/generated/unsafe.png"
         row.avatar_url = "https://r2.test/safe-avatar.png"
+        owner_id = character_owner_id(db_session, cid)
         db_session.add(
             CharacterImage(
                 character_id=cid,
+                user_id=owner_id,
                 kind=ImageKindEnum.COVER,
                 status=ImageStatusEnum.ACTIVE,
                 visibility=ImageVisibilityEnum.PRIVATE,
@@ -480,6 +487,7 @@ class TestPublicationGate:
         db_session.add(
             CharacterImage(
                 character_id=cid,
+                user_id=owner_id,
                 kind=ImageKindEnum.GENERATED,
                 status=ImageStatusEnum.ACTIVE,
                 visibility=ImageVisibilityEnum.PRIVATE,

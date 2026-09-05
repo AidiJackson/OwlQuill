@@ -53,10 +53,25 @@ def create_character_image(
     db: Session,
     character_id: int,
     data: CharacterImageCreate,
+    *,
+    owner_id: int,
 ) -> CharacterImage:
-    """Insert a single CharacterImage record."""
+    """Insert a single CharacterImage record owned by *owner_id*.
+
+    ``owner_id`` is required and keyword-only (Phase 4B2). ``user_id`` is NOT
+    NULL, so an owner has to be supplied at INSERT time — both callers used to
+    let this function commit an ownerless row and then assign ``user_id``
+    afterwards, which is now a constraint violation rather than a brief window.
+
+    It is deliberately NOT derived from the character inside this function.
+    Ownership is the caller's statement about the asset, and a helper that
+    quietly looked it up would make every future caller's ownership decision
+    invisible at the call site — which is exactly how the column drifted into
+    meaning "generator" the first time.
+    """
     image = CharacterImage(
         character_id=character_id,
+        user_id=owner_id,
         **data.model_dump(),
     )
     db.add(image)

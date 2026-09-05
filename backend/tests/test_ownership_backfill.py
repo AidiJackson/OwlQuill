@@ -39,9 +39,25 @@ NOW = datetime(2026, 9, 5, 12, 0, 0)
 
 @pytest.fixture()
 def engine(tmp_path):
-    """A throwaway SQLite database carrying the real schema."""
+    """A throwaway SQLite database carrying the schema as it was BEFORE p4b02.
+
+    ``user_id`` is deliberately created nullable here. The whole purpose of the
+    backfill tool is to fill in NULL owners, so its tests have to be able to
+    create them — and NOT NULL is the state the tool exists to make reachable,
+    not the state it runs against. Building the current model's schema instead
+    would make every one of these tests fail at seed time and prove only that
+    Phase 4B2 happened.
+
+    The model column is restored immediately, so nothing outside this fixture
+    sees the relaxed definition.
+    """
     eng = create_engine(f"sqlite:///{tmp_path / 'backfill.db'}", future=True)
-    Base.metadata.create_all(bind=eng)
+    user_id_column = CharacterImage.__table__.c.user_id
+    user_id_column.nullable = True
+    try:
+        Base.metadata.create_all(bind=eng)
+    finally:
+        user_id_column.nullable = False
     yield eng
     eng.dispose()
 

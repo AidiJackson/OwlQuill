@@ -2,7 +2,7 @@
 import io
 import json
 from unittest.mock import patch
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, character_owner_id
 
 # Minimal 1x1 PNG
 _STUB_PNG = (
@@ -418,6 +418,7 @@ def test_admin_canon_import_archives_previous_active_image(client, db_session, m
     # Insert an existing active IDENTITY_BODY_FRONT image
     existing = CharacterImage(
         character_id=char_id,
+        user_id=character_owner_id(db_session, char_id),
         kind=ImageKindEnum.IDENTITY_BODY_FRONT,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

@@ -470,6 +470,7 @@ def _do_generate_body_slot(
     # Store new CharacterImage
     ci = CharacterImage(
         character_id=character.id,
+        user_id=character.owner_id,
         kind=kind,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,
@@ -736,6 +737,9 @@ async def admin_canon_import(
 
     ci = CharacterImage(
         character_id=character_id,
+        # The founder is importing canon FOR this character; the asset belongs
+        # to the character's owner, not to the admin who uploaded it.
+        user_id=char.owner_id,
         kind=kind,
         status=ImageStatusEnum.ACTIVE,
         visibility=ImageVisibilityEnum.PRIVATE,

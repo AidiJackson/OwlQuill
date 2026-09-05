@@ -98,6 +98,12 @@ def _character(session, owner_id, name="Owned"):
 
 
 def _image(session, character_id, file_path="static/generated/a.png", **kw):
+    # 4B2: user_id is NOT NULL and is derived from the character, exactly as
+    # every production writer derives it.
+    kw.setdefault(
+        "user_id",
+        session.query(Character).filter(Character.id == character_id).one().owner_id,
+    )
     img = CharacterImage(
         character_id=character_id,
         kind=ImageKindEnum.GENERATED,
@@ -142,11 +148,14 @@ def test_raw_sql_insert_still_lands_on_the_fail_safe_default(owned):
     than in a model attribute someone can bypass.
     """
     session, character, _ = owned
+    # ``user_id`` is NOT NULL as of Phase 4B2, so even the deliberately minimal
+    # insert has to name an owner. The point of the test is unchanged: nothing
+    # here sets a safety state, and the DDL still has to supply one.
     session.execute(text(
         "INSERT INTO character_images "
-        "(character_id, kind, status, visibility, file_path, created_at) "
-        "VALUES (:c, 'generated', 'active', 'private', 'raw/insert.png', :t)"
-    ), {"c": character.id, "t": datetime.utcnow()})
+        "(character_id, user_id, kind, status, visibility, file_path, created_at) "
+        "VALUES (:c, :u, 'generated', 'active', 'private', 'raw/insert.png', :t)"
+    ), {"c": character.id, "u": character.owner_id, "t": datetime.utcnow()})
     session.commit()
 
     row = session.execute(text(
@@ -454,7 +463,14 @@ def test_the_declared_constraints_are_the_three_we_intend():
 
 
 def test_alembic_has_exactly_one_head():
-    """The history had one head before this revision and must have one after."""
+    """The history had one head before this revision and must have one after.
+
+    Pinned by SHAPE, not by name. The original form asserted the head was
+    literally ``p4a01_image_safety_state``, which turned every later revision
+    into a failure of the 4A suite and said nothing about whether 4A was still
+    in the history. What matters is that the line stayed unbranched and that
+    this revision is still on it.
+    """
     from pathlib import Path
 
     from alembic.config import Config
@@ -463,5 +479,10 @@ def test_alembic_has_exactly_one_head():
     backend = Path(__file__).resolve().parent.parent
     cfg = Config(str(backend / "alembic.ini"))
     cfg.set_main_option("script_location", str(backend / "alembic"))
-    heads = ScriptDirectory.from_config(cfg).get_heads()
-    assert heads == ["p4a01_image_safety_state"], heads
+    script = ScriptDirectory.from_config(cfg)
+
+    heads = script.get_heads()
+    assert len(heads) == 1, heads
+
+    ancestry = {rev.revision for rev in script.walk_revisions("base", heads[0])}
+    assert "p4a01_image_safety_state" in ancestry
