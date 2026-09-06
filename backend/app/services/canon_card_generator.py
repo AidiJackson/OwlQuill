@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 from app.core.config import settings
-from app.core.storage import load_image_bytes, save_image
+from app.core.storage import load_image_bytes
 from app.schemas.canon import SLOT_FIELD_MAP
 from app.services.canon_card_prompts import (
     CARD_BY_SLOT,
@@ -107,8 +107,12 @@ class CardResult:
     grounding_urls: list[str] = field(default_factory=list)
     estimated_cost: float = 0.0
     # Populated only on commit:
-    url: Optional[str] = None
+    #: The SELECTED bytes. Phase 4D3-3 made this the function's durable output:
+    #: the caller persists them and fills in :attr:`url` from the stored asset.
     png_bytes: Optional[bytes] = None
+    #: Stored path, set by the CALLER after it persists ``png_bytes``. Left None
+    #: by this module, which no longer writes anything.
+    url: Optional[str] = None
     face_verify: Optional[dict] = None    # consistency-gate verdict
     status: str = "planned"               # planned | generated | gate_failed | error
     error: Optional[str] = None
@@ -283,7 +287,20 @@ def generate_card(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("CARD_GEN gate_skipped slot=%s err=%r", slot, exc)
 
-    result.url = save_image(png)
+    # Phase 4D3-3: this function GENERATES and EVALUATES. It does not persist.
+    #
+    # It used to call ``save_image(png)`` here, which meant every candidate that
+    # reached this line was written to the bucket — including the gate-failed
+    # ones ``_build_dependent_card`` then discards when the OpenAI fallback
+    # succeeds, and which nothing ever read again. Those were pure leak: bytes
+    # in the bucket, no row, no reference.
+    #
+    # It also could not persist correctly even if it wanted to. Ownership comes
+    # from the character, and this function has neither a character nor a
+    # session — giving it both merely to write a row would put ownership
+    # semantics in the layer with the least information about them. The caller
+    # (``canon_pack_builder.build_v2_pack``) holds the canon, the character and
+    # the transaction, and persists the ONE result it selects.
     result.png_bytes = png
     if result.status not in ("gate_failed",):
         result.status = "generated"

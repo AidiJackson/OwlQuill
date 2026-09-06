@@ -67,10 +67,12 @@ def _lock_character(client: TestClient, token: str, cid: int) -> None:
 
 
 def _stub_png_bytes() -> bytes:
-    from app.services.stub_image_generator import generate_placeholder_png
-    fp = generate_placeholder_png(label="test", sublabel="stub")
-    from app.core.storage import load_image_bytes
-    return load_image_bytes(fp)
+    # Phase 4D3-3: rendered directly. This used to render, store and load the
+    # bytes back — a round trip through storage for a value only ever wanted as
+    # bytes, via a wrapper that has since been retired for creating rowless
+    # objects.
+    from app.services.stub_image_generator import render_placeholder_png
+    return render_placeholder_png(label="test", sublabel="stub")
 
 
 def _mock_provider_succeeds() -> MagicMock:

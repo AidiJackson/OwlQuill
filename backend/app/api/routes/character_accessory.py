@@ -20,8 +20,9 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.core.storage import load_image_bytes, save_image
+from app.core.storage import load_image_bytes
 from app.models.character import Character as CharacterModel
+from app.models.character_image import ImageKindEnum
 from app.models.user import User
 from app.services.character_accessory import (
     append_accessory,
@@ -31,6 +32,8 @@ from app.services.character_accessory import (
     get_identity_anchor_urls,
     update_accessory_in_json,
 )
+from app.services.asset_persistence import OwnedBy, persist_image_asset
+from app.services.canon_references import archive_superseded_canon_asset
 from app.services.image_provider import get_provider_for_option
 from app.services.provider_capabilities import Capability, provider_supports
 
@@ -178,7 +181,20 @@ def generate_accessory_anchor(
             detail="Anchor image generation failed. Please try again.",
         ) from exc
 
-    anchor_image_url = save_image(png_bytes)
+    # Phase 4D3-3: the accessory design sheet becomes an owned asset.
+    # ACCESSORY_DESIGN is an exact existing kind — an isolated product-style
+    # image of the object. Text-to-image from a compiled prompt, so no lineage.
+    previous_url = (target or {}).get("anchor_image_url")
+    image = persist_image_asset(
+        db,
+        content=png_bytes,
+        owner=OwnedBy.character(character),
+        kind=ImageKindEnum.ACCESSORY_DESIGN,
+        provider="option1",
+        prompt_summary=anchor_prompt[:200],
+        metadata={"source": "accessory_design_anchor", "accessory_id": body.accessory_id},
+    )
+    anchor_image_url = image.file_path
 
     updates = {
         "anchor_image_url": anchor_image_url,
@@ -190,6 +206,9 @@ def generate_accessory_anchor(
         character.identity_anchor_json, body.accessory_id, updates
     )
     character.identity_anchor_json = updated_json
+    archive_superseded_canon_asset(
+        db, previous_url=previous_url, character=character, replacement=image
+    )
     db.commit()
 
     logger.info(
@@ -372,7 +391,25 @@ def generate_fit_anchor(
             detail="Fit anchor image generation failed. Please try again.",
         )
 
-    fit_anchor_url = save_image(png_bytes)
+    # ACCESSORY_FIT: the accessory ON the character. Grounded on up to several
+    # identity anchors (``anchor_images`` above), so several sources — the
+    # lineage column names one row and stays NULL rather than naming an
+    # arbitrary member of the set.
+    previous_url = (target or {}).get("fit_anchor_image_url")
+    image = persist_image_asset(
+        db,
+        content=png_bytes,
+        owner=OwnedBy.character(character),
+        kind=ImageKindEnum.ACCESSORY_FIT,
+        provider="option1",
+        prompt_summary=fit_prompt[:200],
+        metadata={
+            "source": "accessory_fit_anchor",
+            "accessory_id": body.accessory_id,
+            "refs_count": len(anchor_images),
+        },
+    )
+    fit_anchor_url = image.file_path
 
     updates = {
         "fit_anchor_image_url": fit_anchor_url,
@@ -383,6 +420,9 @@ def generate_fit_anchor(
         character.identity_anchor_json, body.accessory_id, updates
     )
     character.identity_anchor_json = updated_json
+    archive_superseded_canon_asset(
+        db, previous_url=previous_url, character=character, replacement=image
+    )
     db.commit()
 
     logger.info(

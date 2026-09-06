@@ -56,17 +56,41 @@ CANON_KINDS_4D3 = (
     ImageKindEnum.IDENTITY_MARK_DETAIL,
 )
 
+#: The three v2 face-card kinds added in Phase 4D3-3 (migration p4d3_02), after
+#: mapping the v2 face slots onto ANCHOR_FRONT / ANCHOR_THREE_QUARTER turned out
+#: to inject rows into legacy anchor infrastructure. Pinned separately from the
+#: ten above because they arrived in their own migration.
+V2_FACE_KINDS = (
+    ImageKindEnum.IDENTITY_FACE_FRONT,
+    ImageKindEnum.IDENTITY_FACE_LEFT_3Q,
+    ImageKindEnum.IDENTITY_FACE_RIGHT_3Q,
+)
+
+ALL_4D3_KINDS = CANON_KINDS_4D3 + V2_FACE_KINDS
+
 _MIGRATION_PATH = (
     pathlib.Path(__file__).resolve().parent.parent
     / "alembic" / "versions" / "p4d3_01_add_canon_image_kinds.py"
 )
+_MIGRATION_PATH_V2_FACES = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "alembic" / "versions" / "p4d3_02_add_v2_face_card_kinds.py"
+)
 
 
-def _migration_module():
-    spec = importlib.util.spec_from_file_location("p4d3_01", _MIGRATION_PATH)
+def _load_migration(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[union-attr]
     return module
+
+
+def _migration_module():
+    return _load_migration(_MIGRATION_PATH, "p4d3_01")
+
+
+def _migration_module_v2_faces():
+    return _load_migration(_MIGRATION_PATH_V2_FACES, "p4d3_02")
 
 
 # ── the values themselves ────────────────────────────────────────────────────
@@ -179,7 +203,7 @@ def test_the_migration_leaves_exactly_one_head():
 
     ini = pathlib.Path(__file__).resolve().parent.parent / "alembic.ini"
     script = ScriptDirectory.from_config(Config(str(ini)))
-    assert script.get_heads() == ["p4d3_01_canon_image_kinds"]
+    assert script.get_heads() == ["p4d3_02_v2_face_card_kinds"]
 
 
 def test_the_migration_is_idempotent_and_postgres_only():
@@ -243,31 +267,93 @@ def test_a_row_round_trips_through_the_kind_column(db, character, kind):
     assert stored.kind.value == kind.value
 
 
-#: Files allowed to name a 4D3 canon kind before the writers migrate.
-#:
-#: ``models/character_image.py`` declares them. ``schemas/character_image.py``
-#: is the POLICY layer added in 4D3-2: ``AVATAR_ELIGIBLE_KINDS`` names
-#: ``IDENTITY_FACE_EXPRESSION`` because a portrait card is a legitimate avatar.
-#: Naming a kind in an allowlist is the opposite of writing one — it is the rule
-#: that governs the writer — so the guard below excludes declaration and policy
-#: and keeps watching everything that could actually CREATE such a row.
-_KIND_DECLARATION_SITES = {
-    ("models", "character_image.py"),
-    ("schemas", "character_image.py"),
-}
+def test_every_canon_kind_is_now_produced_by_a_writer():
+    """4D3-3 landed: the taxonomy is in use.
 
-
-def test_no_writer_produces_a_canon_kind_yet():
-    """4D3-1/4D3-2 are taxonomy and policy. The writers migrate in 4D3-3, so no
-    route or service may create an image of these kinds yet."""
+    Replaces ``test_no_writer_produces_a_canon_kind_yet``, the temporary
+    checkpoint guard that held while 4D3-1 and 4D3-2 shipped taxonomy and policy
+    ahead of the writers. Inverted rather than deleted, because the useful
+    question just changed: an unused kind is now the anomaly — either a writer
+    was missed or a value nobody needs was added.
+    """
     app_root = pathlib.Path(__file__).resolve().parent.parent / "app"
-    names = {k.name for k in CANON_KINDS_4D3}
-    offenders = []
+    declaration_sites = {("models", "character_image.py")}
+    used: set[str] = set()
     for path in app_root.rglob("*.py"):
-        if (path.parent.name, path.name) in _KIND_DECLARATION_SITES:
+        if (path.parent.name, path.name) in declaration_sites:
             continue
         text = path.read_text()
-        for name in names:
-            if re.search(rf"\bImageKindEnum\.{name}\b", text):
-                offenders.append(f"{path.relative_to(app_root)}:{name}")
-    assert offenders == [], f"4D3-3 has not started; no writer may use these: {offenders}"
+        for kind in ALL_4D3_KINDS:
+            if re.search(rf"\b{kind.name}\b", text):
+                used.add(kind.name)
+    unused = {k.name for k in ALL_4D3_KINDS} - used
+    assert unused == set(), f"canon kinds nothing writes or governs: {sorted(unused)}"
+
+
+# ── Phase 4D3-3: the v2 face cards ───────────────────────────────────────────
+
+
+@pytest.mark.parametrize("kind", V2_FACE_KINDS, ids=lambda k: k.value)
+def test_a_v2_face_kind_exists_with_the_approved_value(kind):
+    assert ImageKindEnum(kind.value) is kind
+
+
+def test_the_v2_face_kinds_are_not_the_legacy_anchors():
+    """The collision this batch exists to undo.
+
+    ANCHOR_FRONT and ANCHOR_THREE_QUARTER are legacy identity-pack
+    infrastructure: PROTECTED_IMAGE_KINDS is exactly the ANCHOR_* set, the
+    identity lock counts four ACTIVE anchors, and canon_bridge resolves one by
+    kind+status. A v2 card is none of those things.
+    """
+    legacy = {ImageKindEnum.ANCHOR_FRONT, ImageKindEnum.ANCHOR_THREE_QUARTER,
+              ImageKindEnum.ANCHOR_TORSO, ImageKindEnum.ANCHOR_FULL_BODY}
+    assert not (set(V2_FACE_KINDS) & legacy)
+
+
+def test_left_and_right_are_distinguishable_from_the_kind_alone():
+    """No shared three-quarter kind: the slots are distinct and the router
+    grounds on them separately."""
+    assert ImageKindEnum.IDENTITY_FACE_LEFT_3Q is not ImageKindEnum.IDENTITY_FACE_RIGHT_3Q
+    assert not hasattr(ImageKindEnum, "IDENTITY_FACE_THREE_QUARTER")
+
+
+@pytest.mark.parametrize("kind", V2_FACE_KINDS, ids=lambda k: k.value)
+def test_a_v2_face_kind_is_not_public_gallery_material(kind):
+    assert kind not in PUBLIC_GALLERY_KINDS
+
+
+@pytest.mark.parametrize("kind", V2_FACE_KINDS, ids=lambda k: k.value)
+def test_a_v2_face_kind_is_not_protected(kind):
+    """Protection for these comes from ACTIVE CANON REFERENCE, not from kind —
+    so a superseded card stays deletable."""
+    assert kind not in PROTECTED_IMAGE_KINDS
+
+
+def test_the_v2_face_migration_adds_exactly_these_values_in_order():
+    module = _migration_module_v2_faces()
+    assert list(module._NEW_VALUES) == [k.value for k in V2_FACE_KINDS]
+
+
+def test_the_v2_face_migration_chains_onto_the_4d3_1_taxonomy():
+    module = _migration_module_v2_faces()
+    assert module.revision == "p4d3_02_v2_face_card_kinds"
+    assert module.down_revision == "p4d3_01_canon_image_kinds"
+
+
+def test_the_v2_face_migration_is_idempotent_and_postgres_only():
+    source = _MIGRATION_PATH_V2_FACES.read_text()
+    assert 'if bind.dialect.name != "postgresql":' in source
+    assert "ADD VALUE IF NOT EXISTS" in source
+    assert "DROP TYPE" not in source and "ALTER TABLE" not in source
+
+
+def test_the_legacy_anchor_kinds_are_untouched():
+    """They keep every existing semantic; this batch adds beside them."""
+    for name in ("ANCHOR_FRONT", "ANCHOR_THREE_QUARTER", "ANCHOR_TORSO",
+                 "ANCHOR_FULL_BODY"):
+        assert hasattr(ImageKindEnum, name)
+    assert PROTECTED_IMAGE_KINDS == frozenset({
+        ImageKindEnum.ANCHOR_FRONT, ImageKindEnum.ANCHOR_THREE_QUARTER,
+        ImageKindEnum.ANCHOR_TORSO, ImageKindEnum.ANCHOR_FULL_BODY,
+    })

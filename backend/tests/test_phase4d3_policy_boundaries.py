@@ -270,8 +270,15 @@ def test_the_two_allowlists_are_distinct_and_neither_derives_from_the_other():
 def test_the_approved_allowlists_are_pinned():
     assert AVATAR_ELIGIBLE_KINDS == frozenset({
         ImageKindEnum.GENERATED, ImageKindEnum.SCENE_ONLY, ImageKindEnum.UPLOADED,
-        ImageKindEnum.IDENTITY_FACE_REF, ImageKindEnum.ANCHOR_FRONT,
-        ImageKindEnum.ANCHOR_THREE_QUARTER, ImageKindEnum.IDENTITY_FACE_EXPRESSION,
+        ImageKindEnum.IDENTITY_FACE_REF,
+        # Legacy identity-pack anchors, kept for characters locked before v2.
+        ImageKindEnum.ANCHOR_FRONT, ImageKindEnum.ANCHOR_THREE_QUARTER,
+        # v2 canon face cards (Phase 4D3-3), which replaced the legacy anchors
+        # as what the pack writes.
+        ImageKindEnum.IDENTITY_FACE_FRONT,
+        ImageKindEnum.IDENTITY_FACE_LEFT_3Q,
+        ImageKindEnum.IDENTITY_FACE_RIGHT_3Q,
+        ImageKindEnum.IDENTITY_FACE_EXPRESSION,
         ImageKindEnum.IDENTITY_FINAL_CHARACTER_CARD,
     })
     assert COVER_ELIGIBLE_KINDS == frozenset({
@@ -512,3 +519,69 @@ def test_the_promotable_source_list_holds_no_canon_kind():
     assert CANON_PROMOTABLE_SOURCE_KINDS == frozenset({
         ImageKindEnum.SCENE_ONLY, ImageKindEnum.GENERATED, ImageKindEnum.UPLOADED,
     })
+
+
+# ── E. Phase 4D3-3: the v2 face cards ────────────────────────────────────────
+
+V2_FACE_KINDS = (
+    ImageKindEnum.IDENTITY_FACE_FRONT,
+    ImageKindEnum.IDENTITY_FACE_LEFT_3Q,
+    ImageKindEnum.IDENTITY_FACE_RIGHT_3Q,
+)
+
+
+@pytest.mark.parametrize("kind", V2_FACE_KINDS, ids=lambda k: k.value)
+def test_a_v2_face_kind_is_avatar_eligible(kind):
+    """A founder should be able to choose their character's canon face card as
+    its avatar — that is what the card IS."""
+    assert kind in AVATAR_ELIGIBLE_KINDS
+
+
+@pytest.mark.parametrize("kind", V2_FACE_KINDS, ids=lambda k: k.value)
+def test_a_v2_face_kind_is_not_cover_eligible(kind):
+    """Head crops make poor banners. Cover eligibility was not widened."""
+    assert kind not in COVER_ELIGIBLE_KINDS
+
+
+@pytest.mark.parametrize("kind", V2_FACE_KINDS, ids=lambda k: k.value)
+def test_a_v2_face_kind_is_not_permanently_protected(kind):
+    assert kind not in PROTECTED_IMAGE_KINDS
+
+
+def test_the_legacy_anchors_remain_avatar_eligible():
+    """Compatibility: characters locked before the v2 pack have these and
+    nothing else."""
+    assert ImageKindEnum.ANCHOR_FRONT in AVATAR_ELIGIBLE_KINDS
+    assert ImageKindEnum.ANCHOR_THREE_QUARTER in AVATAR_ELIGIBLE_KINDS
+
+
+@pytest.mark.parametrize("kind", V2_FACE_KINDS, ids=lambda k: k.value)
+def test_a_v2_face_card_is_deletable_once_canon_stops_referencing_it(
+    client, db_session, kind
+):
+    """The consequence of NOT being in PROTECTED_IMAGE_KINDS: a superseded card
+    is ordinary library material again."""
+    import json
+
+    _, hdrs = _owner(client, _tag("v2", kind))
+    char_id = _character(client, hdrs)
+    owner_id = _owner_id(db_session, char_id)
+    canon = CharacterIdentityCanon(character_id=char_id)
+    db_session.add(canon)
+    db_session.commit()
+
+    card = _image(db_session, char_id, owner_id, kind)
+
+    # While canon points at it, generic archiving is refused.
+    canon.face_canon_json = json.dumps({"face_front_image_url": card.file_path})
+    db_session.commit()
+    assert client.delete(f"/characters/{char_id}/images/{card.id}",
+                         headers=hdrs).status_code == 422
+
+    # Once canon moves on, it is deletable — which a kind-based protection
+    # could never express.
+    canon.face_canon_json = json.dumps({})
+    db_session.commit()
+    db_session.expire_all()
+    assert client.delete(f"/characters/{char_id}/images/{card.id}",
+                         headers=hdrs).status_code == 204

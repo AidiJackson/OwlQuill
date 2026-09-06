@@ -27,9 +27,9 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_owned_character, user_is_admin
-from app.core.storage import save_image, load_image_bytes, file_path_to_url
+from app.core.storage import load_image_bytes, file_path_to_url
 from app.models.character import Character as CharacterModel
-from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
+from app.models.character_image import ImageKindEnum
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.user import User
 from app.schemas.canon import (
@@ -41,6 +41,7 @@ from app.schemas.canon import (
     PermanentBodyMark,
     RemovableAccessory,
     SLOT_FIELD_MAP,
+    SLOT_IMAGE_KIND,
 )
 from app.schemas.character_image import CharacterImageRead
 from app.services.canon_compiler import compile_canon_prompt, has_any_canon_content
@@ -70,7 +71,9 @@ from app.services.image_provider import (
     get_fallback_provider,
     resolve_canon_provider_option,
 )
-from app.services.stub_image_generator import generate_placeholder_png
+from app.services.stub_image_generator import render_placeholder_png
+from app.services.asset_persistence import OwnedBy, persist_image_asset
+from app.services.canon_references import archive_superseded_canon_asset
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +96,31 @@ def _get_owned_character(character_id: int, user: User, db: Session) -> Characte
     return get_owned_character(
         character_id, user, db, not_owner_detail="You don't own this character."
     )
+
+
+def _canon_slot_url(canon: CharacterIdentityCanon, slot: str) -> Optional[str]:
+    """The url a canon slot currently holds, or ``None``.
+
+    Read through the same ``SLOT_FIELD_MAP`` the assign path writes through, so
+    "which field is this slot?" has one answer. Pure read of deserialised JSON.
+    """
+    section, field = SLOT_FIELD_MAP[slot]
+    data = load_face_canon(canon) if section == "face" else load_body_canon(canon)
+    return getattr(data, field, None) if data else None
+
+
+def _mark_image_url(
+    canon: CharacterIdentityCanon, mark_id: str, slot: str
+) -> Optional[str]:
+    """The url a permanent mark's reference or detail crop currently holds."""
+    body = load_body_canon(canon)
+    if not body:
+        return None
+    field = "detail_crop_url" if slot == "detail" else "reference_image_url"
+    for mark in body.permanent_body_marks:
+        if mark.id == mark_id:
+            return getattr(mark, field, None)
+    return None
 
 
 def _require_admin(user: User) -> None:
@@ -407,7 +435,7 @@ async def admin_upload_canon_image(
     must be locked after upload for generation to use it.
     """
     _require_admin(current_user)
-    _get_owned_character(character_id, current_user, db)
+    character = _get_owned_character(character_id, current_user, db)
 
     if slot not in SLOT_FIELD_MAP:
         raise HTTPException(
@@ -423,9 +451,34 @@ async def admin_upload_canon_image(
     if len(raw) > _CANON_IMPORT_MAX_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds 10 MB limit.")
 
-    image_url = save_image(raw)
     canon = get_or_create_canon(character_id, db)
+    # Read the outgoing url BEFORE assigning the new one — after the assign
+    # there is nothing left to identify the asset being superseded.
+    previous_url = _canon_slot_url(canon, slot)
+
+    # Phase 4D3-3: founder/admin uploads become owned assets. ``provider=None``
+    # is the statement this path has to make — a user supplied these bytes and
+    # Ficshon has no generation provenance for them. Ownership comes from the
+    # CHARACTER the route already resolved, never from ``current_user``: this
+    # route is admin-gated, and an admin uploading onto a character files the
+    # asset in its OWNER's library.
+    image = persist_image_asset(
+        db,
+        content=raw,
+        owner=OwnedBy.character(character),
+        kind=SLOT_IMAGE_KIND[slot],
+        provider=None,
+        metadata={
+            "source": "canon_upload",
+            "canon_slot": slot,
+            "content_type": content_type,
+        },
+    )
+    image_url = image.file_path
     assign_canon_slot_image(canon, slot, image_url)
+    archive_superseded_canon_asset(
+        db, previous_url=previous_url, character=character, replacement=image
+    )
     db.commit()
     db.refresh(canon)
 
@@ -459,7 +512,7 @@ async def admin_upload_mark_reference(
     db: Session = Depends(get_db),
 ) -> CanonUploadResponse:
     _require_admin(current_user)
-    _get_owned_character(character_id, current_user, db)
+    character = _get_owned_character(character_id, current_user, db)
 
     if slot not in ("reference", "detail"):
         raise HTTPException(
@@ -475,14 +528,41 @@ async def admin_upload_mark_reference(
     if len(raw) > _CANON_IMPORT_MAX_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds 10 MB limit.")
 
-    image_url = save_image(raw)
     canon = get_or_create_canon(character_id, db)
+    previous_url = _mark_image_url(canon, mark_id, slot)
+
+    # A mark reference and a mark detail crop are the same semantic object at
+    # two fidelities — one reference image of one mark — so they share
+    # IDENTITY_MARK_REFERENCE / IDENTITY_MARK_DETAIL by fidelity, not by whether
+    # a founder or a provider produced the bytes. ``provider`` records that.
+    image = persist_image_asset(
+        db,
+        content=raw,
+        owner=OwnedBy.character(character),
+        kind=(ImageKindEnum.IDENTITY_MARK_DETAIL if slot == "detail"
+              else ImageKindEnum.IDENTITY_MARK_REFERENCE),
+        provider=None,
+        metadata={
+            "source": "canon_mark_upload",
+            "mark_id": mark_id,
+            "mark_image_slot": slot,
+            "content_type": content_type,
+        },
+    )
+    image_url = image.file_path
     if slot == "detail":
         found = assign_mark_detail_crop(canon, mark_id, image_url)
     else:
         found = assign_mark_reference_image(canon, mark_id, image_url)
     if not found:
+        # The transaction ends without committing, so the row is discarded AND
+        # the object written seconds ago is deleted by the pending-object
+        # compensation. Before 4D3-3 this path leaked the bytes forever: the
+        # legacy write had already stored them and nothing knew to clean up.
         raise HTTPException(status_code=404, detail=f"Mark '{mark_id}' not found.")
+    archive_superseded_canon_asset(
+        db, previous_url=previous_url, character=character, replacement=image
+    )
     db.commit()
     db.refresh(canon)
 
@@ -650,10 +730,12 @@ def generate_scene_from_canon(
             except (ValueError, RuntimeError):
                 pass
 
-    if png_bytes is not None:
-        file_path = save_image(png_bytes)
-    else:
-        file_path = generate_placeholder_png(
+    if png_bytes is None:
+        # Phase 4D3-3: render bytes, persist them the same way as every other
+        # outcome. The legacy ``generate_placeholder_png`` wrapper rendered AND
+        # stored in one call, returning a bare path — the shape that produced
+        # rowless objects — and it is gone.
+        png_bytes = render_placeholder_png(
             label=f"{char.name} — scene",
             sublabel=req.prompt[:80],
             role="scene_only",
@@ -662,19 +744,27 @@ def generate_scene_from_canon(
         logger.info("SCENE_GEN_STUB character_id=%s", character_id)
 
     # ── Save as SCENE_ONLY — NEVER update canon ───────────────────
-    img = CharacterImage(
-        character_id=character_id,
+    # Phase 4D3-3: one canonical write replaces ``save_image`` plus a hand-built
+    # row. Same kind, same provider, same metadata, same transaction — what
+    # changes is that the bytes and the row are created together, the row gains
+    # a ``storage_key``, and an abandoned transaction takes the object with it.
+    #
+    # No ``derived_from``: this generation grounds on up to six canon references
+    # (``refs_count`` below records how many). Several sources, so the lineage
+    # column — which names exactly one — stays NULL rather than naming an
+    # arbitrary member of the set.
+    img = persist_image_asset(
+        db,
+        content=png_bytes,
         # The character's owner, not the requester. This route is owner-only
         # (``_get_owned_character`` above), so the two are the same account —
-        # naming the owner states the rule instead of relying on the guard to
-        # imply it. See the ownership rule on ``CharacterImage.user_id``.
-        user_id=char.owner_id,
+        # ``OwnedBy.character`` states the rule instead of relying on the guard
+        # to imply it.
+        owner=OwnedBy.character(char),
         kind=ImageKindEnum.SCENE_ONLY,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
         provider=provider_name,
         prompt_summary=req.prompt[:200],
-        metadata_json={
+        metadata={
             "scene_only": True,
             "canon_used": using_canon,
             "refs_count": len(ref_bytes),
@@ -689,9 +779,7 @@ def generate_scene_from_canon(
             **(_routing_diagnostics(scene_meta) if scene_meta is not None else {}),
             **provider_gate_meta,  # beta provider-gating audit trail (empty unless fallback)
         },
-        file_path=file_path,
     )
-    db.add(img)
     db.commit()
     db.refresh(img)
 

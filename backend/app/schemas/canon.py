@@ -16,6 +16,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.models.character_image import ImageKindEnum
+
 
 # ── Card skin-coverage vocabulary ─────────────────────────────────────
 #
@@ -391,4 +393,38 @@ SLOT_FIELD_MAP: dict[str, tuple[str, str]] = {
     "torso_side":             ("body", "torso_side_image_url"),
     "standing_relaxed":       ("body", "standing_relaxed_image_url"),
     "seated_relaxed":         ("body", "seated_relaxed_image_url"),
+}
+
+#: Canon slot -> the ``ImageKindEnum`` a persisted asset for that slot carries.
+#:
+#: Phase 4D3-3. Beside :data:`SLOT_FIELD_MAP` because there is ONE canon slot
+#: vocabulary and two things every writer needs to know about a slot: which JSON
+#: field holds its url, and what the image IS. Splitting them across modules is
+#: how a slot ends up in one map and not the other.
+#:
+#: Every slot maps to a kind that describes it. There is deliberately no
+#: ``GENERATED`` fallback for an unmapped slot: ``GENERATED`` is in
+#: ``PUBLIC_GALLERY_KINDS``, so a fallback would publish canon working material
+#: to the Character Home — which is how nine canon urls on DEV came to be
+#: gallery-eligible already. A slot with no kind must fail loudly instead.
+SLOT_IMAGE_KIND: dict[str, ImageKindEnum] = {
+    # v2 face cards, NOT the legacy ANCHOR_* kinds they resemble. Those are
+    # identity-pack infrastructure — protected from deletion, counted by the
+    # identity lock, resolved by canon_bridge — and a canon card is none of
+    # those things. See the p4d3_02 migration for what writing them broke.
+    "face_front":             ImageKindEnum.IDENTITY_FACE_FRONT,
+    "face_left_3q":           ImageKindEnum.IDENTITY_FACE_LEFT_3Q,
+    "face_right_3q":          ImageKindEnum.IDENTITY_FACE_RIGHT_3Q,
+    "face_profile":           ImageKindEnum.IDENTITY_FACE_PROFILE,
+    "face_expression":        ImageKindEnum.IDENTITY_FACE_EXPRESSION,
+    "body_front":             ImageKindEnum.IDENTITY_BODY_FRONT,
+    "body_left":              ImageKindEnum.IDENTITY_BODY_LEFT,
+    "body_right":             ImageKindEnum.IDENTITY_BODY_RIGHT,
+    "body_back":              ImageKindEnum.IDENTITY_BODY_BACK,
+    "body_map":               ImageKindEnum.IDENTITY_BODY_MAP,
+    "final_character_card":   ImageKindEnum.IDENTITY_FINAL_CHARACTER_CARD,
+    "torso_front":            ImageKindEnum.IDENTITY_TORSO_FRONT,
+    "torso_side":             ImageKindEnum.IDENTITY_TORSO_SIDE,
+    "standing_relaxed":       ImageKindEnum.IDENTITY_POSE_STANDING,
+    "seated_relaxed":         ImageKindEnum.IDENTITY_POSE_SEATED,
 }

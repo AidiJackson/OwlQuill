@@ -15,16 +15,17 @@ information to decide them.
 So the split is: this module makes pixels; the caller persists them through
 ``asset_persistence.persist_image_asset`` with the ownership it actually knows.
 
-:func:`generate_placeholder_png` is the LEGACY convenience wrapper that also
-stores the bytes and returns a bare ``file_path``. It survives only for the call
-sites Phases 4D3/4D4 have yet to migrate (``canon_api``); new code calls
-:func:`render_placeholder_png`.
+Phase 4D3-3 retired ``generate_placeholder_png``, the legacy wrapper that
+rendered AND stored in one call and returned a bare ``file_path``. Its last
+caller — the scene-from-canon fallback in ``canon_api`` — now renders bytes here
+and persists them through ``asset_persistence.persist_image_asset`` like every
+other durable write, so a placeholder ends up owned and reviewable instead of
+being bytes with no row behind them. This module no longer imports storage at
+all, which is the clearest statement of what it is: a renderer.
 """
 import io
 
 from PIL import Image, ImageDraw, ImageFont
-
-from app.core.storage import save_image
 
 # Colour palette per pack role
 _ROLE_COLOURS: dict[str, tuple[int, int, int]] = {
@@ -74,26 +75,3 @@ def render_placeholder_png(
     buf = io.BytesIO()
     img.save(buf, "PNG")
     return buf.getvalue()
-
-
-def generate_placeholder_png(
-    *,
-    label: str,
-    sublabel: str = "",
-    role: str = "generated",
-    width: int = 512,
-    height: int = 768,
-) -> str:
-    """LEGACY. Render a placeholder AND store it, returning a bare file_path.
-
-    Kept for the unmigrated call sites only (see the module docstring). New code
-    renders with :func:`render_placeholder_png` and persists through
-    ``asset_persistence.persist_image_asset``, so the placeholder ends up owned
-    and reviewable like any other durable asset instead of being bytes with no
-    row behind them.
-    """
-    return save_image(
-        render_placeholder_png(
-            label=label, sublabel=sublabel, role=role, width=width, height=height
-        )
-    )

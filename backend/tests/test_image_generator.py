@@ -56,17 +56,26 @@ def _create_character(client: TestClient, token: str) -> int:
 
 def _stub_png_bytes() -> bytes:
     """Return a valid stub PNG from the stub generator."""
-    from app.services.stub_image_generator import generate_placeholder_png
-    fp = generate_placeholder_png(label="test", sublabel="stub")
-    from app.core.storage import load_image_bytes
-    return load_image_bytes(fp)
+    from app.services.stub_image_generator import render_placeholder_png
+    return render_placeholder_png(label="test", sublabel="stub")
 
 
 def _stub_image_url(label: str = "ref") -> str:
-    """Create a real stub PNG on disk and return a loadable /static URL for it."""
-    from app.services.stub_image_generator import generate_placeholder_png
-    fp = generate_placeholder_png(label=label, role="anchor_front")
-    return f"/{fp}"
+    """Create a real stub PNG on disk and return a loadable /static URL for it.
+
+    This one genuinely needs storage — the point is a url a route can load —
+    so it renders and then writes through the low-level object writer. It
+    deliberately does NOT go through ``persist_image_asset``: this is a fixture
+    standing in for material some earlier flow produced, not the application
+    creating a durable asset, and giving it a row would put a fake in every
+    ownership and quota query the test then makes.
+    """
+    from app.core.storage import mint_object_key, put_object
+    from app.services.stub_image_generator import render_placeholder_png
+
+    content = render_placeholder_png(label=label, role="anchor_front")
+    stored = put_object(content, key=mint_object_key(content))
+    return f"/{stored.file_path}"
 
 
 def _setup_canon(

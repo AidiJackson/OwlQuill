@@ -379,10 +379,8 @@ def test_scene_prompt_includes_face_signature_when_present(client: TestClient):
         def generate_grounded_image(self, *, prompt, reference_image_bytes):
             captured_prompts.append(prompt)
             # Return a minimal valid PNG placeholder
-            from app.services.stub_image_generator import generate_placeholder_png
-            fp = generate_placeholder_png(label="scene", sublabel="test")
-            from app.core.storage import load_image_bytes
-            return load_image_bytes(fp)
+            from app.services.stub_image_generator import render_placeholder_png
+            return render_placeholder_png(label="scene", sublabel="test")
 
         def generate_image(self, *, prompt, **kwargs):
             raise NotImplementedError("force Tier A")

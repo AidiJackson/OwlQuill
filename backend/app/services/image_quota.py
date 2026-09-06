@@ -14,7 +14,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.character_image import CharacterImage
+from app.models.character_image import (
+    QUOTA_COUNTED_IMAGE_KINDS,
+    CharacterImage,
+)
 from app.models.user import User
 
 _WINDOW_DAYS = 7
@@ -65,12 +68,21 @@ def get_quota_status(user: User, db: Session) -> dict:
 
     # Counts by owning account (``CharacterImage.user_id``, Phase 4B1). See
     # check_weekly_quota's docstring for why this stays owner-keyed for now.
+    #
+    # Phase 4D3-3 added the KIND filter. Before it, this counted every row the
+    # account owned, which stopped meaning "images you generated" the moment
+    # canon assets became first-class rows: a single v2 pack writes 13 cards and
+    # would have consumed an entire 10-image weekly allowance. The counted set
+    # is centralised in ``QUOTA_COUNTED_IMAGE_KINDS`` precisely so a future kind
+    # cannot change what users are billed for by being added somewhere else.
+    #
     # Single query ordered oldest-first: lets us count and find the reset anchor.
     images_in_window: list[CharacterImage] = (
         db.query(CharacterImage)
         .filter(
             CharacterImage.user_id == user.id,
             CharacterImage.created_at >= since,
+            CharacterImage.kind.in_(QUOTA_COUNTED_IMAGE_KINDS),
         )
         .order_by(CharacterImage.created_at.asc())
         .all()

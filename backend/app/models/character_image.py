@@ -81,6 +81,24 @@ class ImageKindEnum(str, enum.Enum):
     # than inventing a distinction the column does not need to carry.
     IDENTITY_MARK_REFERENCE = "identity_mark_reference"
     IDENTITY_MARK_DETAIL = "identity_mark_detail"            # tight crop: exact geometry / lettering
+    # ── Phase 4D3-3 — v2 face cards ──────────────────────────────────────────
+    # The v2 canon pack's three face slots. They are NOT the ANCHOR_* kinds they
+    # resemble, and that distinction is operational rather than cosmetic:
+    # ANCHOR_FRONT / ANCHOR_THREE_QUARTER / ANCHOR_TORSO / ANCHOR_FULL_BODY are
+    # legacy identity-pack INFRASTRUCTURE. They sit in PROTECTED_IMAGE_KINDS, the
+    # identity lock counts four ACTIVE ones before it will lock a character, and
+    # canon_bridge resolves them by kind+status. A v2 pack that wrote three of
+    # them would inject rows into all three of those mechanisms — silently
+    # changing anchor counts and making pack output permanently undeletable —
+    # while meaning something different.
+    #
+    # Left and right get their own labels rather than sharing a three-quarter
+    # kind: the canon slots are distinct, the router grounds on them separately,
+    # and a single label would make "which side is this?" unanswerable from the
+    # column.
+    IDENTITY_FACE_FRONT = "identity_face_front"
+    IDENTITY_FACE_LEFT_3Q = "identity_face_left_3q"
+    IDENTITY_FACE_RIGHT_3Q = "identity_face_right_3q"
 
 
 #: Kinds a character may attach to a public post.
@@ -154,6 +172,49 @@ CANON_PROMOTABLE_SOURCE_KINDS = frozenset(
         ImageKindEnum.SCENE_ONLY,
         ImageKindEnum.GENERATED,
         ImageKindEnum.UPLOADED,
+    }
+)
+
+
+#: Kinds that consume the general weekly IMAGE GENERATION allowance.
+#:
+#: Phase 4D3-3. The quota used to count EVERY ``CharacterImage`` row the account
+#: owned, which was a workable proxy only while the sole thing creating rows was
+#: ordinary generation. 4D3 made durable canon assets first-class rows, and the
+#: proxy broke immediately: one v2 canon pack writes 13 cards plus a crop per
+#: permanent mark, against an ``IMAGE_WEEKLY_LIMIT`` of 10 — so generating a
+#: pack would overshoot the whole weekly allowance and lock the founder out of
+#: image generation, scene generation and Editor Studio for a week.
+#:
+#: "A row was created" and "the user generated an image" are simply different
+#: statements now, so the quota counts the second one.
+#:
+#: WHAT IS COUNTED, and why exactly these three. They are the kinds written by
+#: the generation workflows the quota exists to meter — the library generator
+#: (``images.py``), the generation pipeline's scene and cover output, Editor
+#: Studio, scene-from-canon, and the character-visual generation paths. Every
+#: writer of these three kinds is a real generation event.
+#:
+#: WHAT IS NOT COUNTED, and why none of it is a loophole:
+#:
+#: * ``UPLOADED`` — the founder supplied the bytes. Nothing was generated and
+#:   nothing was spent. This also covers the avatar and cover CROPS, which are
+#:   written as ``UPLOADED`` (``characters.py``, ``users.py``): re-cropping an
+#:   avatar is not an image generation and must not cost one.
+#: * every identity / canon / accessory / anchor kind — canon production is
+#:   metered by its own ``SpendTracker`` cost cap inside the pack builder, which
+#:   is the mechanism that actually corresponds to what canon costs. Counting it
+#:   twice, in a unit that does not match, protected nothing.
+#:
+#: A SEPARATE SET from PUBLIC_GALLERY_KINDS even though the members coincide
+#: today. Those answer different questions — "may the public see this?" versus
+#: "did this cost a generation?" — and aliasing them would mean a gallery
+#: decision silently changed what users are billed for.
+QUOTA_COUNTED_IMAGE_KINDS = frozenset(
+    {
+        ImageKindEnum.GENERATED,
+        ImageKindEnum.SCENE_ONLY,
+        ImageKindEnum.COVER,
     }
 )
 

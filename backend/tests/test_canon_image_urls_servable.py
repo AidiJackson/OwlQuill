@@ -146,9 +146,8 @@ class TestUploadAndFetchRoundTrip:
 
     @staticmethod
     def _png() -> bytes:
-        from app.services.stub_image_generator import generate_placeholder_png
-        from app.core.storage import load_image_bytes
-        return load_image_bytes(generate_placeholder_png(label="t", sublabel="t"))
+        from app.services.stub_image_generator import render_placeholder_png
+        return render_placeholder_png(label="t", sublabel="t")
 
     def _admin_headers(self, client, db_session):
         from tests.conftest import auth_headers, get_auth_token

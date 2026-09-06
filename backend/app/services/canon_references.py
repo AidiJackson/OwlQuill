@@ -175,6 +175,70 @@ def is_canon_referenced(db: Session, image) -> bool:
     )
 
 
+def archive_superseded_canon_asset(
+    db: Session,
+    *,
+    previous_url: Optional[str],
+    character,
+    replacement=None,
+):
+    """ARCHIVE the row a canon reference is about to stop pointing at.
+
+    The canon-aware half of replacement, and the counterpart to the guard above:
+    generic image management may not touch a live canon asset, so the operation
+    that RETIRES the reference is the operation that must retire the asset. Call
+    it in the same transaction as the new asset and the new canon value, after
+    reading *previous_url* and before (or after — same transaction) assigning
+    the new one.
+
+    Returns the archived row, or ``None`` when there was nothing to archive.
+    Four conditions, each of which returns ``None`` rather than raising, because
+    "no previous asset" is the ordinary case on a first write and not an error:
+
+    * the url resolves to exactly ONE ``CharacterImage``. ``source_image_for_url``
+      answers ``None`` for no match AND for several, and both mean the same
+      thing here: this operation cannot identify a single row it is superseding,
+      so it archives nothing. The 100 rowless canon urls on DEV fall in the
+      first case — historical references stay untouched, with no backfill;
+    * the row belongs to the SAME owner as the character. A url that resolves to
+      somebody else's asset is not this character's superseded canon;
+    * it is not the replacement itself. Re-assigning the same bytes to a slot
+      must not archive the row that was just written;
+    * it is still ACTIVE. Archiving twice is not an error, it is a no-op.
+
+    Deliberately does NOT consult :func:`is_canon_referenced`. That guard asks
+    "is generic code about to break canon?"; this is canon code, updating both
+    halves at once, and asking permission of a rule written for other callers
+    would refuse the one operation that is allowed to do this.
+    """
+    from app.models.character_image import ImageStatusEnum
+    from app.services.asset_persistence import source_image_for_url
+
+    if not previous_url:
+        return None
+
+    previous = source_image_for_url(db, previous_url)
+    if previous is None:
+        return None
+    if previous.user_id != getattr(character, "owner_id", None):
+        logger.info(
+            "CANON_SUPERSEDE_SKIPPED reason=owner_mismatch image_id=%s character_id=%s",
+            previous.id, getattr(character, "id", None),
+        )
+        return None
+    if replacement is not None and previous.id == getattr(replacement, "id", None):
+        return None
+    if previous.status != ImageStatusEnum.ACTIVE:
+        return None
+
+    previous.status = ImageStatusEnum.ARCHIVED
+    logger.info(
+        "CANON_SUPERSEDE_ARCHIVED image_id=%s character_id=%s",
+        previous.id, getattr(character, "id", None),
+    )
+    return previous
+
+
 #: Refusal text for a generic archive of a live canon asset. Names the way out,
 #: because "no" without a route is how a founder ends up with an image they can
 #: neither use nor remove.

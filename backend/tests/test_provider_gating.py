@@ -60,10 +60,8 @@ def _make_admin(db_session, email: str) -> None:
 
 
 def _stub_png_bytes() -> bytes:
-    from app.services.stub_image_generator import generate_placeholder_png
-    fp = generate_placeholder_png(label="test", sublabel="stub")
-    from app.core.storage import load_image_bytes
-    return load_image_bytes(fp)
+    from app.services.stub_image_generator import render_placeholder_png
+    return render_placeholder_png(label="test", sublabel="stub")
 
 
 def _capturing_provider(captured: dict) -> MagicMock:

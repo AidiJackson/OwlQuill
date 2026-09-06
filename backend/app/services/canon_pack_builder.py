@@ -29,7 +29,11 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Optional
 
+from app.models.character_image import ImageKindEnum
+from app.schemas.canon import SLOT_IMAGE_KIND
 from app.services import canon_service as cs
+from app.services.asset_persistence import OwnedBy, persist_image_asset
+from app.services.canon_references import archive_superseded_canon_asset
 from app.services.canon_card_generator import (
     SpendCapExceeded,
     SpendTracker,
@@ -51,6 +55,31 @@ if TYPE_CHECKING:
     from app.models.character_identity_canon import CharacterIdentityCanon
 
 logger = logging.getLogger(__name__)
+
+
+def _character_for_canon(canon: "CharacterIdentityCanon", db: "Session") -> "Character":
+    """The ``Character`` that owns *canon*, as an authoritative object.
+
+    Phase 4D3-3 needs a real Character, not an id: ``OwnedBy.character`` takes
+    the object precisely so the asset's owner and its character association come
+    from the same place and cannot disagree. Queried rather than read off the
+    relationship so it behaves identically under the async job's own session,
+    where the relationship may not be loaded.
+    """
+    from app.models.character import Character as CharacterModel
+
+    character = (
+        db.query(CharacterModel)
+        .filter(CharacterModel.id == canon.character_id)
+        .first()
+    )
+    if character is None:
+        raise _StopBuild(
+            f"character {canon.character_id} no longer exists; refusing to "
+            "persist canon assets that would belong to nobody."
+        )
+    return character
+
 
 FACE_FRONT_MAX_ATTEMPTS = 3
 DEFAULT_MAX_SPEND_USD = 8.0
@@ -250,13 +279,19 @@ def _record_verdict(slot, res, report):
 
 
 def _build_face_front(canon, identity, spend, report):
+    """The winning ``CardResult`` for face_front, or raise.
+
+    Phase 4D3-3: returns the RESULT, not a url. Nothing here is stored — the
+    failed attempts never produced durable bytes and the winner is persisted by
+    the caller, inside the transaction that also assigns the canon slot.
+    """
     for attempt in range(1, FACE_FRONT_MAX_ATTEMPTS + 1):
         res = _gen_card("face_front", canon=canon, identity=identity, spend=spend,
                         provider_option="option2", is_admin=False, admin_fallback=False)
-        if res.status == "generated" and res.url:
+        if res.status == "generated" and res.png_bytes:
             if attempt > 1:
                 report["regenerations"].append(f"face_front: succeeded on attempt {attempt}")
-            return res.url
+            return res
         report["regenerations"].append(
             f"face_front: attempt {attempt} failed ({res.error or res.status})")
     raise _StopBuild(f"face_front failed {FACE_FRONT_MAX_ATTEMPTS} times (seed unusable)")
@@ -267,8 +302,14 @@ def _build_dependent_card(slot, canon, identity, spend, report, *, is_admin, adm
                     provider_option="option2", is_admin=False, admin_fallback=False)
     _record_verdict(slot, res, report)
 
+    # Phase 4D3-3: every branch names ONE winner and returns the result itself.
+    # Candidates that lose — the gate-failed Gemini card superseded by an OpenAI
+    # one, the errored first attempt superseded by a retry — are dropped as
+    # bytes. They used to be written to the bucket by ``generate_card`` and then
+    # discarded here, which is where a large share of the rowless objects came
+    # from: stored, unreferenced, unattributable.
     if res.status == "generated":
-        return res.url
+        return res
 
     if res.status == "gate_failed":
         # Gate failed twice on Gemini → escalate to admin OpenAI, if permitted.
@@ -279,31 +320,33 @@ def _build_dependent_card(slot, canon, identity, spend, report, *, is_admin, adm
             report["openai_fallback"].append(slot)
             _record_verdict(slot, oa, report)
             if oa.status == "generated":
-                return oa.url
+                return oa
             report["gate_failed"].append(slot)
-            return oa.url or res.url
+            return oa if oa.png_bytes else res
         report["gate_failed"].append(slot)
-        return res.url  # populate slot best-effort; flagged not-clean
+        return res  # populate slot best-effort; flagged not-clean
 
     # status == "error": one Gemini retry, then OpenAI if permitted.
     report["regenerations"].append(f"{slot}: generation error → retry")
     res2 = _gen_card(slot, canon=canon, identity=identity, spend=spend,
                      provider_option="option2", is_admin=False, admin_fallback=False)
     if res2.status == "generated":
-        return res2.url
+        return res2
     if admin_fallback and is_admin:
         oa = _gen_card(slot, canon=canon, identity=identity, spend=spend,
                        provider_option="option1", is_admin=True, admin_fallback=True)
         report["openai_fallback"].append(slot)
         if oa.status == "generated":
-            return oa.url
-        return oa.url or res2.url
-    return res2.url
+            return oa
+        return oa if oa.png_bytes else res2
+    return res2
 
 
-def _build_marks(canon, identity, spend, db, report, *, dry_run):
+def _build_marks(canon, identity, spend, db, report, *, dry_run, character=None):
     """Generate a detail crop for each permanent mark lacking one."""
-    from app.core.storage import load_image_bytes, save_image
+    from app.core.storage import load_image_bytes
+
+    character = character or _character_for_canon(canon, db)
     from app.services.image_provider import get_fallback_provider, get_provider_for_option
 
     body = cs.load_body_canon(canon)
@@ -354,8 +397,30 @@ def _build_marks(canon, identity, spend, db, report, *, dry_run):
             continue
 
         spend.charge(provider_name)
-        crop_url = save_image(png)
+        # Phase 4D3-3. Only the selected result is persisted — the provider
+        # attempt and the fal fallback resolve to one ``png`` before this line.
+        # IDENTITY_MARK_DETAIL: a tight crop capturing one mark's exact geometry.
+        previous_url = mark.detail_crop_url
+        image = persist_image_asset(
+            db,
+            content=png,
+            owner=OwnedBy.character(character),
+            kind=ImageKindEnum.IDENTITY_MARK_DETAIL,
+            provider=provider_name,
+            prompt_summary=prompt[:200],
+            metadata={
+                "source": "canon_pack_v2_mark",
+                "mark_id": mark.id,
+                "mark_label": mark.label,
+                "refs_count": len(anchors),
+                "provider": provider_name,
+            },
+        )
+        crop_url = image.file_path
         cs.assign_mark_detail_crop(canon, mark.id, crop_url)
+        archive_superseded_canon_asset(
+            db, previous_url=previous_url, character=character, replacement=image
+        )
         db.commit()
         report["marks"].append({"label": mark.label, "mark_id": mark.id,
                                 "detail_crop_url": crop_url})
@@ -410,6 +475,13 @@ def build_v2_pack(
     _total_cards = len(CARD_PIPELINE)
 
     try:
+        # The authoritative owner for every asset this build creates. Resolved
+        # once, from the canon's own character, so an admin-triggered build
+        # files the images in the character OWNER's library rather than the
+        # operator's. Inside the try because a character that has vanished is a
+        # _StopBuild — a reported outcome, not an unhandled crash.
+        character = _character_for_canon(canon, db)
+
         for _card_idx, spec in enumerate(CARD_PIPELINE):
             slot = spec.slot
             section = "face" if slot in FACE_SLOTS else "body"
@@ -438,18 +510,54 @@ def build_v2_pack(
                 continue
 
             if slot == "face_front":
-                url = _build_face_front(canon, identity, spend, report)
+                winner = _build_face_front(canon, identity, spend, report)
             else:
-                url = _build_dependent_card(slot, canon, identity, spend, report,
-                                            is_admin=is_admin, admin_fallback=admin_fallback)
+                winner = _build_dependent_card(slot, canon, identity, spend, report,
+                                               is_admin=is_admin, admin_fallback=admin_fallback)
 
-            if not url:
+            if winner is None or not winner.png_bytes:
                 report["errors"].append(f"{slot}: no image produced")
                 report["cards"].append({"slot": slot, "section": section, "role": slot,
                                         "url": None, "status": "error", "provider": None})
                 continue
 
+            # Phase 4D3-3: the owner-aware persistence boundary. This is the one
+            # place that holds the character, the canon and the transaction at
+            # once, and it persists exactly the card that was SELECTED — never a
+            # losing candidate. The row, the canon assignment and the retirement
+            # of any superseded asset all land in the per-slot commit below, so
+            # a slot is either fully durable or entirely absent.
+            #
+            # No ``derived_from``: a card grounds on up to several other slots
+            # (``winner.grounding_urls``), so the single-source lineage column
+            # stays NULL and the references are described in metadata instead.
+            image = persist_image_asset(
+                db,
+                content=winner.png_bytes,
+                owner=OwnedBy.character(character),
+                kind=SLOT_IMAGE_KIND[slot],
+                provider=winner.provider_name,
+                prompt_summary=(winner.prompt or "")[:200],
+                metadata={
+                    "source": "canon_pack_v2",
+                    "canon_slot": slot,
+                    "pack_id": report["pack_id"],
+                    "grounds_on": list(winner.grounds_on),
+                    "refs_count": len(winner.grounding_urls),
+                    "provider": winner.provider_name,
+                    **({"face_verify": winner.face_verify} if winner.face_verify else {}),
+                },
+            )
+            url = image.file_path
+            previous_url = _slot_url_safe(canon, slot)
             cs.assign_canon_slot_image(canon, slot, url)
+            # Occupied slots are skipped above, so there is normally nothing to
+            # retire. Called anyway because the skip is a build-policy decision
+            # that could change, and a replacement that silently orphaned its
+            # predecessor is precisely what this phase exists to stop.
+            archive_superseded_canon_asset(
+                db, previous_url=previous_url, character=character, replacement=image
+            )
             db.commit()
             status = "gate_failed" if slot in report["gate_failed"] else "generated"
             report["cards"].append({
@@ -459,7 +567,8 @@ def build_v2_pack(
             })
 
         _progress("mark_details", _total_cards, _total_cards)
-        _build_marks(canon, identity, spend, db, report, dry_run=dry_run)
+        _build_marks(canon, identity, spend, db, report, dry_run=dry_run,
+                     character=character)
 
     except _StopBuild as exc:
         report["stopped"] = str(exc)

@@ -6,18 +6,31 @@ that were migrated from the legacy identity_anchor_json contract to canon.
 
 
 def stub_png_bytes() -> bytes:
-    """Raw PNG bytes for mock provider returns. Requires local storage mode."""
-    from app.services.stub_image_generator import generate_placeholder_png
-    fp = generate_placeholder_png(label="test", sublabel="stub")
-    from app.core.storage import load_image_bytes
-    return load_image_bytes(fp)
+    """Raw PNG bytes for mock provider returns.
+
+    Phase 4D3-3: rendered directly. This used to render, store, and load the
+    bytes back through ``generate_placeholder_png`` — a round trip through
+    storage for something that was only ever wanted as bytes, and the reason
+    this helper needed local storage mode at all.
+    """
+    from app.services.stub_image_generator import render_placeholder_png
+    return render_placeholder_png(label="test", sublabel="stub")
 
 
 def stub_image_url(label: str = "ref") -> str:
-    """Create a real local stub PNG and return a loadable /static URL."""
-    from app.services.stub_image_generator import generate_placeholder_png
-    fp = generate_placeholder_png(label=label, role="anchor_front")
-    return f"/{fp}"
+    """Create a real local stub PNG and return a loadable /static URL.
+
+    Still stores, because the point of this one is a url a route can load. Uses
+    the low-level object writer directly: it is a test fixture standing in for
+    material some earlier flow produced, not a durable asset the application is
+    creating, so it deliberately does not go through the canonical primitive.
+    """
+    from app.core.storage import mint_object_key, put_object
+    from app.services.stub_image_generator import render_placeholder_png
+
+    content = render_placeholder_png(label=label, role="anchor_front")
+    stored = put_object(content, key=mint_object_key(content))
+    return f"/{stored.file_path}"
 
 
 def setup_canon(

@@ -196,8 +196,15 @@ AVATAR_ELIGIBLE_KINDS = frozenset({
     ImageKindEnum.SCENE_ONLY,
     ImageKindEnum.UPLOADED,
     ImageKindEnum.IDENTITY_FACE_REF,
+    # Legacy identity-pack anchors. Retained for compatibility: characters
+    # locked before the v2 pack existed have these and nothing else.
     ImageKindEnum.ANCHOR_FRONT,
     ImageKindEnum.ANCHOR_THREE_QUARTER,
+    # v2 canon face cards (Phase 4D3-3) — the portrait-framed ones. The 90°
+    # profile is deliberately absent: it is a reference, not a face card.
+    ImageKindEnum.IDENTITY_FACE_FRONT,
+    ImageKindEnum.IDENTITY_FACE_LEFT_3Q,
+    ImageKindEnum.IDENTITY_FACE_RIGHT_3Q,
     ImageKindEnum.IDENTITY_FACE_EXPRESSION,
     ImageKindEnum.IDENTITY_FINAL_CHARACTER_CARD,
 })

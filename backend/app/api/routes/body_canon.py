@@ -7,8 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_owned_character as _get_owned_character
-from app.core.storage import save_image
-from app.models.character_image import CharacterImage
+from app.models.character_image import CharacterImage, ImageKindEnum
 from app.models.user import User
 from app.schemas.body_canon import BodyCanonRead, BodyMarkingCreate, BodyMarkingRead
 from app.services.body_canon import (
@@ -20,6 +19,8 @@ from app.services.body_canon import (
     to_read_list,
     update_marking,
 )
+from app.services.asset_persistence import OwnedBy, persist_image_asset
+from app.services.canon_references import archive_superseded_canon_asset
 from app.services.image_provider import get_provider_for_option
 
 logger = logging.getLogger(__name__)
@@ -144,12 +145,30 @@ def generate_body_anchor(
             detail="Anchor image generation failed. Please try again.",
         ) from exc
 
-    anchor_url = save_image(png_bytes)
+    # Phase 4D3-3. A marking anchor is one reference image of one mark, so it
+    # carries IDENTITY_MARK_REFERENCE — the same kind an uploaded reference
+    # photo gets, with ``provider`` recording that this one was generated. No
+    # ``derived_from``: the anchor is compiled from the marking's description,
+    # not transformed from another image.
+    previous_url = getattr(marking, "anchor_image_url", None)
+    image = persist_image_asset(
+        db,
+        content=png_bytes,
+        owner=OwnedBy.character(character),
+        kind=ImageKindEnum.IDENTITY_MARK_REFERENCE,
+        provider="option1",
+        prompt_summary=anchor_prompt[:200],
+        metadata={"source": "body_marking_anchor", "marking_id": marking_id},
+    )
+    anchor_url = image.file_path
     updated = update_marking(character, marking_id, {
         "anchor_image_url": anchor_url,
         "anchor_status": "generated",
         "anchor_prompt": anchor_prompt,
     })
+    archive_superseded_canon_asset(
+        db, previous_url=previous_url, character=character, replacement=image
+    )
     db.commit()
 
     logger.info(
@@ -260,12 +279,28 @@ def replace_body_anchor(
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Anchor image generation failed.") from exc
 
-    anchor_url = save_image(png_bytes)
+    # The explicit replace path: same write, and the outgoing anchor is retired
+    # in the same transaction. Read before the update, because ``update_marking``
+    # overwrites the only pointer to it.
+    previous_url = getattr(marking, "anchor_image_url", None)
+    image = persist_image_asset(
+        db,
+        content=png_bytes,
+        owner=OwnedBy.character(character),
+        kind=ImageKindEnum.IDENTITY_MARK_REFERENCE,
+        provider="option1",
+        prompt_summary=anchor_prompt[:200],
+        metadata={"source": "body_marking_anchor_replace", "marking_id": marking_id},
+    )
+    anchor_url = image.file_path
     updated = update_marking(character, marking_id, {
         "anchor_image_url": anchor_url,
         "anchor_status": "generated",
         "anchor_prompt": anchor_prompt,
     })
+    archive_superseded_canon_asset(
+        db, previous_url=previous_url, character=character, replacement=image
+    )
     db.commit()
     logger.info("body_canon_anchor_replaced character_id=%s marking_id=%s url=%s", character_id, marking_id, anchor_url)
     return BodyAnchorResponse(character_id=character_id, marking=_marking_to_read(updated))  # type: ignore[arg-type]

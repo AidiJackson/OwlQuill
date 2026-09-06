@@ -470,10 +470,13 @@ def test_generate_anchor_updates_accessory(client: TestClient):
     mock_provider = MagicMock()
     mock_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
 
-    with (
-        patch("app.api.routes.character_accessory.get_provider_for_option", return_value=mock_provider),
-        patch("app.api.routes.character_accessory.save_image", return_value="static/generated/test_anchor.png"),
-    ):
+    # Phase 4D3-3: the route persists through ``persist_image_asset``, so there
+    # is no ``save_image`` to patch and no fixed path to assert. Storage is
+    # already redirected to a temp tree by the session fixture, so the real
+    # write happens and the assertion moves to the property that matters — the
+    # accessory points at the asset that was actually stored.
+    with patch("app.api.routes.character_accessory.get_provider_for_option",
+               return_value=mock_provider):
         resp = client.post(
             f"/characters/{cid}/identity-accessory/generate-anchor",
             json={"accessory_id": acc_id},
@@ -484,7 +487,7 @@ def test_generate_anchor_updates_accessory(client: TestClient):
     data = resp.json()
     assert data["character_id"] == cid
     acc = data["accessory"]
-    assert acc["anchor_image_url"] == "static/generated/test_anchor.png"
+    assert acc["anchor_image_url"], "the accessory must point at the stored asset"
     assert acc["anchor_status"] == "generated"
     assert acc["anchor_prompt"] is not None
     assert acc["anchor_created_at"] is not None
@@ -554,15 +557,14 @@ def test_lock_anchor_sets_status_locked(client: TestClient):
     mock_provider = MagicMock()
     mock_provider.generate_image = MagicMock(return_value=_stub_png_bytes())
 
-    with (
-        patch("app.api.routes.character_accessory.get_provider_for_option", return_value=mock_provider),
-        patch("app.api.routes.character_accessory.save_image", return_value="static/generated/test_anchor_lock.png"),
-    ):
-        client.post(
+    with patch("app.api.routes.character_accessory.get_provider_for_option",
+               return_value=mock_provider):
+        gen = client.post(
             f"/characters/{cid}/identity-accessory/generate-anchor",
             json={"accessory_id": acc_id},
             headers=headers,
         )
+    generated_url = gen.json()["accessory"]["anchor_image_url"]
 
     # Now lock
     resp = client.post(
@@ -573,7 +575,8 @@ def test_lock_anchor_sets_status_locked(client: TestClient):
     assert resp.status_code == 200, resp.text
     acc = resp.json()["accessory"]
     assert acc["anchor_status"] == "locked"
-    assert acc["anchor_image_url"] == "static/generated/test_anchor_lock.png"
+    # Locking changes status only — the url must survive it unchanged.
+    assert acc["anchor_image_url"] == generated_url
 
 
 def test_text_only_accessory_unaffected_by_anchor_fields(client: TestClient):

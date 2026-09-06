@@ -39,24 +39,13 @@ APP_ROOT = Path(__file__).resolve().parent.parent / "app"
 #: cannot silently pay for a new call in another. The comment beside each names
 #: the increment that will retire it, from the 4D inspection's split.
 LEGACY_SAVE_IMAGE_CALLERS: dict[str, int] = {
-    # 4D2 leftovers — deliberately NOT migrated, each for a stated reason
+    # 4D3 leftovers — deliberately NOT migrated, each for a stated reason
     #
     # ``users.py`` is the profile-cover generator, which writes a ``UserImage``.
-    # 4D2 migrated the account AVATAR crop out of this module; ``UserImage``
-    # itself is a different table with its own writer and its own migration, and
-    # pulling it into the CharacterImage primitive was explicitly out of scope.
+    # 4D2 migrated the account AVATAR crop out of this module; ``UserImage`` is
+    # a different table with its own writer and its own migration, and pulling
+    # it into the CharacterImage primitive stays explicitly out of scope.
     "api/routes/users.py": 1,
-    # The legacy ``generate_placeholder_png`` wrapper — render + store in one
-    # call — kept for the canon callers below. ``render_placeholder_png`` is the
-    # byte generator every migrated caller now uses; this wrapper retires with
-    # its last caller in 4D3.
-    "services/stub_image_generator.py": 1,
-    # 4D3 — the canon cluster, with its own regression verification
-    "api/routes/canon_api.py": 3,
-    "api/routes/body_canon.py": 2,
-    "api/routes/character_accessory.py": 2,
-    "services/canon_card_generator.py": 1,
-    "services/canon_pack_builder.py": 1,
     # 4D4 — Adult Studio, founder artifacts, remaining writers
     "api/routes/adult_studio.py": 1,             # rowless: bytes returned to the client
     "services/adult_identity_enforcement_executor.py": 2,
@@ -266,6 +255,49 @@ MIGRATED_IN_4D2: dict[str, set[str]] = {
     "services/image_generation_pipeline.py": {"persist_image_asset"},
 }
 
+#: The canon cluster, moved in Phase 4D3-3. Same positive pin as above.
+#:
+#: ``canon_card_generator.py`` is deliberately ABSENT: 4D3-3 removed persistence
+#: from it entirely rather than migrating it. It generates and evaluates, and
+#: returns the selected bytes; the owner-aware caller
+#: (``canon_pack_builder.build_v2_pack``) is what persists. A module that
+#: correctly writes nothing cannot be pinned to a writer, so
+#: ``test_canon_card_generator_persists_nothing`` pins the absence instead.
+MIGRATED_IN_4D3: dict[str, set[str]] = {
+    "api/routes/canon_api.py": {"persist_image_asset"},
+    "api/routes/body_canon.py": {"persist_image_asset"},
+    "api/routes/character_accessory.py": {"persist_image_asset"},
+    "services/canon_pack_builder.py": {"persist_image_asset"},
+}
+
+#: Every module pinned to the canonical writer, whichever phase moved it.
+MIGRATED_MODULES: dict[str, set[str]] = {**MIGRATED_IN_4D2, **MIGRATED_IN_4D3}
+
+
+def test_canon_card_generator_persists_nothing():
+    """It generates and evaluates; the caller owns and persists.
+
+    Pinned because the tempting "fix" for a generator that cannot name an owner
+    is to hand it a session — which would put ownership semantics in the layer
+    with the least information about them, and would re-store every losing
+    candidate the selection logic discards.
+    """
+    called = _called_names("services/canon_card_generator.py")
+    assert "save_image" not in called
+    assert "persist_image_asset" not in called
+    assert "persist_derived_image_asset" not in called
+
+
+def test_the_legacy_placeholder_wrapper_is_gone():
+    """``generate_placeholder_png`` rendered AND stored in one call, returning a
+    bare path — the shape that produced rowless objects. 4D3-3 retired it with
+    its last caller."""
+    import app.services.stub_image_generator as stub
+
+    assert hasattr(stub, "render_placeholder_png")
+    assert not hasattr(stub, "generate_placeholder_png")
+    assert "save_image" not in _called_names("services/stub_image_generator.py")
+
 
 def _called_names(rel: str) -> set[str]:
     tree = ast.parse((APP_ROOT / rel).read_text(), filename=rel)
@@ -276,19 +308,19 @@ def _called_names(rel: str) -> set[str]:
     }
 
 
-@pytest.mark.parametrize("module, expected", sorted(MIGRATED_IN_4D2.items()))
+@pytest.mark.parametrize("module, expected", sorted(MIGRATED_MODULES.items()))
 def test_a_migrated_module_uses_the_canonical_writer(module, expected):
     called = _called_names(module)
     missing = expected - called
     assert not missing, (
         f"{module} no longer calls {sorted(missing)}. If the writer was removed "
-        "deliberately, remove it from MIGRATED_IN_4D2 in the same change; if it "
+        "deliberately, remove it from the MIGRATED_* map in the same change; if it "
         "was moved back to a hand-built CharacterImage, that is the regression "
         "Phase 4D2 exists to prevent."
     )
 
 
-@pytest.mark.parametrize("module", sorted(MIGRATED_IN_4D2))
+@pytest.mark.parametrize("module", sorted(MIGRATED_MODULES))
 def test_a_migrated_module_does_not_build_a_character_image_by_hand(module):
     """The row is built by the writer, or it is not a canonical asset.
 

@@ -47,10 +47,9 @@ def _create_character(client: TestClient, token: str) -> int:
 
 
 def _stub_png_bytes() -> bytes:
-    from app.core.storage import load_image_bytes
-    from app.services.stub_image_generator import generate_placeholder_png
+    from app.services.stub_image_generator import render_placeholder_png
 
-    return load_image_bytes(generate_placeholder_png(label="test", sublabel="stub"))
+    return render_placeholder_png(label="test", sublabel="stub")
 
 
 @pytest.fixture
