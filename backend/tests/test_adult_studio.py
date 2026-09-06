@@ -235,7 +235,8 @@ def test_generate_succeeds_with_refs_and_metadata(client, db_session):
     with _generation_enabled(), \
          patch("app.api.routes.adult_studio._get_adult_provider", return_value=fake), \
          patch("app.services.adult_studio.load_image_bytes", return_value=_DUMMY_PNG), \
-         patch("app.api.routes.adult_studio.save_image", return_value="static/generated/test_adult.png"):
+         patch("app.api.routes.adult_studio.put_transient_object",
+               return_value="static/generated/test_adult.png"):
         resp = client.post(
             f"/adult-studio/characters/{cid}/generate",
             json={"prompt": "Summer standing on a beach at sunset wearing a yellow bikini, adult woman, both arms visible"},

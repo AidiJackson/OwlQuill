@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.api.routes.admin import require_admin
-from app.core.storage import save_image, file_path_to_url
+from app.core.storage import put_transient_object, file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel
 from app.models.character_identity_canon import CharacterIdentityCanon
@@ -382,7 +382,37 @@ def generate_adult_studio_image(
                     "failure_reason": "empty_image_returned"},
         )
 
-    file_path = save_image(png)
+    # Phase 4D4-1. These bytes are DELIBERATELY not an asset, and this line is
+    # where that becomes a decision instead of an omission.
+    #
+    # Nothing about the behaviour changes: no row before, no row now. What
+    # changes is why. Until now the object was rowless because ``save_image``
+    # returned a bare string and nobody wrote the row — and that accident was
+    # doing real safety work. A rowless file cannot be chosen as an avatar or a
+    # cover (both routes select by ``image_id`` against a table), cannot be
+    # attached to a post (``posts.py`` matches ``file_path`` against both tables
+    # and refuses on no match), cannot appear in a gallery, and is withheld from
+    # every shared surface by ``character_home_media.resolve_public_media_url``,
+    # which fails closed when a url matches no row.
+    #
+    # Resting a launch-safety property on an omission is exactly what Phase
+    # 4D3-2 refused to do. ``put_transient_object`` states it: it demands a
+    # ``purpose``, records it in the log line, and mints the object's STORAGE
+    # KEY under the transient prefix, which is what finally makes these
+    # identifiable in the bucket. That last part is production-only: local mode
+    # deliberately flattens every key into one directory
+    # (``_file_path_for_key``), so the returned path is unchanged in
+    # development and only R2 gains the sweepable prefix.
+    #
+    # NOT a decision that Adult Studio output is worthless — a founder sees it
+    # and may well want to keep it. It is a decision that Ficshon has no
+    # reviewed publication model for adult output yet. Giving these bytes a row
+    # would mean choosing their surface eligibility today with no policy to
+    # point at, and with ``provider="openai"`` — a string shared with ordinary
+    # generation and absent from NON_PUBLIC_IMAGE_PROVIDERS — a naive row would
+    # pass ``is_public_surface_safe`` and open all four public surfaces at once.
+    # Phase 4E owns that question.
+    file_path = put_transient_object(png, purpose="adult_studio_generate_preview")
     image_url = file_path_to_url(file_path)
 
     logger.info(

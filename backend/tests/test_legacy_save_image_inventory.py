@@ -39,15 +39,16 @@ APP_ROOT = Path(__file__).resolve().parent.parent / "app"
 #: cannot silently pay for a new call in another. The comment beside each names
 #: the increment that will retire it, from the 4D inspection's split.
 LEGACY_SAVE_IMAGE_CALLERS: dict[str, int] = {
-    # 4D3 leftovers — deliberately NOT migrated, each for a stated reason
-    #
-    # ``users.py`` is the profile-cover generator, which writes a ``UserImage``.
-    # 4D2 migrated the account AVATAR crop out of this module; ``UserImage`` is
-    # a different table with its own writer and its own migration, and pulling
-    # it into the CharacterImage primitive stays explicitly out of scope.
+    # 4D4-3 — the profile-cover generator, which writes a ``UserImage``.
+    # ``UserImage`` STAYS its own model: it already has an owner, a status, a
+    # provider and a lifecycle, so it is not a rowless-object problem. What it
+    # lacks is the shared object-storage and rollback-compensation machinery,
+    # and 4D4-3 gives it that WITHOUT merging it into ``CharacterImage``.
     "api/routes/users.py": 1,
-    # 4D4 — Adult Studio, founder artifacts, remaining writers
-    "api/routes/adult_studio.py": 1,             # rowless: bytes returned to the client
+    # 4D4 — the founder artifacts. ``adult_studio.py`` left this list in 4D4-1:
+    # it did not become an asset, it became an EXPLICIT transient
+    # (``put_transient_object``), pinned by
+    # ``test_the_adult_studio_generate_route_uses_the_transient_writer``.
     "services/adult_identity_enforcement_executor.py": 2,
 }
 
