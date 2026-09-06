@@ -49,6 +49,38 @@ class ImageKindEnum(str, enum.Enum):
     # app/schemas/character_image.py. Storing an image against a character has
     # never conferred authority, and this kind must not become the exception.
     UPLOADED = "uploaded"
+    # ── Phase 4D3 — the canon cluster ────────────────────────────────────────
+    # Slots the identity-canon writers produce that had no honest label before.
+    # Until 4D3 these images were written by ``save_image()`` with no row at all,
+    # so nothing had to name them; giving them owned rows means naming them, and
+    # borrowing an approximate existing kind would have put a false record in the
+    # one column the gallery, post and avatar policies read.
+    #
+    # Every one of them is canon WORKING MATERIAL. None appears in
+    # PUBLIC_GALLERY_KINDS, POST_ATTACHABLE_IMAGE_KINDS or
+    # REFERENCE_SELECTABLE_IMAGE_KINDS, and only the two portrait-framed ones
+    # are avatar-eligible (see AVATAR_ELIGIBLE_KINDS, Phase 4D3-2). Adding a kind
+    # here grants nothing: each allowlist is opt-in, so a kind that nobody opted
+    # in stays private, which is the property that makes this migration safe.
+    IDENTITY_FACE_PROFILE = "identity_face_profile"          # 90° side profile — a reference, not a face card
+    IDENTITY_FACE_EXPRESSION = "identity_face_expression"    # relaxed-smile portrait card
+    # Full-body side VIEWS. Deliberately NOT IDENTITY_BODY_LEFT_DETAIL /
+    # _RIGHT_DETAIL above: those mean a tight high-fidelity crop of a marking,
+    # they are in use for exactly that, and overloading them would make "detail
+    # crop" unqueryable.
+    IDENTITY_BODY_LEFT = "identity_body_left"
+    IDENTITY_BODY_RIGHT = "identity_body_right"
+    IDENTITY_TORSO_FRONT = "identity_torso_front"            # waist-up front framing
+    IDENTITY_TORSO_SIDE = "identity_torso_side"              # waist-up side framing
+    IDENTITY_POSE_STANDING = "identity_pose_standing"        # relaxed standing posture card
+    IDENTITY_POSE_SEATED = "identity_pose_seated"            # seated posture card
+    # One permanent mark, at two fidelities. A GENERATED close-up anchor and an
+    # UPLOADED reference photo are the same semantic object — one reference image
+    # of one mark — and ``provider`` already separates them (None for founder
+    # bytes, the provider name for generated ones), so they share a kind rather
+    # than inventing a distinction the column does not need to carry.
+    IDENTITY_MARK_REFERENCE = "identity_mark_reference"
+    IDENTITY_MARK_DETAIL = "identity_mark_detail"            # tight crop: exact geometry / lettering
 
 
 #: Kinds a character may attach to a public post.
