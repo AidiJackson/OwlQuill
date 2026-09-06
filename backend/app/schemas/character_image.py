@@ -170,6 +170,116 @@ def is_public_surface_safe(image) -> bool:
     return True
 
 
+#: Kinds a ``CharacterImage`` may become a character's AVATAR.
+#:
+#: Phase 4D3-2. Until 4D3-3 the canon writers created no rows, so "which images
+#: can be an avatar?" was answered by accident: an image was selectable if it
+#: existed, and canon images did not. Giving canon assets rows removes that
+#: accident, and rowlessness must not be what a policy rests on — so the rule is
+#: stated here before the rows exist.
+#:
+#: An allowlist, like every other kind list in this codebase, so a kind added
+#: later is ineligible until somebody opts it in deliberately.
+#:
+#: ``UPLOADED`` is here and deliberately NOT in :data:`PUBLIC_GALLERY_KINDS`.
+#: The asymmetry is real and intended: a founder's own upload is not gallery
+#: material Ficshon vouches for, but choosing it as the character's face is an
+#: explicit act, and it is how upload-your-own-avatar has always worked.
+#: Removing it would break that flow, which is a product decision and not this
+#: phase's to take.
+#:
+#: Everything canon EXCEPT the four portrait-framed kinds is absent: body views,
+#: poses, torsos, the body map, mark references and detail crops, accessory
+#: sheets and the 90-degree face profile are working references, not faces.
+AVATAR_ELIGIBLE_KINDS = frozenset({
+    ImageKindEnum.GENERATED,
+    ImageKindEnum.SCENE_ONLY,
+    ImageKindEnum.UPLOADED,
+    ImageKindEnum.IDENTITY_FACE_REF,
+    ImageKindEnum.ANCHOR_FRONT,
+    ImageKindEnum.ANCHOR_THREE_QUARTER,
+    ImageKindEnum.IDENTITY_FACE_EXPRESSION,
+    ImageKindEnum.IDENTITY_FINAL_CHARACTER_CARD,
+})
+
+#: Kinds a ``CharacterImage`` may become a character's COVER.
+#:
+#: A SEPARATE list from :data:`AVATAR_ELIGIBLE_KINDS`, not a reference to it.
+#: The two surfaces ask different questions — an avatar is a face at thumbnail
+#: size, a cover is a banner — and the moment one list serves both, widening it
+#: for one surface silently widens the other. That is the whole reason there are
+#: two of them, so they must not be merged, aliased or derived from each other.
+#:
+#: Face anchors are absent ON PURPOSE even though they are avatar-eligible: a
+#: head crop makes a poor hero image, and nothing in the product asks for one.
+#: ``IDENTITY_FINAL_CHARACTER_CARD`` is the one canon kind here — a cinematic
+#: full-character image is exactly what a banner wants.
+COVER_ELIGIBLE_KINDS = frozenset({
+    ImageKindEnum.GENERATED,
+    ImageKindEnum.COVER,
+    ImageKindEnum.SCENE_ONLY,
+    ImageKindEnum.UPLOADED,
+    ImageKindEnum.IDENTITY_FINAL_CHARACTER_CARD,
+})
+
+#: Refusal text when an image's KIND (not its provenance) bars the surface.
+#: Distinct from :data:`PUBLIC_SURFACE_UNSAFE_MESSAGE` because the two refusals
+#: mean different things to a founder: one says "this image cannot be published
+#: at all", the other says "this image is fine, but it is not a face".
+AVATAR_KIND_INELIGIBLE_MESSAGE = (
+    "This kind of image cannot be used as a character avatar. It remains in "
+    "your library."
+)
+COVER_KIND_INELIGIBLE_MESSAGE = (
+    "This kind of image cannot be used as a character cover. It remains in "
+    "your library."
+)
+
+
+def is_avatar_eligible(image) -> bool:
+    """True when *image* may become a character's avatar.
+
+    Two independent questions, both of which must pass:
+
+    * WHERE DID IT COME FROM — :func:`is_public_surface_safe`, which every
+      anonymous-facing surface shares. Unchanged by this phase.
+    * WHAT IS IT — :data:`AVATAR_ELIGIBLE_KINDS`, new in Phase 4D3-2.
+
+    THE KIND TEST APPLIES TO ``CharacterImage`` ONLY, and the branch is written
+    out rather than folded into a boolean expression because a reader has to see
+    which model is exempt and why. ``UserImage.kind`` is a free-form ``String``
+    (``"profile_cover"``), not an :class:`ImageKindEnum`, so putting it through
+    this allowlist would refuse every account image — a workflow that predates
+    this policy and has nothing to do with canon. The same carve-out, for the
+    same reason, is made by :func:`is_public_post_image` for its kind allowlist.
+
+    Says nothing about ownership, status or ``is_temp``: the routes check those
+    already and they are not this predicate's question.
+    """
+    if not is_public_surface_safe(image):
+        return False
+    if isinstance(image, CharacterImage):
+        return image.kind in AVATAR_ELIGIBLE_KINDS
+    return True
+
+
+def is_cover_eligible(image) -> bool:
+    """True when *image* may become a character's cover.
+
+    The same two questions as :func:`is_avatar_eligible`, against
+    :data:`COVER_ELIGIBLE_KINDS`. Deliberately a separate function rather than a
+    parameterised one: a shared implementation taking an allowlist argument
+    invites a caller to pass the wrong list, and these two surfaces are exactly
+    the pair that must not be confused. The cover is the character's most public
+    image of all.
+    """
+    if not is_public_surface_safe(image):
+        return False
+    if isinstance(image, CharacterImage):
+        return image.kind in COVER_ELIGIBLE_KINDS
+    return True
+
+
 def derived_provenance(source) -> tuple[Optional[str], dict[str, Any]]:
     """Provenance a LOCALLY DERIVED asset must carry from *source*.
 

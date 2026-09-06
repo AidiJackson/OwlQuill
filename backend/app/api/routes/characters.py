@@ -22,7 +22,11 @@ from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.user_image import UserImage
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult
 from app.schemas.character_image import (
+    AVATAR_KIND_INELIGIBLE_MESSAGE,
+    COVER_KIND_INELIGIBLE_MESSAGE,
     PUBLIC_SURFACE_UNSAFE_MESSAGE,
+    is_avatar_eligible,
+    is_cover_eligible,
     is_public_surface_safe,
 )
 from app.services.asset_persistence import OwnedBy, persist_derived_image_asset
@@ -541,6 +545,18 @@ def set_character_avatar(
             detail=PUBLIC_SURFACE_UNSAFE_MESSAGE,
         )
 
+    # Phase 4D3-2: and it answers to what the image IS. Checked separately from
+    # the provenance rule above so the two refusals stay distinguishable to the
+    # founder — "this can never be published" is a different sentence from "this
+    # is a body map, not a face". Until 4D3-3 the canon writers created no rows,
+    # so this question was answered by accident: an image was selectable if it
+    # existed. Row creation must not be what grants avatar eligibility.
+    if not is_avatar_eligible(img):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=AVATAR_KIND_INELIGIBLE_MESSAGE,
+        )
+
     if img.file_path.startswith(("http://", "https://")):
         # R2-hosted image: point at the source row directly. No crop, no new
         # bytes, and nothing derived — the avatar url IS the source image's url,
@@ -646,11 +662,23 @@ def set_character_cover(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
 
     # A cover is the character's most public surface of all — the hero image on
-    # the profile. Same rule as the avatar.
+    # the profile. Same provenance rule as the avatar.
     if not is_public_surface_safe(img):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=PUBLIC_SURFACE_UNSAFE_MESSAGE,
+        )
+
+    # Phase 4D3-2: but a DIFFERENT kind rule, from its own allowlist. 4D3-3
+    # makes canon assets row-backed and therefore selectable here exactly as it
+    # does on the avatar route, so closing one surface and leaving this one open
+    # would guard the smaller image and publish the larger. Face anchors are
+    # avatar-eligible and deliberately not cover-eligible: a head crop is a poor
+    # banner. That divergence is why these are two lists and not one.
+    if not is_cover_eligible(img):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=COVER_KIND_INELIGIBLE_MESSAGE,
         )
 
     # Use the original image directly as the cover URL.

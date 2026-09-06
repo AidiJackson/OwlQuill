@@ -13,7 +13,12 @@ from app.core.dependencies import get_current_user
 from app.core.storage import load_image_bytes
 from app.models.user import User
 from app.models.character import Character as CharacterModel
-from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
+from app.models.character_image import (
+    CANON_PROMOTABLE_SOURCE_KINDS,
+    CharacterImage,
+    ImageKindEnum,
+    ImageStatusEnum,
+)
 from app.schemas.character_image import CharacterImageRead
 from app.services.asset_persistence import OwnedBy, persist_image_asset
 from app.services.image_provider import get_image_provider, get_fallback_provider, is_moderation_block
@@ -445,6 +450,23 @@ def promote_to_canon(
     ).first()
     if not img:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found.")
+
+    # Phase 4D3-2: promotion gives an ORDINARY image a canon role. It is not a
+    # relabelling tool for images that already have a canon meaning. Without
+    # this, an ``identity_mark_detail`` or ``identity_body_map`` could be renamed
+    # ``anchor_front`` and thereby satisfy AVATAR_ELIGIBLE_KINDS — a policy about
+    # what an image IS, defeated by rewriting what it says it is. The refusal is
+    # 422 rather than 403: the caller owns the image, the request is simply not a
+    # promotion.
+    if img.kind not in CANON_PROMOTABLE_SOURCE_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This image already has a canon role and cannot be promoted to "
+                "a different one. Promotion applies to ordinary generated or "
+                "uploaded images."
+            ),
+        )
 
     previous_kind = img.kind.value if hasattr(img.kind, "value") else str(img.kind)
     new_kind = _PROMOTION_TARGET_KIND[body.target]

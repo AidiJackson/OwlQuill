@@ -243,17 +243,31 @@ def test_a_row_round_trips_through_the_kind_column(db, character, kind):
     assert stored.kind.value == kind.value
 
 
+#: Files allowed to name a 4D3 canon kind before the writers migrate.
+#:
+#: ``models/character_image.py`` declares them. ``schemas/character_image.py``
+#: is the POLICY layer added in 4D3-2: ``AVATAR_ELIGIBLE_KINDS`` names
+#: ``IDENTITY_FACE_EXPRESSION`` because a portrait card is a legitimate avatar.
+#: Naming a kind in an allowlist is the opposite of writing one — it is the rule
+#: that governs the writer — so the guard below excludes declaration and policy
+#: and keeps watching everything that could actually CREATE such a row.
+_KIND_DECLARATION_SITES = {
+    ("models", "character_image.py"),
+    ("schemas", "character_image.py"),
+}
+
+
 def test_no_writer_produces_a_canon_kind_yet():
-    """4D3-1 is taxonomy only. The writers migrate in 4D3-3, after the avatar
-    policy exists — so no application module may reference these kinds yet."""
+    """4D3-1/4D3-2 are taxonomy and policy. The writers migrate in 4D3-3, so no
+    route or service may create an image of these kinds yet."""
     app_root = pathlib.Path(__file__).resolve().parent.parent / "app"
     names = {k.name for k in CANON_KINDS_4D3}
     offenders = []
     for path in app_root.rglob("*.py"):
-        if path.name == "character_image.py" and path.parent.name == "models":
-            continue  # the declaration itself
+        if (path.parent.name, path.name) in _KIND_DECLARATION_SITES:
+            continue
         text = path.read_text()
         for name in names:
             if re.search(rf"\bImageKindEnum\.{name}\b", text):
                 offenders.append(f"{path.relative_to(app_root)}:{name}")
-    assert offenders == [], f"4D3-1 must not wire up writers yet: {offenders}"
+    assert offenders == [], f"4D3-3 has not started; no writer may use these: {offenders}"

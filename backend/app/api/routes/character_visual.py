@@ -35,13 +35,16 @@ from app.models.character_image import (
 )
 from app.schemas.character_dna import CharacterDNACreate, CharacterDNARead
 from app.schemas.character_image import (
+    AVATAR_KIND_INELIGIBLE_MESSAGE,
     CharacterImageRead,
     CharacterImagePublic,
+    is_avatar_eligible,
     is_public_gallery_image,
     is_public_surface_safe,
     PublicGallerySelectionRequest,
     PUBLIC_SURFACE_UNSAFE_MESSAGE,
 )
+from app.services.canon_references import CANON_REFERENCED_MESSAGE, is_canon_referenced
 from app.schemas.character_visual import (
     IdentityPackGenerateRequest,
     IdentityPackGenerateResponse,
@@ -679,6 +682,15 @@ def set_avatar(
             detail=PUBLIC_SURFACE_UNSAFE_MESSAGE,
         )
 
+    # Phase 4D3-2, and for the same reason: both avatar routes call the SAME
+    # predicate. A kind rule enforced on one entrance and not the other is not a
+    # rule, it is a detour — and this route is the one an admin can reach.
+    if not is_avatar_eligible(image):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=AVATAR_KIND_INELIGIBLE_MESSAGE,
+        )
+
     avatar_url = file_path_to_url(image.file_path)
     character.avatar_url = avatar_url
     db.commit()
@@ -818,6 +830,18 @@ def delete_character_image(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Identity anchor images cannot be deleted. Reset the character to start over.",
+        )
+
+    # Phase 4D3-2. The kind check above protects the four structural anchors,
+    # which are consumed by kind+status queries. Canon SLOTS are consumed by URL
+    # out of canon JSON, so no kind list can protect them — and adding them to
+    # one would make every superseded canon card undeletable for good. This asks
+    # the precise question instead: is canon pointing at this image RIGHT NOW?
+    # A superseded asset answers no and stays removable.
+    if is_canon_referenced(db, image):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=CANON_REFERENCED_MESSAGE,
         )
 
     image.status = ImageStatusEnum.ARCHIVED

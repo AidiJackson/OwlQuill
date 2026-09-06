@@ -124,6 +124,40 @@ PROTECTED_IMAGE_KINDS = frozenset(
 )
 
 
+#: Kinds ``POST /characters/{id}/images/{image_id}/promote-to-canon`` accepts
+#: as a SOURCE.
+#:
+#: Phase 4D3-2. That route rewrites an image's ``kind`` to a canon role, and it
+#: had no restriction on what it was rewriting FROM. Once ``kind`` became a
+#: policy input — the public gallery and post allowlists already read it, and
+#: AVATAR_ELIGIBLE_KINDS / COVER_ELIGIBLE_KINDS now do too — unrestricted
+#: relabelling means an image classified ``identity_mark_detail`` can be renamed
+#: ``anchor_front`` and walk through a policy that is supposedly about what the
+#: image IS. That is a taxonomy-integrity problem before it is an avatar one:
+#: promotion is meant to give an ordinary image a canon ROLE, never to convert
+#: one established canon type into an unrelated one.
+#:
+#: Derived from the route's actual use, not from first principles. Every
+#: existing test promotes from ``SCENE_ONLY`` (one asserts ``previous_kind`` is
+#: exactly that), the docstring says "promote a scene image", no frontend code
+#: calls the endpoint at all, and DEV holds zero promoted rows — so no
+#: established workflow promotes an already-classified canon asset, and none is
+#: broken by refusing it. ``GENERATED`` and ``UPLOADED`` join ``SCENE_ONLY``
+#: because they are the same category — ordinary creator media a founder may
+#: reasonably declare canon — and refusing them would block the plainest reading
+#: of the feature ("upload a reference photo, make it the face").
+#:
+#: ``COVER`` is excluded: presentation material, not canon source. Every canon
+#: and anchor kind is excluded, which is the entire point of the list.
+CANON_PROMOTABLE_SOURCE_KINDS = frozenset(
+    {
+        ImageKindEnum.SCENE_ONLY,
+        ImageKindEnum.GENERATED,
+        ImageKindEnum.UPLOADED,
+    }
+)
+
+
 #: Kinds a founder may hand-pick as a MANUAL generation reference.
 #:
 #: An allowlist for the same reason as the one above: a kind added later is

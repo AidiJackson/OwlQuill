@@ -41,6 +41,7 @@ from app.schemas.scene import SceneOut
 from app.schemas.user import User, UserUpdate, UsernameUpdate, PublicUserProfile
 from app.schemas.character import CharacterSearchResult
 from app.schemas.character_image import CharacterImageRead
+from app.services.canon_references import CANON_REFERENCED_MESSAGE, is_canon_referenced
 from app.services.asset_persistence import OwnedBy, persist_derived_image_asset
 from app.services.identity import build_user_out
 from app.services.image_provider import get_image_provider
@@ -702,6 +703,16 @@ def archive_my_character_image(
                 "Identity anchor images cannot be deleted. Reset the character "
                 "to start over."
             ),
+        )
+
+    # Phase 4D3-2, matching the character-scoped route exactly — as everything
+    # else on this route already does, so the two entrances cannot drift into
+    # meaning different things. An asset live canon points at is not removable
+    # from either of them; a superseded one is removable from both.
+    if is_canon_referenced(db, image):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=CANON_REFERENCED_MESSAGE,
         )
 
     image.status = ImageStatusEnum.ARCHIVED
