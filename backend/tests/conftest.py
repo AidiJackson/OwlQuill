@@ -51,6 +51,145 @@ _TEST_TMP_ROOT = Path(tempfile.mkdtemp(prefix="ficshon-tests-"))
 atexit.register(shutil.rmtree, _TEST_TMP_ROOT, ignore_errors=True)
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_TMP_ROOT / 'app.db'}"
 
+# --- Outbound-network guard (external-cost safety checkpoint) ---------------
+#
+# WHY THIS EXISTS, GIVEN THE CREDENTIAL STRIPPING ABOVE.
+#
+# Popping the provider variables makes every provider REFUSE to construct, and
+# that has held so far. It is not a guarantee, for three reasons found in the
+# September 2026 cost audit:
+#
+#  1. The pop list is hand-maintained. A provider added to ``config.py`` with a
+#     new variable is live in tests until somebody remembers this file.
+#  2. ``Settings`` is declared with ``env_file=".env"``, and pydantic-settings
+#     consults the dotenv file WHEN THE ENVIRONMENT VARIABLE IS ABSENT — which
+#     is exactly the state the pops above create. Stripping ``os.environ`` does
+#     not defeat ``.env``; it activates it. ``backend/.env`` happens to carry no
+#     provider key today, so nothing is behind that door — but the door is open
+#     and no test would notice it being opened.
+#  3. This workspace really does hold live OPENAI / GOOGLE / REPLICATE / RUNPOD /
+#     OPENROUTER and R2 credentials. The blast radius of a mistake is real money.
+#
+# So the rule is enforced where it cannot be bypassed by configuration: a paid
+# request cannot leave the process, whatever a provider believes it is holding.
+# Credential absence remains the first line; this is the one that does not
+# depend on a list staying complete.
+#
+# LOOPBACK STAYS OPEN. Tests talk to themselves — Starlette's TestClient is
+# in-process, but local servers, SQLite over a socket and debugger attachments
+# are not, and blocking them would break tests for no safety gain.
+#
+# OPT-IN: LIVE_API_TESTS=1 disables the guard for deliberately invoked live
+# tests. It is never set automatically anywhere in this repository.
+
+import socket as _socket
+
+LIVE_API_TESTS_ENV = "LIVE_API_TESTS"
+
+#: Hostnames and addresses that are this machine talking to itself.
+_LOOPBACK = frozenset({
+    "localhost", "localhost.localdomain",
+    "127.0.0.1", "::1", "::ffff:127.0.0.1",
+    "0.0.0.0", "::", "",
+    "testserver",  # Starlette TestClient's synthetic host
+})
+
+_BLOCKED_MESSAGE = (
+    "Outbound network is disabled during tests (attempted %s).\n"
+    "Ficshon's test suite must not be able to reach a paid provider — OpenAI, "
+    "Google, Replicate, RunPod, OpenRouter, Together, fal or R2 — because this "
+    "workspace holds live credentials for most of them.\n"
+    "If you genuinely intend to make live API calls (they cost money), run with "
+    "%s=1."
+)
+
+
+def _host_of(address):
+    """The host part of a socket address, or None when there is no host.
+
+    AF_UNIX addresses are ``str``/``bytes`` paths and never leave the machine;
+    AF_INET is ``(host, port)`` and AF_INET6 ``(host, port, flow, scope)``.
+    """
+    if isinstance(address, (str, bytes, os.PathLike)):
+        return None  # AF_UNIX — local by construction
+    if isinstance(address, tuple) and address:
+        return address[0]
+    return None
+
+
+def _is_local(address) -> bool:
+    host = _host_of(address)
+    if host is None:
+        return True
+    if isinstance(host, bytes):
+        host = host.decode("utf-8", "replace")
+    if host in _LOOPBACK:
+        return True
+    # 127.0.0.0/8 in full, not just 127.0.0.1.
+    return isinstance(host, str) and host.startswith("127.")
+
+
+def _install_network_guard():
+    """Patch the socket layer so no connection can reach a non-loopback host.
+
+    WHAT IS PATCHED, AND WHY THESE THREE.
+    Every HTTP mechanism this codebase uses — ``urllib.request`` (9 modules),
+    ``requests``/urllib3 (6), ``httpx`` (3, and the OpenAI SDK), and boto3 for
+    R2 — reaches the network through exactly one of these:
+
+    * ``socket.socket.connect`` — the funnel. ``socket.create_connection``
+      builds a socket and calls it, so urllib3 and httpcore are covered without
+      patching them; asyncio's ``sock_connect`` calls it too, so async clients
+      are covered as well. Patching only the higher-level helpers would leave
+      the funnel open, which is the cosmetic version of this guard.
+    * ``socket.socket.connect_ex`` — the same syscall with an errno return
+      instead of an exception. Not covered by patching ``connect``.
+    * ``socket.getaddrinfo`` — DNS. Resolution happens BEFORE connect and is
+      itself outbound traffic to a resolver, so blocking connect alone would
+      still leak the hostname being looked up. Blocking it here also means a
+      test fails on the attempt rather than after a 30-second timeout.
+
+    Returns the originals so the session fixture can put them back.
+    """
+    originals = (
+        _socket.socket.connect,
+        _socket.socket.connect_ex,
+        _socket.getaddrinfo,
+    )
+    real_connect, real_connect_ex, real_getaddrinfo = originals
+
+    def _guarded_connect(self, address, *args, **kwargs):
+        if not _is_local(address):
+            raise RuntimeError(_BLOCKED_MESSAGE % (address, LIVE_API_TESTS_ENV))
+        return real_connect(self, address, *args, **kwargs)
+
+    def _guarded_connect_ex(self, address, *args, **kwargs):
+        if not _is_local(address):
+            raise RuntimeError(_BLOCKED_MESSAGE % (address, LIVE_API_TESTS_ENV))
+        return real_connect_ex(self, address, *args, **kwargs)
+
+    def _guarded_getaddrinfo(host, port, *args, **kwargs):
+        if not _is_local((host, port)):
+            raise RuntimeError(_BLOCKED_MESSAGE % (host, LIVE_API_TESTS_ENV))
+        return real_getaddrinfo(host, port, *args, **kwargs)
+
+    _socket.socket.connect = _guarded_connect
+    _socket.socket.connect_ex = _guarded_connect_ex
+    _socket.getaddrinfo = _guarded_getaddrinfo
+    return originals
+
+
+def _restore_network(originals) -> None:
+    _socket.socket.connect, _socket.socket.connect_ex, _socket.getaddrinfo = originals
+
+
+#: Installed at conftest IMPORT, not in a fixture, so collection-time imports are
+#: covered too — a module that called a provider at import would otherwise run
+#: before any fixture could stop it. ``None`` when the opt-in is set.
+_NETWORK_GUARD_ORIGINALS = (
+    None if os.environ.get(LIVE_API_TESTS_ENV) == "1" else _install_network_guard()
+)
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -78,6 +217,19 @@ from app.api.routes.auth import limiter
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{_TEST_TMP_ROOT / 'test.db'}"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _network_guard():
+    """Keep the guard for the whole session, then put the socket layer back.
+
+    Restoration matters because pytest runs in a process that may go on to do
+    other things (``--pdb``, plugins with teardown reporting), and leaving the
+    standard library monkeypatched after the run is its own surprise.
+    """
+    yield
+    if _NETWORK_GUARD_ORIGINALS is not None:
+        _restore_network(_NETWORK_GUARD_ORIGINALS)
 
 
 @pytest.fixture(scope="session", autouse=True)
