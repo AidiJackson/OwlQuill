@@ -1,6 +1,24 @@
 """Stub image generator — creates simple placeholder PNGs for MVP.
 
 Produces solid-colour images with text overlays. No external AI services.
+
+A BYTE GENERATOR, NOT AN ASSET OWNER (Phase 4D2)
+------------------------------------------------
+:func:`render_placeholder_png` returns bytes and knows nothing about storage,
+ownership, characters or the database. That is deliberate. Its callers were
+spread across five modules and they did not agree on who owns the result, what
+kind it is, or which transaction it joins — a character's identity anchor, a
+scene fallback, a library image, a canon slot. Teaching a low-level renderer to
+answer those questions would put ownership semantics in the one place with no
+information to decide them.
+
+So the split is: this module makes pixels; the caller persists them through
+``asset_persistence.persist_image_asset`` with the ownership it actually knows.
+
+:func:`generate_placeholder_png` is the LEGACY convenience wrapper that also
+stores the bytes and returns a bare ``file_path``. It survives only for the call
+sites Phases 4D3/4D4 have yet to migrate (``canon_api``); new code calls
+:func:`render_placeholder_png`.
 """
 import io
 
@@ -17,15 +35,19 @@ _ROLE_COLOURS: dict[str, tuple[int, int, int]] = {
 }
 
 
-def generate_placeholder_png(
+def render_placeholder_png(
     *,
     label: str,
     sublabel: str = "",
     role: str = "generated",
     width: int = 512,
     height: int = 768,
-) -> str:
-    """Create a placeholder PNG and return a storable file_path string."""
+) -> bytes:
+    """Render a placeholder PNG and return its BYTES.
+
+    The whole of what this module knows how to do. Persisting the result — and
+    deciding who owns it — belongs to the caller.
+    """
     bg = _ROLE_COLOURS.get(role, (80, 80, 80))
     img = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(img)
@@ -51,4 +73,27 @@ def generate_placeholder_png(
 
     buf = io.BytesIO()
     img.save(buf, "PNG")
-    return save_image(buf.getvalue())
+    return buf.getvalue()
+
+
+def generate_placeholder_png(
+    *,
+    label: str,
+    sublabel: str = "",
+    role: str = "generated",
+    width: int = 512,
+    height: int = 768,
+) -> str:
+    """LEGACY. Render a placeholder AND store it, returning a bare file_path.
+
+    Kept for the unmigrated call sites only (see the module docstring). New code
+    renders with :func:`render_placeholder_png` and persists through
+    ``asset_persistence.persist_image_asset``, so the placeholder ends up owned
+    and reviewable like any other durable asset instead of being bytes with no
+    row behind them.
+    """
+    return save_image(
+        render_placeholder_png(
+            label=label, sublabel=sublabel, role=role, width=width, height=height
+        )
+    )

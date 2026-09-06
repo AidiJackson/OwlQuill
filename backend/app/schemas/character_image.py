@@ -170,6 +170,58 @@ def is_public_surface_safe(image) -> bool:
     return True
 
 
+def derived_provenance(source) -> tuple[Optional[str], dict[str, Any]]:
+    """Provenance a LOCALLY DERIVED asset must carry from *source*.
+
+    Returns ``(provider, metadata_fragment)`` to merge into the derived asset's
+    own provider and metadata.
+
+    WHY THIS EXISTS. Cropping is a byte transformation, not an act of
+    provenance. Before Phase 4D2 the avatar crops wrote no row at all, so a crop
+    of an Adult Studio or Editor Studio image was suppressed on every shared
+    surface by ``character_home_media.resolve_public_media_url`` — not because
+    it had been judged, but because nothing could be found to judge. 4D2 gives
+    those crops a real row, and a row that resolves is a row the predicate will
+    answer for. A crop written with ``provider=None`` and fresh metadata would
+    therefore answer True: an unsafe source would become publicly presentable by
+    the act of being cropped, and — because the crop is itself a
+    ``CharacterImage`` its owner can select — usable as the source for a
+    character avatar that :func:`is_public_surface_safe` had refused minutes
+    earlier. That laundering path is created BY the migration; it did not exist
+    while the crops were rowless.
+
+    So a derived asset inherits exactly the three signals
+    :func:`is_public_surface_safe` reads, and nothing else:
+
+    * the ``provider`` column — the bytes ARE that provider's output, cropped;
+    * the provider recorded inside the source's metadata payload;
+    * any truthy :data:`NON_PUBLIC_METADATA_FLAGS`.
+
+    It does NOT inherit ``safety_state``. An approval or a rejection is a
+    decision taken about specific bytes under a stated policy version, and
+    copying one onto different bytes would be a fabricated decision — the exact
+    thing ``SAFETY_STATE_APPROVED`` documents must never be written by
+    inference. This function moves EVIDENCE, which is inheritable; the decision
+    stays Phase 4E's.
+
+    Conservative in one direction only: it can make a derived asset ineligible
+    and can never make one eligible, because every marker it copies excludes.
+
+    Duck-typed like the predicate itself, so a ``UserImage`` source works too.
+    """
+    source_provider = getattr(source, "provider", None) or None
+    source_metadata = getattr(source, "metadata_json", None) or {}
+
+    fragment: dict[str, Any] = {}
+    metadata_provider = source_metadata.get("provider") or None
+    if metadata_provider:
+        fragment["provider"] = metadata_provider
+    for flag in NON_PUBLIC_METADATA_FLAGS:
+        if source_metadata.get(flag):
+            fragment[flag] = True
+    return source_provider, fragment
+
+
 def is_public_gallery_image(image) -> bool:
     """True when *image* belongs in the character's public gallery.
 

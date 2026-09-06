@@ -29,6 +29,7 @@ from app.models.character import Character as CharacterModel, VisibilityEnum
 from app.models.character_image import (
     PROTECTED_IMAGE_KINDS,
     CharacterImage,
+    ImageKindEnum,
     ImageStatusEnum,
 )
 from app.models.post import Post as PostModel
@@ -40,6 +41,7 @@ from app.schemas.scene import SceneOut
 from app.schemas.user import User, UserUpdate, UsernameUpdate, PublicUserProfile
 from app.schemas.character import CharacterSearchResult
 from app.schemas.character_image import CharacterImageRead
+from app.services.asset_persistence import OwnedBy, persist_derived_image_asset
 from app.services.identity import build_user_out
 from app.services.image_provider import get_image_provider
 from app.services.seeding import (
@@ -148,7 +150,19 @@ def update_current_user(
     current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> User:
-    """Update current user information."""
+    """Update current user information.
+
+    ``avatar_url`` here is NOT the crop path and is deliberately left out of the
+    Phase 4D2 asset migration. The account sigils the profile page offers are
+    ``data:image/svg+xml,...`` strings generated in the browser
+    (``frontend/src/pages/Profile.tsx``): there are no bytes in a bucket, no
+    object to own and nothing for a lifecycle or a safety state to describe.
+    Manufacturing a ``CharacterImage`` row for one — decoding the URI, storing
+    it, pointing the column at the copy — would create an asset purely so that
+    every ``avatar_url`` looked alike, which is a worse record than the honest
+    one. The crop path (``POST /users/me/avatar``) persists real bytes and does
+    go through the canonical writer.
+    """
     if user_update.display_name is not None:
         current_user.display_name = user_update.display_name
     if user_update.bio is not None:
@@ -482,7 +496,8 @@ def set_avatar(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot use a temporary image")
 
     if img.file_path.startswith(("http://", "https://")):
-        # R2-hosted image: use the URL directly, no local disk read needed.
+        # R2-hosted image: point at the source row directly. No crop, no new
+        # bytes, nothing derived — the avatar url IS the source image's url.
         avatar_url = img.file_path
     else:
         source_path = Path(__file__).resolve().parent.parent.parent.parent / img.file_path.lstrip("/")
@@ -490,8 +505,46 @@ def set_avatar(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Source image file not found on disk")
         raw_bytes = source_path.read_bytes()
         avatar_bytes = _crop_to_square(raw_bytes)
-        file_path = save_image(avatar_bytes)
-        avatar_url = file_path_to_url(file_path)
+        # Phase 4D2: an ACCOUNT-LEVEL asset. Every account avatar in the bucket
+        # today is rowless — this ``save_image`` crop is where they came from —
+        # so none of them has an owner, a safety state or a lifecycle, and none
+        # can be resolved by anything that asks where an image came from.
+        #
+        # ``OwnedBy.account`` is the case Phase 4C made representable:
+        # ``character_id`` stays NULL. There is no character in this request,
+        # and filing an account sigil against whichever character supplied the
+        # pixels would misfile it and hand it to that character's scoped routes.
+        avatar_image = persist_derived_image_asset(
+            db,
+            content=avatar_bytes,
+            owner=OwnedBy.account(current_user),
+            # Same compromise, and same reasoning, as the character avatar crop:
+            # the only existing kind that is neither gallery, nor canon, nor
+            # post-attachable. ``avatar_crop`` in the metadata is what actually
+            # identifies it.
+            kind=ImageKindEnum.UPLOADED,
+            # A ``CharacterImage`` source gets real lineage
+            # (``derived_from_image_id``); a ``UserImage`` source gets the
+            # honest metadata record instead, because there is no FK to
+            # ``user_images`` and 4D2 does not add one. Either way the source's
+            # provenance markers come with the crop — this route, unlike the
+            # character avatar, has never applied ``is_public_surface_safe`` to
+            # its source, so inheritance is the only thing keeping a crop of
+            # studio output from acquiring a clean row.
+            source=img,
+            prompt_summary="account avatar crop",
+            metadata={
+                "source": "account_avatar_crop",
+                "avatar_crop": True,
+                "not_canon": True,
+                "is_temp": False,
+                "source_image_type": req.image_type,
+                "source_image_id": req.image_id,
+            },
+        )
+        # Byte-identical to what ``save_image`` + ``file_path_to_url`` produced,
+        # so every reader of ``User.avatar_url`` is unaffected.
+        avatar_url = file_path_to_url(avatar_image.file_path)
 
     current_user.avatar_url = avatar_url
     db.commit()

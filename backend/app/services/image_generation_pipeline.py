@@ -50,13 +50,11 @@ from typing import TYPE_CHECKING, Any
 from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.core.storage import save_image, load_image_bytes, detect_image_format
+from app.core.storage import load_image_bytes, detect_image_format
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.character_image import (
     CharacterImage,
     ImageKindEnum,
-    ImageStatusEnum,
-    ImageVisibilityEnum,
 )
 from app.services.canon_compiler import compile_canon_prompt, has_any_canon_content
 from app.services.canon_service import load_face_canon
@@ -114,7 +112,8 @@ from app.services.scene_router import (
     routing_diagnostics as _routing_diagnostics,
     slot_names_for_urls,
 )
-from app.services.stub_image_generator import generate_placeholder_png
+from app.services.asset_persistence import OwnedBy, persist_image_asset
+from app.services.stub_image_generator import render_placeholder_png
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sqlalchemy.orm import Session
@@ -1215,45 +1214,38 @@ def run_image_generation(
                     "mark_verify_skipped": verdict.get("skip_reason") or "unknown"
                 }
 
-    # Storage checkpoints. save_image() is the last unguarded step before the DB
-    # write, and a failure there is indistinguishable from a provider failure in
-    # the logs unless the boundary is marked on both sides — a START with no OK
-    # localises the fault to storage without needing a traceback.
+    # Byte checkpoints. Storage is no longer a step of its own here: Phase 4D2
+    # moved this writer onto ``persist_image_asset``, which writes the object
+    # and inserts the row in one call further down, so IMAGE_GEN_STORAGE_START /
+    # _OK now bracket THAT call rather than a bare save_image(). What survives
+    # unchanged is the reason the bracket exists — a START with no OK localises
+    # a persistence fault without needing a traceback — and the fact that it
+    # covers the placeholder branch too, which is the path production takes
+    # whenever no provider resolves.
     #
     # BYTES_RECEIVED fires only when a provider actually returned bytes, so it
-    # stays truthful. STORAGE_START/STORAGE_OK bracket BOTH branches: the
-    # placeholder path writes a file too, and it is the path production takes
-    # whenever no provider resolves — leaving it uninstrumented would blind
-    # exactly the case where a provider is misconfigured in one environment only.
+    # stays truthful.
     #
-    # Byte counts, ids and paths only — never prompt text or credentials.
+    # The bytes are now HELD rather than stored on arrival. That is what lets
+    # the cover retry below supersede them without leaving the first pass'
+    # object behind: previously each attempt wrote a file and only the last one
+    # was ever referenced by a row.
     if png_bytes is not None:
         logger.info(
             "IMAGE_GEN_BYTES_RECEIVED character_id=%s provider=%s bytes=%d",
             character_id, actual_provider_name, len(png_bytes),
         )
-        logger.info(
-            "IMAGE_GEN_STORAGE_START character_id=%s source=provider_bytes bytes=%d object_storage=%s",
-            character_id, len(png_bytes), settings.USE_OBJECT_STORAGE,
-        )
-        file_path = save_image(png_bytes)
+        asset_bytes = png_bytes
+        asset_source = "provider_bytes"
     else:
-        logger.info(
-            "IMAGE_GEN_STORAGE_START character_id=%s source=placeholder bytes=0 object_storage=%s",
-            character_id, settings.USE_OBJECT_STORAGE,
-        )
-        file_path = generate_placeholder_png(
+        asset_bytes = render_placeholder_png(
             label=character.name,
             sublabel=params.prompt[:80],
             role="generated",
         )
+        asset_source = "placeholder"
         actual_provider_name = "stub"
         logger.info("IMAGE_GEN_STUB character_id=%s", character_id)
-
-    logger.info(
-        "IMAGE_GEN_STORAGE_OK character_id=%s file_path=%s",
-        character_id, file_path,
-    )
 
     # ── Cover composition retry (character-inclusive covers only) ──
     # One deterministic retry with an escalated cover prompt, still sourced
@@ -1298,7 +1290,8 @@ def run_image_generation(
             except (ValueError, RuntimeError):
                 pass
         if cover_retry_png is not None:
-            file_path = save_image(cover_retry_png)
+            asset_bytes = cover_retry_png
+            asset_source = "cover_retry"
             png_bytes = cover_retry_png
             cover_retry_succeeded = True
             logger.info("cover_retry_succeeded character_id=%s", character_id)
@@ -1407,20 +1400,28 @@ def run_image_generation(
     # Beta provider-gating audit trail (empty unless a fallback occurred).
     metadata.update(provider_gate_meta)
 
-    img = CharacterImage(
-        character_id=character_id,
+    logger.info(
+        "IMAGE_GEN_STORAGE_START character_id=%s source=%s bytes=%d object_storage=%s",
+        character_id, asset_source, len(asset_bytes), settings.USE_OBJECT_STORAGE,
+    )
+    # No ``derived_from``. A generation draws on the compiled canon prompt plus
+    # up to ``budget`` reference images; the references that were actually sent
+    # are audited in ``metadata["manual_references"]`` / the canon counts above.
+    # The lineage column names ONE source, and naming any single reference here
+    # would be a false record of how the image was made.
+    img = persist_image_asset(
+        db,
+        content=asset_bytes,
         # Owner, not requester. Both entry points to this pipeline go through
         # an owner-only guard with no admin bypass, so ``user`` IS the owner —
         # but ownership is the character's, and saying so keeps one rule across
-        # every writer. The weekly quota still reads this column (B22).
-        user_id=character.owner_id,
+        # every writer. The weekly quota still reads ``user_id`` (B22).
+        owner=OwnedBy.character(character),
         # Identity OS: generated scenes default to SCENE_ONLY — promotion to
         # face/body canon must be explicit via the canon flow. A manual
         # reference NEVER changes this: hand-picking an image as evidence does
         # not promote it, and the output of doing so is still scene material.
         kind=ImageKindEnum.COVER if params.is_cover else ImageKindEnum.SCENE_ONLY,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
         provider=actual_provider_name,
         # A promptless Admin Creator generation would otherwise save a blank
         # summary, leaving an unidentifiable row in the founder's library. The
@@ -1430,16 +1431,18 @@ def run_image_generation(
             if params.prompt.strip()
             else describe_board_operation([r.role for r in manual_sent])[:200]
         ),
-        metadata_json=metadata,
-        file_path=file_path,
+        metadata=metadata,
     )
-    # DB checkpoints bracket the commit for the same reason as storage: a
-    # START without an OK isolates a persistence fault (connection drop, pool
-    # exhaustion, constraint) from everything upstream that already succeeded.
+    file_path = img.file_path
+    logger.info(
+        "IMAGE_GEN_STORAGE_OK character_id=%s file_path=%s", character_id, file_path
+    )
+    # DB checkpoints bracket the COMMIT — the row itself is already flushed by
+    # the writer above, so what these isolate is the transaction resolving:
+    # connection drop, pool exhaustion, constraint.
     logger.info(
         "IMAGE_GEN_DB_WRITE_START character_id=%s file_path=%s", character_id, file_path
     )
-    db.add(img)
     db.commit()
     db.refresh(img)
     logger.info(

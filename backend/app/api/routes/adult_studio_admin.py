@@ -19,16 +19,15 @@ from sqlalchemy.orm import Session
 from app.api.routes.admin import require_admin
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.storage import file_path_to_url, load_image_bytes, save_image
+from app.core.storage import file_path_to_url, load_image_bytes
 from app.models.adult_identity import (
     AdultIdentityModel,
     AdultIdentityTrainingJob,
 )
 from app.models.character import Character as CharacterModel
-from app.models.character_image import ImageKindEnum, ImageStatusEnum
+from app.models.character_image import ImageKindEnum
 from app.models.user import User
-from app.schemas.character_image import CharacterImageCreate
-from app.services.character_visual import create_character_image
+from app.services.asset_persistence import OwnedBy, persist_image_asset
 from app.services.providers.replicate_provider import (
     ReplicateImg2ImgError,
     get_replicate_img2img_provider,
@@ -543,31 +542,39 @@ def replicate_test_adult_studio(
         )
 
     # Save to the image library (same path as other library images).
-    file_path = save_image(png)
-    image = create_character_image(
-        db, character_id,
-        CharacterImageCreate(
-            kind=ImageKindEnum.GENERATED,
-            status=ImageStatusEnum.ACTIVE,
-            file_path=file_path,
-            provider="replicate_nsfw",
-            prompt_summary=prompt[:80],
-            metadata_json={
-                "library": True,
-                "prompt": prompt,
-                "adult_studio": True,
-                "provider": "replicate_nsfw",
-                "model_ref": model_ref,
-                "source_role": source_role,
-                "experimental": True,
-            },
-        ),
+    #
+    # Migrated in Phase 4D2 ONLY because it was the second and last caller of
+    # ``create_character_image``, which had to be removed rather than left as a
+    # rival way to create an asset row. Everything about the image is unchanged
+    # — ``provider="replicate_nsfw"`` and ``adult_studio: True`` are what keep
+    # it off every public surface, and both are preserved verbatim. The rest of
+    # the Adult Studio migration is Phase 4D4's.
+    image = persist_image_asset(
+        db,
+        content=png,
         # An admin generating onto someone else's character: the asset belongs
-        # to the CHARACTER'S OWNER, never to the founder who requested it. This
-        # route already made that call before ownership was formalised; it is
-        # now stated at INSERT time rather than patched in afterwards.
-        owner_id=character.owner_id,
+        # to the CHARACTER'S OWNER, never to the founder who requested it.
+        # ``OwnedBy.character`` is now the only way to say it.
+        owner=OwnedBy.character(character),
+        kind=ImageKindEnum.GENERATED,
+        provider="replicate_nsfw",
+        prompt_summary=prompt[:80],
+        metadata={
+            "library": True,
+            "prompt": prompt,
+            "adult_studio": True,
+            "provider": "replicate_nsfw",
+            "model_ref": model_ref,
+            "source_role": source_role,
+            "experimental": True,
+        },
     )
+    # Transaction ownership moves to the route: ``create_character_image``
+    # committed for its callers, and this one has nothing else pending, so the
+    # boundary is where it always effectively was — just visible now.
+    file_path = image.file_path
+    db.commit()
+    db.refresh(image)
 
     strength_used = float(
         settings.ADULT_STUDIO_REPLICATE_IMG2IMG_STRENGTH if body.strength is None else body.strength

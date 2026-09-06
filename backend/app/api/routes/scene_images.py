@@ -10,14 +10,15 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.core.storage import save_image, load_image_bytes
+from app.core.storage import load_image_bytes
 from app.models.user import User
 from app.models.character import Character as CharacterModel
-from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
+from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
 from app.schemas.character_image import CharacterImageRead
+from app.services.asset_persistence import OwnedBy, persist_image_asset
 from app.services.image_provider import get_image_provider, get_fallback_provider, is_moderation_block
 from app.services.image_quota import check_weekly_quota
-from app.services.stub_image_generator import generate_placeholder_png
+from app.services.stub_image_generator import render_placeholder_png
 from app.services.style_elements import apply_style_elements_to_image_prompt
 from app.services.body_canon import load_markings, build_body_canon_lock_string
 
@@ -319,10 +320,8 @@ def generate_scene_image(
                 logger.info("scene_image fallback_failed character_id=%s, using stub", character_id)
 
     # Tier D: stub placeholder
-    if png_bytes is not None:
-        file_path = save_image(png_bytes)
-    else:
-        file_path = generate_placeholder_png(
+    if png_bytes is None:
+        png_bytes = render_placeholder_png(
             label=f"{character.name} — scene",
             sublabel=body.prompt[:80],
             role="generated",
@@ -332,19 +331,25 @@ def generate_scene_image(
     # ── Save CharacterImage ───────────────────────────────────────
     # Identity OS Beta: scene images are SCENE_ONLY by default.
     # They do not contaminate canon. Promotion is explicit via promote_to_canon.
-    img = CharacterImage(
-        character_id=character_id,
+    #
+    # No ``derived_from``. A scene is generated FROM A PROMPT, with the face ref
+    # or the front anchor supplied as grounding when one is available — several
+    # inputs, none of which this image is a transformation of. The lineage
+    # column names a single source, so the references are described in metadata
+    # (``used_anchor`` / ``used_face_ref``) and the column is left unset rather
+    # than made to name whichever reference happened to win the tier race.
+    img = persist_image_asset(
+        db,
+        content=png_bytes,
         # Owner, not requester. This route is owner-only (403 above), so the
-        # two are the same account; naming the owner states the rule. The
-        # weekly quota still counts this column — see the note on
-        # ``CharacterImage.user_id`` about that legacy accounting.
-        user_id=character.owner_id,
+        # two are the same account; ``OwnedBy.character`` states the rule rather
+        # than relying on that coincidence. The weekly quota still counts
+        # ``user_id`` — see the note on ``CharacterImage.user_id``.
+        owner=OwnedBy.character(character),
         kind=ImageKindEnum.SCENE_ONLY,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
         provider=provider_name,
         prompt_summary=body.prompt[:200],
-        metadata_json={
+        metadata={
             "library": True,
             "scene": True,
             "scene_only": True,
@@ -354,9 +359,7 @@ def generate_scene_image(
             "used_face_ref": used_face_ref,
             "identity_hash": identity_hash,
         },
-        file_path=file_path,
     )
-    db.add(img)
     db.commit()
     db.refresh(img)
 

@@ -12,14 +12,18 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.core.storage import load_image_bytes, save_image
+from app.core.storage import load_image_bytes
 from app.models.candidate_slot import CandidateSlot, VALID_SLOTS
 from app.models.character import Character
 from app.models.character_image import (
     CharacterImage,
     ImageKindEnum,
     ImageStatusEnum,
-    ImageVisibilityEnum,
+)
+from app.services.asset_persistence import (
+    OwnedBy,
+    persist_derived_image_asset,
+    source_image_for_url,
 )
 from app.services.identity_evolution import (
     IMMUTABLE_CANON_FIELDS,
@@ -280,25 +284,30 @@ def _refresh_face_ref(db: Session, character: Character, candidate: CandidateSlo
 
     raw_bytes = load_image_bytes(candidate.image_url)
     cropped = _crop_face_ref(raw_bytes)
-    face_ref_path = save_image(cropped)
 
-    db.add(CharacterImage(
-        character_id=character.id,
-        # Service-level writer: the owner is derived once, here, from the
-        # character this function was handed. No requester is in scope and none
-        # is wanted — ownership is not "who triggered the promotion".
-        user_id=character.owner_id,
+    # A crop IS a derived asset, so it goes through the derived writer even
+    # though the source arrives as a url. ``source_image_for_url`` answers with
+    # the one row that url names, or None when it names none or several; the
+    # candidate's ``image_url`` is client-supplied and need not be a stored
+    # asset at all, so both outcomes are real. With a source, the crop inherits
+    # its provenance and its lineage; without one it claims neither.
+    source = source_image_for_url(db, candidate.image_url)
+    persist_derived_image_asset(
+        db,
+        content=cropped,
+        # Service-level writer: the owner comes from the character this function
+        # was handed. No requester is in scope and none is wanted — ownership is
+        # not "who triggered the promotion".
+        owner=OwnedBy.character(character),
         kind=ImageKindEnum.IDENTITY_FACE_REF,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
+        source=source,
         prompt_summary="face reference crop",
-        metadata_json={
+        metadata={
             "source": "evolution_promote",
             "candidate_id": candidate.id,
             "is_temp": False,
         },
-        file_path=face_ref_path,
-    ))
+    )
     logger.info(
         "promote_candidate: face_ref refreshed character_id=%s candidate_id=%s",
         character.id, candidate.id,

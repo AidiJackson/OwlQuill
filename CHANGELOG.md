@@ -2,6 +2,98 @@
 
 All notable changes to the Ficshon project will be documented in this file.
 
+## [Phase 4D2] - 2026-09-06 - The ordinary durable writers move to the canonical asset seam
+
+4D1 built `persist_image_asset` and deliberately migrated nothing. 4D2 moves the
+writers that had no reason to be special, retires the second row-creating
+helper, and turns both avatar crops into real assets. **19 of the 33 pinned
+`save_image()` calls are gone and eight modules left the inventory**; the canon
+cluster (4D3) and Adult Studio / founder artifacts (4D4) remain.
+
+No Alembic migration. No historical row touched. No safety enforcement.
+
+### The finding that shaped the increment
+
+**Making the avatar crops resolvable creates a laundering path, and the
+migration is where it has to be closed.**
+
+While a locally-cropped avatar was rowless, `resolve_public_media_url` withheld
+it on every shared surface — not because anything had judged it, but because
+nothing could be found to judge. Giving the crop a row is the whole point of the
+migration, and a row that resolves is a row the provenance predicate will answer
+for. A crop written with `provider=None` and fresh metadata reads as SAFE
+whatever it was cropped from. Worse, `POST /users/me/avatar` has never gated on
+provenance, so the complete path existed: crop an Adult Studio image into an
+account avatar, then offer the clean crop to `POST /characters/{id}/avatar`,
+which DOES check and would have refused the original.
+
+So derived assets inherit exactly the three signals `is_public_surface_safe`
+reads — the `provider` column, the provider inside the metadata payload, and any
+truthy `NON_PUBLIC_METADATA_FLAGS`. They do NOT inherit `safety_state`: evidence
+about where bytes came from is inheritable, a decision taken about specific bytes
+under a stated policy version is not. The inheritance is conservative in one
+direction only — it can make a derived asset ineligible and can never make one
+eligible — and is applied after the caller's own metadata so a writer cannot
+clear a marker it did not set.
+
+### Added
+- **`asset_persistence.persist_derived_image_asset`** — the canonical write for
+  a crop or resize. A separate function rather than a flag, because a flag is
+  something a writer can forget and forgetting it reopens the path above.
+- **`asset_persistence.source_image_for_url`** — the one `CharacterImage` a url
+  names, or `None` when it names none *or several*. An ambiguous answer is not a
+  source. Shares `candidate_file_paths` with the public resolver.
+- **`schemas.character_image.derived_provenance`** — what a derived asset must
+  carry, defined beside the predicate that reads it.
+- **`stub_image_generator.render_placeholder_png`** — bytes. A low-level
+  renderer does not become an asset owner: its callers disagree about who owns
+  the result, and it is the one place with no information to decide.
+
+### Changed — writers migrated
+`scene_images` · `body_identity` (slot generation + admin canon import) ·
+`character_visual` (upload, identity pack, accept-crop, body_front autogen,
+sketch, moment) · `candidate_slot` face-ref crop ·
+`image_generation_pipeline` · `editor_studio` · `images` ·
+`adult_studio_admin` replicate-test · both avatar crops.
+
+Each keeps its kind, provider, metadata, seed, prompt summary, `is_temp`
+semantics, URL/API shape and character scoping. Ownership is now unstatable any
+other way: `OwnedBy.character(character)` on every character-associated asset,
+`OwnedBy.account(user)` on the account avatar.
+
+- **Lineage where it is honest, nowhere else.** The accept-time face crop and
+  both avatar crops name their source. Scene images, editor edits, pipeline
+  generations and body slots draw on a prompt plus several references and claim
+  nothing; a `UserImage` source is recorded in metadata because
+  `derived_from_image_id` is a FK to `character_images` and 4D2 adds no second FK.
+- **Archive-then-insert** in the body-slot writers. Their bulk UPDATE matches
+  `(character_id, kind)`; the canonical writer flushes, so an insert placed first
+  archives the row it just created. The old order was safe only because
+  `save_image` left nothing to find.
+- **Two writers stopped orphaning objects.** Identity-pack tiers now hold bytes
+  and persist only the tier that wins — an abandoned tier used to leave its files
+  in the bucket forever. The cover-composition retry supersedes bytes rather than
+  a second stored file.
+
+### Removed
+- **`character_visual.create_character_image`.** It took bytes that were already
+  stored, so it could not own the storage/database ordering or compensate a
+  failed write, and it committed its own transaction. Both callers moved to the
+  canonical writer and commit at their own route boundary. Nothing replaced it:
+  a helper that accepts a stored path and inserts a row afterwards is the shape
+  of the problem, and the test suite now fails on that shape under any name.
+
+### Documented as debt, not fixed
+- **Editor Studio job source snapshots** are now
+  `put_transient_object(..., purpose="editor_job_source_snapshot")` — a stated
+  non-asset, keyed under `transient/` and logged. Nothing deletes them; the leak
+  predates 4D2 and retention needs a policy of its own (`TECHNICAL_DEBT.md`).
+
+### Left alone, deliberately
+`data:image/svg+xml` account sigils (not persisted bytes — no object to own),
+the `UserImage` profile-cover writer, the canon cluster, Adult Studio
+generation, founder RunPod outputs, and every historical row.
+
 ## [Mark routing] - 2026-08-11 - Permanent mark truth survives unresolved clothing
 
 Found by real browser QA, not by tests. Three generations of **"Summer wearing a

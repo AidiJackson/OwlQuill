@@ -14,7 +14,9 @@ a ``purpose`` so that rowlessness is a stated intention at the call site rather
 than an omission nobody notices.
 
 :func:`save_image` is the LEGACY entry point. It predates both and is retained
-unchanged for the writers that have not been migrated yet. It returns a bare
+unchanged for the writers that have not been migrated yet — after Phase 4D2 that
+is the canon cluster (4D3), Adult Studio and the founder artifacts (4D4), and the
+``UserImage`` profile-cover writer. It returns a bare
 string, which is exactly the property that let durable bytes be persisted with
 no owner, no safety state and no lifecycle — see
 ``tests/test_legacy_save_image_inventory.py``, which pins its call sites so the
@@ -25,7 +27,7 @@ FILE_PATH IS OVERLOADED, AND THAT IS WHY STORAGE_KEY EXISTS
 ``file_path`` is simultaneously a storage identity and a delivery URL: in R2
 mode it holds a public https:// URL, on local disk a relative
 ``static/generated/<uuid>.<ext>`` path. Every reader inverts that ambiguity
-(see ``character_home_media._candidate_file_paths``). ``StoredObject`` keeps the
+(see ``character_home_media.candidate_file_paths``). ``StoredObject`` keeps the
 two apart at the point of writing without changing a single reader.
 """
 import logging
@@ -42,7 +44,8 @@ logger = logging.getLogger(__name__)
 DURABLE_KEY_PREFIX = "generated"
 
 #: Key prefix for bytes that are deliberately not assets. Distinct so that an
-#: object's key states what it is; no existing writer uses this yet.
+#: object's key states what it is. Phase 4D2 gave it its first writer: the
+#: Editor Studio job source snapshot.
 TRANSIENT_KEY_PREFIX = "transient"
 
 #: Shape of a key this module mints. :func:`delete_object` refuses anything

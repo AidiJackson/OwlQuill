@@ -63,8 +63,13 @@ from app.models.user_image import UserImage
 from app.schemas.character_image import is_public_post_image, is_public_surface_safe
 
 
-def _candidate_file_paths(url: str) -> set[str]:
+def candidate_file_paths(url: str) -> set[str]:
     """Every ``file_path`` spelling that ``file_path_to_url`` maps onto *url*.
+
+    Public because Phase 4D2 needs the same inversion outside this module:
+    ``asset_persistence.source_image_for_url`` asks which stored row a
+    to-be-cropped url names, and a second implementation of the inversion would
+    eventually disagree with the one the public resolver uses.
 
     That function is not injective: ``static/generated/a.png``,
     ``/static/generated/a.png`` and ``generated/a.png`` all serve as
@@ -95,7 +100,7 @@ def _rows_for_url(db: Session, url: str) -> list:
     so matching on it identifies the image itself; narrowing by character would
     only lose the provenance of a cover set from a user image.
     """
-    candidates = list(_candidate_file_paths(url))
+    candidates = list(candidate_file_paths(url))
     rows = list(
         db.query(CharacterImage)
         .filter(CharacterImage.file_path.in_(candidates))
@@ -207,7 +212,7 @@ def _resolve_batch(
     if not wanted:
         return {}
 
-    per_url: dict[str, set[str]] = {u: _candidate_file_paths(u) for u in set(wanted)}
+    per_url: dict[str, set[str]] = {u: candidate_file_paths(u) for u in set(wanted)}
     everything: set[str] = set()
     for candidates in per_url.values():
         everything |= candidates

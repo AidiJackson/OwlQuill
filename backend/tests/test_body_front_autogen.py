@@ -212,9 +212,25 @@ def _int_character(client, headers, name="AutogenChar"):
     return resp.json()["id"]
 
 
+def _stub_png() -> bytes:
+    """Bytes, not a path.
+
+    Phase 4D2 split the placeholder generator: ``render_placeholder_png``
+    returns bytes and the caller persists them through the canonical writer, so
+    the pack route no longer has a function that stores anything for this to
+    intercept. Patching the renderer keeps the test off PIL without putting a
+    fake path into the database.
+    """
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (10, 20, 30)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def _int_generate(client, headers, char_id, spec=_INT_SPEC):
-    with patch("app.api.routes.character_visual.generate_placeholder_png",
-               return_value="static/generated/stub_test.png"):
+    with patch("app.api.routes.character_visual.render_placeholder_png",
+               return_value=_stub_png()):
         resp = client.post(f"/characters/{char_id}/identity-pack/generate",
                            json={"identity_spec": spec}, headers=headers)
     assert resp.status_code == 200, resp.text
@@ -242,10 +258,11 @@ def test_accept_autogenerates_locked_body_front_when_markings(client, db_session
     _set_char_field(db_session, char_id, body_canon_json=_MARKINGS_JSON)
     pack_id = _int_generate(client, headers, char_id)
 
+    # No storage patch: the autogen path persists through the canonical writer,
+    # which mints its own key, so the stored path is discovered from the row
+    # rather than dictated by the test.
     with patch("app.api.routes.character_visual.generate_body_front",
-               return_value=b"BODY_FRONT_PNG_BYTES") as gen_mock, \
-         patch("app.api.routes.character_visual.save_image",
-               return_value="static/generated/auto_bf.png"):
+               return_value=_stub_png()) as gen_mock:
         resp = client.post(f"/characters/{char_id}/identity-pack/accept",
                            json={"pack_id": pack_id}, headers=headers)
 
@@ -258,7 +275,7 @@ def test_accept_autogenerates_locked_body_front_when_markings(client, db_session
     bf = (anchor.get("body_slots") or {}).get("body_front") or {}
     assert bf.get("status") == "locked"
     assert bf.get("source") == "auto_generated"
-    assert bf.get("url") == "static/generated/auto_bf.png"
+    assert bf.get("url")
 
     from app.models.character_image import (
         CharacterImage, ImageKindEnum, ImageStatusEnum,
@@ -269,7 +286,11 @@ def test_accept_autogenerates_locked_body_front_when_markings(client, db_session
                   CharacterImage.status == ImageStatusEnum.ACTIVE)
           .first())
     assert ci is not None
-    assert ci.file_path == "static/generated/auto_bf.png"
+    # The slot entry and the row name the same stored object, and the object is
+    # the canonical writer's — not a string the test supplied.
+    assert ci.file_path == bf.get("url")
+    assert ci.storage_key
+    assert ci.user_id is not None
 
 
 def test_accept_failure_does_not_block_lock(client, db_session, caplog):

@@ -306,6 +306,30 @@ Canon · Recommended, with `gemini-2.5-flash-image` as an economical fallback.
 Purely additive — the current pinned `gemini-3.1-flash-image` default is correct
 and carries no deprecation debt.
 
+### Editor Studio job source snapshots are never deleted
+
+**Recorded by Phase 4D2, not introduced by it.** `POST /editor/jobs` copies the
+source image so the detached driver reads a stable path even if the original is
+removed. Nothing deletes that copy when the job reaches a terminal state, so one
+object accumulates per async editor job and stays in the bucket forever.
+
+4D2 changed only what the leak *is*, not that it leaks: the snapshot now goes
+through `storage.put_transient_object(..., purpose="editor_job_source_snapshot")`
+instead of `save_image()`. That makes it a stated non-asset rather than an
+untraceable one — it is keyed under `transient/` in R2 and emits a
+`TRANSIENT_OBJECT purpose=... key=... bytes=...` log line, so the population is
+now enumerable and attributable, which it was not before.
+
+Retention was deliberately left out of that increment. Deleting old snapshots
+needs a policy (when is a job "done enough" to lose its input?), a sweep that can
+run against R2, and a decision about the historical population — all of which are
+their own change, and none of which belongs inside a writer migration. The point
+of 4D2 was to distinguish transient bytes from durable assets structurally, so
+that a retention job has something unambiguous to select on.
+
+**Scope:** one object per async editor job. **Fix:** a retention sweep over the
+`transient/` prefix, once a lifetime policy exists.
+
 ## Withdrawn findings
 
 Claims previously recorded here that turned out to be false. Kept so they are not

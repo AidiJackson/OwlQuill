@@ -31,6 +31,14 @@ WHAT THIS FUNCTION WILL NOT LET YOU DO
   nothing has been decided (there is no policy version 1 yet);
 * commit. The row joins the caller's transaction — see
   :func:`_register_pending_object`.
+
+DERIVED ASSETS ARE A SEPARATE ENTRANCE (Phase 4D2)
+--------------------------------------------------
+:func:`persist_derived_image_asset` is the same write with one thing that is not
+optional: a crop, resize or other transformation carries its SOURCE's provenance
+markers. It exists as its own function because the alternative — a flag on this
+one — is a flag a writer can forget, and forgetting it reopens a laundering
+path. See that function for what the path is and why the migration created it.
 """
 from __future__ import annotations
 
@@ -50,6 +58,7 @@ from app.models.character_image import (
     ImageStatusEnum,
     ImageVisibilityEnum,
 )
+from app.schemas.character_image import derived_provenance
 
 if TYPE_CHECKING:  # pragma: no cover
     from app.models.character import Character
@@ -301,3 +310,109 @@ def persist_image_asset(
 
     _register_pending_object(db, stored.storage_key)
     return image
+
+
+# ── Derived assets ────────────────────────────────────────────────────────────
+
+
+def source_image_for_url(db: Session, url: Optional[str]) -> Optional[CharacterImage]:
+    """The ONE ``CharacterImage`` whose stored file serves *url*, or ``None``.
+
+    For writers handed a url rather than a row — the candidate-slot promoter is
+    the case in 4D2 — so a crop can name the asset it came from instead of
+    losing the connection because the caller's parameter happened to be a
+    string.
+
+    ``None`` when nothing matches AND when several rows match. An ambiguous
+    answer is not a source: ``derived_from_image_id`` names exactly one row, and
+    guessing which of two it should be would put a false record in the lineage
+    column. The caller then persists with ``source=None``, which inherits no
+    provenance and claims no lineage — the honest description of "we do not know
+    where these bytes came from".
+
+    Shares :func:`~app.services.character_home_media.candidate_file_paths` with
+    the public resolver so the two cannot disagree about which stored path a url
+    names.
+    """
+    if not url:
+        return None
+    from app.services.character_home_media import candidate_file_paths
+
+    rows = (
+        db.query(CharacterImage)
+        .filter(CharacterImage.file_path.in_(list(candidate_file_paths(url))))
+        .all()
+    )
+    return rows[0] if len(rows) == 1 else None
+
+
+def persist_derived_image_asset(
+    db: Session,
+    *,
+    content: bytes,
+    owner: OwnedBy,
+    kind: ImageKindEnum,
+    source: Optional[Any],
+    prompt_summary: Optional[str] = None,
+    seed: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    visibility: ImageVisibilityEnum = ImageVisibilityEnum.PRIVATE,
+) -> CharacterImage:
+    """Persist bytes DERIVED from an existing asset — a crop, a resize.
+
+    The same call as :func:`persist_image_asset` with one difference that must
+    not be optional: *source* decides the new asset's ``provider`` and carries
+    its provenance markers forward
+    (:func:`~app.schemas.character_image.derived_provenance`).
+
+    WHY IT IS A SEPARATE FUNCTION rather than a parameter. Until Phase 4D2 the
+    avatar crops wrote no row, so a crop of Adult Studio or Editor Studio output
+    was withheld from every shared surface — because nothing could be found to
+    judge, not because anything had judged it. Giving those crops a real row
+    makes them resolvable, and a resolvable row with ``provider=None`` and fresh
+    metadata reads as SAFE. Then, since the crop is itself a ``CharacterImage``
+    its owner may select, it can be set as a character avatar that
+    ``is_public_surface_safe`` refused for the original. The laundering path is
+    created by the migration, so the migration is where it has to be closed —
+    and a derived writer that simply forgot to pass a flag would reopen it. Here
+    there is no call shape that omits the source.
+
+    ``source`` may be:
+
+    * a ``CharacterImage`` — provenance inherited AND ``derived_from_image_id``
+      set, because the lineage column can name it;
+    * a ``UserImage`` (duck-typed: anything else with ``provider`` /
+      ``metadata_json``) — provenance inherited, lineage recorded in metadata as
+      ``{"derived_from": {"table": ..., "id": ...}}``. There is no FK to
+      ``user_images`` and 4D2 does not add one, so the honest record is the one
+      the schema can actually hold;
+    * ``None`` — for a caller that genuinely cannot identify its source. It
+      inherits nothing and claims nothing; use it only when the source is
+      unknown, never to skip the inheritance.
+
+    What it does NOT copy is ``safety_state``. Evidence about where bytes came
+    from is inheritable; a decision made about specific bytes under a stated
+    policy version is not. See :func:`derived_provenance`.
+    """
+    provider, provenance = derived_provenance(source) if source is not None else (None, {})
+
+    merged: dict[str, Any] = dict(metadata or {})
+    if source is not None and not isinstance(source, CharacterImage):
+        table = getattr(getattr(source, "__table__", None), "name", None)
+        merged["derived_from"] = {"table": table, "id": getattr(source, "id", None)}
+    # Provenance last: a caller's metadata must not be able to overwrite the
+    # markers that exclude, whatever it thought it was describing.
+    merged.update(provenance)
+
+    return persist_image_asset(
+        db,
+        content=content,
+        owner=owner,
+        kind=kind,
+        provider=provider,
+        derived_from=source if isinstance(source, CharacterImage) else None,
+        prompt_summary=prompt_summary,
+        seed=seed,
+        metadata=merged or None,
+        visibility=visibility,
+    )

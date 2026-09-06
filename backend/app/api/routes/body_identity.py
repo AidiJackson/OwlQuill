@@ -29,10 +29,11 @@ from app.core.dependencies import (
     get_owned_character as _get_owned_character,
     user_is_admin,
 )
-from app.core.storage import load_image_bytes, save_image
+from app.core.storage import load_image_bytes
 from app.models.character import Character as CharacterModel
-from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum, ImageVisibilityEnum
+from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
 from app.models.user import User
+from app.services.asset_persistence import OwnedBy, persist_image_asset
 from app.services.body_canon import build_body_canon_lock_string, load_markings
 from app.services.identity_evolution import write_pack_stages
 from app.services.image_provider import get_provider_for_option
@@ -458,28 +459,28 @@ def _do_generate_body_slot(
             detail=f"Body slot image generation failed for '{slot}'. Please try again.",
         ) from exc
 
-    image_url = save_image(png_bytes)
-
-    # Archive any existing CharacterImage of this kind
+    # ORDER: archive FIRST, then persist. The bulk UPDATE matches on
+    # (character_id, kind) and the new row shares both, so an insert placed
+    # before it would archive the image this call just created. The old
+    # sequence only worked because ``save_image`` wrote no row for the UPDATE
+    # to find; the canonical writer does, so the order has to say what it means.
     kind = _SLOT_IMAGE_KIND[slot]
     db.query(CharacterImage).filter(
         CharacterImage.character_id == character.id,
         CharacterImage.kind == kind,
     ).update({"status": ImageStatusEnum.ARCHIVED})
 
-    # Store new CharacterImage
-    ci = CharacterImage(
-        character_id=character.id,
-        user_id=character.owner_id,
+    # No ``derived_from``: a body slot is generated from a prompt, optionally
+    # grounded on up to two identity anchors. Several inputs, no single source.
+    ci = persist_image_asset(
+        db,
+        content=png_bytes,
+        owner=OwnedBy.character(character),
         kind=kind,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
         provider=getattr(provider, "provider_name", "stub"),
         prompt_summary=prompt[:200],
-        file_path=image_url,
     )
-    db.add(ci)
-    db.flush()
+    image_url = ci.file_path
 
     # Update identity_anchor_json body_slots — stamp current pack_version so
     # health checks can detect when this image predates a later mutation.
@@ -716,10 +717,11 @@ async def admin_canon_import(
             detail="File exceeds 10 MB limit.",
         )
 
-    image_url = save_image(raw)
     kind = _SLOT_IMAGE_KIND[target_slot]
 
-    # Archive any existing active CharacterImage for this kind
+    # Archive any existing active CharacterImage for this kind — before the
+    # insert, for the same reason as ``_do_generate_body_slot`` above: the bulk
+    # UPDATE matches the row this call is about to create.
     db.query(CharacterImage).filter(
         CharacterImage.character_id == character_id,
         CharacterImage.kind == kind,
@@ -735,21 +737,21 @@ async def admin_canon_import(
     if source_note:
         meta["source_note"] = source_note
 
-    ci = CharacterImage(
-        character_id=character_id,
+    ci = persist_image_asset(
+        db,
+        content=raw,
         # The founder is importing canon FOR this character; the asset belongs
         # to the character's owner, not to the admin who uploaded it.
-        user_id=char.owner_id,
+        # ``OwnedBy.character`` makes that unstatable any other way — the admin
+        # is recorded as ``admin_email`` in the metadata, which is where
+        # requester identity belongs.
+        owner=OwnedBy.character(char),
         kind=kind,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
         provider="admin_upload",
         prompt_summary=f"admin canon import: {target_slot}",
-        metadata_json=meta,
-        file_path=image_url,
+        metadata=meta,
     )
-    db.add(ci)
-    db.flush()
+    image_url = ci.file_path
 
     # ── Store slot entry in identity_anchor_json ──────────────────
     slot_entry = {

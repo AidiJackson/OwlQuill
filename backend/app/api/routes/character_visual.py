@@ -3,6 +3,7 @@ import io
 import json as _json
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,7 +20,6 @@ from app.core.dependencies import (
 )
 from app.core.entitlements import require_founder
 from app.core.storage import (
-    save_image,
     file_path_to_url,
     load_image_bytes,
     detect_image_format,
@@ -32,7 +32,6 @@ from app.models.character_image import (
     CharacterImage,
     ImageKindEnum,
     ImageStatusEnum,
-    ImageVisibilityEnum,
 )
 from app.schemas.character_dna import CharacterDNACreate, CharacterDNARead
 from app.schemas.character_image import (
@@ -52,6 +51,11 @@ from app.schemas.character_visual import (
     IdentitySketchGenerateRequest,
     IdentitySketchGenerateResponse,
 )
+from app.services.asset_persistence import (
+    OwnedBy,
+    persist_derived_image_asset,
+    persist_image_asset,
+)
 from app.services.character_visual import upsert_character_dna, get_character_dna
 from app.services.identity_evolution import write_pack_stages
 from app.services.image_quota import check_identity_pack_quota
@@ -67,7 +71,7 @@ from app.services.identity_compiler import (
     _SAFETY_PREFIX,
 )
 from app.services.body_canon import load_markings, build_body_canon_lock_string
-from app.services.stub_image_generator import generate_placeholder_png
+from app.services.stub_image_generator import render_placeholder_png
 from app.services.provider_capabilities import Capability, provider_supports
 from app.services.image_provider import (
     get_identity_provider_by_name,
@@ -81,6 +85,23 @@ from app.services.identity_front_validator import validate_front_anchor_png
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@dataclass(frozen=True)
+class _PendingPackImage:
+    """One identity-pack image a tier PRODUCED but nothing has persisted yet.
+
+    The identity pack is generated in tiers — normal, conservative, failsafe —
+    and a tier that is moderation-blocked partway through is abandoned whole.
+    Only the tier that finishes becomes the pack, so nothing is stored, owned or
+    inserted until the race is over. Bytes, not a file_path and not a row: the
+    previous shape stored each image on arrival, which left every abandoned
+    tier's objects in the bucket forever, referenced by nothing.
+    """
+
+    role: str
+    content: bytes
+    provider: str
 
 # ── Single-frame enforcement ──────────────────────────────────────────
 # Appended to EVERY identity-pack shot prompt to prevent Gemini from
@@ -556,9 +577,10 @@ async def upload_character_image(
         )
 
     # Magic-byte validation. The declared content type is client-supplied and a
-    # renamed .txt would sail past it; save_image() would then store the bytes as
-    # a .png because its sniffer falls back to PNG for anything unrecognised, and
-    # the file would fail silently later at reference-load time instead of here.
+    # renamed .txt would sail past it; the storage layer would then keep the
+    # bytes as a .png because its sniffer falls back to PNG for anything
+    # unrecognised, and the file would fail silently later at reference-load
+    # time instead of here.
     detected_ext, detected_mime = detect_image_format(raw)
     signature = _UPLOAD_FORMAT_SIGNATURES.get(detected_ext)
     if signature is None or not raw.startswith(signature):
@@ -567,21 +589,22 @@ async def upload_character_image(
             detail="That file isn't a readable PNG, JPEG or WebP image.",
         )
 
-    file_path = save_image(raw)
-
-    image = CharacterImage(
-        character_id=character.id,
-        # Owner, not uploader. Same account here (owner-only route), stated
-        # rather than implied. ``uploaded_by_user_id`` in the metadata below
-        # already records who performed the upload.
-        user_id=character.owner_id,
+    image = persist_image_asset(
+        db,
+        content=raw,
+        # Owner, not uploader. Same account here (owner-only route), and
+        # ``OwnedBy.character`` leaves no way to write the other one.
+        # ``uploaded_by_user_id`` in the metadata below records who performed
+        # the upload, which is where requester identity belongs.
+        owner=OwnedBy.character(character),
         # NOT an identity/accessory kind, and NOT gallery- or post-eligible.
         kind=ImageKindEnum.UPLOADED,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
+        # Stated, not defaulted. A user supplied these bytes; no provider
+        # produced them, and "nobody stated a provider" and "a user supplied
+        # them" must not be the same record.
         provider=None,
         prompt_summary=(note or None),
-        metadata_json={
+        metadata={
             "source": "founder_upload",
             # Explicit, queryable statement of the invariant. An uploaded image
             # is not Character Authority and does not become so by being stored.
@@ -591,9 +614,7 @@ async def upload_character_image(
             "content_type": detected_mime,
             "bytes": len(raw),
         },
-        file_path=file_path,
     )
-    db.add(image)
     db.commit()
     db.refresh(image)
 
@@ -1041,26 +1062,57 @@ def generate_identity_pack(
 
     images: list[CharacterImage] = []
 
-    def _make_image_record(role: str, file_path: str, provider_name: str) -> CharacterImage:
-        return CharacterImage(
-            character_id=character_id,
-            # Owned from the moment it exists, even as an unaccepted preview:
-            # a temp row still points at bytes somebody has to answer for.
-            user_id=character.owner_id,
-            kind=ImageKindEnum.GENERATED,
-            status=ImageStatusEnum.ACTIVE,
-            visibility=ImageVisibilityEnum.PRIVATE,
-            provider=provider_name,
-            prompt_summary=sublabel[:200] if sublabel else None,
-            metadata_json={
-                "pack_role": role,
-                "pack_id": pack_id,
-                "is_temp": True,
-                "library": False,
-                "identity_spec": identity_spec.model_dump() if identity_spec is not None else None,
-            },
-            file_path=file_path,
-        )
+    def _make_image_record(role: str, content: bytes, provider_name: str) -> _PendingPackImage:
+        """Describe one generated pack image WITHOUT storing or inserting it.
+
+        A candidate, not an asset. Tier A can produce two images and then be
+        abandoned when the third is moderation-blocked, and the pack that
+        reaches the caller is whichever tier finished — so nothing a tier
+        produces is durable until a tier wins.
+
+        This used to take a ``file_path``, which meant the bytes were already in
+        the bucket by the time it was called: an abandoned tier left its objects
+        behind permanently, unreferenced by any row. Holding the bytes instead
+        (:func:`_persist_pack_images`) makes the discard complete.
+        """
+        return _PendingPackImage(role=role, content=content, provider=provider_name)
+
+    def _persist_pack_images(pending: list["_PendingPackImage"]) -> list[CharacterImage]:
+        """Persist the WINNING tier's images as owned, durable assets.
+
+        Called once, after the tier race resolves. Each preview is a real asset
+        from the moment it exists — an unaccepted pack preview still points at
+        bytes somebody has to answer for — and ``is_temp`` in the metadata is
+        what says it has not been accepted yet, exactly as before.
+
+        No ``derived_from`` on any of them. The front is text-to-image; the
+        three angles are grounded on the front's BYTES, which at that point are
+        not yet a row that could be named. Recording lineage would mean
+        persisting the front first and so re-introducing the partial-tier
+        problem this deferral exists to remove.
+        """
+        return [
+            persist_image_asset(
+                db,
+                content=item.content,
+                # Owned from the moment it exists, even as an unaccepted
+                # preview.
+                owner=OwnedBy.character(character),
+                kind=ImageKindEnum.GENERATED,
+                provider=item.provider,
+                prompt_summary=sublabel[:200] if sublabel else None,
+                metadata={
+                    "pack_role": item.role,
+                    "pack_id": pack_id,
+                    "is_temp": True,
+                    "library": False,
+                    "identity_spec": (
+                        identity_spec.model_dump() if identity_spec is not None else None
+                    ),
+                },
+            )
+            for item in pending
+        ]
 
     if use_openai:
 
@@ -1088,7 +1140,7 @@ def generate_identity_pack(
         def _generate_pack_tier_ab(
             spec: str,
             tier: str,
-        ) -> list[CharacterImage] | None:
+        ) -> list[_PendingPackImage] | None:
             """Attempt to generate the full 4-image pack.
 
             Tier A uses the normal spec with images.edit for 3/4, torso, and full_body.
@@ -1098,7 +1150,7 @@ def generate_identity_pack(
             B7: front anchor is generated by seed_provider; the 3 angle shots are
             generated by angles_provider using generate_grounded_image.
             """
-            tier_images: list[CharacterImage] = []
+            tier_images: list[_PendingPackImage] = []
 
             # ── Step 1: Front Anchor Gate (B6) ──────────────────────
             # Generate → cheap precheck → vision validate → crop.
@@ -1246,12 +1298,11 @@ def generate_identity_pack(
                     f"(seed_provider={_seed_name!r}); retry exhausted"
                 )
 
-            front_path = save_image(front_bytes)
             logger.info(
                 "identity_pack_seed_generated provider=%s bytes=%d request_id=%s",
                 _seed_name, len(front_bytes), pack_id,
             )
-            tier_images.append(_make_image_record("anchor_front", front_path, _seed_name))
+            tier_images.append(_make_image_record("anchor_front", front_bytes, _seed_name))
 
             # Step 2: 3 angle shots grounded from the cropped seed image.
             # B7: angles_provider is used for all grounded calls (default: Google).
@@ -1379,16 +1430,15 @@ def generate_identity_pack(
                             raise
                         _angle_provider_name = "openai"
 
-                file_path = save_image(png_bytes)
                 logger.info(
                     "identity_pack_angle_generated provider=%s grounded=true angle=%s request_id=%s",
                     _angle_provider_name, role, pack_id,
                 )
-                tier_images.append(_make_image_record(role, file_path, _angle_provider_name))
+                tier_images.append(_make_image_record(role, png_bytes, _angle_provider_name))
 
             return tier_images
 
-        def _generate_pack_tier_c(spec: str) -> list[CharacterImage]:
+        def _generate_pack_tier_c(spec: str) -> list[_PendingPackImage]:
             """Failsafe tier: generate all 4 images via text-to-image only.
 
             Attempts the primary provider first (OpenAI, text-to-image only).
@@ -1400,7 +1450,7 @@ def generate_identity_pack(
             keeps outfit type only) to reduce moderation risk.
             """
             fallback = get_fallback_provider()
-            tier_images: list[CharacterImage] = []
+            tier_images: list[_PendingPackImage] = []
             for role in PACK_ROLES:
                 # B8: front must use the strict passport preamble prompt builder.
                 if role == "anchor_front":
@@ -1416,8 +1466,7 @@ def generate_identity_pack(
                 # Try primary provider (text-to-image, no reference)
                 try:
                     png_bytes = seed_provider.generate_image(prompt=prompt)
-                    file_path = save_image(png_bytes)
-                    tier_images.append(_make_image_record(role, file_path, seed_provider_name))
+                    tier_images.append(_make_image_record(role, png_bytes, seed_provider_name))
                     continue
                 except (ValueError, RuntimeError) as exc:
                     if not _is_moderation_block(exc):
@@ -1433,8 +1482,7 @@ def generate_identity_pack(
                 if fallback is not None:
                     try:
                         png_bytes = fallback.generate_image(prompt=prompt)
-                        file_path = save_image(png_bytes)
-                        tier_images.append(_make_image_record(role, file_path, "fal"))
+                        tier_images.append(_make_image_record(role, png_bytes, "fal"))
                         continue
                     except (ValueError, RuntimeError):
                         logger.warning(
@@ -1444,17 +1492,21 @@ def generate_identity_pack(
                         )
 
                 # Final safety net: stub placeholder
-                file_path = generate_placeholder_png(
-                    label=f"{character.name} — {role.replace('_', ' ')}",
-                    sublabel=sublabel,
-                    role=role,
-                )
-                tier_images.append(_make_image_record(role, file_path, "stub"))
+                tier_images.append(_make_image_record(
+                    role,
+                    render_placeholder_png(
+                        label=f"{character.name} — {role.replace('_', ' ')}",
+                        sublabel=sublabel,
+                        role=role,
+                    ),
+                    "stub",
+                ))
             return tier_images
 
         # ── 3-tier generation: A (normal) -> B (conservative) -> C (failsafe)
-        # B8: _make_image_record no longer calls db.add(), so escalation never
-        # creates orphan records — only the winning tier's images reach the session.
+        # B8: _make_image_record neither stores nor inserts, so escalation
+        # creates neither orphan rows nor orphan objects — only the winning
+        # tier reaches storage and the session, through _persist_pack_images.
         result_images = _generate_pack_tier_ab(appearance_spec, "A")
         if result_images is not None:
             tier_used = "A"
@@ -1475,18 +1527,21 @@ def generate_identity_pack(
             tier_used = "C"
 
         # result_images is guaranteed non-None from tier C
-        images = result_images
-        db.add_all(images)
+        images = _persist_pack_images(result_images)
     else:
         # Stub fallback — 4 independent placeholders
-        for role in PACK_ROLES:
-            file_path = generate_placeholder_png(
-                label=f"{character.name} — {role.replace('_', ' ')}",
-                sublabel=sublabel,
-                role=role,
+        images = _persist_pack_images([
+            _make_image_record(
+                role,
+                render_placeholder_png(
+                    label=f"{character.name} — {role.replace('_', ' ')}",
+                    sublabel=sublabel,
+                    role=role,
+                ),
+                "stub",
             )
-            images.append(_make_image_record(role, file_path, "stub"))
-        db.add_all(images)
+            for role in PACK_ROLES
+        ])
 
     db.commit()
     for img in images:
@@ -1698,23 +1753,24 @@ def accept_identity_pack(
         try:
             _front_raw = load_image_bytes(_front_for_ref.file_path)
             _face_ref_bytes = _crop_face_reference(_front_raw)
-            _face_ref_path = save_image(_face_ref_bytes)
-            _face_ref_img = CharacterImage(
-                character_id=character_id,
-                user_id=character.owner_id,
+            # GENUINE single-source lineage: this crop is the accepted front
+            # anchor and nothing else, so ``derived_from`` names that row. The
+            # derived writer also carries the anchor's provenance forward — the
+            # provider was already copied by hand here, which is precisely the
+            # thing that has to stop being remembered per call site.
+            _face_ref_img = persist_derived_image_asset(
+                db,
+                content=_face_ref_bytes,
+                owner=OwnedBy.character(character),
                 kind=ImageKindEnum.IDENTITY_FACE_REF,
-                status=ImageStatusEnum.ACTIVE,
-                visibility=ImageVisibilityEnum.PRIVATE,
-                provider=_front_for_ref.provider,
+                source=_front_for_ref,
                 prompt_summary="face reference crop",
-                metadata_json={
+                metadata={
                     "pack_id": body.pack_id,
                     "is_temp": False,
                     "source": "accept_crop",
                 },
-                file_path=_face_ref_path,
             )
-            db.add(_face_ref_img)
             logger.info(
                 "identity_face_ref_created character_id=%s pack_id=%s",
                 character_id, body.pack_id,
@@ -1785,25 +1841,29 @@ def accept_identity_pack(
 
             _bf_png = generate_body_front(character)
             _bf_bytes_stored = len(_bf_png)
-            _bf_url = save_image(_bf_png)
 
-            # Archive any prior body_front CharacterImage rows.
+            # Archive prior body_front rows BEFORE inserting the new one: the
+            # bulk UPDATE matches on (character_id, kind) and the canonical
+            # writer flushes, so an insert placed first would archive the row
+            # this block just created. The old order was only safe because
+            # ``save_image`` left nothing for the UPDATE to find.
             db.query(CharacterImage).filter(
                 CharacterImage.character_id == character_id,
                 CharacterImage.kind == ImageKindEnum.IDENTITY_BODY_FRONT,
             ).update({"status": ImageStatusEnum.ARCHIVED})
 
-            db.add(CharacterImage(
-                character_id=character_id,
-                user_id=character.owner_id,
+            # No ``derived_from``: ``generate_body_front`` compiles a prompt
+            # from canon and markings, it does not transform one image.
+            _bf_img = persist_image_asset(
+                db,
+                content=_bf_png,
+                owner=OwnedBy.character(character),
                 kind=ImageKindEnum.IDENTITY_BODY_FRONT,
-                status=ImageStatusEnum.ACTIVE,
-                visibility=ImageVisibilityEnum.PRIVATE,
                 provider="auto_generated",
                 prompt_summary="auto body_front reference",
-                metadata_json={"source": "auto_generated", "pack_id": body.pack_id},
-                file_path=_bf_url,
-            ))
+                metadata={"source": "auto_generated", "pack_id": body.pack_id},
+            )
+            _bf_url = _bf_img.file_path
 
             _save_body_slot(character, "body_front", {
                 "url": _bf_url,
@@ -2187,9 +2247,10 @@ def generate_identity_sketch(
             detail = "Sketch generation is temporarily unavailable."
         raise HTTPException(status_code=503, detail=detail)
 
-    file_path = save_image(png_bytes)
-
-    # Archive any previous identity sketch for this character
+    # Archive any previous identity sketch for this character. Read and
+    # mutated before the new row exists, so the loop cannot archive it — the
+    # query is evaluated first either way, but stating the order keeps this the
+    # same shape as the bulk-UPDATE sites elsewhere in the file.
     previous_sketches = (
         db.query(CharacterImage)
         .filter(
@@ -2202,21 +2263,19 @@ def generate_identity_sketch(
     for prev in previous_sketches:
         prev.status = ImageStatusEnum.ARCHIVED
 
-    # Persist new sketch image
-    sketch_img = CharacterImage(
-        character_id=character_id,
-        # Owner, not requester — owner-only route, stated explicitly.
-        user_id=character.owner_id,
+    # Persist new sketch image. Text-to-image from a compiled spec — one prompt,
+    # no source image — so there is no lineage to record.
+    sketch_img = persist_image_asset(
+        db,
+        content=png_bytes,
+        # Owner, not requester — owner-only route, and ``OwnedBy.character``
+        # leaves the requester unnameable.
+        owner=OwnedBy.character(character),
         kind=ImageKindEnum.IDENTITY_SKETCH,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
         provider=provider_name,
         prompt_summary=sketch_prompt[:200],
-        metadata_json={"style": style, "is_temp": False},
-        file_path=file_path,
+        metadata={"style": style, "is_temp": False},
     )
-    db.add(sketch_img)
-    db.flush()  # assign id before updating anchor json
 
     # Update identity_anchor_json with sketch metadata
     try:
@@ -2452,27 +2511,22 @@ def generate_moment_image(
             desc_parts.append(f"{field}: {val}")
     description = " | ".join(desc_parts) if desc_parts else "moment capture"
 
-    file_path = generate_placeholder_png(
-        label=f"{character.name} — moment",
-        sublabel=f"anchor v{anchor_version} · {description[:80]}",
-        role="generated",
-    )
-
-    img = CharacterImage(
-        character_id=character_id,
-        user_id=character.owner_id,
+    img = persist_image_asset(
+        db,
+        content=render_placeholder_png(
+            label=f"{character.name} — moment",
+            sublabel=f"anchor v{anchor_version} · {description[:80]}",
+            role="generated",
+        ),
+        owner=OwnedBy.character(character),
         kind=ImageKindEnum.GENERATED,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
         provider="stub",
         prompt_summary=description[:200],
-        metadata_json={
+        metadata={
             "anchor_version": anchor_version,
             "request": body.model_dump(exclude_none=True),
         },
-        file_path=file_path,
     )
-    db.add(img)
     db.commit()
     db.refresh(img)
 

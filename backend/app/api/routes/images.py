@@ -8,11 +8,11 @@ from app.core.dependencies import get_current_user
 from app.core.entitlements import require_creator
 from app.models.user import User
 from app.models.character import Character
-from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
-from app.schemas.character_image import CharacterImageRead, CharacterImageCreate
-from app.services.character_visual import create_character_image
+from app.models.character_image import CharacterImage, ImageKindEnum
+from app.schemas.character_image import CharacterImageRead
+from app.services.asset_persistence import OwnedBy, persist_image_asset
 from app.services.image_quota import check_weekly_quota, get_quota_status
-from app.services.stub_image_generator import generate_placeholder_png
+from app.services.stub_image_generator import render_placeholder_png
 
 router = APIRouter()
 
@@ -67,24 +67,28 @@ def generate_library_image(
 
     character = _pick_character(db, current_user)
 
-    file_path = generate_placeholder_png(
-        label=body.prompt[:40] + ("…" if len(body.prompt) > 40 else ""),
-        sublabel="Ficshon Library",
-        role="generated",
-    )
-
-    data = CharacterImageCreate(
+    image = persist_image_asset(
+        db,
+        content=render_placeholder_png(
+            label=body.prompt[:40] + ("…" if len(body.prompt) > 40 else ""),
+            sublabel="Ficshon Library",
+            role="generated",
+        ),
+        # The character was picked from this account's own characters, so its
+        # owner IS the caller; ``OwnedBy.character`` keeps one rule across every
+        # writer — the asset belongs to the character's owner — and makes
+        # ``current_user`` unnameable here.
+        owner=OwnedBy.character(character),
         kind=ImageKindEnum.GENERATED,
-        status=ImageStatusEnum.ACTIVE,
-        file_path=file_path,
         provider="stub",
         prompt_summary=body.prompt[:80],
-        metadata_json={"library": True, "prompt": body.prompt},
+        metadata={"library": True, "prompt": body.prompt},
     )
-    # The character was picked from this account's own characters, so its owner
-    # IS the caller; naming character.owner_id rather than current_user.id keeps
-    # one rule across every writer — the asset belongs to the character's owner.
-    image = create_character_image(db, character.id, data, owner_id=character.owner_id)
+    # The commit moved here from inside ``create_character_image``, which used
+    # to own a transaction it could not see the rest of. This route's work is
+    # the row, so the route commits it.
+    db.commit()
+    db.refresh(image)
 
     return image
 

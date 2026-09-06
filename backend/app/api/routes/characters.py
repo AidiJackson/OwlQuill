@@ -14,10 +14,10 @@ from sqlalchemy import or_
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.entitlements import can_create_character
-from app.core.storage import save_image, file_path_to_url
+from app.core.storage import file_path_to_url
 from app.models.user import User
 from app.models.character import Character as CharacterModel, VisibilityEnum
-from app.models.character_image import CharacterImage, ImageStatusEnum
+from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.user_image import UserImage
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate, CharacterSearchResult
@@ -25,6 +25,7 @@ from app.schemas.character_image import (
     PUBLIC_SURFACE_UNSAFE_MESSAGE,
     is_public_surface_safe,
 )
+from app.services.asset_persistence import OwnedBy, persist_derived_image_asset
 from app.services.pack_version import compute_identity_health
 from app.services.seeding import is_seeder_account
 
@@ -541,7 +542,9 @@ def set_character_avatar(
         )
 
     if img.file_path.startswith(("http://", "https://")):
-        # R2-hosted image: use the URL directly, no local disk read needed.
+        # R2-hosted image: point at the source row directly. No crop, no new
+        # bytes, and nothing derived — the avatar url IS the source image's url,
+        # which the public resolver already resolves to that row.
         avatar_url = img.file_path
     else:
         source_path = Path(__file__).resolve().parent.parent.parent.parent / img.file_path.lstrip("/")
@@ -549,8 +552,53 @@ def set_character_avatar(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Source image file not found on disk")
         raw_bytes = source_path.read_bytes()
         avatar_bytes = _crop_to_square(raw_bytes)
-        file_path = save_image(avatar_bytes)
-        avatar_url = file_path_to_url(file_path)
+        # Phase 4D2: the crop is a REAL ASSET. It used to be ``save_image()`` —
+        # new bytes with a fresh uuid and no row — which is why
+        # ``resolve_public_media_url`` could not establish provenance for a
+        # locally-cropped avatar and (correctly, since the exception was
+        # removed) suppressed it on the Character Home, on posts and on
+        # comments. A row makes the crop resolvable, so the avatar shows again
+        # AND is judged by the same rule as everything else on those surfaces.
+        #
+        # ``persist_derived_image_asset`` rather than the plain writer because a
+        # crop that resolves must not be a crop that launders: the source's
+        # provider and its non-public markers come with it. The source was
+        # already required to be public-surface-safe above, so this changes
+        # nothing today; it means the avatar cannot become the way an unsafe
+        # image acquires a clean row tomorrow.
+        avatar_image = persist_derived_image_asset(
+            db,
+            content=avatar_bytes,
+            # The character's owner, associated with the character — the same
+            # answer the route's 403 already gave, now stated where it is
+            # recorded.
+            owner=OwnedBy.character(character),
+            # NOT a gallery kind, NOT a canon kind, NOT post-attachable. An
+            # avatar crop is presentation material derived from an image the
+            # owner already chose; it must not reappear in the character's
+            # public gallery as if it were separate work, and it must not be
+            # mistakable for canon. ``UPLOADED`` is the only existing kind with
+            # all three properties, and its NAME is a compromise the metadata
+            # below corrects (``avatar_crop``): a dedicated kind means
+            # ``ALTER TYPE ... ADD VALUE``, which is irreversible and out of
+            # scope for a migration-free increment.
+            kind=ImageKindEnum.UPLOADED,
+            source=img,
+            prompt_summary="character avatar crop",
+            metadata={
+                "source": "character_avatar_crop",
+                "avatar_crop": True,
+                "not_canon": True,
+                "is_temp": False,
+                "source_image_type": req.image_type,
+                "source_image_id": req.image_id,
+            },
+        )
+        # Exactly what ``save_image`` + ``file_path_to_url`` produced before, so
+        # every existing reader of ``Character.avatar_url`` is unaffected — and
+        # the string now inverts back to this row through
+        # ``character_home_media.candidate_file_paths``.
+        avatar_url = file_path_to_url(avatar_image.file_path)
 
     character.avatar_url = avatar_url
     db.commit()

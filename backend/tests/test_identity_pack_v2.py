@@ -345,17 +345,19 @@ def test_admin_canon_import_body_front_success(client, db_session, monkeypatch):
     hdrs = _make_admin_headers(client, monkeypatch)
     char_id = _create_character(client, hdrs, "AdminImportBody")
 
-    with patch("app.api.routes.body_identity.save_image", return_value="http://cdn.test/canon.png"):
-        resp = client.post(
-            f"/characters/{char_id}/identity/canon-import",
-            headers=hdrs,
-            data={"target_slot": "body_front"},
-            files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
-        )
+    # No storage patch. Phase 4D2 moved this route onto the canonical writer,
+    # which MINTS its own key — a caller cannot supply or predict the stored
+    # path, which is the point. The route reports where it put the bytes.
+    resp = client.post(
+        f"/characters/{char_id}/identity/canon-import",
+        headers=hdrs,
+        data={"target_slot": "body_front"},
+        files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
+    )
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["target_slot"] == "body_front"
-    assert data["url"] == "http://cdn.test/canon.png"
+    assert data["url"]
     assert "image_id" in data
     assert "pack_stages" in data
     assert data["pack_stages"]["body"] == "locked"
@@ -372,13 +374,12 @@ def test_admin_canon_import_tattoo_layout_success(client, db_session, monkeypatc
          "coverage": None, "anchor_image_url": None, "anchor_status": "missing", "anchor_prompt": None}
     ])
 
-    with patch("app.api.routes.body_identity.save_image", return_value="http://cdn.test/tl.png"):
-        resp = client.post(
-            f"/characters/{char_id}/identity/canon-import",
-            headers=hdrs,
-            data={"target_slot": "tattoo_layout"},
-            files={"file": ("tl.png", io.BytesIO(_STUB_PNG), "image/png")},
-        )
+    resp = client.post(
+        f"/characters/{char_id}/identity/canon-import",
+        headers=hdrs,
+        data={"target_slot": "tattoo_layout"},
+        files={"file": ("tl.png", io.BytesIO(_STUB_PNG), "image/png")},
+    )
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["target_slot"] == "tattoo_layout"
@@ -389,13 +390,12 @@ def test_admin_canon_import_creates_character_image_record(client, db_session, m
     hdrs = _make_admin_headers(client, monkeypatch)
     char_id = _create_character(client, hdrs, "AdminImportCIRecord")
 
-    with patch("app.api.routes.body_identity.save_image", return_value="http://cdn.test/ci.png"):
-        resp = client.post(
-            f"/characters/{char_id}/identity/canon-import",
-            headers=hdrs,
-            data={"target_slot": "body_front", "source_note": "artist render v1"},
-            files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
-        )
+    resp = client.post(
+        f"/characters/{char_id}/identity/canon-import",
+        headers=hdrs,
+        data={"target_slot": "body_front", "source_note": "artist render v1"},
+        files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
+    )
     assert resp.status_code == 201, resp.text
     image_id = resp.json()["image_id"]
 
@@ -407,6 +407,18 @@ def test_admin_canon_import_creates_character_image_record(client, db_session, m
     meta = ci.metadata_json or {}
     assert meta.get("source") == "admin_canon_import"
     assert meta.get("source_note") == "artist render v1"
+    # Phase 4D2: the import goes through the canonical writer, so the row has a
+    # storage key, no safety decision, and — this is the one that matters on an
+    # ADMIN route — an owner who is the character's owner and not the founder
+    # who uploaded the file. The admin is recorded in metadata instead.
+    from app.models.character_image import (
+        SAFETY_POLICY_VERSION_NONE, SAFETY_STATE_UNREVIEWED,
+    )
+    assert ci.storage_key
+    assert ci.safety_state == SAFETY_STATE_UNREVIEWED
+    assert ci.safety_policy_version == SAFETY_POLICY_VERSION_NONE
+    assert ci.user_id == character_owner_id(db_session, char_id)
+    assert meta.get("admin_email")
 
 
 def test_admin_canon_import_archives_previous_active_image(client, db_session, monkeypatch):
@@ -430,13 +442,12 @@ def test_admin_canon_import_archives_previous_active_image(client, db_session, m
     db_session.commit()
     prior_id = existing.id
 
-    with patch("app.api.routes.body_identity.save_image", return_value="http://cdn.test/new.png"):
-        resp = client.post(
-            f"/characters/{char_id}/identity/canon-import",
-            headers=hdrs,
-            data={"target_slot": "body_front"},
-            files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
-        )
+    resp = client.post(
+        f"/characters/{char_id}/identity/canon-import",
+        headers=hdrs,
+        data={"target_slot": "body_front"},
+        files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
+    )
     assert resp.status_code == 201, resp.text
 
     db_session.refresh(existing)
@@ -447,13 +458,13 @@ def test_admin_canon_import_locks_body_slot_in_anchor_json(client, db_session, m
     hdrs = _make_admin_headers(client, monkeypatch)
     char_id = _create_character(client, hdrs, "AdminImportAnchorJSON")
 
-    with patch("app.api.routes.body_identity.save_image", return_value="http://cdn.test/bf.png"):
-        client.post(
-            f"/characters/{char_id}/identity/canon-import",
-            headers=hdrs,
-            data={"target_slot": "body_front"},
-            files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
-        )
+    imported = client.post(
+        f"/characters/{char_id}/identity/canon-import",
+        headers=hdrs,
+        data={"target_slot": "body_front"},
+        files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
+    )
+    assert imported.status_code == 201, imported.text
 
     from app.models.character import Character
     char = db_session.query(Character).filter(Character.id == char_id).first()
@@ -461,7 +472,7 @@ def test_admin_canon_import_locks_body_slot_in_anchor_json(client, db_session, m
     anchor = json.loads(char.identity_anchor_json or "{}")
     bf = anchor.get("body_slots", {}).get("body_front", {})
     assert bf.get("status") == "locked"
-    assert bf.get("url") == "http://cdn.test/bf.png"
+    assert bf.get("url") == imported.json()["url"]
     assert bf.get("source") == "admin_canon_import"
 
 
@@ -480,13 +491,12 @@ def test_admin_canon_import_does_not_reset_body_canon(client, db_session, monkey
                   "anchor_prompt": None}]
     _set_body_canon(db_session, char_id, markings)
 
-    with patch("app.api.routes.body_identity.save_image", return_value="http://cdn.test/bf2.png"):
-        client.post(
-            f"/characters/{char_id}/identity/canon-import",
-            headers=hdrs,
-            data={"target_slot": "body_front"},
-            files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
-        )
+    client.post(
+        f"/characters/{char_id}/identity/canon-import",
+        headers=hdrs,
+        data={"target_slot": "body_front"},
+        files={"file": ("img.png", io.BytesIO(_STUB_PNG), "image/png")},
+    )
 
     from app.models.character import Character
     char = db_session.query(Character).filter(Character.id == char_id).first()

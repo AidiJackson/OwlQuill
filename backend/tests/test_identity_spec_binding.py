@@ -54,14 +54,24 @@ def _create_character(client, headers, name="SpecBindChar"):
     return resp.json()["id"]
 
 
+def _stub_png() -> bytes:
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (10, 20, 30)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def _generate_pack(client, headers, char_id, spec):
     """POST identity-pack/generate with a structured spec. Returns pack_id.
 
-    Patches generate_placeholder_png so no disk I/O is required.
+    Patches the placeholder RENDERER, which since Phase 4D2 returns bytes: the
+    route persists them itself through the canonical writer, so there is no
+    storing function left here to stub out with a fake path.
     """
     with patch(
-        "app.api.routes.character_visual.generate_placeholder_png",
-        return_value="static/generated/stub_test.png",
+        "app.api.routes.character_visual.render_placeholder_png",
+        return_value=_stub_png(),
     ):
         resp = client.post(
             f"/characters/{char_id}/identity-pack/generate",

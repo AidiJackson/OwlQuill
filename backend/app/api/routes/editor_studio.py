@@ -15,16 +15,16 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.entitlements import require_creator
-from app.core.storage import file_path_to_url, load_image_bytes, save_image
+from app.core.storage import file_path_to_url, load_image_bytes, put_transient_object
 from app.models.character import Character as CharacterModel
 from app.models.character_image import (
     CharacterImage,
     ImageKindEnum,
     ImageStatusEnum,
-    ImageVisibilityEnum,
 )
 from app.models.user import User
 from app.schemas.character_image import CharacterImageRead
+from app.services.asset_persistence import OwnedBy, persist_image_asset
 from app.services.editor_job_service import (
     EditorJobError,
     cancel_job,
@@ -243,24 +243,27 @@ async def editor_generate(
     # Schema gap (E1): ImageKindEnum has no editor-specific kind; SCENE_ONLY is
     # the closest safe kind (generated, never canon). Editor provenance lives
     # in metadata_json.
-    file_path = save_image(png_bytes)
-    img = CharacterImage(
-        character_id=character_id,
-        # Phase 4B2: ``user_id`` is the account that OWNS the asset, not the one
+    # No ``derived_from``: an edit takes up to ``MAX_SOURCE_IMAGES`` sources
+    # (and, on the upload path, bytes with no row at all). ``source_image_ids``
+    # below records them honestly; the lineage column names one row and would
+    # have to pick a favourite.
+    img = persist_image_asset(
+        db,
+        content=png_bytes,
+        # Phase 4B2: the asset's owner is the account that OWNS it, not the one
         # that asked for it. This route admits admins onto other people's
-        # characters (see the 403 above), so ``current_user.id`` would file a
+        # characters (see the 403 above), so ``current_user`` would file a
         # creator's image in a founder's library and leave the creator unable to
-        # see, use, or be accountable for their own character's edit. The
-        # requester is already recorded where requester identity belongs: the
-        # EDITOR_GENERATE_START log line here, and the EditorJob row on the
-        # async path. It does not go on the image.
-        user_id=character.owner_id,
+        # see, use, or be accountable for their own character's edit.
+        # ``OwnedBy.character`` makes the requester unnameable here. The
+        # requester is recorded where requester identity belongs: the
+        # EDITOR_GENERATE_START log line, and the EditorJob row on the async
+        # path. It does not go on the image.
+        owner=OwnedBy.character(character),
         kind=ImageKindEnum.SCENE_ONLY,
-        status=ImageStatusEnum.ACTIVE,
-        visibility=ImageVisibilityEnum.PRIVATE,
         provider=provider,
         prompt_summary=prompt[:200],
-        metadata_json={
+        metadata={
             "editor_generated": True,
             "editor_version": editor.editor_version,
             "provider": provider,
@@ -278,20 +281,18 @@ async def editor_generate(
             "source_image_ids": ids,
             "uploaded_source_count": len(images),
         },
-        file_path=file_path,
     )
-    db.add(img)
     db.commit()
     db.refresh(img)
 
     logger.info(
         "EDITOR_GENERATE_SUCCESS character_id=%s image_id=%s file_path=%s",
-        character_id, img.id, file_path,
+        character_id, img.id, img.file_path,
     )
 
     response = EditorGenerateResponse(
         success=True,
-        image_url=file_path_to_url(file_path),
+        image_url=file_path_to_url(img.file_path),
         character_id=character_id,
         provider=provider,
         prompt=prompt,
@@ -501,7 +502,22 @@ async def editor_job_start(
 
     # Snapshot the source so the detached driver reads a stable path even if
     # the original is later deleted.
-    source_file_path = save_image(source_bytes)
+    #
+    # DELIBERATELY NOT AN ASSET, and Phase 4D2 says so in the call rather than
+    # leaving it to be inferred from the absence of a row. These bytes are a
+    # copy of an image the owner already has, made so a job that outlives this
+    # request has something stable to read; they are job scratch whose lifetime
+    # is the job. Nobody browses them, nobody publishes them, and giving them a
+    # ``CharacterImage`` row would put a duplicate of every edited source in the
+    # owner's library.
+    #
+    # DEBT, recorded not fixed: nothing deletes these snapshots when the job
+    # ends, so they accumulate — the same leak as before, now at least labelled
+    # ``transient/`` in the bucket and greppable by its TRANSIENT_OBJECT log
+    # line. Retention is not in this increment; see TECHNICAL_DEBT.md.
+    source_file_path = put_transient_object(
+        source_bytes, purpose="editor_job_source_snapshot"
+    )
 
     try:
         job = start_editor_job(
