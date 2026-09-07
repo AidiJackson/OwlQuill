@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_owned_character, user_is_admin
+from app.core.image_ingress import guard_supplied_image_fields
 from app.core.storage import load_image_bytes, file_path_to_url
 from app.models.character import Character as CharacterModel
 from app.models.character_image import ImageKindEnum
@@ -126,6 +127,62 @@ def _mark_image_url(
 def _require_admin(user: User) -> None:
     if not user_is_admin(user):
         raise HTTPException(status_code=403, detail="Admin access required.")
+
+
+# ── Closed-beta image-ingress boundary (Phase Beta Boundary 1) ────────
+#
+# These four request bodies are the CONDITIONING INGRESS. Every name below is a
+# bare URL string that lands in ``face_canon_json`` / ``body_canon_json`` and is
+# read straight back out by ``scene_router._get_canon_slot_urls`` and the mark
+# router, loaded with ``storage.load_image_bytes``, and handed to the image
+# provider as identity evidence. They never pass through ``CharacterImage``, so
+# none of the asset regime — kind allowlists, ``is_public_surface_safe``,
+# ownership — has ever been able to see them.
+#
+# That is why the boundary is enforced field-by-field rather than route-by-route:
+# the SAME endpoint carries legitimate text canon (``face_description``,
+# ``build``, ``skin_tone``, a mark's ``description``, an accessory's
+# ``trigger_keywords``) that an ordinary creator must keep being able to edit.
+# Refusing the endpoint would close the character's written identity along with
+# its imagery, which is the opposite of the product rule.
+#
+# Listed explicitly rather than derived from a ``_url`` suffix: a name-shaped
+# rule would silently adopt any future field that happened to end in ``_url``
+# and silently miss one that did not, and neither surprise belongs in a
+# safety boundary. Adding a canon image field means adding it here — the tests
+# in test_beta_image_ingress_boundary.py pin these tuples against the schemas so
+# a new field cannot be introduced without this list being considered.
+
+#: ``FaceCanonUpdate`` fields that are image conditioning input.
+FACE_CANON_IMAGE_FIELDS = (
+    "face_front_image_url",
+    "face_left_3q_image_url",
+    "face_right_3q_image_url",
+    "face_profile_image_url",
+    "face_expression_image_url",
+)
+
+#: ``BodyCanonUpdate`` fields that are image conditioning input.
+BODY_CANON_IMAGE_FIELDS = (
+    "body_front_image_url",
+    "body_left_image_url",
+    "body_right_image_url",
+    "body_back_image_url",
+    "body_map_image_url",
+    "final_character_card_image_url",
+    "torso_front_image_url",
+    "torso_side_image_url",
+    "standing_relaxed_image_url",
+    "seated_relaxed_image_url",
+)
+
+#: ``AddPermanentMarkRequest`` fields that are image conditioning input.
+#: The scene router prefers ``detail_crop_url`` and falls back to
+#: ``reference_image_url``, so both are ingress and neither may be omitted.
+MARK_IMAGE_FIELDS = ("reference_image_url", "detail_crop_url")
+
+#: ``AddAccessoryRequest`` fields that are image conditioning input.
+ACCESSORY_IMAGE_FIELDS = ("design_anchor_image_url", "fit_anchor_image_url")
 
 
 def _servable(model, *fields):
@@ -228,7 +285,17 @@ def patch_face_canon(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CharacterCanonRead:
+    """Update face canon. Text fields are open to the owner; image URLs are not.
+
+    ``face_description`` and every other written field remain fully editable by
+    an ordinary creator — this is where a character's face is described in
+    words, and the beta is built on exactly that. What the boundary refuses is
+    the account POINTING a canon face slot at imagery Ficshon did not make: the
+    slot is generation conditioning, so a supplied URL is a face claim, not a
+    field edit.
+    """
     _get_owned_character(character_id, current_user, db)
+    guard_supplied_image_fields(current_user, body, FACE_CANON_IMAGE_FIELDS)
     canon = get_or_create_canon(character_id, db)
     update_face_canon(canon, body)
     db.commit()
@@ -271,7 +338,15 @@ def patch_body_canon(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CharacterCanonRead:
+    """Update body canon. Anatomy text stays open to the owner; image URLs do not.
+
+    ``height``, ``build``, ``proportions``, ``skin_tone``, ``body_description``,
+    ``card_coverage`` and ``marked_regions`` are the character's written body
+    canon and are untouched by the boundary. The ten ``*_image_url`` slots are
+    conditioning input and are refused for a non-founder.
+    """
     _get_owned_character(character_id, current_user, db)
+    guard_supplied_image_fields(current_user, body, BODY_CANON_IMAGE_FIELDS)
     canon = get_or_create_canon(character_id, db)
     update_body_canon(canon, body)
     db.commit()
@@ -321,7 +396,17 @@ def add_mark(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> MarkResponse:
+    """Add a permanent mark. The mark itself is text; its reference images are not.
+
+    ``label``, ``type``, ``body_region``, ``side`` and ``description`` are how a
+    creator states that their character has a scar or a sleeve, and they stay
+    open. ``reference_image_url`` / ``detail_crop_url`` are what the scene
+    router loads and sends to the provider when the region is exposed, so they
+    are refused for a non-founder. A mark supplied without them is created
+    normally and its description still drives generation.
+    """
     _get_owned_character(character_id, current_user, db)
+    guard_supplied_image_fields(current_user, req, MARK_IMAGE_FIELDS)
     canon = get_or_create_canon(character_id, db)
     mark = add_permanent_mark(canon, req)
     db.commit()
@@ -370,7 +455,17 @@ def add_acc(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> AccessoryResponse:
+    """Add a removable accessory. Its description and triggers stay open; its
+    anchor images do not — those are provider conditioning, same as a mark's.
+
+    The generated route to the same fields is untouched: an owner may still
+    GENERATE a design or fit anchor
+    (``POST /{id}/identity-accessory/generate-design-anchor`` and
+    ``.../generate-fit-anchor``), which writes the same columns with a URL
+    Ficshon produced. Supplying one is what closes.
+    """
     _get_owned_character(character_id, current_user, db)
+    guard_supplied_image_fields(current_user, req, ACCESSORY_IMAGE_FIELDS)
     canon = get_or_create_canon(character_id, db)
     acc = add_accessory(canon, req)
     db.commit()

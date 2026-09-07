@@ -3,6 +3,10 @@
 POST /editor/generate — edit/transform 1-3 existing character images with a
 prompt via the gpt-image edit API. Character-preserving transformation only:
 no Canon Studio generation, no Adult Studio pipeline, no LoRA/RunPod.
+
+Closed-beta boundary: the ``source_image_ids`` path (existing Ficshon-produced
+``CharacterImage`` rows) is open to every creator; the multipart ``images``
+upload path is founder/seeder-only. See app.core.image_ingress.
 """
 import logging
 from typing import Optional
@@ -15,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.entitlements import require_creator
+from app.core.image_ingress import may_supply_image_input, reject_user_supplied_image_input
 from app.core.storage import file_path_to_url, load_image_bytes, put_transient_object
 from app.models.character import Character as CharacterModel
 from app.models.character_image import (
@@ -78,7 +83,10 @@ def _parse_source_image_ids(raw: Optional[str]) -> list[int]:
 @router.post(
     "/generate",
     response_model=EditorGenerateResponse,
-    summary="Edit/transform existing character images (Editor Studio E1)",
+    summary=(
+        "Edit/transform existing character images (Editor Studio E1). "
+        "Uploaded source files are founder/seeder-only."
+    ),
     dependencies=[Depends(require_creator)],
 )
 async def editor_generate(
@@ -96,8 +104,13 @@ async def editor_generate(
     db: Session = Depends(get_db),
 ) -> EditorGenerateResponse:
     """Transform existing character image(s) per the prompt — same character,
-    edited scene/outfit. Sources may be uploaded files, existing library image
-    ids, or a mix; 1-3 total.
+    edited scene/outfit. Sources are existing library image ids and, for
+    founder/seeder accounts, uploaded files; 1-3 total.
+
+    UPLOADED FILES ARE FOUNDER-ONLY (closed beta). An ordinary creator editing
+    their own Ficshon-generated imagery through ``source_image_ids`` is
+    unchanged; an ordinary creator attaching ``images`` is refused with 403
+    before any provider call. Admin and Seeder keep the upload path in full.
     """
     # ── Validation: prompt / provider / strength ──────────────────────
     prompt = (prompt or "").strip()
@@ -115,6 +128,30 @@ async def editor_generate(
             ),
         )
     strength = clamp_strength(strength)
+
+    # ── Closed-beta image ingress: uploaded bytes are founder-only ────
+    # BEFORE the character lookup, the quota, the byte reads and — the point of
+    # the whole check — before ``editor.edit`` puts anything on the wire to an
+    # image provider. The question is about the ACCOUNT and the PAYLOAD, and
+    # neither needs the character to answer it; asking it here also means the
+    # refusal cannot be used to probe which character ids exist.
+    #
+    # ``source_image_ids`` deliberately stays open to ordinary creators. Those
+    # are existing ``CharacterImage`` rows Ficshon itself produced and the loop
+    # below already binds each to this character and to ACTIVE status, so
+    # editing your own generated imagery — which is what Editor Studio is FOR —
+    # keeps working. What closes is the account introducing NEW bytes.
+    #
+    # ``require_creator`` on this route is not a substitute and never was: it
+    # admits any account owning one character, which is exactly the outsider
+    # beta persona. See app.core.image_ingress for why that is a different
+    # question from this one.
+    if images and not may_supply_image_input(current_user):
+        logger.info(
+            "EDITOR_GENERATE_UPLOAD_REFUSED user_id=%s character_id=%s uploads=%d",
+            current_user.id, character_id, len(images),
+        )
+        reject_user_supplied_image_input(["images"])
 
     # ── Auth + ownership (owner or admin) ─────────────────────────────
     character = (

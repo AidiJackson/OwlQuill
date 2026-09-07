@@ -71,6 +71,51 @@ def _lock_character(client: TestClient, token: str, cid: int) -> None:
     assert resp.status_code == 200, resp.text
 
 
+#: Minimal valid 1x1 PNG — enough for the promote path's face-ref crop to read.
+_PNG_BYTES = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d4944415478da63fcffff3f030005fe02fea7568c4e0000000049454e44ae426082"
+)
+
+
+def _owned_image_url(client: TestClient, token: str, cid: int) -> str:
+    """Seed one ACTIVE ``CharacterImage`` for *cid* and return its ``file_path``.
+
+    Since the beta image-ingress boundary, ``POST .../candidate-slot`` RESOLVES
+    ``image_url`` against the caller's own library rather than storing whatever
+    string arrives, so these HTTP tests must name a real asset.
+
+    A freshly seeded row rather than one of the identity pack's own anchors: the
+    file_path is then unique per call, so "the promoted url replaced the old
+    one" is an assertion about the promotion and not about which anchor the pack
+    happened to produce first.
+    """
+    from app.core.storage import save_image
+    from app.models.character_image import (
+        CharacterImage,
+        ImageKindEnum,
+        ImageStatusEnum,
+        ImageVisibilityEnum,
+    )
+    from tests.conftest import TestingSessionLocal, character_owner_id
+
+    db = TestingSessionLocal()
+    try:
+        img = CharacterImage(
+            character_id=cid,
+            user_id=character_owner_id(db, cid),
+            kind=ImageKindEnum.SCENE_ONLY,
+            status=ImageStatusEnum.ACTIVE,
+            visibility=ImageVisibilityEnum.PRIVATE,
+            file_path=save_image(_PNG_BYTES),
+        )
+        db.add(img)
+        db.commit()
+        return img.file_path
+    finally:
+        db.close()
+
+
 def _make_anchor_json(slots: dict | None = None, accessories: list | None = None) -> str:
     data: dict = {
         "version": 1,
@@ -414,7 +459,7 @@ def test_create_candidate_via_http(client: TestClient):
 
     resp = client.post(
         f"/characters/{cid}/identity-evolution/candidate-slot",
-        json={"slot": "front", "image_url": "http://example.com/candidate.png"},
+        json={"slot": "front", "image_url": _owned_image_url(client, token, cid)},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text
@@ -482,9 +527,10 @@ def test_validate_candidate_via_http(client: TestClient):
 
     resp = client.post(
         f"/characters/{cid}/identity-evolution/candidate-slot",
-        json={"slot": "front", "image_url": "http://example.com/candidate.png"},
+        json={"slot": "front", "image_url": _owned_image_url(client, token, cid)},
         headers=headers,
     )
+    assert resp.status_code == 201, resp.text
     candidate_id = resp.json()["id"]
 
     resp = client.post(
@@ -508,9 +554,10 @@ def test_promote_via_http_takes_snapshot_and_replaces_slot(client: TestClient):
     # Create and validate candidate
     resp = client.post(
         f"/characters/{cid}/identity-evolution/candidate-slot",
-        json={"slot": "front", "image_url": "http://example.com/new_front.png"},
+        json={"slot": "front", "image_url": _owned_image_url(client, token, cid)},
         headers=headers,
     )
+    assert resp.status_code == 201, resp.text
     candidate_id = resp.json()["id"]
 
     client.post(
@@ -571,7 +618,7 @@ def test_reject_via_http(client: TestClient):
 
     resp = client.post(
         f"/characters/{cid}/identity-evolution/candidate-slot",
-        json={"slot": "torso", "image_url": "http://example.com/torso.png"},
+        json={"slot": "torso", "image_url": _owned_image_url(client, token, cid)},
         headers=headers,
     )
     candidate_id = resp.json()["id"]
@@ -592,7 +639,7 @@ def test_reject_already_rejected_returns_409(client: TestClient):
 
     resp = client.post(
         f"/characters/{cid}/identity-evolution/candidate-slot",
-        json={"slot": "torso", "image_url": "http://example.com/torso.png"},
+        json={"slot": "torso", "image_url": _owned_image_url(client, token, cid)},
         headers=headers,
     )
     candidate_id = resp.json()["id"]
@@ -625,11 +672,13 @@ def test_rollback_after_promote_restores_previous_anchor(client: TestClient):
     anchor_before = char_before_resp.json().get("identity_anchor_json") if char_before_resp.status_code == 200 else None
 
     # Create + validate + promote candidate
+    promoted_url = _owned_image_url(client, token, cid)
     resp = client.post(
         f"/characters/{cid}/identity-evolution/candidate-slot",
-        json={"slot": "front", "image_url": "http://example.com/promoted.png"},
+        json={"slot": "front", "image_url": promoted_url},
         headers=headers,
     )
+    assert resp.status_code == 201, resp.text
     candidate_id = resp.json()["id"]
     client.post(
         f"/characters/{cid}/identity-evolution/candidate-slot/{candidate_id}/validate",
@@ -646,7 +695,7 @@ def test_rollback_after_promote_restores_previous_anchor(client: TestClient):
     char_promoted_resp = client.get(f"/characters/{cid}", headers=headers)
     anchor_promoted = char_promoted_resp.json().get("identity_anchor_json") if char_promoted_resp.status_code == 200 else None
     if anchor_promoted:
-        assert "http://example.com/promoted.png" in anchor_promoted
+        assert promoted_url in anchor_promoted
 
     # Rollback
     resp = client.post(
@@ -659,4 +708,4 @@ def test_rollback_after_promote_restores_previous_anchor(client: TestClient):
     char_after_resp = client.get(f"/characters/{cid}", headers=headers)
     anchor_after = char_after_resp.json().get("identity_anchor_json") if char_after_resp.status_code == 200 else None
     if anchor_before and anchor_after:
-        assert "http://example.com/promoted.png" not in (anchor_after or "")
+        assert promoted_url not in (anchor_after or "")

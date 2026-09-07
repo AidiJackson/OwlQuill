@@ -9,6 +9,9 @@ Endpoints for the controlled slot-replacement workflow:
 
 Promotion takes a snapshot before mutating identity_anchor_json so rollback
 is always available via the existing snapshot endpoints.
+
+``image_url`` on the create route is RESOLVED against the caller's own image
+library rather than trusted — see :func:`_resolve_owned_active_asset`.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -17,6 +20,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.candidate_slot import CandidateSlot
 from app.models.character import Character
+from app.models.character_image import CharacterImage, ImageStatusEnum
 from app.models.user import User
 from app.schemas.candidate_slot import CandidateSlotCreate, CandidateSlotRead
 from app.schemas.identity_snapshot import IdentitySnapshotRead
@@ -26,6 +30,7 @@ from app.services.candidate_slot import (
     promote_candidate,
     reject_candidate,
 )
+from app.services.character_home_media import candidate_file_paths
 
 router = APIRouter()
 
@@ -48,6 +53,68 @@ def _require_own_locked_character(
             detail="Character identity is not locked. Lock an identity pack before using evolution features.",
         )
     return character
+
+
+def _resolve_owned_active_asset(
+    db: Session,
+    character: Character,
+    current_user: User,
+    image_url: str,
+) -> str:
+    """Resolve *image_url* to the canonical ``file_path`` of an asset the caller
+    may legitimately use — or refuse the request.
+
+    THE INVARIANT: a candidate slot may only ever name a real, ACTIVE
+    ``CharacterImage`` that belongs to THIS character and to THIS account. The
+    stored value is that row's own ``file_path``, not the string the client
+    sent, so what promotion later writes into ``identity_anchor_json`` is the
+    asset's canonical storage identity and nothing else.
+
+    WHY THIS IS A RESOLUTION AND NOT A ROLE CHECK. ``image_url`` used to be
+    stored verbatim after a single "not empty" check, and promotion copied it
+    into ``anchors[slot].url`` — which
+    ``character_accessory.get_identity_anchor_urls`` reads and
+    ``storage.load_image_bytes`` fetches before the bytes go to an image
+    provider. An arbitrary string there is therefore three separate primitives
+    at once: an off-platform image becomes the character's identity evidence;
+    with local storage the server performs an attacker-directed HTTP GET; and
+    with object storage the string is interpreted as a bucket key, so a bare
+    filename reads somebody else's stored object. A founder check would close
+    the first for ordinary users and leave the other two open for everyone, so
+    this applies to EVERY caller including founders — they have upload routes
+    that create real rows, and a row is exactly what this asks for.
+
+    ``candidate_file_paths`` performs the inversion, shared with the public
+    media resolver rather than reimplemented: ``file_path_to_url`` is not
+    injective, so a client may honestly send ``/static/generated/a.png`` for a
+    row stored as ``static/generated/a.png`` and both must resolve.
+
+    Refuses with 422, not 403: the caller owns the character, and the request
+    is not "forbidden for you" — it names an image that is not theirs, is not
+    this character's, is not active, or does not exist at all. The four are
+    deliberately indistinguishable in the response, so the endpoint cannot be
+    used to probe which asset ids or storage paths exist.
+    """
+    candidates = list(candidate_file_paths(image_url))
+    record = (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.file_path.in_(candidates),
+            CharacterImage.character_id == character.id,
+            CharacterImage.user_id == current_user.id,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .first()
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "image_url must name one of this character's own active images. "
+                "External image links and other characters' images aren't accepted."
+            ),
+        )
+    return record.file_path
 
 
 def _require_own_candidate(
@@ -83,12 +150,24 @@ def create_candidate_slot(
     db: Session = Depends(get_db),
 ) -> CandidateSlot:
     """
-    Propose an image URL as a replacement for a specific identity anchor slot.
+    Propose one of this character's own images as a replacement for a specific
+    identity anchor slot.
+
+    ``image_url`` is RESOLVED, not trusted: it must name an ACTIVE
+    ``CharacterImage`` belonging to this character and this account, and what is
+    stored is that row's canonical ``file_path``. An external link, another
+    character's image, another account's image, or an archived one is refused
+    with 422 — see :func:`_resolve_owned_active_asset` for why this is a
+    resolution rather than a role check.
+
     The candidate is created with status='candidate' and validation_status='pending'.
     Run /validate next to check it before promoting.
     """
     character = _require_own_locked_character(character_id, current_user, db)
-    return create_candidate(db, character, payload.slot, payload.image_url)
+    file_path = _resolve_owned_active_asset(
+        db, character, current_user, payload.image_url
+    )
+    return create_candidate(db, character, payload.slot, file_path)
 
 
 @router.post(

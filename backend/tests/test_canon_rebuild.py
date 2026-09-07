@@ -21,7 +21,7 @@ import json
 import pytest
 from unittest.mock import MagicMock
 
-from tests.conftest import auth_headers, get_auth_token
+from tests.conftest import auth_headers, get_auth_token, make_seeder
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -630,6 +630,22 @@ class TestAdminCanonUpload:
 # ── Test 11 & 12: Admin can lock canons ──────────────────────────────
 
 class TestAdminLockCanon:
+    """Locking a canon slot that was FILLED BY A FOUNDER.
+
+    The three tests that populate ``*_image_url`` through the PATCH routes use a
+    seeder account, because supplying a canon image URL is founder-only since the
+    closed-beta image-ingress boundary (app.core.image_ingress). Nothing about
+    LOCKING changed — the two "requires a front image" tests below still run as
+    an ordinary owner and still get their 409, which is what proves the lock
+    precondition is unrelated to who may fill the slot.
+    """
+
+    @staticmethod
+    def _founder(client, email: str, username: str) -> str:
+        token = get_auth_token(client, email=email, username=username)
+        make_seeder(email)
+        return token
+
     def test_lock_face_canon_requires_face_front(self, client):
         token = get_auth_token(client, email="crb_lock1@test.com", username="crb_lock1")
         hdrs = auth_headers(token)
@@ -657,7 +673,7 @@ class TestAdminLockCanon:
     def test_lock_face_canon_succeeds_when_face_front_set(self, client, db_session):
         from app.models.character_identity_canon import CharacterIdentityCanon
 
-        token = get_auth_token(client, email="crb_lock3@test.com", username="crb_lock3")
+        token = self._founder(client, "crb_lock3@test.com", "crb_lock3")
         hdrs = auth_headers(token)
         char_id = _create_character(client, hdrs, name="LockFaceSuccess")
 
@@ -686,7 +702,7 @@ class TestAdminLockCanon:
     def test_lock_body_canon_succeeds_when_body_front_set(self, client, db_session):
         from app.models.character_identity_canon import CharacterIdentityCanon
 
-        token = get_auth_token(client, email="crb_lock4@test.com", username="crb_lock4")
+        token = self._founder(client, "crb_lock4@test.com", "crb_lock4")
         hdrs = auth_headers(token)
         char_id = _create_character(client, hdrs, name="LockBodySuccess")
 
@@ -713,7 +729,7 @@ class TestAdminLockCanon:
     def test_both_locked_sets_canon_status_locked(self, client, db_session):
         from app.models.character_identity_canon import CharacterIdentityCanon
 
-        token = get_auth_token(client, email="crb_lock5@test.com", username="crb_lock5")
+        token = self._founder(client, "crb_lock5@test.com", "crb_lock5")
         hdrs = auth_headers(token)
         char_id = _create_character(client, hdrs, name="BothLocked")
 

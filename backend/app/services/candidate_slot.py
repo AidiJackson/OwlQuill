@@ -287,10 +287,16 @@ def _refresh_face_ref(db: Session, character: Character, candidate: CandidateSlo
 
     # A crop IS a derived asset, so it goes through the derived writer even
     # though the source arrives as a url. ``source_image_for_url`` answers with
-    # the one row that url names, or None when it names none or several; the
-    # candidate's ``image_url`` is client-supplied and need not be a stored
-    # asset at all, so both outcomes are real. With a source, the crop inherits
-    # its provenance and its lineage; without one it claims neither.
+    # the one row that url names, or None when it names none or several.
+    #
+    # Since the beta image-ingress boundary, the create route resolves
+    # ``image_url`` to an owned ACTIVE ``CharacterImage``'s own ``file_path``
+    # before the candidate is stored, so a source is expected here and the
+    # ``load_image_bytes`` call above can no longer be pointed off-platform.
+    # The None branch is kept rather than asserted away: a url can still match
+    # SEVERAL rows, and a candidate created before the boundary landed is not
+    # backfilled. With a source the crop inherits its provenance and lineage;
+    # without one it claims neither.
     source = source_image_for_url(db, candidate.image_url)
     persist_derived_image_asset(
         db,

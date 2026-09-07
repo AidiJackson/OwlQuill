@@ -11,6 +11,16 @@ Covers:
   8. Provider validation (422)
   9. Successful mocked edit saves a CharacterImage with editor metadata
  10. Library-image-id source path
+
+NOTE ON ACCOUNTS. Since the closed-beta image-ingress boundary, the multipart
+``images`` path is founder/seeder-only, so every test here that exercises the
+EDITOR MECHANICS through an upload uses ``_founder_token``. That is not a
+weakening of these tests: the mechanics under test (clamping, provider
+dispatch, ownership of the resulting asset, persistence) are identical for
+every account, and running them as a founder is the only way to reach them at
+all. The boundary itself — an ordinary creator refused, a seeder admitted — is
+tested in test_beta_image_ingress_boundary.py, which is also where the
+"no provider call on refusal" assertion lives.
 """
 import io
 from unittest.mock import MagicMock, patch
@@ -18,7 +28,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import auth_headers, character_owner_id, get_auth_token
+from tests.conftest import (
+    auth_headers,
+    character_owner_id,
+    get_auth_token,
+    make_seeder,
+)
 
 ENDPOINT = "/editor/generate"
 
@@ -38,6 +53,23 @@ def _local_storage(monkeypatch):
 
 def _png_file(name: str = "src.png"):
     return ("images", (name, io.BytesIO(_PNG_BYTES), "image/png"))
+
+
+def _founder_token(
+    client: TestClient,
+    email: str = "user@test.com",
+    username: str = "testuser",
+) -> str:
+    """A token for an account that may supply uploaded source images.
+
+    Seeder rather than admin on purpose: admin would also satisfy the several
+    admin-only checks elsewhere in this module and could mask a boundary that
+    had accidentally been written as admin-only. A seeder passes
+    ``is_founder_account`` and nothing else.
+    """
+    token = get_auth_token(client, email=email, username=username)
+    make_seeder(email)
+    return token
 
 
 def _create_character(client: TestClient, token: str, name: str = "Editor Test Char") -> int:
@@ -115,7 +147,7 @@ def test_prompt_required(client):
 
 @pytest.mark.parametrize("raw,expected", [("0.9", 0.5), ("0.01", 0.1), ("0.25", 0.25)])
 def test_strength_clamped(client, raw, expected):
-    token = get_auth_token(client)
+    token = _founder_token(client)
     cid = _create_character(client, token)
     captured: dict = {}
     with patch(
@@ -148,7 +180,7 @@ def test_clamp_strength_unit():
 
 
 def test_max_three_source_images(client):
-    token = get_auth_token(client)
+    token = _founder_token(client)
     cid = _create_character(client, token)
     files = [_png_file(f"s{i}.png") for i in range(4)]
     resp = client.post(
@@ -170,7 +202,7 @@ def test_at_least_one_source_image(client):
 
 
 def test_invalid_character_blocked(client):
-    token = get_auth_token(client)
+    token = _founder_token(client)
     resp = client.post(
         ENDPOINT,
         data=_form(999999),
@@ -183,7 +215,9 @@ def test_invalid_character_blocked(client):
 def test_non_owner_blocked(client):
     owner_token = get_auth_token(client, email="owner@test.com", username="owneruser")
     cid = _create_character(client, owner_token)
-    other_token = get_auth_token(client, email="other@test.com", username="otheruser")
+    # A FOUNDER who is not the owner: proves the ownership 403 stands on its own
+    # rather than being masked by the image-ingress refusal.
+    other_token = _founder_token(client, email="other@test.com", username="otheruser")
     resp = client.post(
         ENDPOINT,
         data=_form(cid),
@@ -213,7 +247,7 @@ def test_provider_validation(client):
 
 
 def test_successful_edit_saves_result(client, db_session):
-    token = get_auth_token(client)
+    token = _founder_token(client)
     cid = _create_character(client, token)
     with patch(
         "app.api.routes.editor_studio.get_editor", return_value=_mock_editor()
@@ -294,7 +328,7 @@ def test_library_image_id_source(client, db_session):
 
 def test_grok_provider_accepted(client, db_session):
     """provider=grok dispatches and persists provider/editor_version=e2 metadata."""
-    token = get_auth_token(client)
+    token = _founder_token(client)
     cid = _create_character(client, token)
     grok_editor = _mock_editor()
     grok_editor.provider_name = "grok"
@@ -321,7 +355,7 @@ def test_grok_provider_accepted(client, db_session):
 
 def test_self_hosted_provider_accepted(client, db_session):
     """provider=self_hosted dispatches and persists transform-mode e4 metadata."""
-    token = get_auth_token(client)
+    token = _founder_token(client)
     cid = _create_character(client, token)
     sh_editor = _mock_editor()
     sh_editor.provider_name = "self_hosted"
@@ -346,7 +380,7 @@ def test_self_hosted_provider_accepted(client, db_session):
 
 def test_self_hosted_requires_exactly_one_source(client):
     """self_hosted is a single-image transform — 2 sources is a 422, no editor call."""
-    token = get_auth_token(client)
+    token = _founder_token(client)
     cid = _create_character(client, token)
     with patch("app.api.routes.editor_studio.get_editor") as mock_get:
         resp = client.post(
@@ -432,7 +466,7 @@ def test_grok_editor_payload_and_parse():
 
 def test_grok_editor_failure_returns_502(client):
     """A provider-side grok failure surfaces as 502 with detail, nothing saved."""
-    token = get_auth_token(client)
+    token = _founder_token(client)
     cid = _create_character(client, token)
     failing = MagicMock()
     failing.editor_version = "e2"
@@ -525,7 +559,9 @@ def test_admin_edit_of_another_users_character_is_owned_by_the_owner(client, db_
 
 def test_owner_edit_is_still_owned_by_the_owner(client, db_session):
     """The ordinary path is unchanged: requester and owner are the same account."""
-    token = get_auth_token(client, email="selfedit4b2@test.com", username="selfedit4b2")
+    token = _founder_token(
+        client, email="selfedit4b2@test.com", username="selfedit4b2"
+    )
     cid = _create_character(client, token, name="Self Edited")
     owner_id = _user_id_for("selfedit4b2@test.com")
 

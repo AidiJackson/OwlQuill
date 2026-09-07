@@ -381,6 +381,32 @@ def make_admin(email: str) -> None:
         db.close()
 
 
+def make_seeder(email: str) -> None:
+    """Promote an existing test user to seeder (is_seeder=True).
+
+    The counterpart to :func:`make_admin` for surfaces gated on
+    ``is_founder_account`` (admin OR seeder) rather than on admin alone — the
+    founder image workflow, Admin Creator references, and the closed-beta
+    image-ingress boundary in ``app.core.image_ingress``.
+
+    Seeder rather than admin is the right fixture for those tests: it proves the
+    capability reaches the DEDICATED seeding account and not merely anyone with
+    admin rights, which is the exact distinction ``is_founder_account`` exists
+    to make.
+    """
+    from app.models.user import User
+
+    db = TestingSessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        assert user is not None, f"No such test user: {email}"
+        if not user.is_seeder:
+            user.is_seeder = True
+            db.commit()
+    finally:
+        db.close()
+
+
 @pytest.fixture(scope="function")
 def authed_client(client):
     """TestClient wrapper that auto-injects auth headers for a default test user.

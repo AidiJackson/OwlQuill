@@ -3,6 +3,8 @@
 POST /{character_id}/identity-accessory
   Adds or replaces a locked accessory in the character's identity_anchor_json.
   Requires auth + ownership. No visual_locked requirement (forward compatibility).
+  ``anchor_image_url`` on this route is founder/seeder-only — see
+  ACCESSORY_IMAGE_FIELDS below and app.core.image_ingress.
 
 POST /{character_id}/identity-accessory/generate-anchor
   Generates a standalone anchor image for an existing accessory (v2).
@@ -20,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.core.image_ingress import guard_supplied_image_fields
 from app.core.storage import load_image_bytes
 from app.models.character import Character as CharacterModel
 from app.models.character_image import ImageKindEnum
@@ -40,6 +43,29 @@ from app.services.provider_capabilities import Capability, provider_supports
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ── Closed-beta image-ingress boundary (Phase Beta Boundary 1) ────────
+#
+# ``anchor_image_url`` is the one field on this request body that carries an
+# image the account supplies rather than one Ficshon produced. Everything else
+# — type, name, description, visual_rules — is written identity, and stays open
+# to the character's owner.
+#
+# It is guarded even though it is NOT (today) a ``load_image_bytes``
+# conditioning sink the way the canon slots are: nothing loads these bytes, and
+# the generate-anchor routes below write this same field with a URL Ficshon
+# produced. It is guarded because it is the same PRODUCT question — an ordinary
+# account handing Ficshon an image it did not make — and because "not a sink
+# yet" is a property of today's call graph, not a boundary. A field that already
+# holds an arbitrary external URL is one future reader away from becoming
+# conditioning input, and that reader would be written by someone who had every
+# reason to assume the value was ours.
+#
+# The v1 accessory store (``identity_anchor_json["accessories"]``) is deliberately
+# left exactly as it is. This closes the ingress; it does not redesign the field
+# into an asset id, which is separate architectural work.
+ACCESSORY_IMAGE_FIELDS = ("anchor_image_url",)
 
 
 class AccessoryCreateRequest(BaseModel):
@@ -80,6 +106,10 @@ def add_identity_accessory(
     - Requires authentication and character ownership.
     - Does NOT require visual_locked=True (forward compatibility).
     - If an accessory with the same type already exists, it is replaced.
+    - ``anchor_image_url`` is founder/seeder-only (closed beta). Every other
+      field is written identity and stays open to the owner, so an ordinary
+      creator adds accessories exactly as before — they simply describe the
+      accessory and generate its anchor rather than supplying one.
     """
     character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
     if not character:
@@ -89,6 +119,8 @@ def add_identity_accessory(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have permission to modify this character.",
         )
+
+    guard_supplied_image_fields(current_user, body, ACCESSORY_IMAGE_FIELDS)
 
     # Build the accessory dict
     new_accessory: dict = {
