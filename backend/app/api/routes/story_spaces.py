@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.entitlements import require_creator
+from app.core.image_ingress import guard_supplied_image_fields
 from app.models.character import Character
 from app.models.story_space import (
     PublishedStory,
@@ -98,6 +99,18 @@ def _to_read(space: StorySpace, member: StorySpaceMember, member_count: int) -> 
     )
 
 
+#: Beta Boundary 2 — user-supplied imagery on the Story Space surfaces.
+#:
+#: Both are DORMANT: no client sends either field and nothing in the frontend
+#: renders a space or story cover. They are guarded anyway, for the reason the
+#: v1 accessory anchor was: a writable raw pointer with no renderer is one
+#: component away from being a live ingress, and nothing would have failed in
+#: between. Story covers have no asset model, so the product boundary is the
+#: instrument here as it is for realm banners.
+SPACE_IMAGE_FIELDS = ("cover_url",)
+PUBLISH_IMAGE_FIELDS = ("cover_url",)
+
+
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/", response_model=SpaceRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_creator)])
@@ -106,7 +119,13 @@ def create_space(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SpaceRead:
-    """Create a Story Space. Auto-creates story/chat/planning channels in the same transaction."""
+    """Create a Story Space. Auto-creates story/chat/planning channels in the same transaction.
+
+    ``cover_url`` is founder/seeder-only (Beta Boundary 2); a space created
+    without one is unchanged, which is every space the product creates today.
+    """
+    guard_supplied_image_fields(current_user, data, SPACE_IMAGE_FIELDS)
+
     now = datetime.utcnow()
     space = StorySpace(
         owner_id=current_user.id,
@@ -431,9 +450,21 @@ def publish_story(
     space_id: int,
     body: PublishRequest,
     member: StorySpaceMember = Depends(get_space_member),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> PublishedStoryRead:
-    """Publish selected story-channel posts as a snapshot. Only 'story' channel posts allowed."""
+    """Publish selected story-channel posts as a snapshot. Only 'story' channel posts allowed.
+
+    ``cover_url`` is founder/seeder-only (Beta Boundary 2). Publishing without
+    one is the only thing the product does today and is unchanged.
+
+    ``current_user`` is taken alongside ``member`` rather than derived from it:
+    membership answers "may you publish from this space", the boundary answers
+    "may your account supply imagery", and reading the second off the first
+    would tie two unrelated questions to one lookup.
+    """
+    guard_supplied_image_fields(current_user, body, PUBLISH_IMAGE_FIELDS)
+
     if not body.post_ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="post_ids must not be empty")
 

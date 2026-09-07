@@ -4,33 +4,7 @@ import { Lock, Check, RefreshCw, ChevronRight, Pencil } from 'lucide-react';
 import { useAuthStore } from '@/lib/store';
 import { apiClient } from '@/lib/apiClient';
 import { canUseCreatorTools } from '@/lib/entitlements';
-
-/** Curated default avatars — small inline SVG sigils, no upload required.
- *  For a Writer the sigil stays private (their public face is the character);
- *  for a Wanderer it is the avatar shown beside their public Wanderer
- *  username on comments. */
-const AVATAR_PRESETS: { id: string; label: string; url: string }[] = [
-  ['ember',    'Ember',    '#f59e0b', '#7c2d12', 'M32 14 L38 28 L52 32 L38 36 L32 50 L26 36 L12 32 L26 28 Z'],
-  ['tide',     'Tide',     '#38bdf8', '#1e3a8a', 'M12 38 Q22 28 32 38 T52 38 Q42 48 32 42 T12 38 Z'],
-  ['grove',    'Grove',    '#34d399', '#064e3b', 'M32 12 Q46 26 32 52 Q18 26 32 12 Z'],
-  ['dusk',     'Dusk',     '#a78bfa', '#312e81', 'M40 14 A18 18 0 1 0 50 40 A14 14 0 1 1 40 14 Z'],
-  ['rose',     'Rose',     '#fb7185', '#881337', 'M32 18 A8 8 0 0 1 46 24 Q46 38 32 46 Q18 38 18 24 A8 8 0 0 1 32 18 Z'],
-  ['aurum',    'Aurum',    '#fbbf24', '#78350f', 'M32 12 L36 28 L52 32 L36 36 L32 52 L28 36 L12 32 L28 28 Z'],
-  ['mist',     'Mist',     '#94a3b8', '#1e293b', 'M20 40 A12 12 0 1 1 30 22 A10 10 0 1 1 46 30 A8 8 0 1 1 44 40 Z'],
-  ['sol',      'Sol',      '#f97316', '#7c2d12', 'M32 20 A12 12 0 1 0 32 44 A12 12 0 1 0 32 20 Z'],
-].map(([id, label, from, to, glyph]) => ({
-  id,
-  label,
-  url: `data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
-    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
-    `<stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/>` +
-    `</linearGradient></defs>` +
-    `<rect width="64" height="64" fill="url(#g)"/>` +
-    `<path d="${glyph}" fill="rgba(255,255,255,0.85)"/>` +
-    `</svg>`
-  )}`,
-}));
+import { ACCOUNT_SIGILS } from '@/lib/accountSigils';
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -144,7 +118,7 @@ export default function Profile() {
         </div>
 
         <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
-          {AVATAR_PRESETS.map((preset) => {
+          {ACCOUNT_SIGILS.map((preset) => {
             const selected = user.avatar_url === preset.url;
             return (
               <button

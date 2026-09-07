@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, computed_field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.account_sigils import is_account_sigil
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, user_is_admin
@@ -155,23 +156,44 @@ def update_current_user(
 
     ``avatar_url`` here is NOT the crop path and is deliberately left out of the
     Phase 4D2 asset migration. The account sigils the profile page offers are
-    ``data:image/svg+xml,...`` strings generated in the browser
-    (``frontend/src/pages/Profile.tsx``): there are no bytes in a bucket, no
+    ``data:image/svg+xml,...`` strings: there are no bytes in a bucket, no
     object to own and nothing for a lifecycle or a safety state to describe.
     Manufacturing a ``CharacterImage`` row for one — decoding the URI, storing
     it, pointing the column at the copy — would create an asset purely so that
     every ``avatar_url`` looked alike, which is a worse record than the honest
     one. The crop path (``POST /users/me/avatar``) persists real bytes and does
     go through the canonical writer.
+
+    BETA BOUNDARY 2. What changed is the CONTRACT, not that reasoning. This
+    endpoint used to accept any string, and the value it accepted is rendered by
+    the browser beside a Wanderer's username on comment threads that are served
+    to anonymous readers — so "the product only ever sends a sigil" was a fact
+    about the client, not a property of the server. It is now exactly a sigil:
+    membership in ``app.core.account_sigils.ACCOUNT_SIGIL_URLS``, checked with
+    no pattern, no prefix and no near-miss.
+
+    NOT founder-gated, and that is deliberate. There is no internal workflow
+    that sets an account avatar to a raw URL — founders use the same picker and
+    the same ``POST /users/me/avatar`` as everyone else — so an admin exemption
+    here would be a bypass with no user, which is the kind of exception that
+    survives long enough to be exploited. If an internal need appears, it gets
+    its own route rather than a hole in this one.
     """
     if user_update.display_name is not None:
         current_user.display_name = user_update.display_name
     if user_update.bio is not None:
         current_user.bio = user_update.bio
     if user_update.avatar_url is not None:
+        if not is_account_sigil(user_update.avatar_url):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "avatar_url must be one of Ficshon's account sigils. "
+                    "To use one of your own images as your account avatar, use "
+                    "POST /users/me/avatar."
+                ),
+            )
         current_user.avatar_url = user_update.avatar_url
-    if user_update.cover_url is not None:
-        current_user.cover_url = user_update.cover_url
 
     db.commit()
     db.refresh(current_user)

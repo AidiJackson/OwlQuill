@@ -24,11 +24,21 @@ class UserUpdate(BaseModel):
     ``email`` — the public identity and the login identity each change through
     their own validated, rate-limited endpoint, never as a side effect of a
     profile save.
+
+    ``cover_url`` is excluded too, as of Beta Boundary 2. It was writable as an
+    arbitrary string, no client ever sent it, and nothing rendered it — a raw
+    pointer writer with no product behind it. Account covers are set from an
+    owned asset through ``POST /users/me/images/{id}/set-cover``, which is the
+    only path that ever produced one.
+
+    ``avatar_url`` REMAINS, because it carries something real that is not an
+    asset: the built-in account sigil. It is validated against
+    ``app.core.account_sigils`` — exact membership, nothing else — and a real
+    image avatar goes through ``POST /users/me/avatar`` instead.
     """
     display_name: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
-    cover_url: Optional[str] = None
 
 
 class UsernameUpdate(BaseModel):

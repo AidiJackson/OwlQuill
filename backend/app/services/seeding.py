@@ -250,6 +250,22 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User], db, *, resolve
     url. ``resolved_avatars`` is the batched form, from
     :func:`character_avatar_resolution`; a url missing from it resolves to
     ``None``, keeping the batch path fail-closed.
+
+    BETA BOUNDARY 2 — the ACCOUNT sigil answers to a rule too. Until now
+    ``author_avatar_url`` was only ever STRIPPED (for character comments) and
+    never resolved, so on the Wanderer branch — the one where it is deliberately
+    kept — whatever string sat in ``User.avatar_url`` went out raw, to anonymous
+    readers, and the browser fetched it from wherever it pointed. The write path
+    is now sigil-only, but this is the half that also covers a value stored
+    before that landed, or written straight to the column.
+
+    The sigil is checked FIRST and by exact membership, because it is not media
+    and the media resolver cannot see it: a ``data:`` string matches no
+    ``file_path``, so putting a legitimate sigil through
+    ``resolve_public_media_url`` would withhold every Wanderer avatar in the
+    product. Anything that is not a sigil falls through to the ordinary media
+    rule, which is what a governed account image (``POST /users/me/avatar``,
+    a real ``UserImage`` row) needs and what an arbitrary url fails.
     """
     from app.schemas.comment import Comment as CommentSchema
 
@@ -260,6 +276,18 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User], db, *, resolve
         schema.author_username = None
         schema.author_user_id = None
         schema.author_avatar_url = None
+
+    # Applied for EVERY viewer including the author, unlike the character avatar
+    # below. The author seeing their own unresolvable account avatar would be a
+    # kindness on the Home; here it would mean the one response that still
+    # carried a raw pointer was the one an attacker can always obtain, by
+    # reading their own comment.
+    if schema.author_avatar_url:
+        from app.services.character_home_media import resolve_account_avatar_url
+
+        schema.author_avatar_url = resolve_account_avatar_url(
+            db, schema.author_avatar_url
+        )
 
     if schema.character_avatar_url and not is_author:
         if resolved_avatars is None:

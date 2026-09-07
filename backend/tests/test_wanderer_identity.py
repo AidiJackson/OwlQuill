@@ -12,6 +12,7 @@ Covers the corrective sprint's product rules:
 import pytest
 from datetime import datetime, timedelta
 
+from app.core.account_sigils import ACCOUNT_SIGILS
 from tests.conftest import (
     TestingSessionLocal,
     auth_headers,
@@ -308,7 +309,13 @@ def test_wanderer_comment_shows_username_and_account_sigil(client):
     post_id = _create_post(client, writer_token, realm_id, character_id)
 
     wanderer_token = _register(client, "commenter@test.com", "commenter_acct")
-    sigil = "data:image/svg+xml,%3Csvg/%3E"
+    # A REAL sigil, not a hand-written data URL. Since Beta Boundary 2 the
+    # account avatar is an exact allowlist (app.core.account_sigils): a
+    # made-up ``data:image/svg+xml`` payload is refused, because accepting
+    # caller-authored SVG is accepting markup the browser executes. Taking the
+    # value from the allowlist also means this test now asserts the real
+    # product value rather than a placeholder that resembled one.
+    sigil = ACCOUNT_SIGILS["ember"]
     assert client.patch(
         "/users/me", json={"avatar_url": sigil}, headers=auth_headers(wanderer_token)
     ).status_code == 200

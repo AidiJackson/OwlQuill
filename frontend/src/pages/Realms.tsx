@@ -35,7 +35,6 @@ export default function Realms() {
     tagline: '',
     description: '',
     genre: '',
-    banner_url: '',
     is_public: true,
   });
 
@@ -59,7 +58,7 @@ export default function Realms() {
     try {
       await apiClient.createRealm(newRealm);
       setShowCreateForm(false);
-      setNewRealm({ name: '', slug: '', tagline: '', description: '', genre: '', banner_url: '', is_public: true });
+      setNewRealm({ name: '', slug: '', tagline: '', description: '', genre: '', is_public: true });
       await loadRealms();
     } catch (error) {
       console.error('Failed to create realm:', error);
@@ -161,16 +160,6 @@ export default function Realms() {
                 value={newRealm.description}
                 onChange={(e) => setNewRealm({ ...newRealm, description: e.target.value })}
                 className="textarea"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Banner URL</label>
-              <input
-                type="url"
-                value={newRealm.banner_url}
-                onChange={(e) => setNewRealm({ ...newRealm, banner_url: e.target.value })}
-                className="input"
-                placeholder="https://..."
               />
             </div>
             <div>

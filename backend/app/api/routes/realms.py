@@ -5,6 +5,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.image_ingress import guard_supplied_image_fields
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
@@ -13,13 +14,39 @@ from app.schemas.realm import Realm, RealmCreate, RealmMembership
 router = APIRouter()
 
 
+#: ``RealmCreate`` fields that are user-supplied imagery.
+#:
+#: ``RealmUpdate`` also declares ``banner_url`` and is DEAD SCHEMA — no PATCH
+#: route is registered for realms anywhere in the app. It is left in place
+#: rather than deleted because removing it is a change to a contract nobody is
+#: currently using either way, and this increment adds no realm-editing feature.
+#: If a realm PATCH is ever added it MUST guard this same tuple; the test
+#: ``test_realm_update_schema_is_not_routed`` fails the moment it is wired up,
+#: so the guard cannot be forgotten silently.
+REALM_IMAGE_FIELDS = ("banner_url",)
+
+
 @router.post("/", response_model=Realm, status_code=status.HTTP_201_CREATED)
 def create_realm(
     realm_data: RealmCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Realm:
-    """Create a new realm."""
+    """Create a new realm.
+
+    ``banner_url`` is founder/seeder-only (Beta Boundary 2). It was the only
+    ordinary-user field in the product that both accepted an arbitrary external
+    image URL and was rendered straight into an ``<img>`` on three shared
+    surfaces — the realms grid, the realm header and the Home side panel — to
+    every signed-in account. Realms have no asset model and building one is not
+    this increment's job, so the product boundary is the instrument: founders
+    keep the field, ordinary users create realms without a banner.
+
+    Everything else about realm creation is untouched, including the fact that
+    any authenticated account may create one.
+    """
+    guard_supplied_image_fields(current_user, realm_data, REALM_IMAGE_FIELDS)
+
     # Check if slug is unique
     existing_realm = db.query(RealmModel).filter(RealmModel.slug == realm_data.slug).first()
     if existing_realm:

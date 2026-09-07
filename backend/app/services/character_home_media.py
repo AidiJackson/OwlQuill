@@ -58,6 +58,7 @@ from typing import Iterable, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.account_sigils import is_account_sigil
 from app.models.character_image import CharacterImage
 from app.models.user_image import UserImage
 from app.schemas.character_image import is_public_post_image, is_public_surface_safe
@@ -178,6 +179,67 @@ def resolve_public_post_image_url(db: Session, url: Optional[str]) -> Optional[s
     if all(is_public_post_image(row) for row in rows):
         return url
     return None
+
+
+def resolve_account_avatar_url(db: Session, url: Optional[str]) -> Optional[str]:
+    """Return an ACCOUNT avatar if it may be shown on a shared surface, else ``None``.
+
+    The account-avatar counterpart to :func:`resolve_public_media_url`, and a
+    separate function because ``User.avatar_url`` legitimately holds a value
+    that is not media at all.
+
+    TWO KINDS OF VALUE, ONE COLUMN:
+
+    * a BUILT-IN SIGIL — one of the eight ``data:image/svg+xml`` marks Ficshon
+      ships (``app.core.account_sigils``). It has no bytes, no row and no
+      ``file_path``, so the media resolver can never establish provenance for it
+      and would withhold every one. Checked FIRST, by exact membership, and
+      returned as-is.
+    * a REAL IMAGE — the crop written by ``POST /users/me/avatar``, which is a
+      genuine ``UserImage``. That falls through to the ordinary media rule and
+      is judged exactly as a character's avatar is.
+
+    Anything else — an ``https://`` url, a storage path with no row, a caller's
+    own ``data:`` payload — matches neither branch and is withheld. The order
+    matters and is not interchangeable: media-first would suppress every sigil
+    before the sigil branch ever ran.
+
+    Deliberately NOT a widening of :func:`resolve_public_media_url`. That
+    predicate is shared with the Character Home, the OG card, posts and
+    comments' character avatars, and teaching it to accept ``data:`` values
+    would hand every one of those surfaces a way to render caller-supplied SVG.
+    """
+    if not url:
+        return None
+    if is_account_sigil(url):
+        return url
+    return resolve_public_media_url(db, url)
+
+
+def resolve_account_avatar_urls(
+    db: Session, urls: "Iterable[Optional[str]]"
+) -> dict[str, Optional[str]]:
+    """Batched :func:`resolve_account_avatar_url`.
+
+    Sigils are answered without a query — they are a set membership test — and
+    only the remainder reaches the media batch, so a page of Wanderer comments
+    that all use built-in sigils costs no image queries at all.
+    """
+    wanted = [u for u in urls if u]
+    if not wanted:
+        return {}
+
+    resolved: dict[str, Optional[str]] = {}
+    needs_media: list[str] = []
+    for url in set(wanted):
+        if is_account_sigil(url):
+            resolved[url] = url
+        else:
+            needs_media.append(url)
+
+    if needs_media:
+        resolved.update(resolve_public_media_urls(db, needs_media))
+    return resolved
 
 
 def _resolve_batch(

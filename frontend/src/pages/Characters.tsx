@@ -38,7 +38,6 @@ function CharacterManagement() {
     tags: '',
     short_bio: '',
     long_bio: '',
-    portrait_url: '',
     visibility: 'public' as 'public' | 'friends' | 'private',
   });
 
@@ -191,8 +190,7 @@ function CharacterManagement() {
         tags: '',
         short_bio: '',
         long_bio: '',
-        portrait_url: '',
-        visibility: 'public',
+            visibility: 'public',
       });
       await loadCharacters();
     } catch (error) {
@@ -380,17 +378,6 @@ function CharacterManagement() {
                 onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })}
                 className="input"
                 placeholder="e.g., gothic, mysterious, angst"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Portrait URL</label>
-              <input
-                type="url"
-                value={newCharacter.portrait_url}
-                onChange={(e) => setNewCharacter({ ...newCharacter, portrait_url: e.target.value })}
-                className="input"
-                placeholder="https://..."
               />
             </div>
 

@@ -30,6 +30,10 @@ from app.schemas.character_image import (
     is_public_surface_safe,
 )
 from app.services.asset_persistence import OwnedBy, persist_derived_image_asset
+from app.services.character_projection import (
+    project_character,
+    project_search_results,
+)
 from app.services.pack_version import compute_identity_health
 from app.services.seeding import is_seeder_account
 
@@ -267,7 +271,11 @@ def search_characters(
         .limit(20)
         .all()
     )
-    return results
+    # Beta Boundary 2: the same public-media rule the Character Home applies.
+    # This surface feeds the message-recipient picker, which renders the avatar
+    # straight into an <img>, so a pointer with no image row behind it is
+    # withheld here exactly as it is on the Home.
+    return project_search_results(db, results)
 
 
 @router.get("/directory", response_model=List[CharacterSearchResult])
@@ -283,13 +291,18 @@ def character_directory(
     owner fields, so the directory cannot be used to cluster characters by
     account (identity-first policy).
     """
-    return (
+    # Beta Boundary 2: resolved, not raw. This is the widest character surface
+    # in the product — every PUBLIC character, to every signed-in account — and
+    # it emitted ``avatar_url``/``cover_url`` straight off the column while the
+    # Character Home was suppressing the very same strings.
+    return project_search_results(
+        db,
         db.query(CharacterModel)
         .filter(CharacterModel.visibility == VisibilityEnum.PUBLIC)
         .order_by(CharacterModel.created_at.desc())
         .offset(skip)
         .limit(limit)
-        .all()
+        .all(),
     )
 
 
@@ -329,7 +342,13 @@ def get_character(
     )
     character.identity_health = compute_identity_health(character)
     character.has_identity_canon = character.id in _canon_generated_ids(db, [character.id])
-    return character
+    # Beta Boundary 2: project rather than return the ORM row, so the avatar and
+    # cover answer to the public-media rule. Projected AFTER the computed extras
+    # above, which are read off the object during validation. The resolver's
+    # verdict lands on the schema and never on the row — assigning it back to
+    # ``character.avatar_url`` would mark the row dirty and let a later flush
+    # persist a suppression as a deletion.
+    return project_character(db, character)
 
 
 def _get_visible_character(
