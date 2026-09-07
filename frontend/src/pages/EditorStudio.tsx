@@ -24,6 +24,7 @@ import {
   saveEditorProvider,
   validateEditorForm,
 } from '@/features/editorStudio/editorGenerate';
+import { safeStorage } from '@/lib/safeStorage';
 
 /**
  * Editor Studio — Sprint E1 foundation.
@@ -43,7 +44,11 @@ export default function EditorStudio() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
   const [strength, setStrength] = useState(EDITOR_DEFAULT_STRENGTH);
-  const [provider, setProvider] = useState(() => loadEditorProvider(localStorage));
+  // `safeStorage` rather than the raw `localStorage`: these helpers already
+  // take an injected store — which is what makes them unit-testable — so the
+  // minimal hardening is to inject one that cannot throw, rather than to
+  // rewrite the helpers or wrap the call site.
+  const [provider, setProvider] = useState(() => loadEditorProvider(safeStorage));
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -288,7 +293,7 @@ export default function EditorStudio() {
               value={provider}
               onChange={(e) => {
                 setProvider(e.target.value as typeof provider);
-                saveEditorProvider(localStorage, e.target.value);
+                saveEditorProvider(safeStorage, e.target.value);
               }}
               className="w-full mb-6 bg-surface border border-edge rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-600"
             >

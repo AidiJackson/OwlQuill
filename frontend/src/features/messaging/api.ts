@@ -1,9 +1,12 @@
 import type { ConversationRead, MessageRead } from './types';
+import { safeGet } from '@/lib/safeStorage';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('token');
+  // Via `safeGet`: a denied `localStorage` reads as "no token", so the request
+  // goes out unauthenticated and fails honestly rather than throwing here.
+  const token = safeGet('token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

@@ -9,7 +9,6 @@
 // own sorted URL set and assert the same literal. Editing the template or the
 // palette on one side alone fails that side's test.
 import { describe, expect, it } from 'vitest';
-import { createHash } from 'node:crypto';
 
 import {
   ACCOUNT_SIGILS,
@@ -24,13 +23,22 @@ describe('account sigils', () => {
     ]);
   });
 
-  it('derives the digest the backend allowlist derives', () => {
+  it('derives the digest the backend allowlist derives', async () => {
     // The pin itself. If this fails, the client and the server no longer agree
     // on what an account sigil IS — fix the template, do not update the digest
     // on one side.
-    const digest = createHash('sha256')
-      .update([...ACCOUNT_SIGIL_URLS].sort().join('\n'), 'utf8')
-      .digest('hex');
+    //
+    // Web Crypto rather than node:crypto: this package has no @types/node, so
+    // importing the Node builtin type-checks as an unresolved module even
+    // though vitest runs it happily. `crypto.subtle` is typed by the DOM lib
+    // the app already targets and is present in the test runtime.
+    const bytes = new TextEncoder().encode(
+      [...ACCOUNT_SIGIL_URLS].sort().join('\n')
+    );
+    const hash = await crypto.subtle.digest('SHA-256', bytes);
+    const digest = Array.from(new Uint8Array(hash))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
     expect(digest).toBe(SIGIL_SET_DIGEST);
   });
 

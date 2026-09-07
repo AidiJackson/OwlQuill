@@ -12,13 +12,14 @@ import { apiClient } from '@/lib/apiClient';
 import type { Character, StoryRecord } from '@/lib/types';
 import { extractApiErrorMessage } from './errorMessage';
 import { isUuidLike, deriveReadableTitle } from '@/lib/storyTitleUtils';
+import { safeGet, safeRemove, safeSet } from '@/lib/safeStorage';
 
 // ── Authenticated fetch helper ────────────────────────────────────────────────
 // Attaches the JWT token stored by apiClient so StoryLab requests are
 // authenticated the same way as every other part of the app.
 
 function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const token = localStorage.getItem('token');
+  const token = safeGet('token');
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string>),
   };
@@ -48,7 +49,7 @@ function makeStoryId(): string {
 
 function loadRecents(): string[] {
   try {
-    const raw = localStorage.getItem(LS_RECENTS);
+    const raw = safeGet(LS_RECENTS);
     return raw ? (JSON.parse(raw) as string[]) : [];
   } catch {
     return [];
@@ -57,7 +58,7 @@ function loadRecents(): string[] {
 
 function addToRecents(id: string, current: string[]): string[] {
   const updated = [id, ...current.filter((r) => r !== id)].slice(0, 5);
-  localStorage.setItem(LS_RECENTS, JSON.stringify(updated));
+  safeSet(LS_RECENTS, JSON.stringify(updated));
   return updated;
 }
 
@@ -87,30 +88,30 @@ function getDraftKey(storyId: string): string {
 }
 
 function loadDraft(storyId: string): string {
-  try { return localStorage.getItem(getDraftKey(storyId)) ?? ''; } catch { return ''; }
+  try { return safeGet(getDraftKey(storyId)) ?? ''; } catch { return ''; }
 }
 
 function saveDraft(storyId: string, value: string): void {
   try {
-    if (value) localStorage.setItem(getDraftKey(storyId), value);
-    else localStorage.removeItem(getDraftKey(storyId));
+    if (value) safeSet(getDraftKey(storyId), value);
+    else safeRemove(getDraftKey(storyId));
   } catch { /* localStorage unavailable */ }
 }
 
 function clearDraft(storyId: string): void {
   try {
-    localStorage.removeItem(getDraftKey(storyId));
-    localStorage.removeItem(LS_DRAFT_TEMP);
+    safeRemove(getDraftKey(storyId));
+    safeRemove(LS_DRAFT_TEMP);
   } catch { /* ignore */ }
 }
 
 function migrateTempDraft(toStoryId: string): void {
   try {
-    const temp = localStorage.getItem(LS_DRAFT_TEMP);
+    const temp = safeGet(LS_DRAFT_TEMP);
     if (!temp) return;
     const key = getDraftKey(toStoryId);
-    if (!localStorage.getItem(key)) localStorage.setItem(key, temp);
-    localStorage.removeItem(LS_DRAFT_TEMP);
+    if (!safeGet(key)) safeSet(key, temp);
+    safeRemove(LS_DRAFT_TEMP);
   } catch { /* ignore */ }
 }
 
@@ -216,10 +217,10 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
 
   const [currentStoryId, setCurrentStoryId] = useState<string>(() => {
     if (externalStoryId) return externalStoryId;
-    const stored = localStorage.getItem(LS_CURRENT);
+    const stored = safeGet(LS_CURRENT);
     if (stored) return stored;
     const id = makeStoryId();
-    localStorage.setItem(LS_CURRENT, id);
+    safeSet(LS_CURRENT, id);
     return id;
   });
 
@@ -269,7 +270,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
   const [promptRevealOpen, setPromptRevealOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'delete' | 'regenerate' | null>(null);
   const [surfaceMode, setSurfaceMode] = useState<'night' | 'paper'>(
-    () => (localStorage.getItem(SURFACE_KEY) as 'night' | 'paper') ?? 'night'
+    () => (safeGet(SURFACE_KEY) as 'night' | 'paper') ?? 'night'
   );
 
   // Story progress state (from /state endpoint)
@@ -280,7 +281,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
   const draftDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Persist surface mode preference
-  useEffect(() => { localStorage.setItem(SURFACE_KEY, surfaceMode); }, [surfaceMode]);
+  useEffect(() => { safeSet(SURFACE_KEY, surfaceMode); }, [surfaceMode]);
 
   // Persist draft input — debounced 300ms
   useEffect(() => {
@@ -325,7 +326,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
         // Stale or forbidden story_id (e.g. from a previous session/device).
         // Recover silently by creating a fresh story rather than surfacing an error.
         const freshId = makeStoryId();
-        localStorage.setItem(LS_CURRENT, freshId);
+        safeSet(LS_CURRENT, freshId);
         setCurrentStoryId(freshId);
         setRecentIds((prev) => addToRecents(freshId, prev));
         setChapters([]);
@@ -557,7 +558,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
     if (id === currentStoryId) return;
     abortAll();
     setCurrentStoryId(id);
-    localStorage.setItem(LS_CURRENT, id);
+    safeSet(LS_CURRENT, id);
     setRecentIds((prev) => addToRecents(id, prev));
     setChapters([]);
     setCurrentChapter(null);
@@ -574,7 +575,7 @@ export default function StoryLabEngine({ storyId: externalStoryId, storyTitle, s
     const id = makeStoryId();
     abortAll();
     setCurrentStoryId(id);
-    localStorage.setItem(LS_CURRENT, id);
+    safeSet(LS_CURRENT, id);
     setRecentIds((prev) => addToRecents(id, prev));
     setChapters([]);
     setCurrentChapter(null);

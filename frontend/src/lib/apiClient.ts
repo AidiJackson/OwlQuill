@@ -1,20 +1,31 @@
 import { rateLimitMessage } from './rateLimit';
+import { safeGet, safeRemove, safeSet } from './safeStorage';
 import type { User, Character, CharacterSearchResult, Realm, Post, Comment, Reaction, Token, Scene, ScenePost, ProfileTimelineItem, LibraryImage, CharacterGalleryImage, UserImageRead, StoryRecord, StorySpaceListItem, StorySpaceRead, StorySpacePost, PublishedStory, PublishStoryPayload, RPReplyRequest, RPReplyResponse, Notification, StylePreset, StyleElementsResponse, BodyCanonRead, BodyAnchorResponse, BodySlotsResponse, CanonImportResponse, RPStoryThread, RPStoryThreadDetail, RPStoryTurn, CreateRPStoryRequest, AddPartnerTurnRequest, GenerateThreadReplyRequest, GenerateThreadReplyResponse, SaveGeneratedTurnRequest, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult, TrainingPackReview, TrainingCandidate, TrainingCandidateStatus, PostCreatePayload, CommentCreatePayload, ScenePostCreatePayload, SpacePostCreatePayload, CompositionMetrics, ImageGenerationJob, CharacterHomePublic, CharacterHomePostPublic, CharacterImagePublic } from './types';
 
 // Use Vite proxy (/api) by default in dev, or custom URL from env
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 class ApiClient {
+  // The `token` key stays owned by this module (see `hasToken` below). What
+  // changed with the storage hardening is only HOW it is reached: through
+  // `lib/safeStorage`, so a denied or throwing `localStorage` cannot escape
+  // into the auth store's module-evaluation-time initializer and stop React
+  // mounting.
+
   private getToken(): string | null {
-    return localStorage.getItem('token');
+    // A read failure and "nothing stored" are the same answer here, and it is
+    // the right one: no token means signed out.
+    return safeGet('token');
   }
 
-  private setToken(token: string): void {
-    localStorage.setItem('token', token);
+  /** Persist the session token. `false` when storage refused it. */
+  private setToken(token: string): boolean {
+    return safeSet('token', token);
   }
 
-  private clearToken(): void {
-    localStorage.removeItem('token');
+  /** Erase the session token. `false` when storage refused; callers proceed. */
+  private clearToken(): boolean {
+    return safeRemove('token');
   }
 
   /**
@@ -82,11 +93,31 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    this.setToken(token.access_token);
+    if (!this.setToken(token.access_token)) {
+      // Fail HONESTLY rather than half-succeeding. Every authenticated request
+      // reads the token back through `getToken()`, so a session whose token
+      // could not be stored is a session where the store says "signed in" and
+      // every API call arrives without an Authorization header — a broken
+      // state that looks like a server fault. Storage denial is the real
+      // cause, so it is the thing the user is told about.
+      //
+      // This is the one place storage denial is user-visible and not merely a
+      // lost preference, and it is unavoidable: a browser that will not keep a
+      // token cannot keep a session.
+      throw new Error(
+        'Your browser is blocking site storage, so Ficshon can\'t keep you ' +
+        'signed in. Allow cookies and site data for this site, or leave ' +
+        'private browsing, and try again.'
+      );
+    }
     return token;
   }
 
   logout(): void {
+    // Deliberately ignores the result. A browser that refuses to erase the
+    // token must not be able to keep an account signed in: the store clears
+    // in-memory auth state immediately after this returns, and that is what
+    // decides what the app shows.
     this.clearToken();
   }
 

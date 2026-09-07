@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { Realm } from '@/lib/types';
 import { CompositionTracker, markInternalHandoff } from '@/lib/composition';
+import { safeGet, safeRemove, safeSet } from '@/lib/safeStorage';
 
 const TITLE_KEY      = 'ficshon.workspace.title';
 const BODY_KEY       = 'ficshon.workspace.body';
@@ -381,10 +382,10 @@ export default function Workspace() {
   // its own — both for its direct publish path and so a copy-for-posting
   // handoff can vouch for the paste that lands in another composer.
   const composition = useRef(new CompositionTracker('workspace', { targetKind: 'post' })).current;
-  const [title, setTitle] = useState(() => localStorage.getItem(TITLE_KEY) ?? '');
-  const [body, setBody]   = useState(() => localStorage.getItem(BODY_KEY)  ?? '');
+  const [title, setTitle] = useState(() => safeGet(TITLE_KEY) ?? '');
+  const [body, setBody]   = useState(() => safeGet(BODY_KEY)  ?? '');
   const [characterId, setCharacterId] = useState<number>(() => {
-    const v = localStorage.getItem(CHARACTER_KEY);
+    const v = safeGet(CHARACTER_KEY);
     if (!v) return 0;
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
@@ -393,10 +394,10 @@ export default function Workspace() {
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [saveTick, setSaveTick] = useState(0);
   const [surfaceMode, setSurfaceMode] = useState<'night' | 'paper'>(
-    () => (localStorage.getItem(SURFACE_KEY) as 'night' | 'paper') ?? 'night'
+    () => (safeGet(SURFACE_KEY) as 'night' | 'paper') ?? 'night'
   );
   const [mode, setMode] = useState<'write' | 'preview' | 'review'>(() => {
-    const v = localStorage.getItem(MODE_KEY);
+    const v = safeGet(MODE_KEY);
     return v === 'preview' || v === 'review' || v === 'write' ? v : 'write';
   });
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -407,7 +408,7 @@ export default function Workspace() {
   const [realms, setRealms] = useState<Realm[]>([]);
   const [characters, setCharacters] = useState<{ id: number; name: string }[]>([]);
   const [selectedRealmId, setSelectedRealmId] = useState<number | null>(() => {
-    const v = localStorage.getItem(REALM_KEY);
+    const v = safeGet(REALM_KEY);
     if (!v) return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
@@ -438,25 +439,25 @@ export default function Workspace() {
   // elsewhere". Runs once, before any editing, and only when there is actually
   // a restored draft to account for.
   useEffect(() => {
-    const restored = localStorage.getItem(BODY_KEY) ?? '';
+    const restored = safeGet(BODY_KEY) ?? '';
     if (!restored) return;
     void composition
-      .resume(localStorage.getItem(SESSION_KEY), restored.length)
-      .then((id) => { if (id) localStorage.setItem(SESSION_KEY, id); });
+      .resume(safeGet(SESSION_KEY), restored.length)
+      .then((id) => { if (id) safeSet(SESSION_KEY, id); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced autosave — persists draft content + UI context
   useEffect(() => {
     setIsSaving(true);
     const t = setTimeout(() => {
-      localStorage.setItem(TITLE_KEY, title);
-      localStorage.setItem(BODY_KEY, body);
-      localStorage.setItem(MODE_KEY, mode);
-      localStorage.setItem(REALM_KEY, selectedRealmId === null ? '' : String(selectedRealmId));
-      localStorage.setItem(CHARACTER_KEY, String(characterId));
+      safeSet(TITLE_KEY, title);
+      safeSet(BODY_KEY, body);
+      safeSet(MODE_KEY, mode);
+      safeSet(REALM_KEY, selectedRealmId === null ? '' : String(selectedRealmId));
+      safeSet(CHARACTER_KEY, String(characterId));
       // Saved with the draft, so the next visit resumes this session rather
       // than opening a fresh one with no history.
-      if (composition.id) localStorage.setItem(SESSION_KEY, composition.id);
+      if (composition.id) safeSet(SESSION_KEY, composition.id);
       setIsSaving(false);
       setLastSavedAt(Date.now());
     }, 500);
@@ -472,10 +473,10 @@ export default function Workspace() {
   }, [lastSavedAt]);
 
   // Persist UI preferences immediately (no typing debounce needed for these)
-  useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
-  useEffect(() => { localStorage.setItem(REALM_KEY, selectedRealmId === null ? '' : String(selectedRealmId)); }, [selectedRealmId]);
-  useEffect(() => { localStorage.setItem(CHARACTER_KEY, String(characterId)); }, [characterId]);
-  useEffect(() => { localStorage.setItem(SURFACE_KEY, surfaceMode); }, [surfaceMode]);
+  useEffect(() => { safeSet(MODE_KEY, mode); }, [mode]);
+  useEffect(() => { safeSet(REALM_KEY, selectedRealmId === null ? '' : String(selectedRealmId)); }, [selectedRealmId]);
+  useEffect(() => { safeSet(CHARACTER_KEY, String(characterId)); }, [characterId]);
+  useEffect(() => { safeSet(SURFACE_KEY, surfaceMode); }, [surfaceMode]);
 
   // Load non-commons realms for the destination selector
   useEffect(() => {
@@ -561,11 +562,11 @@ export default function Workspace() {
 
       setTitle('');
       setBody('');
-      localStorage.removeItem(TITLE_KEY);
-      localStorage.removeItem(BODY_KEY);
+      safeRemove(TITLE_KEY);
+      safeRemove(BODY_KEY);
       // The session was spent on that post. Leaving its id behind would make
       // the next draft try to resume a session the server has already closed.
-      localStorage.removeItem(SESSION_KEY);
+      safeRemove(SESSION_KEY);
       setPublishDestination(destination);
       setPublishSuccess(true);
     } catch {
@@ -730,12 +731,12 @@ export default function Workspace() {
   function clearDraft() {
     setTitle('');
     setBody('');
-    localStorage.removeItem(TITLE_KEY);
-    localStorage.removeItem(BODY_KEY);
-    localStorage.removeItem(PASTE_HINT_KEY);
+    safeRemove(TITLE_KEY);
+    safeRemove(BODY_KEY);
+    safeRemove(PASTE_HINT_KEY);
     // Discarding the draft discards its evidence too: whatever is written next
     // is a new piece of writing and gets a session of its own.
-    localStorage.removeItem(SESSION_KEY);
+    safeRemove(SESSION_KEY);
     composition.reset();
     setLastSavedAt(null);
   }
@@ -1370,7 +1371,7 @@ export default function Workspace() {
           <button
             type="button"
             onClick={() => {
-              localStorage.setItem(PASTE_HINT_KEY, 'true');
+              safeSet(PASTE_HINT_KEY, 'true');
               navigate('/');
             }}
             className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"

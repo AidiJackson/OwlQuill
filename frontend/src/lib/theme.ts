@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import { safeGet, safeSet } from './safeStorage';
+
 /** Gemstone accent themes (UI v2). Emerald is the default — it matches the
  *  existing brand accent so unmigrated pages stay coherent. */
 export type Gem = 'emerald' | 'sapphire' | 'amethyst' | 'ruby' | 'gold' | 'obsidian';
@@ -20,19 +22,30 @@ const MODE_KEY = 'ficshon.theme.mode';
 const isGem = (v: unknown): v is Gem => GEMS.some((g) => g.id === v);
 
 function applyTheme(gem: Gem, mode: ThemeMode) {
-  document.documentElement.setAttribute('data-gem', gem);
-  document.documentElement.setAttribute('data-mode', mode);
+  // Guarded because this runs BEFORE React mounts (see `initTheme`). Painting
+  // the theme is a presentation nicety; failing to paint it must never be the
+  // reason the application does not start. In a browser this cannot throw —
+  // the guard is for the pre-mount contract, and for non-DOM environments.
+  try {
+    document.documentElement.setAttribute('data-gem', gem);
+    document.documentElement.setAttribute('data-mode', mode);
+  } catch {
+    /* no document to paint — the app still mounts and renders at defaults */
+  }
 }
 
 function storedGem(): Gem {
-  const v = localStorage.getItem(GEM_KEY);
+  // `safeGet` returns null when storage is denied, which `isGem` rejects, so
+  // "storage refused" and "nothing stored" land on the same default. That is
+  // the honest answer: no stored preference means the default preference.
+  const v = safeGet(GEM_KEY);
   return isGem(v) ? v : 'emerald';
 }
 
 function storedMode(): ThemeMode {
   // Light mode is a supported product theme. Dark remains the default when no
   // explicit preference is stored; an explicit 'light' is honoured.
-  return localStorage.getItem(MODE_KEY) === 'light' ? 'light' : 'dark';
+  return safeGet(MODE_KEY) === 'light' ? 'light' : 'dark';
 }
 
 interface ThemeState {
@@ -48,13 +61,15 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   mode: storedMode(),
 
   setGem: (gem) => {
-    localStorage.setItem(GEM_KEY, gem);
+    // A refused write loses the preference on reload, nothing more: the theme
+    // still applies for this session because `applyTheme` and `set` follow.
+    safeSet(GEM_KEY, gem);
     applyTheme(gem, get().mode);
     set({ gem });
   },
 
   setMode: (mode) => {
-    localStorage.setItem(MODE_KEY, mode);
+    safeSet(MODE_KEY, mode);
     applyTheme(get().gem, mode);
     set({ mode });
   },
@@ -65,7 +80,16 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 }));
 
-/** Apply the persisted theme before first paint. Called from main.tsx. */
+/**
+ * Apply the persisted theme before first paint. Called from main.tsx.
+ *
+ * CANNOT THROW, and that is the point rather than a detail. This runs before
+ * `createRoot().render()`, so a throw here aborts module evaluation, React
+ * never mounts, and no error boundary can catch it — a boundary is a component
+ * and there would be no tree to hold one. Every part is now non-throwing on
+ * its own (`safeGet` for the reads, a guard inside `applyTheme` for the DOM),
+ * so the caller in main.tsx needs no special handling for the normal case.
+ */
 export function initTheme() {
   applyTheme(storedGem(), storedMode());
 }

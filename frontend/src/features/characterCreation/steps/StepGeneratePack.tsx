@@ -17,6 +17,7 @@ import {
   generateIdentityPack,
   resolveImageUrl,
 } from '../shared/api';
+import { safeGet } from '@/lib/safeStorage';
 
 interface Props {
   characterId: number;
@@ -90,7 +91,7 @@ export default function StepGeneratePack({
   // Debug fallback: legacy 4-anchor path stays reachable only via this DEV flag,
   // never as the default. Production users always get the v2 canon pack.
   const legacyDebug =
-    import.meta.env.DEV && localStorage.getItem('useLegacyPack') === '1';
+    import.meta.env.DEV && safeGet('useLegacyPack') === '1';
 
   const jobActive = !!job && (job.status === 'queued' || job.status === 'running');
   const busy = loading || jobActive;

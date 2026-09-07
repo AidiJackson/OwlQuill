@@ -9,11 +9,15 @@ import type {
   V2PackJob,
   V2PackResponse,
 } from './types';
+import { safeGet } from '@/lib/safeStorage';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 function getToken(): string | null {
-  return localStorage.getItem('token');
+  // Via `safeGet`: a denied `localStorage` reads as "no token", which sends an
+  // unauthenticated request and gets an honest 401, instead of throwing out of
+  // every call in this module.
+  return safeGet('token');
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {

@@ -23,6 +23,7 @@ import { useThemeStore, GEMS } from '@/lib/theme';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
 import { canUseCreatorTools } from '@/lib/entitlements';
+import { safeGet, safeSet } from '@/lib/safeStorage';
 
 export default function Layout() {
   const { user, logout, setActiveCharacter } = useAuthStore();
@@ -31,7 +32,7 @@ export default function Layout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [messagesSeen, setMessagesSeen] = useState(
-    () => localStorage.getItem('ficshon.messages_seen') === 'true'
+    () => safeGet('ficshon.messages_seen') === 'true'
   );
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
 
@@ -82,9 +83,9 @@ export default function Layout() {
 
   useEffect(() => {
     if (location.pathname.startsWith('/messages')) {
-      localStorage.setItem('ficshon.messages_seen', 'true');
+      safeSet('ficshon.messages_seen', 'true');
       setMessagesSeen(true);
-    } else if (localStorage.getItem('ficshon.messages_seen') === 'true') {
+    } else if (safeGet('ficshon.messages_seen') === 'true') {
       setMessagesSeen(true);
     }
   }, [location.pathname]);

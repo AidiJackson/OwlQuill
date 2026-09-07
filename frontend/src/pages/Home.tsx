@@ -16,6 +16,7 @@ import { hasActingCharacter } from '@/lib/entitlements';
 import ProvenanceBadge from '@/components/ProvenanceBadge';
 import { PostTypeBadge, PostKindBadge } from '@/components/PostBadges';
 import { CompositionTracker } from '@/lib/composition';
+import { safeGet, safeRemove } from '@/lib/safeStorage';
 
 const WORKSPACE_PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
 
@@ -60,10 +61,10 @@ export default function Home() {
 
   // Workspace paste hint — read synchronously to avoid flicker
   const [showWorkspacePasteHint, setShowWorkspacePasteHint] = useState(
-    () => localStorage.getItem(WORKSPACE_PASTE_HINT_KEY) === 'true'
+    () => safeGet(WORKSPACE_PASTE_HINT_KEY) === 'true'
   );
   const dismissWorkspacePasteHint = () => {
-    localStorage.removeItem(WORKSPACE_PASTE_HINT_KEY);
+    safeRemove(WORKSPACE_PASTE_HINT_KEY);
     setShowWorkspacePasteHint(false);
   };
 
@@ -354,7 +355,7 @@ export default function Home() {
                 disabled={posting}
                 aria-label="Write a post"
                 onFocus={() => {
-                  localStorage.removeItem(WORKSPACE_PASTE_HINT_KEY);
+                  safeRemove(WORKSPACE_PASTE_HINT_KEY);
                   setShowWorkspacePasteHint(false);
                 }}
                 className="fic-compose w-full mb-3 bg-transparent border-none resize-none text-ink placeholder:text-ink-3 focus:outline-none min-h-[80px]"
