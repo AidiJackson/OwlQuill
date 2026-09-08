@@ -17,9 +17,25 @@ the common one for historical avatars.
 The rule this module implements for a character's AVATAR and COVER
 (:func:`resolve_public_media_url`):
 
-* resolvable to one or more image rows → :func:`is_public_surface_safe` decides,
-  fail-closed across all matches (any unsafe match suppresses the URL);
+* resolvable to one or more image rows → :func:`is_public_media` decides,
+  fail-closed across all matches (any ineligible match suppresses the URL);
 * unresolvable → SUPPRESSED.
+
+:func:`is_public_media` is a COMPOSITION of two questions that stay separate:
+studio provenance (``is_public_surface_safe``) and lifecycle
+(``is_lifecycle_active``). The lifecycle half is new, and it REVERSES a rule
+this codebase previously pinned on purpose. ARCHIVED used to be a
+post-attachment concern only, so an image its owner had deleted stayed eligible
+as a character's avatar. For beta, ARCHIVED means WITHDRAWN FROM FICSHON: an
+owner who deletes an image should not keep finding it on the Home, the OG card,
+the directory, a feed avatar or a comment. Both halves are still asked
+independently, because provenance and lifecycle are different facts and the
+gallery and post rules compose them differently.
+
+That withdrawal is APPLICATION-LAYER. This module stops projecting the URL; it
+does not revoke bytes, and an anonymous party already holding the direct public
+R2/static URL can still fetch the object. Known, accepted beta storage debt —
+do not describe the suppression as deletion.
 
 The second half used to be the opposite. An unresolvable URL was returned
 unchanged, as a deliberate temporary exception whose stated justification was
@@ -61,7 +77,7 @@ from sqlalchemy.orm import Session
 from app.core.account_sigils import is_account_sigil
 from app.models.character_image import CharacterImage
 from app.models.user_image import UserImage
-from app.schemas.character_image import is_public_post_image, is_public_surface_safe
+from app.schemas.character_image import is_public_media, is_public_post_image
 
 
 def candidate_file_paths(url: str) -> set[str]:
@@ -88,6 +104,41 @@ def candidate_file_paths(url: str) -> set[str]:
         bare = path[len("static/"):]
         candidates |= {bare, f"/{bare}"}
     return candidates
+
+
+def urls_naming_file_path(file_path: str) -> set[str]:
+    """Every URL spelling that :func:`candidate_file_paths` resolves onto *file_path*.
+
+    The EXACT inverse of :func:`candidate_file_paths`, and it lives beside it so
+    the pair cannot drift. ``candidate_file_paths`` answers "which stored rows
+    does this pointer name?"; this answers "which pointers name this stored
+    row?" — the question a WITHDRAWAL has to ask, because
+    ``Character.avatar_url``, ``Character.cover_url``, ``User.avatar_url`` and
+    ``User.cover_url`` are plain denormalised strings with no foreign key to
+    follow back.
+
+    Derived, not guessed. ``candidate_file_paths(u)`` is
+    ``{p, "/" + p} | ({b, "/" + b} if p.startswith("static/"))`` for
+    ``p = u.lstrip("/")`` and ``b = p[len("static/"):]``. Solving
+    ``file_path in candidate_file_paths(u)`` for *u* with ``q =
+    file_path.lstrip("/")`` gives exactly the first branch (``q`` and ``/q``)
+    and exactly the second (``static/q`` and ``/static/q``) — no more. In
+    particular a bare ``generated/a.png`` pointer does NOT name a row stored as
+    ``static/generated/a.png``, because ``candidate_file_paths`` does not add a
+    ``static/`` prefix, and this set does not pretend otherwise. Widening it
+    would clear pointers the resolver still considers to name a different asset.
+
+    Absolute http(s) paths are stored verbatim and match themselves alone.
+
+    ``tests/test_archived_media_withdrawal.py`` asserts the round trip in both
+    directions over the spellings this codebase actually writes, so a change to
+    either function that breaks the symmetry fails there.
+    """
+    if file_path.startswith(("http://", "https://")):
+        return {file_path}
+
+    bare = file_path.lstrip("/")
+    return {bare, f"/{bare}", f"static/{bare}", f"/static/{bare}"}
 
 
 def _rows_for_url(db: Session, url: str) -> list:
@@ -119,11 +170,17 @@ def resolve_public_media_url(db: Session, url: Optional[str]) -> Optional[str]:
     The one place the avatar and the cover both go, so the two cannot drift
     apart on what "safe enough to publish" means.
 
+    Eligibility is :func:`is_public_media` — studio provenance AND an ACTIVE
+    lifecycle. The lifecycle half means the owner's delete now withdraws the
+    image from every surface this function feeds, not only from the post
+    attachments that always honoured it.
+
     Fail-closed twice over. If the URL matches several rows — a file promoted
-    or copied between records — a single unsafe match withholds it. And if it
-    matches NO row, it is withheld too: provenance that cannot be established
-    is not provenance, and this function's answer is consumed by surfaces whose
-    viewers are not the owner (see module docstring for what that replaced).
+    or copied between records — a single ineligible match withholds it. And if
+    it matches NO row, it is withheld too: provenance that cannot be
+    established is not provenance, and this function's answer is consumed by
+    surfaces whose viewers are not the owner (see module docstring for what
+    that replaced).
 
     Suppresses the URL only. No image row, no stored pointer and no file on
     disk is read for anything but this decision, or written at all — the owner
@@ -136,7 +193,7 @@ def resolve_public_media_url(db: Session, url: Optional[str]) -> Optional[str]:
     rows = _rows_for_url(db, url)
     if not rows:
         return None
-    if all(is_public_surface_safe(row) for row in rows):
+    if all(is_public_media(row) for row in rows):
         return url
     return None
 
@@ -150,9 +207,10 @@ def resolve_public_post_image_url(db: Session, url: Optional[str]) -> Optional[s
     applies a STRICTER policy on top of it, in two ways.
 
     Eligibility is :func:`is_public_post_image` rather than
-    :func:`is_public_surface_safe` alone, so an archived row (the owner's
-    delete) and a row whose kind has left the post-attachable allowlist are
-    both withheld.
+    :func:`is_public_media`, so a row whose kind has left the post-attachable
+    allowlist is withheld here and not there. The ARCHIVED half is no longer a
+    difference between the two: the avatar/cover rule now withholds an archived
+    row as well. What remains post-specific is the KIND allowlist.
 
     An UNRESOLVABLE url returns ``None``, as it now does on the avatar/cover
     path too — the two agreed on everything except this, and the avatar side
@@ -331,6 +389,8 @@ def resolve_public_media_urls(
     Deliberately the SAME predicate the anonymous Character Home applies to
     ``Character.avatar_url``, not a second rule that happens to agree today.
     An avatar the Home withholds is withheld beside a post as well, and the
-    two cannot drift because there is only one of them.
+    two cannot drift because there is only one of them — including the
+    lifecycle half, so an owner's delete withdraws the avatar from a whole feed
+    page in the same call that withdraws it from the Home.
     """
-    return _resolve_batch(db, urls, is_public_surface_safe)
+    return _resolve_batch(db, urls, is_public_media)

@@ -44,6 +44,7 @@ from app.schemas.character_image import (
     PublicGallerySelectionRequest,
     PUBLIC_SURFACE_UNSAFE_MESSAGE,
 )
+from app.services.asset_withdrawal import clear_governed_pointers_for
 from app.services.canon_references import CANON_REFERENCED_MESSAGE, is_canon_referenced
 from app.schemas.character_visual import (
     IdentityPackGenerateRequest,
@@ -845,7 +846,24 @@ def delete_character_image(
         )
 
     image.status = ImageStatusEnum.ARCHIVED
+
+    # ARCHIVED means WITHDRAWN, and a withdrawal that leaves the character
+    # still NAMING the deleted image as its avatar or cover has only done half
+    # the job. ``resolve_public_media_url`` stops projecting it either way, but
+    # the owner's own editor reads the raw column, and a stale pointer is a
+    # deleted portrait the founder keeps being shown as current. Same
+    # transaction as the archive above, so the two cannot come apart.
+    #
+    # After the canon-reference refusal on purpose: an asset live canon points
+    # at is not archived at all, and must not have its pointers touched on the
+    # way to a 422.
+    cleared = clear_governed_pointers_for(db, image)
     db.commit()
+    if cleared:
+        logger.info(
+            "ASSET_WITHDRAWN_POINTERS_CLEARED image_id=%s character_id=%s cleared=%s",
+            image_id, character_id, ",".join(cleared),
+        )
 
 
 # ── 1) POST /characters/{id}/dna ────────────────────────────────────

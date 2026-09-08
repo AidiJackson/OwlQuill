@@ -451,6 +451,26 @@ def promote_to_canon(
     if not img:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found.")
 
+    # ARCHIVED is the owner's delete, and it now means WITHDRAWN FROM FICSHON.
+    # Without this check an old row was enough to make a deleted image live
+    # canon again — the asset would drive future generation and become
+    # avatar-eligible, having been withdrawn from every shared surface minutes
+    # earlier. Promotion is not a restore, and there is deliberately no restore
+    # in the product for beta: an archived asset stays archived.
+    #
+    # 422, matching this route's other "the request is not a valid promotion"
+    # refusal below and ``manual_references``, which refuses an archived
+    # reference the same way. A 404 would be wrong — the caller owns the image
+    # and it exists; what it cannot do is come back.
+    if img.status != ImageStatusEnum.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This image has been deleted and cannot be promoted to canon. "
+                "It remains in your library's history."
+            ),
+        )
+
     # Phase 4D3-2: promotion gives an ORDINARY image a canon role. It is not a
     # relabelling tool for images that already have a canon meaning. Without
     # this, an ``identity_mark_detail`` or ``identity_body_map`` could be renamed

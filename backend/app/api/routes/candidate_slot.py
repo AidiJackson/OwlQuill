@@ -11,7 +11,10 @@ Promotion takes a snapshot before mutating identity_anchor_json so rollback
 is always available via the existing snapshot endpoints.
 
 ``image_url`` on the create route is RESOLVED against the caller's own image
-library rather than trusted — see :func:`_resolve_owned_active_asset`.
+library rather than trusted — see :func:`_resolve_owned_active_asset` — and the
+promote route re-asks the LIFECYCLE half of that question through
+:func:`_require_backing_asset_still_active`, because an owner can archive the
+backing asset between the two stages.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -95,17 +98,7 @@ def _resolve_owned_active_asset(
     deliberately indistinguishable in the response, so the endpoint cannot be
     used to probe which asset ids or storage paths exist.
     """
-    candidates = list(candidate_file_paths(image_url))
-    record = (
-        db.query(CharacterImage)
-        .filter(
-            CharacterImage.file_path.in_(candidates),
-            CharacterImage.character_id == character.id,
-            CharacterImage.user_id == current_user.id,
-            CharacterImage.status == ImageStatusEnum.ACTIVE,
-        )
-        .first()
-    )
+    record = _owned_active_asset(db, character, current_user, image_url)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -115,6 +108,90 @@ def _resolve_owned_active_asset(
             ),
         )
     return record.file_path
+
+
+def _owned_active_asset(
+    db: Session,
+    character: Character,
+    current_user: User,
+    image_url: str,
+):
+    """The ACTIVE ``CharacterImage`` *image_url* names, or ``None``.
+
+    THE lookup for this module, extracted so the create route and the promote
+    route ask the identical question of the identical columns. Two hand-written
+    copies of "own, this character's, and active" is how the two ends of a
+    two-stage workflow start disagreeing about what they validated.
+
+    ``candidate_file_paths`` performs the inversion, shared with the public
+    media resolver rather than reimplemented, because ``file_path_to_url`` is
+    not injective. Ownership is asserted on BOTH axes — the asset's own account
+    and the character it hangs off — exactly as before; nothing about the
+    creation contract changes by moving these four filters.
+
+    Returns the row rather than a bool so a caller can use its canonical
+    ``file_path``, and ``None`` rather than raising so each caller can phrase
+    its own refusal: "that is not a usable image" and "the image you chose has
+    since been deleted" are different sentences to a founder.
+    """
+    candidates = list(candidate_file_paths(image_url))
+    return (
+        db.query(CharacterImage)
+        .filter(
+            CharacterImage.file_path.in_(candidates),
+            CharacterImage.character_id == character.id,
+            CharacterImage.user_id == current_user.id,
+            CharacterImage.status == ImageStatusEnum.ACTIVE,
+        )
+        .first()
+    )
+
+
+def _require_backing_asset_still_active(
+    db: Session,
+    character: Character,
+    current_user: User,
+    candidate: CandidateSlot,
+) -> None:
+    """Refuse promotion if the candidate's backing image is no longer ACTIVE.
+
+    THE TIME-OF-CHECK WINDOW THIS CLOSES. Candidate creation resolves
+    ``image_url`` to an owned ACTIVE row and stores that row's own canonical
+    ``file_path`` (:func:`_resolve_owned_active_asset`). Promotion then copied
+    the stored string into ``identity_anchor_json`` without asking again, so the
+    sequence
+
+        create candidate (image ACTIVE) → owner archives the image → promote
+
+    reinstated a WITHDRAWN asset as the character's live identity anchor — read
+    back afterwards as generation conditioning and as the anchor's rendered
+    reference. Every single-stage selection path in this codebase now requires
+    ACTIVE; a two-stage one that checks at stage one and not stage two has the
+    guard in the wrong place, not a weaker version of it.
+
+    IDENTITY IS RELIABLE HERE, which is why this is a re-check and not a guess.
+    The candidate does not hold a client-supplied string: it holds the resolved
+    row's OWN ``file_path``, so re-running the same inversion against the same
+    ownership filters finds the same row or finds that it is no longer eligible.
+    No new identity semantics are invented and no loose URL comparison is made.
+
+    Called BEFORE ``promote_candidate``, so the snapshot is not taken, the
+    anchors are not rewritten, the stale ``IDENTITY_FACE_REF`` is not archived
+    and the candidate is not marked promoted. A refused promotion leaves live
+    state exactly as it was.
+
+    Does NOT reactivate anything. There is no restore in the product for beta:
+    the founder's way forward is to choose an image they still have.
+    """
+    if _owned_active_asset(db, character, current_user, candidate.image_url) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "The image this candidate was created from is no longer "
+                "available — it has been deleted. Create a new candidate from "
+                "an image in your library."
+            ),
+        )
 
 
 def _require_own_candidate(
@@ -214,6 +291,10 @@ def promote_candidate_slot(
     """
     character = _require_own_locked_character(character_id, current_user, db)
     candidate = _require_own_candidate(candidate_id, character, db)
+    # Ownership was settled by the two guards above. This is the LIFECYCLE
+    # question, asked here rather than only at creation because the asset can
+    # be withdrawn in between — and asked before any live state is touched.
+    _require_backing_asset_still_active(db, character, current_user, candidate)
 
     try:
         snapshot, updated_candidate = promote_candidate(db, character, candidate)

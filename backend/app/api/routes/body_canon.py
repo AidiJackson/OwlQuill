@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_owned_character as _get_owned_character
-from app.models.character_image import CharacterImage, ImageKindEnum
+from app.models.character_image import CharacterImage, ImageKindEnum, ImageStatusEnum
 from app.models.user import User
 from app.schemas.body_canon import BodyCanonRead, BodyMarkingCreate, BodyMarkingRead
 from app.services.body_canon import (
@@ -236,6 +236,24 @@ def use_existing_body_anchor(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Image not found or does not belong to this character.",
+        )
+    # ARCHIVED is the owner's delete, and it means WITHDRAWN FROM FICSHON. The
+    # THIRD member of one defect class, closed on the same terms as
+    # ``promote-to-canon`` and the body-slot ``use-existing``: an old row is not
+    # a restore, and beta ships no restore. A marking anchor is live canon — its
+    # url is read back as generation conditioning and as the marking's rendered
+    # reference — so accepting an archived row here would reinstate a withdrawn
+    # asset in both roles.
+    #
+    # 422 rather than 404, matching the two siblings and ``manual_references``:
+    # the image exists and is the caller's; what it cannot do is come back.
+    if image.status != ImageStatusEnum.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This image has been deleted and can't be used as a marking "
+                "anchor."
+            ),
         )
     updated = update_marking(character, marking_id, {
         "anchor_image_url": image.file_path,

@@ -1,5 +1,6 @@
 """User routes."""
 import io
+import logging
 from pathlib import Path
 from typing import List
 
@@ -44,6 +45,12 @@ from app.schemas.character import CharacterSearchResult
 from app.schemas.character_image import CharacterImageRead
 from app.services.canon_references import CANON_REFERENCED_MESSAGE, is_canon_referenced
 from app.services.asset_persistence import OwnedBy, persist_derived_image_asset
+from app.services.asset_withdrawal import clear_governed_pointers_for
+from app.services.character_projection import project_search_results
+from app.services.character_home_media import (
+    resolve_account_avatar_url,
+    resolve_public_media_url,
+)
 from app.services.identity import build_user_out
 from app.services.image_provider import get_image_provider
 from app.services.seeding import (
@@ -54,6 +61,8 @@ from app.services.seeding import (
 )
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # ── Cover presets ────────────────────────────────────────────────────
 
@@ -738,7 +747,19 @@ def archive_my_character_image(
         )
 
     image.status = ImageStatusEnum.ARCHIVED
+
+    # Matching the character-scoped route exactly, as everything else on this
+    # route already does. It matters MORE here: the account avatar crop is a
+    # characterless ``CharacterImage``, so this is the only entrance that can
+    # archive the asset behind ``User.avatar_url``. A built-in sigil is not
+    # media and is never touched.
+    cleared = clear_governed_pointers_for(db, image)
     db.commit()
+    if cleared:
+        logger.info(
+            "ASSET_WITHDRAWN_POINTERS_CLEARED image_id=%s user_id=%s cleared=%s",
+            image_id, current_user.id, ",".join(cleared),
+        )
 
 
 @router.get("/me/images", response_model=List[UserImageRead])
@@ -797,11 +818,76 @@ def get_user_profile(
 
     Readable by any authenticated user — creator profiles are public product
     surfaces alongside character profiles (post-Sprint-33 correction). The
-    response schema exposes only public fields (no email, flags, or settings)."""
+    response schema exposes only public fields (no email, flags, or settings).
+
+    ``avatar_url`` ANSWERS TO THE GOVERNED ACCOUNT-AVATAR RULE. It used to be
+    returned straight off the column, which made this the one shared account
+    surface that applied neither provenance nor lifecycle: an avatar the
+    comment list withheld, this route published to any signed-in account. The
+    write path is sigil-only now, but this is the half that also covers a value
+    stored before that landed, a governed crop whose owner has since deleted
+    it, and anything written directly to the column.
+
+    :func:`resolve_account_avatar_url` is the existing definition and is used
+    unchanged rather than reimplemented here, so this route cannot drift from
+    the comment list. Its three branches, in order: a built-in sigil is not
+    media and passes by exact membership; a real ``UserImage``- or
+    ``CharacterImage``-backed crop falls through to the media rule and is
+    withheld once ARCHIVED; anything unresolvable — an arbitrary url, a storage
+    path with no row — fails closed, which is the Beta Boundary 2 rule and is
+    not relaxed here.
+
+    Applied for EVERY viewer, the profile's own owner included, for the reason
+    the comment list applies it that way: exempting the owner would leave one
+    response still carrying the raw pointer, and it is the response an attacker
+    can always obtain by asking for their own profile. The account's PRIVATE
+    representation is a different schema on a different route (``GET
+    /users/me`` → :class:`app.schemas.user.User`) and is untouched, so nothing
+    about account management changes.
+
+    ``cover_url`` ANSWERS TO THE ORDINARY GOVERNED MEDIA RULE — a DIFFERENT
+    resolver, and the difference is the whole reason there are two calls below
+    rather than one loop over the two fields.
+
+    An account cover is always real media. ``User.cover_url`` is written only
+    from an owned ``UserImage`` (``POST /users/me/images/{id}/set-cover`` and
+    ``POST /users/me/cover/generate``), it is not writable through ``PATCH
+    /users/me`` at all since Beta Boundary 2, and there is no such thing as a
+    built-in cover: the eight sigils are AVATARS. So the sigil branch has
+    nothing to do here, and routing the cover through
+    :func:`resolve_account_avatar_url` would hand this field a way to emit a
+    caller-supplied ``data:`` payload that the media rule would otherwise
+    refuse. :func:`resolve_public_media_url` is the correct abstraction and is
+    the same one the Character Home, the OG card and the directory apply to a
+    character's cover.
+
+    Lifecycle comes free rather than being restated: that resolver applies
+    ``is_public_media``, so an ARCHIVED backing row is withheld the day a
+    ``UserImage`` archive path exists. None exists today, and this increment
+    deliberately does not add one — the point is that the read path will not
+    need revisiting when one arrives.
+
+    NO OWNER BYPASS on either field. Both are resolved for every viewer,
+    including the profile's own account, for the reason the comment list
+    already applies it that way: exempting the owner would leave one response
+    still carrying the raw pointer, and it is the response an attacker can
+    always obtain by asking for their own profile. The account's PRIVATE
+    representation is a different schema on a different route (``GET
+    /users/me`` → :class:`app.schemas.user.User`) and is untouched, so nothing
+    about account management changes.
+
+    PRESENTATION ONLY. Both verdicts are assigned to the SCHEMA instance, never
+    to the ORM row — writing one back would mark ``users`` dirty and a later
+    flush would persist a suppression as a deletion of the owner's media.
+    """
     user = db.query(UserModel).filter(UserModel.username == username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+
+    profile = PublicUserProfile.model_validate(user)
+    profile.avatar_url = resolve_account_avatar_url(db, profile.avatar_url)
+    profile.cover_url = resolve_public_media_url(db, profile.cover_url)
+    return profile
 
 
 @router.get("/{username}/characters", response_model=List[CharacterSearchResult])
@@ -819,6 +905,29 @@ def get_user_characters(
 
     With seeding mode OFF this falls back to the legacy behaviour (public
     characters visible to everyone, full roster to the owner).
+
+    ``avatar_url`` AND ``cover_url`` GO THROUGH THE GOVERNED PROJECTION.
+    ``CharacterSearchResult`` is the same schema ``GET /characters/search`` and
+    ``GET /characters/directory`` return, and both of those hand it to
+    :func:`project_search_results`; this route returned the ORM rows straight,
+    so one schema had two answers about what a pointer may contain.
+
+    The exposure was DORMANT rather than absent: with seeding mode ON a
+    non-owner is already handed ``[]`` above, so only the owner's own roster
+    could be reached. That is a configuration standing in for a rule. Turning
+    seeding mode off is a product decision that must not silently reactivate a
+    Beta Boundary 2 display-pointer violation, so the rule is stated here where
+    it cannot be undone by a flag.
+
+    The projection is REUSED, not reimplemented — no second definition of "safe
+    enough to show", and lifecycle comes with it, so an ARCHIVED backing row is
+    withheld exactly as it is on the directory. It writes nothing: the verdict
+    lands on the schema instances, never on the ORM rows.
+
+    Nothing else changes. Roster visibility, the seeding-mode rule, the
+    public-only narrowing for non-owners, the ordering and the response schema
+    are all exactly as they were — this adds a media rule to the rows, not a
+    rule about who may enumerate them.
     """
     target = db.query(UserModel).filter(UserModel.username == username).first()
     if not target:
@@ -834,7 +943,9 @@ def get_user_characters(
     if current_user.id != target.id:
         query = query.filter(CharacterModel.visibility == VisibilityEnum.PUBLIC)
 
-    return query.order_by(CharacterModel.created_at.desc()).all()
+    return project_search_results(
+        db, query.order_by(CharacterModel.created_at.desc()).all()
+    )
 
 
 @router.get("/{username}/timeline")

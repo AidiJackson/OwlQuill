@@ -588,6 +588,161 @@ def test_promote_via_http_takes_snapshot_and_replaces_slot(client: TestClient):
     assert any(s["reason"] == "pre_evolution" for s in snapshots)
 
 
+def _archive_image_by_path(file_path: str) -> None:
+    """Archive the ``CharacterImage`` stored at *file_path* — the owner's delete.
+
+    Written directly rather than through ``DELETE
+    /characters/{id}/images/{image_id}``, because that route refuses to archive
+    an asset live canon points at and a candidate's source is not yet canon.
+    The state produced is byte-identical either way: ``status`` becomes
+    ARCHIVED and nothing else moves.
+    """
+    from app.models.character_image import CharacterImage, ImageStatusEnum
+    from tests.conftest import TestingSessionLocal
+
+    db = TestingSessionLocal()
+    try:
+        row = (
+            db.query(CharacterImage)
+            .filter(CharacterImage.file_path == file_path)
+            .first()
+        )
+        assert row is not None, f"no image row at {file_path}"
+        row.status = ImageStatusEnum.ARCHIVED
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_promote_refuses_a_candidate_whose_image_was_archived(client: TestClient):
+    """THE TIME-OF-CHECK WINDOW: ACTIVE at stage one, ARCHIVED before stage two.
+
+    Candidate creation resolves ``image_url`` to an owned ACTIVE row and stores
+    that row's own canonical ``file_path``. Promotion used to copy the stored
+    string into ``identity_anchor_json`` without asking again, so this exact
+    sequence reinstated a WITHDRAWN asset as the character's live identity
+    anchor — read back afterwards as generation conditioning and as the
+    anchor's rendered reference.
+
+    Every single-stage selection path in this codebase requires ACTIVE. A
+    two-stage one that checks at stage one and not stage two has the guard in
+    the wrong place, not a weaker version of it.
+
+    The refusal must land BEFORE any live-state mutation, which is what the
+    second half of this test asserts: no snapshot taken, anchors unchanged, and
+    the candidate not marked promoted.
+    """
+    token = _register_and_login(client, "cslot_stale@example.com")
+    cid = _create_character(client, token, "Stale Candidate Char")
+    _lock_character(client, token, cid)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Create the candidate from an ACTIVE governed image.
+    image_path = _owned_image_url(client, token, cid)
+    resp = client.post(
+        f"/characters/{cid}/identity-evolution/candidate-slot",
+        json={"slot": "front", "image_url": image_path},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    candidate_id = resp.json()["id"]
+    client.post(
+        f"/characters/{cid}/identity-evolution/candidate-slot/{candidate_id}/validate",
+        headers=headers,
+    )
+
+    anchor_before = client.get(f"/characters/{cid}", headers=headers).json()[
+        "identity_anchor_json"
+    ]
+    snapshots_before = client.get(
+        f"/characters/{cid}/identity-evolution/snapshots", headers=headers
+    ).json()
+
+    # 2. The owner archives the backing image.
+    _archive_image_by_path(image_path)
+
+    # 3. Promotion is refused.
+    resp = client.post(
+        f"/characters/{cid}/identity-evolution/candidate-slot/{candidate_id}/promote",
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "deleted" in resp.json()["detail"].lower()
+
+    # 4. Live state is exactly as it was — the refusal preceded every mutation.
+    anchor_after = client.get(f"/characters/{cid}", headers=headers).json()[
+        "identity_anchor_json"
+    ]
+    assert anchor_after == anchor_before
+    assert image_path not in (anchor_after or "")
+
+    snapshots_after = client.get(
+        f"/characters/{cid}/identity-evolution/snapshots", headers=headers
+    ).json()
+    assert len(snapshots_after) == len(snapshots_before)
+
+    # And the candidate was not consumed, so nothing has to be un-done.
+    listed = client.get(
+        f"/characters/{cid}/identity-evolution/candidate-slot/{candidate_id}",
+        headers=headers,
+    )
+    if listed.status_code == 200:
+        assert listed.json()["status"] != "promoted"
+
+
+def test_promote_still_works_when_the_image_is_still_active(client: TestClient):
+    """The re-check must not break the ordinary promotion it guards.
+
+    Same flow as above with step 2 removed. Pinned separately from the existing
+    snapshot/slot-replacement test because this one exists to prove the NEW
+    lookup resolves a live asset rather than refusing everything: a
+    ``_owned_active_asset`` that always returned ``None`` would pass the test
+    above and fail here.
+    """
+    token = _register_and_login(client, "cslot_fresh@example.com")
+    cid = _create_character(client, token, "Fresh Candidate Char")
+    _lock_character(client, token, cid)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    image_path = _owned_image_url(client, token, cid)
+    resp = client.post(
+        f"/characters/{cid}/identity-evolution/candidate-slot",
+        json={"slot": "front", "image_url": image_path},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    candidate_id = resp.json()["id"]
+    client.post(
+        f"/characters/{cid}/identity-evolution/candidate-slot/{candidate_id}/validate",
+        headers=headers,
+    )
+
+    resp = client.post(
+        f"/characters/{cid}/identity-evolution/candidate-slot/{candidate_id}/promote",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["candidate"]["status"] == "promoted"
+
+    anchor_after = client.get(f"/characters/{cid}", headers=headers).json()[
+        "identity_anchor_json"
+    ]
+    assert image_path in anchor_after
+
+    # The image itself is untouched by promotion: still the owner's, still ACTIVE.
+    from app.models.character_image import CharacterImage, ImageStatusEnum
+    from tests.conftest import TestingSessionLocal
+
+    db = TestingSessionLocal()
+    try:
+        row = db.query(CharacterImage).filter(
+            CharacterImage.file_path == image_path
+        ).first()
+        assert row.status == ImageStatusEnum.ACTIVE
+    finally:
+        db.close()
+
+
 def test_promote_invalid_candidate_returns_409():
     """Service raises ValueError when promoting a candidate with validation_status='invalid'."""
     from app.services.candidate_slot import promote_candidate as _promote

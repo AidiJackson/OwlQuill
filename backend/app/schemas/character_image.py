@@ -170,6 +170,72 @@ def is_public_surface_safe(image) -> bool:
     return True
 
 
+def is_lifecycle_active(image) -> bool:
+    """True when *image* has not been WITHDRAWN by its owner.
+
+    The lifecycle half of public eligibility, and only that half. It asks one
+    question — is this row still ACTIVE? — and knows nothing about where the
+    bytes came from, which is :func:`is_public_surface_safe`'s question and
+    stays there.
+
+    Archiving IS the owner's delete: ``DELETE /characters/{id}/images/{image_id}``
+    and ``DELETE /users/me/character-images/{image_id}`` flip ``status`` rather than
+    removing the row, because provenance, ownership and lineage have to survive
+    the deletion of the picture.
+
+    Read duck-typed, exactly as :func:`is_public_post_image` reads it, so it
+    holds for ``UserImage`` too — that model's ``status`` is the plain string
+    ``"active"``, which ``ImageStatusEnum.ACTIVE`` compares equal to because the
+    enum is a ``str`` subclass.
+
+    Fail-closed on a row that has no ``status`` at all: ``getattr`` defaults to
+    ``None``, which is not ACTIVE, so a duck-typed stand-in without the column
+    is treated as withdrawn rather than published on a missing value.
+    """
+    return getattr(image, "status", None) == ImageStatusEnum.ACTIVE
+
+
+def is_public_media(image) -> bool:
+    """True when *image* may back a governed avatar/cover on a SHARED surface.
+
+    The composition ``resolve_public_media_url`` applies, and the reason the two
+    halves below are separate functions rather than one widened predicate:
+
+    * :func:`is_public_surface_safe` — WHERE THE BYTES CAME FROM. Studio
+      provenance, shared with the gallery and the post-attachment rules. It is
+      deliberately free of lifecycle and kind, and must stay that way: three
+      surfaces share it while answering lifecycle differently.
+    * :func:`is_lifecycle_active` — WHETHER THE OWNER STILL PUBLISHES IT.
+
+    A DELIBERATE PRODUCT REVERSAL, taken for beta. Until now ARCHIVED was read
+    as a POST-ATTACHMENT rule only: an archived row was withheld from a post's
+    ``image_url`` and still eligible as a character's avatar, and
+    ``test_character_avatar_safety_on_shared_surfaces`` pinned exactly that
+    divergence on purpose. The rule it pinned has changed. ARCHIVED now means
+    WITHDRAWN FROM FICSHON — the owner pressed delete, and an owner who deletes
+    an image does not expect to keep finding it on the Character Home, the OG
+    card, the directory, the search results, a feed avatar, a comment or a
+    messaging summary. One lifecycle answer for every shared surface is what
+    that promise requires, so the avatar surface is brought into line with the
+    attachment surface rather than the other way round.
+
+    WHAT THIS DOES NOT CLAIM. It is APPLICATION-LAYER withdrawal. Ficshon stops
+    projecting the url; it does not revoke bytes. An anonymous party already
+    holding the direct public R2/static url can still fetch the object, and
+    nothing here changes that. Accepted beta storage debt, stated rather than
+    papered over.
+
+    Says nothing about ownership. The owner's own library, and every owner and
+    admin path, never consult this.
+
+    Not a widening of :func:`is_public_surface_safe`. That predicate represents
+    provenance, several surfaces share it, and folding lifecycle into it would
+    give the gallery and post rules a second, invisible status check while
+    destroying the one distinction that lets each surface answer differently.
+    """
+    return is_lifecycle_active(image) and is_public_surface_safe(image)
+
+
 #: Kinds a ``CharacterImage`` may become a character's AVATAR.
 #:
 #: Phase 4D3-2. Until 4D3-3 the canon writers created no rows, so "which images

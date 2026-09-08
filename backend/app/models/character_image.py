@@ -335,11 +335,21 @@ class CharacterImage(Base):
       so the rule holds against code that has not been written yet.
 
     Lifecycle (``status``) and safety (``safety_state``) stay orthogonal.
-    ``status`` answers "does the owner still have this?" — and ARCHIVED already
-    IS the owner's delete, since ``DELETE /characters/{id}/images/{image_id}``
-    sets it and no hard-delete route exists. ``safety_state`` answers "may
-    anyone else see it?". The two genuinely disagree in practice: an ARCHIVED
-    row is ineligible as a post attachment and perfectly eligible as an avatar.
+    ``status`` answers "does the owner still publish this?" — and ARCHIVED IS
+    the owner's delete, since ``DELETE /characters/{id}/images/{image_id}`` and
+    ``DELETE /users/me/character-images/{image_id}`` set it and no hard-delete
+    route exists. ``safety_state`` answers "would Ficshon show this to anyone
+    else?".
+
+    THE EXAMPLE THAT USED TO STAND HERE IS GONE, and the columns are still
+    orthogonal. It read: "an ARCHIVED row is ineligible as a post attachment
+    and perfectly eligible as an avatar." That divergence was real and is no
+    longer the product rule — for beta, ARCHIVED means WITHDRAWN FROM FICSHON,
+    so an archived row is ineligible on every shared surface, avatars included
+    (``schemas.character_image.is_public_media``). What makes the columns
+    orthogonal is not that they disagree about archiving; it is that one is the
+    owner's decision about their own library and the other is Ficshon's
+    decision about publication, and neither may ever be derived from the other.
     """
 
     __tablename__ = "character_images"

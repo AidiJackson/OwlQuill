@@ -344,22 +344,38 @@ def test_every_exclusion_layer_reaches_the_feed_and_anonymous_comments(
     assert anon[0]["character_avatar_url"] is None
 
 
-def test_an_archived_avatar_row_still_publishes(client, db_session, avatars):
-    """Status is a POST-ATTACHMENT rule, not an avatar rule, and stays that way.
+def test_an_archived_avatar_row_is_withdrawn(client, db_session, avatars):
+    """REVERSED, deliberately: ARCHIVED now withdraws an avatar too.
 
-    ``is_public_surface_safe`` deliberately knows nothing about status or kind
-    — those are per-surface lifecycle questions, and the avatar surface has
-    always answered them differently from the attachment surface. Pinned so
-    "apply the safety rule to avatars too" is never quietly read as "apply the
-    post rule to avatars".
+    This test previously asserted the OPPOSITE, under the name
+    ``test_an_archived_avatar_row_still_publishes``, and it was right to at the
+    time: ``is_public_surface_safe`` represents PROVENANCE, status was read as
+    a post-attachment rule, and an image the owner had deleted stayed eligible
+    as a character's face.
+
+    That product rule has changed for beta. ARCHIVED means WITHDRAWN FROM
+    FICSHON: pressing delete is a withdrawal from the product, and an owner who
+    deletes a portrait does not expect to keep finding it on the Character
+    Home, on the OG card, or beside every post the character ever wrote.
+
+    The IMPLEMENTATION distinction the old test protected is still intact and
+    is not what changed. ``is_public_surface_safe`` still knows nothing about
+    lifecycle; ``is_lifecycle_active`` is a separate predicate; the avatar rule
+    is now their composition, ``is_public_media``. What moved is the product
+    answer, not the separation of concerns — so "apply the safety rule to
+    avatars too" still must not be read as "collapse provenance into
+    lifecycle".
+
+    The kind is IDENTITY_FACE_REF exactly as before, so the only variable under
+    test is ``status``: an avatar-eligible kind, safe provenance, archived.
     """
     _char_image(db_session, avatars["character_id"], avatars["owner_id"],
                 file_path="static/generated/summer-avatar.png",
                 status=ImageStatusEnum.ARCHIVED, kind=ImageKindEnum.IDENTITY_FACE_REF)
 
-    assert home_avatar(client, avatars) == AVATAR
+    assert home_avatar(client, avatars) is None
     seen = shared_surface_avatars(client, avatars, avatars["viewer_token"])
-    assert seen == {k: AVATAR for k in seen}, seen
+    assert seen == {k: None for k in seen}, seen
 
 
 def test_ambiguous_avatar_resolution_fails_closed(client, db_session, avatars):
@@ -595,13 +611,20 @@ def test_a_post_carrying_both_an_attachment_and_an_avatar_costs_four(
 def test_an_attachment_verdict_cannot_decide_an_avatar(client, db_session, avatars):
     """The two maps are separate because the two rules are.
 
-    An ARCHIVED row is ineligible as an attachment and perfectly eligible as an
-    avatar. One url wearing both hats is the sharpest form of that: if the
-    verdicts were merged, one of these two assertions has to be wrong.
+    REWRITTEN, and the example it used to make had to change with the product
+    rule. ARCHIVED used to be the sharpest way to show the two maps diverging —
+    withheld as an attachment, published as an avatar. Withdrawal removed that
+    divergence on purpose: an archived row is now ineligible on BOTH.
+
+    The KIND allowlist is what still separates them, so it is what this test
+    now uses. ``IDENTITY_FACE_REF`` is avatar-eligible and is not in
+    ``POST_ATTACHABLE_IMAGE_KINDS``, so one url wearing both hats still forces
+    a different verdict from each map — and if the two were merged, one of
+    these two assertions has to be wrong.
     """
     _char_image(db_session, avatars["character_id"], avatars["owner_id"],
                 file_path="static/generated/summer-avatar.png",
-                status=ImageStatusEnum.ARCHIVED)
+                kind=ImageKindEnum.IDENTITY_FACE_REF)
     db_session.add(Post(
         realm_id=avatars["realm"].id, author_user_id=avatars["owner_id"],
         character_id=avatars["character_id"], content="Both at once.",
@@ -613,8 +636,33 @@ def test_an_attachment_verdict_cannot_decide_an_avatar(client, db_session, avata
     h = auth_headers(avatars["viewer_token"])
     entry = client.get("/posts/feed", headers=h).json()[0]
     assert entry["content"] == "Both at once."
-    assert entry["image_url"] is None        # post rule: archived is withdrawn
-    assert entry["character_avatar_url"] == AVATAR   # avatar rule: status is not its business
+    assert entry["image_url"] is None       # post rule: kind is not attachable
+    assert entry["character_avatar_url"] == AVATAR   # avatar rule: that kind is a face
+
+
+def test_an_archived_row_is_now_withheld_on_both_maps(client, db_session, avatars):
+    """The other half of the reversal, stated where the divergence used to be.
+
+    The assertion this replaces read ``character_avatar_url == AVATAR`` beside
+    ``image_url is None``. Both are ``None`` now, and that is the whole point
+    of withdrawal: one lifecycle answer for every shared surface.
+    """
+    _char_image(db_session, avatars["character_id"], avatars["owner_id"],
+                file_path="static/generated/summer-avatar.png",
+                status=ImageStatusEnum.ARCHIVED)
+    db_session.add(Post(
+        realm_id=avatars["realm"].id, author_user_id=avatars["owner_id"],
+        character_id=avatars["character_id"], content="Both withdrawn.",
+        content_type=ContentTypeEnum.IC, post_kind="general",
+        image_url=AVATAR, created_at=datetime(2026, 1, 3, 12, 0, 0),
+    ))
+    db_session.commit()
+
+    h = auth_headers(avatars["viewer_token"])
+    entry = client.get("/posts/feed", headers=h).json()[0]
+    assert entry["content"] == "Both withdrawn."
+    assert entry["image_url"] is None
+    assert entry["character_avatar_url"] is None
 
 
 def test_two_characters_do_not_borrow_each_others_avatar_verdicts(

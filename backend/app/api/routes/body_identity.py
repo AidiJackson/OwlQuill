@@ -588,6 +588,23 @@ def use_existing_body_slot(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Image not found or does not belong to this character.",
         )
+    # ARCHIVED is the owner's delete, and it now means WITHDRAWN FROM FICSHON.
+    # A body slot is live canon: its url is read back as generation
+    # conditioning and as the slot's rendered image, so accepting an archived
+    # row here would reinstate a deleted asset as both. Selection is not a
+    # restore, and beta ships no restore.
+    #
+    # 422 rather than 404 — the image exists and is the caller's — matching the
+    # unknown-slot refusal above and ``manual_references``, the other path that
+    # refuses an archived image the founder hand-picked.
+    if image.status != ImageStatusEnum.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This image has been deleted and can't be used for a body "
+                "identity slot."
+            ),
+        )
     _save_body_slot(char, slot, {
         "url": image.file_path,
         "status": "locked",
