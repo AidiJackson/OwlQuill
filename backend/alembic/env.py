@@ -8,6 +8,7 @@ from alembic import context
 
 from app.core.config import settings
 from app.core.database import Base
+from app.core.db_target import require_migration_authorisation
 from app.models import *  # noqa: F401, F403 - Import all models for autogenerate
 
 # this is the Alembic Config object, which provides
@@ -34,6 +35,32 @@ def get_url() -> str:
     return settings.DATABASE_URL
 
 
+def _require_authorised_target(operation: str) -> None:
+    """Refuse a migration against a non-DEV target without acknowledgement.
+
+    WHAT THIS CLOSES. ``get_url()`` returns ``settings.DATABASE_URL`` verbatim,
+    so ``alembic upgrade head`` migrated whichever database the environment
+    named — no classification, no confirmation, and nothing recorded to say the
+    operator meant that one. An exported ``DATABASE_URL`` was sufficient
+    authority to alter a production schema.
+
+    Applied to BOTH the offline and online paths. Offline mode emits SQL rather
+    than executing it, which is harmless in itself — but it is harmless only
+    because of what the operator then does with the script, and a guard that
+    covered one path and not the other would invite "just use ``--sql``" as the
+    way around it. Both are mutation-INTENT, so both ask.
+
+    RAISES rather than skipping. A migration that silently did not run leaves
+    the operator believing the schema moved, which is worse than a refusal.
+
+    See ``app.core.db_target``: the acknowledgement variable and phrase are
+    deliberately DIFFERENT from the FastAPI startup bootstrap's, so authorising
+    a production migration does not also authorise startup seeding, and vice
+    versa. No credential ever appears in the refusal.
+    """
+    require_migration_authorisation(get_url(), operation=operation)
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -45,6 +72,8 @@ def run_migrations_offline() -> None:
     Calls to context.execute() here emit the given string to the
     script output.
     """
+    _require_authorised_target("to generate migration SQL (offline mode)")
+
     url = get_url()
     context.configure(
         url=url,
@@ -63,6 +92,8 @@ def run_migrations_online() -> None:
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
+    _require_authorised_target("to run migrations")
+
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = get_url()
     connectable = engine_from_config(

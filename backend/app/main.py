@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
+from app.core.db_target import startup_bootstrap_authorised
 from app.core.admin_seed import (
     ensure_admin_user,
     ensure_commons_realm,
@@ -51,27 +52,54 @@ async def lifespan(app: FastAPI):
             settings.IDENTITY_ANGLES_PROVIDER,
             bool(settings.OPENAI_API_KEY),
         )
-    ensure_identity_schema()
-    ensure_admin_user()
-    ensure_seeder_flags()
-    ensure_commons_realm()
-    try:
-        ensure_starter_realms_and_posts()
-    except Exception:
-        pass  # logged inside; never crash startup
-    try:
-        seed_invite_codes()
-    except Exception:
-        pass  # logged inside; never crash startup
-    try:
-        from app.core.database import SessionLocal as _SL
-        _db = _SL()
+    # ── Bootstrap WRITES, gated on the database target ────────────────────
+    #
+    # Everything below this point MUTATES the database: DDL
+    # (``ensure_identity_schema`` adds a column) plus six seeding routines that
+    # insert the dev admin, the Commons realm, seeder flags, starter realms and
+    # posts, invite codes and style presets. Until now they ran on whatever
+    # ``DATABASE_URL`` named, so merely BOOTING this app against production
+    # would have performed DDL on it with no confirmation step anywhere.
+    #
+    # The guard is asked BEFORE any of them is called, so a refusal means not
+    # one write was attempted — see ``app.core.db_target`` for the mechanism and
+    # for why possessing a connection string is not a statement of intent.
+    #
+    # A REFUSAL DOES NOT STOP THE APP. None of this is required to SERVE
+    # traffic; it is development bootstrap. Crashing startup here would couple
+    # the public read surface to a seeding routine and turn a safety guard into
+    # an outage, so the writes are skipped, the reason is logged at WARNING, and
+    # the app goes on to serve reads exactly as before. Alembic takes the
+    # opposite line and refuses to run at all, because a migration that silently
+    # did not happen is worse than one that stopped.
+    bootstrap_ok, bootstrap_reason, target_label = startup_bootstrap_authorised(
+        settings.DATABASE_URL
+    )
+    if not bootstrap_ok:
+        logger.warning("STARTUP_BOOTSTRAP_SKIPPED %s", bootstrap_reason)
+    else:
+        logger.info("startup_bootstrap target=%s: %s", target_label, bootstrap_reason)
+        ensure_identity_schema()
+        ensure_admin_user()
+        ensure_seeder_flags()
+        ensure_commons_realm()
         try:
-            seed_style_presets(_db)
-        finally:
-            _db.close()
-    except Exception:
-        pass  # logged inside; never crash startup
+            ensure_starter_realms_and_posts()
+        except Exception:
+            pass  # logged inside; never crash startup
+        try:
+            seed_invite_codes()
+        except Exception:
+            pass  # logged inside; never crash startup
+        try:
+            from app.core.database import SessionLocal as _SL
+            _db = _SL()
+            try:
+                seed_style_presets(_db)
+            finally:
+                _db.close()
+        except Exception:
+            pass  # logged inside; never crash startup
     yield
     # Shutdown (nothing to do)
 
