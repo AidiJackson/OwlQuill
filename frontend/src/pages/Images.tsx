@@ -7,6 +7,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
 import { ficDebug } from '@/lib/ficDebug';
 import { useObjectPositionDrag } from '@/features/images/useObjectPositionDrag';
+import CoverFramingPreview from '@/features/images/components/CoverFramingPreview';
 import { GALLERY_KINDS, GALLERY_KIND_LABELS, isGalleryKind } from '@/features/images/galleryKinds';
 
 type LbMode = 'view' | 'coverEdit' | 'avatarEdit';
@@ -58,7 +59,10 @@ export default function Images() {
   // zoom). Both use the shared hook — the same behaviour the character profile
   // picker uses, so the two surfaces can never drift apart.
   const coverDrag = useObjectPositionDrag({ mode: 'objectPosition', debugLabel: 'Images:coverDrag' });
-  const { posX: coverPosX, posY: coverPosY, posXRef: coverPosXRef, posYRef: coverPosYRef } = coverDrag;
+  // Only the refs are needed here now: CoverFramingPreview owns the frame, the
+  // drag handlers and the live posX/posY rendering, and the refs are what the
+  // save reads.
+  const { posXRef: coverPosXRef, posYRef: coverPosYRef } = coverDrag;
   const [coverSaving, setCoverSaving] = useState(false);
   const [coverSaveErr, setCoverSaveErr] = useState('');
   const [coverSaveDone, setCoverSaveDone] = useState(false);
@@ -85,7 +89,6 @@ export default function Images() {
   // Refs
   const mountedRef = useRef(true);
   const lbCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const coverFrameRef = coverDrag.frameRef;
   const avatarFrameRef = avatarDrag.frameRef;
 
   useEffect(() => {
@@ -152,7 +155,13 @@ export default function Images() {
     // must not be silently pushed onto an unrelated character.
     const charId = lightboxImage?.character_id ?? null;
     setAssignCharId(charId);
-    coverDrag.reset(0.5, 0.5, 1.0);
+    // Open on the character's SAVED framing, not centre. This editor writes
+    // cover_position_x/y on save, so opening centred meant that merely visiting
+    // it and pressing Save discarded whatever composition the creator had
+    // already chosen — the editor has to start where the cover currently sits
+    // for "I didn't move it" to mean "nothing changed".
+    const existing = charId === null ? undefined : myCharacters.find((c) => c.id === charId);
+    coverDrag.reset(existing?.cover_position_x ?? 0.5, existing?.cover_position_y ?? 0.5, 1.0);
     setCoverSaveErr(charId === null ? "This image isn't linked to a character." : '');
     setCoverSaveDone(false);
     setLbMode('coverEdit');
@@ -168,9 +177,9 @@ export default function Images() {
   };
 
   // Drag-to-reposition comes from the shared hook (see useObjectPositionDrag):
-  //   cover  → object-position pan, works at scale 1
+  //   cover  → object-position pan, works at scale 1 (started by
+  //            CoverFramingPreview, which owns the cover frame)
   //   avatar → scale+translate pan, only meaningful once zoomed in
-  const startCoverDrag = coverDrag.startDrag;
   const startAvatarDrag = avatarDrag.startDrag;
 
   const handleSaveCover = async () => {
@@ -867,27 +876,13 @@ export default function Images() {
                 </div>
               )}
 
-              {/* Banner preview — same dimensions as profile banner (WYSIWYG) */}
-              <div
-                ref={coverFrameRef}
-                className="relative w-full h-[260px] sm:h-[320px] md:h-[360px] rounded-2xl overflow-hidden select-none"
-                style={{ cursor: 'grab', touchAction: 'none' }}
-                onMouseDown={(e) => { e.preventDefault(); startCoverDrag(e.clientX, e.clientY); }}
-                onTouchStart={(e) => { e.preventDefault(); startCoverDrag(e.touches[0].clientX, e.touches[0].clientY); }}
-              >
-                <img
-                  src={lightboxImage.url}
-                  alt="Cover preview"
-                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                  style={{ objectPosition: `${coverPosX * 100}% ${coverPosY * 100}%` }}
-                  draggable={false}
-                />
-                <div className="absolute inset-0 flex items-start justify-center pt-2 pointer-events-none">
-                  <span className="text-[10px] text-white/60 bg-black/50 px-2 py-0.5 rounded select-none">
-                    Drag to reposition
-                  </span>
-                </div>
-              </div>
+              {/* Banner preview — the SAME component the character profile's
+                  reposition picker uses, so the two editors cannot show the
+                  creator different things about one stored value. It previously
+                  used a single fixed-height frame described as WYSIWYG, which it
+                  was not: a cover is wide on a desktop and taller than it is
+                  wide on a phone, and no one frame can stand for both. */}
+              <CoverFramingPreview drag={coverDrag} imageUrl={lightboxImage.url} />
 
               {coverSaveErr && <p className="text-xs text-red-400">{coverSaveErr}</p>}
 

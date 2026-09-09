@@ -4,6 +4,7 @@ import { apiClient } from '@/lib/apiClient';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { LibraryImage } from '@/lib/types';
 import { useObjectPositionDrag } from '../useObjectPositionDrag';
+import CoverFramingPreview from './CoverFramingPreview';
 import { GALLERY_KINDS } from '../galleryKinds';
 
 /**
@@ -150,8 +151,12 @@ export default function CharacterImagePicker({
         </div>
 
         <div className="p-5 space-y-5">
-          {/* Preview frame — real profile aspect, drag to reposition */}
-          {previewUrl && (
+          {/* Preview frame. A cover is seen in two very different shapes and gets
+              the shared desktop/mobile preview; an avatar is a square on every
+              screen, so it keeps its single frame and its zoom control. */}
+          {previewUrl && (isCover ? (
+            <CoverFramingPreview drag={drag} imageUrl={previewUrl} />
+          ) : (
             <div className="space-y-2">
               <p className="text-xs text-ink-3">
                 Drag to reposition. The original image is never altered.
@@ -160,9 +165,7 @@ export default function CharacterImagePicker({
                 ref={drag.frameRef}
                 onMouseDown={(e) => { e.preventDefault(); drag.startDrag(e.clientX, e.clientY); }}
                 onTouchStart={(e) => drag.startDrag(e.touches[0].clientX, e.touches[0].clientY)}
-                className={`relative overflow-hidden bg-surface-elevated cursor-move select-none ${
-                  isCover ? 'w-full aspect-[3/1] rounded-xl' : 'w-40 h-40 rounded-2xl mx-auto'
-                }`}
+                className="relative overflow-hidden bg-surface-elevated cursor-move select-none w-40 h-40 rounded-2xl mx-auto"
               >
                 <img
                   src={previewUrl}
@@ -170,26 +173,22 @@ export default function CharacterImagePicker({
                   draggable={false}
                   className="absolute inset-0 w-full h-full object-cover pointer-events-none"
                   style={
-                    isCover
-                      ? { objectPosition: `${drag.posX * 100}% ${drag.posY * 100}%` }
-                      : drag.scale > 1.001
+                    drag.scale > 1.001
                       ? { transform: `scale(${drag.scale}) translate(${(0.5 - drag.posX) * (drag.scale - 1) / drag.scale * 100}%, ${(0.5 - drag.posY) * (drag.scale - 1) / drag.scale * 100}%)` }
                       : undefined
                   }
                 />
               </div>
-              {!isCover && (
-                <div className="flex items-center gap-2 justify-center">
-                  <span className="text-xs text-ink-3">Zoom</span>
-                  <input
-                    type="range" min={1} max={2.5} step={0.05} value={drag.scale}
-                    onChange={(e) => drag.setScale(Number(e.target.value))}
-                    className="w-40"
-                  />
-                </div>
-              )}
+              <div className="flex items-center gap-2 justify-center">
+                <span className="text-xs text-ink-3">Zoom</span>
+                <input
+                  type="range" min={1} max={2.5} step={0.05} value={drag.scale}
+                  onChange={(e) => drag.setScale(Number(e.target.value))}
+                  className="w-40"
+                />
+              </div>
             </div>
-          )}
+          ))}
 
           {/* Selection grid — hidden in reposition-only mode */}
           {!repositionOnly && (

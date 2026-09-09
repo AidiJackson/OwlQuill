@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from PIL import Image as PILImage
 from pydantic import BaseModel, Field
@@ -99,10 +99,26 @@ class SetCharacterAvatarResponse(BaseModel):
 
 
 class SetCharacterCoverRequest(BaseModel):
+    """Set a character's cover image, and OPTIONALLY its framing.
+
+    THE POSITIONS DEFAULT TO ``None``, NOT TO CENTRE, AND THE DIFFERENCE IS THE
+    WHOLE POINT. They used to default to ``0.5``, which made omission
+    indistinguishable from "centre it": every caller that set a cover without
+    naming a position silently overwrote the creator's saved framing, and the
+    route below assigned both columns unconditionally. That is what reset a
+    repositioned cover to the middle whenever "Set as cover" was used from the
+    media tab (``CharacterDetail.tsx``'s ``handleSetAsCover``), and it persisted,
+    so the loss survived a reload and looked like reposition had never saved.
+
+    ``None`` now means PRESERVE what is stored. An explicitly supplied value
+    still means "set it", INCLUDING ``0.5`` — recentring is a legitimate thing
+    to ask for, and it stays expressible precisely because omission no longer
+    says it.
+    """
     image_type: str = Field(..., pattern=r"^(character|user)$")
     image_id: int
-    cover_position_y: float = Field(default=0.5, ge=0.0, le=1.0)
-    cover_position_x: float = Field(default=0.5, ge=0.0, le=1.0)
+    cover_position_y: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    cover_position_x: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 class SetCharacterCoverResponse(BaseModel):
@@ -705,14 +721,27 @@ def set_character_cover(
     cover_url = file_path_to_url(img.file_path)
 
     character.cover_url = cover_url
-    character.cover_position_y = req.cover_position_y
-    character.cover_position_x = req.cover_position_x
+    # Assign each axis ONLY when the caller actually supplied it. Setting the
+    # image and framing the image are two different requests that happen to
+    # share an endpoint; a caller that means only the first must not silently
+    # perform the second. See SetCharacterCoverRequest for what this closed.
+    if req.cover_position_y is not None:
+        character.cover_position_y = req.cover_position_y
+    if req.cover_position_x is not None:
+        character.cover_position_x = req.cover_position_x
     db.commit()
 
+    # Report the EFFECTIVE persisted framing, read back off the row rather than
+    # echoed from the request — after a preserving call the request carries no
+    # position at all, and echoing it would answer None for a cover that is in
+    # fact framed. The ``or 0.5`` coalesces the legacy NULL a never-positioned
+    # character can still hold, which is exactly what every renderer does with
+    # it (``coverObjectPosition``, ``?? 0.5``), so the number returned here is
+    # the one the client will actually draw with.
     return SetCharacterCoverResponse(
         cover_url=cover_url,
-        cover_position_y=req.cover_position_y,
-        cover_position_x=req.cover_position_x,
+        cover_position_y=character.cover_position_y if character.cover_position_y is not None else 0.5,
+        cover_position_x=character.cover_position_x if character.cover_position_x is not None else 0.5,
     )
 
 

@@ -806,6 +806,9 @@ export default function CharacterDetail() {
           initialPosY={picker.mode === 'cover' ? coverPosY : avatarPosY}
           onCancel={() => setPicker(null)}
           onConfirmed={(result) => {
+            // Optimistic, and deliberately limited to the IMAGE. The picker
+            // knows which url it set; it does not own the framing, so nothing
+            // here manufactures a cover_position_* value.
             setCharacter({
               ...character,
               ...(result.avatar_url ? { avatar_url: result.avatar_url } : {}),
@@ -814,6 +817,25 @@ export default function CharacterDetail() {
             setPicker(null);
             setCoverToast(picker.mode === 'cover' ? 'Cover updated' : 'Profile picture updated');
             setTimeout(() => { if (mountedRef.current) setCoverToast(''); }, 2500);
+
+            // Then let the SERVER settle it. Repositioning wrote
+            // cover_position_x/y through PATCH, but this component's copy of the
+            // character still held the pre-drag values, so the hero re-rendered
+            // from stale state and the cover visibly snapped back to its old
+            // framing the instant the creator pressed Save — the save had
+            // succeeded, and the page said otherwise.
+            //
+            // A refetch rather than a merge, because the server is the only
+            // thing that knows what was actually persisted (the cover route may
+            // preserve rather than overwrite framing), and manufacturing the
+            // value here would put a second, quietly diverging copy of that rule
+            // in the UI.
+            //
+            // This is a READ. It cannot double-save and cannot race the save: the
+            // picker has already awaited its own writes before calling this.
+            apiClient.getCharacter(character.id)
+              .then((fresh) => { if (mountedRef.current) setCharacter(fresh); })
+              .catch(() => { /* keep the optimistic image; framing settles on next load */ });
           }}
         />
       )}
