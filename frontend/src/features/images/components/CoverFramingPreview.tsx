@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { useObjectPositionDrag } from '../useObjectPositionDrag';
+import { freeAxesFromAspect, type FreeAxes } from '../coverGeometry';
 
 /**
  * The cover framing preview, shared by both editors that write
@@ -16,13 +17,22 @@ import type { useObjectPositionDrag } from '../useObjectPositionDrag';
  * (~1.8:1) and TALLER THAN IT IS WIDE on a phone (~0.7:1).
  *
  * So the two viewports do not merely look different — the axis that does
- * anything flips between them. On desktop the image overflows vertically and Y
- * is what frames the shot; on mobile it overflows horizontally and X is, while
- * Y does nothing at all. A single wide preview (this used to be `aspect-[3/1]`)
+ * anything can flip between them. For a portrait or square image the desktop
+ * frame overflows vertically (Y frames the shot) and the mobile frame
+ * horizontally (X does). A single wide preview (this used to be `aspect-[3/1]`)
  * therefore left X pinned and UNREACHABLE, while X is the axis that decides
  * what a phone actually shows — and a share link is most often opened on a
  * phone. The toggle is not decoration; it is the only way to set both halves of
  * a value the product has always stored.
+ *
+ * WHICH AXIS IS FREE IS NOT A PROPERTY OF THE VIEWPORT ALONE. It is the pair —
+ * image shape against frame shape — that decides: a landscape wider than 16:9
+ * overflows the desktop frame HORIZONTALLY, so there Y is the inert axis. The
+ * hint under the toggle used to be a fixed string per viewport and was simply
+ * wrong for such an image ("adjust the vertical framing" on an axis that
+ * could not move). It is now computed from the image's natural size, reported
+ * to the drag hook so the drag itself follows the same geometry — see
+ * `coverGeometry`.
  *
  * WHAT THIS DELIBERATELY DOES NOT CLAIM
  * -------------------------------------
@@ -58,19 +68,31 @@ export type CoverPreviewViewport = 'desktop' | 'mobile';
  */
 const VIEWPORTS: Record<
   CoverPreviewViewport,
-  { label: string; hint: string; frameClass: string }
+  { label: string; aspect: number; frameClass: string }
 > = {
   desktop: {
     label: 'Desktop',
-    hint: 'Adjust the vertical framing.',
+    aspect: 16 / 9,
     frameClass: 'w-full aspect-[16/9]',
   },
   mobile: {
     label: 'Mobile',
-    hint: 'Adjust the horizontal framing.',
+    aspect: 3 / 4,
     frameClass: 'w-[210px] mx-auto aspect-[3/4]',
   },
 };
+
+/**
+ * What the creator can actually do in this viewport with this image. Worded
+ * from the free axis, never from the viewport: the desktop frame is not
+ * "vertical" — a wide enough image makes it horizontal.
+ */
+export function framingHint(free: FreeAxes | null, viewportLabel: string): string {
+  if (!free || (free.x && free.y)) return 'Drag the image to adjust its framing.';
+  if (free.y) return 'Drag up or down to adjust the vertical framing.';
+  if (free.x) return 'Drag left or right to adjust the horizontal framing.';
+  return `This image fills the ${viewportLabel.toLowerCase()} viewport exactly — nothing to adjust here.`;
+}
 
 interface Props {
   /**
@@ -91,7 +113,33 @@ export default function CoverFramingPreview({ drag, imageUrl }: Props) {
   // pointer move rather than caching them, so a frame that changes shape
   // between drags needs no notification and no second drag implementation.
   const [viewport, setViewport] = useState<CoverPreviewViewport>('desktop');
-  const { hint, frameClass } = VIEWPORTS[viewport];
+  const { label, aspect, frameClass } = VIEWPORTS[viewport];
+
+  // The image's natural size, once known. It feeds two things and nothing
+  // else: the drag hook (so the pointer moves the image along its real free
+  // axis) and the hint below (so it names that axis). A new url forgets the
+  // old size until the new image reports its own — the hook is told the same,
+  // so a drag in between falls back to its size-less behaviour rather than
+  // using the previous image's geometry.
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
+  const reportSize = (img: HTMLImageElement | null) => {
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+    const size = { width: img.naturalWidth, height: img.naturalHeight };
+    setImageSize(size);
+    drag.setImageSize(size);
+  };
+  useEffect(() => {
+    setImageSize(null);
+    drag.setImageSize(null);
+    // A cached image can be complete before React attaches onLoad; ask now
+    // rather than wait for an event that may already have fired.
+    if (imgRef.current?.complete) reportSize(imgRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageUrl]);
+
+  const free = imageSize ? freeAxesFromAspect(imageSize.width / imageSize.height, aspect) : null;
+  const hint = framingHint(free, label);
 
   return (
     <div className="space-y-2">
@@ -120,22 +168,26 @@ export default function CoverFramingPreview({ drag, imageUrl }: Props) {
             );
           })}
         </div>
-        <p className="text-xs text-ink-2">{hint}</p>
+        <p className="text-xs text-ink-2" data-testid="cover-framing-hint">{hint}</p>
       </div>
 
       <div
         ref={drag.frameRef}
         data-testid="cover-preview-frame"
         data-viewport={viewport}
+        data-free-x={free ? String(free.x) : undefined}
+        data-free-y={free ? String(free.y) : undefined}
         onMouseDown={(e) => { e.preventDefault(); drag.startDrag(e.clientX, e.clientY); }}
         onTouchStart={(e) => { e.preventDefault(); drag.startDrag(e.touches[0].clientX, e.touches[0].clientY); }}
         className={`relative overflow-hidden rounded-xl bg-surface-elevated cursor-move select-none ${frameClass}`}
         style={{ touchAction: 'none' }}
       >
         <img
+          ref={imgRef}
           src={imageUrl}
           alt="Cover preview"
           draggable={false}
+          onLoad={(e) => reportSize(e.currentTarget)}
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           style={{ objectPosition: `${drag.posX * 100}% ${drag.posY * 100}%` }}
         />

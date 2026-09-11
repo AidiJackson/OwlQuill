@@ -425,10 +425,32 @@ class ApiClient {
     });
   }
 
-  async setCharacterCover(characterId: number, imageType: 'character' | 'user', imageId: number, coverPositionY = 0.5, coverPositionX = 0.5): Promise<{ cover_url: string; cover_position_y: number; cover_position_x: number }> {
+  /**
+   * Set a character's cover image and, OPTIONALLY, its framing.
+   *
+   * The framing parameters have no default on purpose. They used to default to
+   * 0.5 and were always serialised, so a caller that only meant "make this the
+   * cover" sent an explicit centre and the server — which treats an OMITTED
+   * axis as "preserve what is stored" — obediently recentred a cover the
+   * creator had positioned. Omission is now carried through to the wire:
+   * a framing the caller did not supply is not in the body at all. A caller
+   * that means to frame (the library editor, the picker) passes both.
+   */
+  async setCharacterCover(
+    characterId: number,
+    imageType: 'character' | 'user',
+    imageId: number,
+    coverPositionY?: number,
+    coverPositionX?: number,
+  ): Promise<{ cover_url: string; cover_position_y: number; cover_position_x: number }> {
     return this.request<{ cover_url: string; cover_position_y: number; cover_position_x: number }>(`/characters/${characterId}/cover`, {
       method: 'POST',
-      body: JSON.stringify({ image_type: imageType, image_id: imageId, cover_position_y: coverPositionY, cover_position_x: coverPositionX }),
+      body: JSON.stringify({
+        image_type: imageType,
+        image_id: imageId,
+        ...(coverPositionY !== undefined ? { cover_position_y: coverPositionY } : {}),
+        ...(coverPositionX !== undefined ? { cover_position_x: coverPositionX } : {}),
+      }),
     });
   }
 

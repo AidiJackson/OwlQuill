@@ -137,12 +137,25 @@ export default function CharacterImagePicker({
   const isCover = mode === 'cover';
   const previewUrl = selected ? resolveImageUrl(selected.url) : null;
 
+  // Reposition-only never changes WHICH image is the cover — it writes framing
+  // through PATCH and nothing else (see handleConfirm) — so it must not be
+  // labelled as if it did. "Set cover" on the current cover read as a
+  // re-assignment and left the creator unsure whether pressing it would reset
+  // anything. The wording follows the action, not the mode's internals.
+  const subject = isCover ? 'cover' : 'profile picture';
+  const title = repositionOnly
+    ? `Reposition ${subject}`
+    : isCover ? 'Cover image' : 'Profile picture';
+  const confirmLabel = repositionOnly
+    ? 'Save position'
+    : isCover ? 'Set cover' : 'Set profile picture';
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
       <div className="bg-surface border border-edge rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-edge">
           <h2 className="font-serif text-lg text-ink">
-            {isCover ? 'Cover image' : 'Profile picture'}
+            {title}
             <span className="text-ink-3 font-sans text-sm"> · {characterName}</span>
           </h2>
           <button onClick={onCancel} className="text-ink-3 hover:text-ink transition-colors" aria-label="Cancel">
@@ -243,7 +256,7 @@ export default function CharacterImagePicker({
             className="px-4 py-2 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            {isCover ? 'Set cover' : 'Set profile picture'}
+            {confirmLabel}
           </button>
         </div>
       </div>

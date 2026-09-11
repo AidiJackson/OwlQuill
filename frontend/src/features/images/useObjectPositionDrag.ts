@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ficDebug } from '@/lib/ficDebug';
+import { coverDragDelta, coverOverflow, type Size } from './coverGeometry';
 
 /**
  * Drag-to-reposition for previewing how an image sits inside a fixed frame,
@@ -10,7 +11,12 @@ import { ficDebug } from '@/lib/ficDebug';
  *
  * - `objectPosition` (cover / hero): pan works at any zoom. Position maps
  *   directly to CSS `object-position`; dragging right reveals the left of the
- *   image, so the delta is subtracted.
+ *   image, so the delta is subtracted. Once the caller has reported the
+ *   image's natural size (`setImageSize`), the pointer moves the image 1:1
+ *   along the axis where it actually overflows the frame and not at all along
+ *   the axis where it fits — see `coverGeometry`. Until then it falls back to
+ *   treating the pointer as a fraction of the frame, so a drag before the
+ *   image has loaded still does something rather than nothing.
  * - `scaleTranslate` (square avatar): panning only means something once the
  *   image is zoomed in (`scale > 1`), and the delta is scaled by the zoom.
  *
@@ -52,6 +58,10 @@ export function useObjectPositionDrag({
   useEffect(() => { scaleRef.current = scale; }, [scale]);
 
   const frameRef = useRef<HTMLDivElement | null>(null);
+  // The image's natural pixel size, reported by whoever renders it. Only the
+  // objectPosition mode reads it; the avatar's scale/translate pan is a zoom
+  // on a square and needs no overflow calculation.
+  const imageSizeRef = useRef<Size | null>(null);
   const dragStateRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
   const activeCleanupRef = useRef<(() => void) | null>(null);
 
@@ -75,12 +85,23 @@ export function useObjectPositionDrag({
       const container = frameRef.current;
       if (!dragStateRef.current || !container) return;
       const { offsetWidth: w, offsetHeight: h } = container;
-      const dx = (x - dragStateRef.current.startX) / w;
-      const dy = (y - dragStateRef.current.startY) / h;
+      const dxPx = x - dragStateRef.current.startX;
+      const dyPx = y - dragStateRef.current.startY;
+      const dx = dxPx / w;
+      const dy = dyPx / h;
 
       if (mode === 'objectPosition') {
-        setPosX(clamp01(dragStateRef.current.startPosX - dx));
-        setPosY(clamp01(dragStateRef.current.startPosY - dy));
+        const image = imageSizeRef.current;
+        if (image) {
+          // Real geometry: the free axis follows the image, the fitted axis
+          // stays put, and the image tracks the pointer pixel for pixel.
+          const { dX, dY } = coverDragDelta(dxPx, dyPx, coverOverflow(image, { width: w, height: h }));
+          setPosX(clamp01(dragStateRef.current.startPosX + dX));
+          setPosY(clamp01(dragStateRef.current.startPosY + dY));
+        } else {
+          setPosX(clamp01(dragStateRef.current.startPosX - dx));
+          setPosY(clamp01(dragStateRef.current.startPosY - dy));
+        }
       } else {
         const sc = scaleRef.current;
         if (sc <= 1.001) return;
@@ -122,6 +143,15 @@ export function useObjectPositionDrag({
     setScale(s);
   }, []);
 
+  /**
+   * Report the natural size of the image being framed (from the <img>'s
+   * `naturalWidth/Height`). Pass `null` when the image changes and its size is
+   * not yet known, so a drag on the new image does not use the old geometry.
+   */
+  const setImageSize = useCallback((size: Size | null) => {
+    imageSizeRef.current = size && size.width > 0 && size.height > 0 ? size : null;
+  }, []);
+
   useEffect(() => () => { activeCleanupRef.current?.(); }, []);
 
   return {
@@ -129,5 +159,6 @@ export function useObjectPositionDrag({
     setPosX, setPosY, setScale,
     posXRef, posYRef, scaleRef,
     frameRef, startDrag, cleanupDrag, reset,
+    imageSizeRef, setImageSize,
   };
 }

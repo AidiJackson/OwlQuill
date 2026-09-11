@@ -26,9 +26,21 @@
  *    existing Home suite carries a non-centre `cover_position_y` in its
  *    fixture and never checks that it lands on the element.
  *
+ * Two more joined later:
+ *
+ * 4. **The gallery's "Set as Cover" recentred the framing.** The client sent
+ *    an explicit 0.5/0.5 whenever the caller gave none, so the server's
+ *    "omitted means preserve" rule never fired. The page then kept its stale
+ *    framing until a reload revealed the reset.
+ * 5. **The preview assumed the free axis from the viewport.** Which axis
+ *    `object-fit: cover` leaves slack on depends on the image's shape against
+ *    the frame's, so a wide landscape on the desktop preview could only move
+ *    sideways while the hint said "vertical", and moved far slower than the
+ *    pointer. The drag now follows the real image (`coverGeometry`).
+ *
  * These are deliberately about the STORED value reaching the DOM. How
- * faithfully a preview frame's aspect ratio predicts the hero's is a separate,
- * unfixed issue (the WYSIWYG mismatch) and is not asserted here.
+ * faithfully a preview frame's aspect ratio predicts the hero's is a separate
+ * issue (the WYSIWYG approximation) and is not asserted here.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -130,6 +142,18 @@ const sizeFrame = (el: HTMLElement, width: number, height: number) => {
   Object.defineProperty(el, 'offsetHeight', { value: height, configurable: true });
 };
 
+/**
+ * Tell the preview what shape its image is. jsdom never decodes an image, so
+ * `naturalWidth/Height` stay 0 and `load` never fires; this supplies both,
+ * which is exactly what the preview reads to decide the free axis.
+ */
+const loadPreviewImage = (width: number, height: number) => {
+  const img = previewImage();
+  Object.defineProperty(img, 'naturalWidth', { value: width, configurable: true });
+  Object.defineProperty(img, 'naturalHeight', { value: height, configurable: true });
+  fireEvent.load(img);
+};
+
 /** A complete pointer drag across the frame, in CSS pixels. */
 const dragBy = (el: HTMLElement, dx: number, dy: number) => {
   fireEvent.mouseDown(el, { clientX: 200, clientY: 200 });
@@ -213,11 +237,36 @@ describe('CharacterImagePicker — reposition only', () => {
     await waitFor(() => expect(coverImage().style.objectPosition).toBe('25% 80%'));
   });
 
+  it('is labelled as saving a position, not as setting a cover', async () => {
+    // Reposition-only writes framing through PATCH and never changes which
+    // image is the cover; a "Set cover" button on the current cover read as
+    // a re-assignment that might reset something.
+    renderPicker();
+    await screen.findByText(/drag to reposition/i);
+    expect(screen.getByRole('button', { name: 'Save position' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /set cover/i })).toBeNull();
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/^Reposition cover/);
+  });
+
+  it('still says "Set cover" when choosing a new image', async () => {
+    render(
+      <CharacterImagePicker
+        characterId={CHARACTER.id}
+        characterName="Shadow"
+        mode="cover"
+        onConfirmed={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(await screen.findByRole('button', { name: 'Set cover' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/^Cover image/);
+  });
+
   it('saves exactly those values when nothing is dragged', async () => {
     const onConfirmed = renderPicker();
 
     await screen.findByText(/drag to reposition/i);
-    fireEvent.click(screen.getByRole('button', { name: /set cover/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save position/i }));
 
     await waitFor(() =>
       expect(updateCharacter).toHaveBeenCalledWith(CHARACTER.id, {
@@ -257,7 +306,7 @@ describe('CharacterDetail after a reposition', () => {
     await waitFor(() => expect(coverImage().style.objectPosition).toBe('25% 80%'));
 
     fireEvent.click(await screen.findByTitle(/reposition cover/i));
-    fireEvent.click(await screen.findByRole('button', { name: /set cover/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /save position/i }));
 
     await waitFor(() => expect(coverImage().style.objectPosition).toBe('40% 90%'));
     expect(getCharacter).toHaveBeenCalledTimes(2);
@@ -273,10 +322,69 @@ describe('CharacterDetail after a reposition', () => {
     await waitFor(() => expect(coverImage().style.objectPosition).toBe('25% 80%'));
 
     fireEvent.click(await screen.findByTitle(/reposition cover/i));
-    fireEvent.click(await screen.findByRole('button', { name: /set cover/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /save position/i }));
 
     await waitFor(() => expect(getCharacter).toHaveBeenCalledTimes(2));
     expect(coverImage().style.objectPosition).toBe('25% 80%');
+  });
+});
+
+// ── 3b. The gallery's "Set as Cover" leaves the framing alone ─────────────────
+
+describe('CharacterDetail gallery "Set as Cover"', () => {
+  const GALLERY_IMAGE = {
+    id: 900,
+    character_id: CHARACTER.id,
+    kind: 'generated',
+    url: 'https://cdn.test/gallery.png',
+    created_at: '2026-01-01T00:00:00Z',
+  };
+
+  const renderDetailOnMedia = async () => {
+    getCharacter.mockResolvedValue(CHARACTER);
+    listCharacterImages.mockResolvedValue([GALLERY_IMAGE]);
+    render(
+      <MemoryRouter initialEntries={[`/characters/${CHARACTER.id}`]}>
+        <Routes>
+          <Route path="/characters/:id" element={<CharacterDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(coverImage().style.objectPosition).toBe('25% 80%'));
+    fireEvent.click(screen.getByRole('button', { name: 'Media' }));
+    return screen.findByRole('button', { name: /set as cover/i });
+  };
+
+  it('sends no framing, so the server preserves it, and the hero keeps it', async () => {
+    // The server answers with the framing it KEPT. Before the fix the client
+    // sent 0.5/0.5 here and the row was recentred.
+    setCharacterCover.mockResolvedValue({
+      cover_url: GALLERY_IMAGE.url,
+      cover_position_x: 0.25,
+      cover_position_y: 0.8,
+    });
+    fireEvent.click(await renderDetailOnMedia());
+
+    await waitFor(() => expect(setCharacterCover).toHaveBeenCalledTimes(1));
+    // Exactly three arguments: no framing was manufactured on the way out.
+    expect(setCharacterCover.mock.calls[0]).toEqual([CHARACTER.id, 'character', GALLERY_IMAGE.id]);
+    expect(updateCharacter).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(coverImage().getAttribute('src')).toBe(GALLERY_IMAGE.url));
+    expect(coverImage().style.objectPosition).toBe('25% 80%');
+  });
+
+  it('renders whatever framing the server reports as effective, not its own copy', async () => {
+    // If the server ever does change the framing (a never-positioned row
+    // reads back as centre), the hero shows THAT — the response is the truth,
+    // the pre-call state is not.
+    setCharacterCover.mockResolvedValue({
+      cover_url: GALLERY_IMAGE.url,
+      cover_position_x: 0.5,
+      cover_position_y: 0.5,
+    });
+    fireEvent.click(await renderDetailOnMedia());
+    await waitFor(() => expect(coverImage().style.objectPosition).toBe('50% 50%'));
   });
 });
 
@@ -439,7 +547,7 @@ describe('CoverFramingPreview, through the picker', () => {
       expect(previewImage().style.objectPosition).toBe('45% 80%'),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /set cover/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save position/i }));
 
     // One pair of coordinates — no separate mobile value, no extra write.
     await waitFor(() =>
@@ -449,6 +557,100 @@ describe('CoverFramingPreview, through the picker', () => {
       }),
     );
     expect(updateCharacter).toHaveBeenCalledTimes(1);
+  });
+
+  describe('follows the image\'s real free axis', () => {
+    // Frames sized to the viewports' nominal ratios so overflows are exact:
+    // desktop 320×180 (16:9), mobile 210×280 (3:4).
+    const DESKTOP = [320, 180] as const;
+    const MOBILE = [210, 280] as const;
+
+    it('a wide landscape on desktop moves sideways 1:1 and not at all vertically — the reported defect', async () => {
+      renderCoverPicker();
+      await screen.findByTestId('cover-preview-frame');
+      loadPreviewImage(2000, 1000); // 2:1 — wider than 16:9
+      sizeFrame(previewFrame(), ...DESKTOP); // scaled 360×180 → overflowX 40
+
+      expect(previewFrame().dataset.freeX).toBe('true');
+      expect(previewFrame().dataset.freeY).toBe('false');
+      expect(screen.getByTestId('cover-framing-hint').textContent).toMatch(/left or right/i);
+      expect(screen.getByTestId('cover-framing-hint').textContent).not.toMatch(/vertical/i);
+
+      dragBy(previewFrame(), 0, -60); // vertical: the fitted axis
+      await new Promise((r) => setTimeout(r, 0));
+      expect(previewImage().style.objectPosition).toBe('25% 80%');
+
+      dragBy(previewFrame(), -10, 0); // 10px of a 40px overflow → +0.25
+      await waitFor(() => expect(previewImage().style.objectPosition).toBe('50% 80%'));
+    });
+
+    it('a portrait on desktop moves vertically 1:1 and not at all sideways', async () => {
+      renderCoverPicker();
+      await screen.findByTestId('cover-preview-frame');
+      loadPreviewImage(800, 1200); // 2:3
+      sizeFrame(previewFrame(), ...DESKTOP); // scaled 320×480 → overflowY 300
+
+      expect(previewFrame().dataset.freeX).toBe('false');
+      expect(previewFrame().dataset.freeY).toBe('true');
+      expect(screen.getByTestId('cover-framing-hint').textContent).toMatch(/up or down/i);
+
+      dragBy(previewFrame(), 80, 0); // horizontal: fitted
+      await new Promise((r) => setTimeout(r, 0));
+      expect(previewImage().style.objectPosition).toBe('25% 80%');
+
+      dragBy(previewFrame(), 0, 30); // down 30px of 300 → −0.1
+      await waitFor(() => expect(previewImage().style.objectPosition).toBe('25% 70%'));
+    });
+
+    it('a square flips its free axis between desktop and mobile', async () => {
+      renderCoverPicker();
+      await screen.findByTestId('cover-preview-frame');
+      loadPreviewImage(1000, 1000);
+      expect(previewFrame().dataset.freeY).toBe('true');
+      expect(previewFrame().dataset.freeX).toBe('false');
+
+      clickViewport('Mobile');
+      expect(previewFrame().dataset.freeX).toBe('true');
+      expect(previewFrame().dataset.freeY).toBe('false');
+      expect(screen.getByTestId('cover-framing-hint').textContent).toMatch(/left or right/i);
+
+      sizeFrame(previewFrame(), ...MOBILE); // scaled 280×280 → overflowX 70
+      dragBy(previewFrame(), 7, 0); // right 7px of 70 → −0.1
+      await waitFor(() => expect(previewImage().style.objectPosition).toBe('15% 80%'));
+    });
+
+    it('an image the shape of the viewport has nothing to adjust and does not move', async () => {
+      renderCoverPicker();
+      await screen.findByTestId('cover-preview-frame');
+      loadPreviewImage(1600, 900);
+      sizeFrame(previewFrame(), ...DESKTOP);
+
+      expect(previewFrame().dataset.freeX).toBe('false');
+      expect(previewFrame().dataset.freeY).toBe('false');
+      expect(screen.getByTestId('cover-framing-hint').textContent).toMatch(/nothing to adjust/i);
+
+      dragBy(previewFrame(), -100, -100);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(previewImage().style.objectPosition).toBe('25% 80%');
+      expect(updateCharacter).not.toHaveBeenCalled();
+    });
+
+    it('a diagonal drag never leaks into the fitted axis — X and Y are not swapped', async () => {
+      renderCoverPicker();
+      await screen.findByTestId('cover-preview-frame');
+      loadPreviewImage(2000, 1000);
+      sizeFrame(previewFrame(), ...DESKTOP); // overflowX 40, overflowY 0
+
+      dragBy(previewFrame(), -20, -20);
+      await waitFor(() => expect(previewImage().style.objectPosition).toBe('75% 80%'));
+    });
+
+    it('before the image reports a size, the hint is neutral and a drag still works', async () => {
+      renderCoverPicker();
+      await screen.findByTestId('cover-preview-frame');
+      expect(previewFrame().dataset.freeX).toBeUndefined();
+      expect(screen.getByTestId('cover-framing-hint').textContent).toBe('Drag the image to adjust its framing.');
+    });
   });
 
   it('is absent in avatar mode — an avatar is square on every screen', async () => {

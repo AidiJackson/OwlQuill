@@ -140,9 +140,20 @@ export default function CharacterDetail() {
   const handleSetAsCover = async (image: CharacterGalleryImage) => {
     if (!character) return;
     try {
+      // No framing is passed, and none is sent: the server keeps whatever
+      // cover_position_x/y the creator has stored. Changing the picture and
+      // framing it are different requests.
       const result = await apiClient.setCharacterCover(character.id, 'character', image.id);
       if (!mountedRef.current) return;
-      setCharacter({ ...character, cover_url: result.cover_url });
+      // The response reports the EFFECTIVE persisted framing, read back off the
+      // row, so it is applied here rather than the pre-call copy: the hero then
+      // shows exactly what the next load will show.
+      setCharacter({
+        ...character,
+        cover_url: result.cover_url,
+        cover_position_x: result.cover_position_x,
+        cover_position_y: result.cover_position_y,
+      });
       setCoverToast('Cover image updated');
       setTimeout(() => { if (mountedRef.current) setCoverToast(''); }, 3000);
     } catch {
