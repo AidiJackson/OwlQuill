@@ -12,16 +12,25 @@ import type { CSSProperties } from 'react';
 /**
  * Inline style that applies a character's stored avatar crop.
  *
- * ``avatar_scale`` zooms and ``avatar_position_x/y`` choose the point that
- * stays centred. The translate is what makes the pair work together: scaling
- * about the centre moves every other point away from it, so the offset is
- * divided by the scale to convert "where in the ORIGINAL image" into "how far
- * to slide the SCALED image". Without that division the crop drifts further
- * off-target the more it is zoomed.
+ * The image is cover-fitted into a square and may be zoomed. That leaves two
+ * kinds of overflow — what the cover fit hides on the image's longer axis, and
+ * what the zoom adds on both — and the stored ``avatar_position_x/y`` span the
+ * TOTAL. Two CSS mechanisms realise the two parts:
  *
- * Returns ``undefined`` at scale 1 (within a float tolerance) so an unzoomed
- * avatar carries no transform at all, leaving the browser's plain
- * ``object-fit: cover`` path untouched.
+ * * ``object-position: X% Y%`` slides the image through the cover-fit
+ *   overflow. It is set at every scale, zoom 1 included — this is what lets a
+ *   portrait be framed on its head rather than its middle without zooming.
+ * * ``scale(s) translate(…)`` slides the zoomed result through the zoom
+ *   overflow. The translate is ``(0.5 − p)·(s − 1)/s`` of the box, divided by
+ *   the scale because it is applied in the scaled space; composed with the
+ *   object-position above, the image's leading edge lands at exactly
+ *   ``−p · (total overflow)`` — see ``features/images/avatarGeometry``.
+ *
+ * At scale 1 (within a float tolerance) only the ``objectPosition`` is
+ * returned, so an unzoomed avatar carries no transform and stays on the
+ * browser's plain ``object-fit: cover`` path. A centred, unzoomed avatar
+ * (``0.5/0.5/1`` — every never-repositioned avatar) therefore renders exactly
+ * as it did when the function returned nothing.
  *
  * The caller must render the image absolutely inside a ``relative``,
  * ``overflow-hidden`` box. That box is the containing block that clips the
@@ -31,15 +40,17 @@ export function avatarTransformStyle(
   scale: number | null | undefined,
   posX: number | null | undefined,
   posY: number | null | undefined,
-): CSSProperties | undefined {
+): CSSProperties {
   const s = scale ?? 1;
-  if (s <= 1.001) return undefined;
-
   const x = posX ?? 0.5;
   const y = posY ?? 0.5;
+  const objectPosition = `${x * 100}% ${y * 100}%`;
+  if (s <= 1.001) return { objectPosition };
+
   const shift = (position: number) => ((0.5 - position) * (s - 1) / s) * 100;
 
   return {
+    objectPosition,
     transformOrigin: 'center center',
     transform: `scale(${s}) translate(${shift(x)}%, ${shift(y)}%)`,
   };

@@ -6,7 +6,8 @@ import type { LibraryImage, Character, User } from '@/lib/types';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
 import { ficDebug } from '@/lib/ficDebug';
-import { useObjectPositionDrag } from '@/features/images/useObjectPositionDrag';
+import { naturalSizeOf, useObjectPositionDrag } from '@/features/images/useObjectPositionDrag';
+import { avatarTransformStyle } from '@/lib/media';
 import CoverFramingPreview from '@/features/images/components/CoverFramingPreview';
 import { GALLERY_KINDS, GALLERY_KIND_LABELS, isGalleryKind } from '@/features/images/galleryKinds';
 
@@ -171,6 +172,7 @@ export default function Images() {
     const charId = lightboxImage?.character_id ?? null;
     setAssignCharId(charId);
     avatarDrag.reset(0.5, 0.5, 1.0);
+    avatarDrag.setImageSize(null);
     setAvatarSaveErr(charId === null ? "This image isn't linked to a character." : '');
     setAvatarSaveDone(false);
     setLbMode('avatarEdit');
@@ -776,21 +778,26 @@ export default function Images() {
 
                     {/* Avatar frame preview */}
                     <div className="flex flex-col items-center gap-3">
+                      {/* Drawn by the same function the character page and the
+                          public Home use for the saved avatar (see lib/media),
+                          and draggable at every zoom along whichever axis the
+                          image actually overflows — the <img> reports its
+                          natural size so the drag knows which that is. */}
                       <div
                         ref={avatarFrameRef}
+                        data-testid="avatar-preview-frame"
                         className="relative w-40 h-40 rounded-full overflow-hidden border-2 border-edge-md select-none"
-                        style={{ cursor: avatarScale > 1.001 ? 'grab' : 'default', touchAction: 'none' }}
+                        style={{ cursor: 'grab', touchAction: 'none' }}
                         onMouseDown={(e) => { e.preventDefault(); startAvatarDrag(e.clientX, e.clientY); }}
                         onTouchStart={(e) => { e.preventDefault(); startAvatarDrag(e.touches[0].clientX, e.touches[0].clientY); }}
                       >
                         <img
+                          ref={(el) => { if (el?.complete) avatarDrag.setImageSize(naturalSizeOf(el)); }}
+                          onLoad={(e) => avatarDrag.setImageSize(naturalSizeOf(e.currentTarget))}
                           src={lightboxImage.url}
                           alt="Avatar preview"
                           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                          style={{
-                            transformOrigin: 'center center',
-                            transform: `scale(${avatarScale}) translate(${(0.5 - avatarPosX) * (avatarScale - 1) / avatarScale * 100}%, ${(0.5 - avatarPosY) * (avatarScale - 1) / avatarScale * 100}%)`,
-                          }}
+                          style={avatarTransformStyle(avatarScale, avatarPosX, avatarPosY)}
                           draggable={false}
                         />
                       </div>

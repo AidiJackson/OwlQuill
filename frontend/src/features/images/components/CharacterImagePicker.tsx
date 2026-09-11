@@ -3,8 +3,9 @@ import { X, Check, Camera, Loader2 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { LibraryImage } from '@/lib/types';
-import { useObjectPositionDrag } from '../useObjectPositionDrag';
+import { naturalSizeOf, useObjectPositionDrag } from '../useObjectPositionDrag';
 import CoverFramingPreview from './CoverFramingPreview';
+import { avatarTransformStyle } from '@/lib/media';
 import { GALLERY_KINDS } from '../galleryKinds';
 
 /**
@@ -89,6 +90,9 @@ export default function CharacterImagePicker({
   const handleSelect = (img: LibraryImage) => {
     setSelected(img);
     drag.reset(0.5, 0.5, 1.0);
+    // The new image's shape is unknown until it loads; forget the old one so
+    // a drag in between cannot use the previous image's overflow.
+    drag.setImageSize(null);
     setSaveError('');
   };
 
@@ -174,22 +178,26 @@ export default function CharacterImagePicker({
               <p className="text-xs text-ink-3">
                 Drag to reposition. The original image is never altered.
               </p>
+              {/* The preview is drawn by the SAME function the character page
+                  and the public Home render the saved avatar with, so what is
+                  framed here is what is shown there. It reports its natural
+                  size to the drag so the pan spans the real overflow — a
+                  portrait can be moved up and down without zooming. */}
               <div
                 ref={drag.frameRef}
+                data-testid="avatar-preview-frame"
                 onMouseDown={(e) => { e.preventDefault(); drag.startDrag(e.clientX, e.clientY); }}
                 onTouchStart={(e) => drag.startDrag(e.touches[0].clientX, e.touches[0].clientY)}
                 className="relative overflow-hidden bg-surface-elevated cursor-move select-none w-40 h-40 rounded-2xl mx-auto"
               >
                 <img
+                  ref={(el) => { if (el?.complete) drag.setImageSize(naturalSizeOf(el)); }}
+                  onLoad={(e) => drag.setImageSize(naturalSizeOf(e.currentTarget))}
                   src={previewUrl}
                   alt="Preview"
                   draggable={false}
                   className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                  style={
-                    drag.scale > 1.001
-                      ? { transform: `scale(${drag.scale}) translate(${(0.5 - drag.posX) * (drag.scale - 1) / drag.scale * 100}%, ${(0.5 - drag.posY) * (drag.scale - 1) / drag.scale * 100}%)` }
-                      : undefined
-                  }
+                  style={avatarTransformStyle(drag.scale, drag.posX, drag.posY)}
                 />
               </div>
               <div className="flex items-center gap-2 justify-center">

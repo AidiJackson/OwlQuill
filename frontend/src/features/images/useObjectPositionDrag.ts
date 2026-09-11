@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ficDebug } from '@/lib/ficDebug';
 import { coverDragDelta, coverOverflow, type Size } from './coverGeometry';
+import { avatarDragDelta, avatarOverflow } from './avatarGeometry';
 
 /**
  * Drag-to-reposition for previewing how an image sits inside a fixed frame,
@@ -17,8 +18,14 @@ import { coverDragDelta, coverOverflow, type Size } from './coverGeometry';
  *   the axis where it fits — see `coverGeometry`. Until then it falls back to
  *   treating the pointer as a fraction of the frame, so a drag before the
  *   image has loaded still does something rather than nothing.
- * - `scaleTranslate` (square avatar): panning only means something once the
- *   image is zoomed in (`scale > 1`), and the delta is scaled by the zoom.
+ * - `scaleTranslate` (square avatar): the image is cover-fitted into the
+ *   square and may be zoomed. Position spans the TOTAL overflow — the cover
+ *   fit's on the image's longer axis plus what the zoom adds on both — so a
+ *   portrait can be panned vertically at zoom 1 and zooming widens the range
+ *   rather than unlocking it. The pointer moves the image 1:1 along any
+ *   overflowing axis and not at all along a fitted one; see `avatarGeometry`.
+ *   Until the image's natural size is reported, only the zoom overflow is
+ *   known and the pan is confined to it (the pre-fix range), never stalled.
  *
  * Lifted verbatim from the original inline implementation in Images.tsx so the
  * profile and the library share one behaviour rather than drifting apart.
@@ -36,6 +43,17 @@ interface Options {
 }
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+
+/**
+ * The natural size of an <img>, or null while it has none (not yet loaded,
+ * or failed). For `setImageSize`: call it from `onLoad`, and once from a ref
+ * callback for an image that was already complete (cached) before React
+ * attached the load handler.
+ */
+export function naturalSizeOf(img: HTMLImageElement | null): Size | null {
+  if (!img || !img.naturalWidth || !img.naturalHeight) return null;
+  return { width: img.naturalWidth, height: img.naturalHeight };
+}
 
 export function useObjectPositionDrag({
   mode,
@@ -58,20 +76,14 @@ export function useObjectPositionDrag({
   useEffect(() => { scaleRef.current = scale; }, [scale]);
 
   const frameRef = useRef<HTMLDivElement | null>(null);
-  // The image's natural pixel size, reported by whoever renders it. Only the
-  // objectPosition mode reads it; the avatar's scale/translate pan is a zoom
-  // on a square and needs no overflow calculation.
+  // The image's natural pixel size, reported by whoever renders it. Both
+  // modes read it to find the axis the cover fit overflows on.
   const imageSizeRef = useRef<Size | null>(null);
   const dragStateRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
   const activeCleanupRef = useRef<(() => void) | null>(null);
 
   const startDrag = useCallback((clientX: number, clientY: number) => {
     activeCleanupRef.current?.();
-
-    if (mode === 'scaleTranslate' && scaleRef.current <= 1.001) {
-      // Nothing to pan until the image is zoomed in.
-      return;
-    }
 
     ficDebug.dragStart(debugLabel);
     dragStateRef.current = {
@@ -87,8 +99,6 @@ export function useObjectPositionDrag({
       const { offsetWidth: w, offsetHeight: h } = container;
       const dxPx = x - dragStateRef.current.startX;
       const dyPx = y - dragStateRef.current.startY;
-      const dx = dxPx / w;
-      const dy = dyPx / h;
 
       if (mode === 'objectPosition') {
         const image = imageSizeRef.current;
@@ -99,14 +109,16 @@ export function useObjectPositionDrag({
           setPosX(clamp01(dragStateRef.current.startPosX + dX));
           setPosY(clamp01(dragStateRef.current.startPosY + dY));
         } else {
-          setPosX(clamp01(dragStateRef.current.startPosX - dx));
-          setPosY(clamp01(dragStateRef.current.startPosY - dy));
+          setPosX(clamp01(dragStateRef.current.startPosX - dxPx / w));
+          setPosY(clamp01(dragStateRef.current.startPosY - dyPx / h));
         }
       } else {
-        const sc = scaleRef.current;
-        if (sc <= 1.001) return;
-        setPosX(clamp01(dragStateRef.current.startPosX + (-dx * sc) / (sc - 1)));
-        setPosY(clamp01(dragStateRef.current.startPosY + (-dy * sc) / (sc - 1)));
+        // Total overflow at the current zoom, per axis; zero on an axis the
+        // image merely fits, so the pointer cannot drag it into blank space.
+        const overflow = avatarOverflow(imageSizeRef.current, { width: w, height: h }, scaleRef.current);
+        const { dX, dY } = avatarDragDelta(dxPx, dyPx, overflow);
+        setPosX(clamp01(dragStateRef.current.startPosX + dX));
+        setPosY(clamp01(dragStateRef.current.startPosY + dY));
       }
     };
 
