@@ -10,6 +10,7 @@ import {
   Sparkles,
   Image as ImageIcon,
   Camera,
+  Crop,
   BookOpen,
   MessageCircle,
 } from 'lucide-react';
@@ -412,16 +413,28 @@ export default function CharacterDetail() {
                     </div>
                   )}
                 </div>
-                {/* Owner-only avatar edit control — small camera beside the avatar corner */}
+                {/* Owner-only avatar controls beside the avatar corner. Two
+                    distinct acts: Change picks another picture; Crop re-frames
+                    the current one, opening on its stored crop. */}
                 {isOwner && character.avatar_url && (
-                  <button
-                    onClick={() => setPicker({ mode: 'avatar', repositionOnly: false })}
-                    className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-surface border border-edge-md shadow-md flex items-center justify-center text-ink-2 hover:text-ink hover:border-gem transition-colors"
-                    aria-label="Change profile picture"
-                    title="Change profile picture"
-                  >
-                    <Camera className="w-4 h-4" />
-                  </button>
+                  <div className="absolute -bottom-1 -right-1 flex items-center gap-1">
+                    <button
+                      onClick={() => setPicker({ mode: 'avatar', repositionOnly: true })}
+                      className="w-8 h-8 rounded-full bg-surface border border-edge-md shadow-md flex items-center justify-center text-ink-2 hover:text-ink hover:border-gem transition-colors"
+                      aria-label="Crop profile picture"
+                      title="Crop profile picture"
+                    >
+                      <Crop className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setPicker({ mode: 'avatar', repositionOnly: false })}
+                      className="w-8 h-8 rounded-full bg-surface border border-edge-md shadow-md flex items-center justify-center text-ink-2 hover:text-ink hover:border-gem transition-colors"
+                      aria-label="Change profile picture"
+                      title="Change profile picture"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -815,6 +828,7 @@ export default function CharacterDetail() {
           currentImageUrl={picker.mode === 'cover' ? character.cover_url : character.avatar_url}
           initialPosX={picker.mode === 'cover' ? coverPosX : avatarPosX}
           initialPosY={picker.mode === 'cover' ? coverPosY : avatarPosY}
+          initialScale={picker.mode === 'avatar' ? avatarScale : undefined}
           onCancel={() => setPicker(null)}
           onConfirmed={(result) => {
             // Optimistic, and deliberately limited to the IMAGE. The picker

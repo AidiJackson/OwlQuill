@@ -271,7 +271,7 @@ describe('CharacterImagePicker — avatar crop', () => {
     await waitFor(() => expect(previewImage().style.objectPosition).toBe('50% 20%'));
     setZoom(1.5);
 
-    fireEvent.click(screen.getByRole('button', { name: /set profile picture/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save profile picture/i }));
 
     await waitFor(() => expect(setCharacterAvatar).toHaveBeenCalledWith(CHARACTER.id, 'character', LIBRARY_IMAGE.id));
     await waitFor(() =>

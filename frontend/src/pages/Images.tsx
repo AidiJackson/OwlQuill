@@ -6,9 +6,10 @@ import type { LibraryImage, Character, User } from '@/lib/types';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
 import { ficDebug } from '@/lib/ficDebug';
-import { naturalSizeOf, useObjectPositionDrag } from '@/features/images/useObjectPositionDrag';
-import { avatarTransformStyle } from '@/lib/media';
+import { useObjectPositionDrag } from '@/features/images/useObjectPositionDrag';
 import CoverFramingPreview from '@/features/images/components/CoverFramingPreview';
+import AvatarCropEditor from '@/features/images/components/AvatarCropEditor';
+import { DEFAULT_AVATAR_CROP } from '@/features/images/avatarCropEditor';
 import { GALLERY_KINDS, GALLERY_KIND_LABELS, isGalleryKind } from '@/features/images/galleryKinds';
 
 type LbMode = 'view' | 'coverEdit' | 'avatarEdit';
@@ -69,10 +70,7 @@ export default function Images() {
   const [coverSaveDone, setCoverSaveDone] = useState(false);
 
   const avatarDrag = useObjectPositionDrag({ mode: 'scaleTranslate', debugLabel: 'Images:avatarDrag' });
-  const {
-    posX: avatarPosX, posY: avatarPosY, scale: avatarScale,
-    posXRef: avatarPosXRef, posYRef: avatarPosYRef, scaleRef: avatarScaleRef,
-  } = avatarDrag;
+  const { posXRef: avatarPosXRef, posYRef: avatarPosYRef, scaleRef: avatarScaleRef } = avatarDrag;
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarSaveErr, setAvatarSaveErr] = useState('');
   const [avatarSaveDone, setAvatarSaveDone] = useState(false);
@@ -90,7 +88,6 @@ export default function Images() {
   // Refs
   const mountedRef = useRef(true);
   const lbCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const avatarFrameRef = avatarDrag.frameRef;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -168,21 +165,19 @@ export default function Images() {
     setLbMode('coverEdit');
   };
 
+  // Setting an image as the profile picture is always a NEW source for the
+  // character, so it starts from the default crop; re-cropping the current
+  // picture with its stored framing lives on the character page.
   const enterAvatarEdit = () => {
     const charId = lightboxImage?.character_id ?? null;
     setAssignCharId(charId);
-    avatarDrag.reset(0.5, 0.5, 1.0);
+    avatarDrag.reset(DEFAULT_AVATAR_CROP.x, DEFAULT_AVATAR_CROP.y, DEFAULT_AVATAR_CROP.scale);
     avatarDrag.setImageSize(null);
     setAvatarSaveErr(charId === null ? "This image isn't linked to a character." : '');
     setAvatarSaveDone(false);
     setLbMode('avatarEdit');
   };
-
-  // Drag-to-reposition comes from the shared hook (see useObjectPositionDrag):
-  //   cover  → object-position pan, works at scale 1 (started by
-  //            CoverFramingPreview, which owns the cover frame)
-  //   avatar → scale+translate pan, only meaningful once zoomed in
-  const startAvatarDrag = avatarDrag.startDrag;
+  const assignCharName = myCharacters.find((c) => c.id === assignCharId)?.name ?? null;
 
   const handleSaveCover = async () => {
     if (!lightboxImage || assignCharId === null) return;
@@ -757,7 +752,10 @@ export default function Images() {
                 {/* ── AVATAR EDIT MODE ── drag + zoom */}
                 {lbMode === 'avatarEdit' && (
                   <div className="space-y-3 bg-surface rounded-lg p-4">
-                    <p className="text-sm font-medium text-ink">Set as profile picture</p>
+                    <p className="text-sm font-medium text-ink">
+                      Crop profile picture
+                      {assignCharName && <span className="text-ink-3 font-normal"> · {assignCharName}</span>}
+                    </p>
 
                     {/* Character selector */}
                     {myCharacters.length > 1 && (
@@ -776,49 +774,9 @@ export default function Images() {
                       </div>
                     )}
 
-                    {/* Avatar frame preview */}
-                    <div className="flex flex-col items-center gap-3">
-                      {/* Drawn by the same function the character page and the
-                          public Home use for the saved avatar (see lib/media),
-                          and draggable at every zoom along whichever axis the
-                          image actually overflows — the <img> reports its
-                          natural size so the drag knows which that is. */}
-                      <div
-                        ref={avatarFrameRef}
-                        data-testid="avatar-preview-frame"
-                        className="relative w-40 h-40 rounded-full overflow-hidden border-2 border-edge-md select-none"
-                        style={{ cursor: 'grab', touchAction: 'none' }}
-                        onMouseDown={(e) => { e.preventDefault(); startAvatarDrag(e.clientX, e.clientY); }}
-                        onTouchStart={(e) => { e.preventDefault(); startAvatarDrag(e.touches[0].clientX, e.touches[0].clientY); }}
-                      >
-                        <img
-                          ref={(el) => { if (el?.complete) avatarDrag.setImageSize(naturalSizeOf(el)); }}
-                          onLoad={(e) => avatarDrag.setImageSize(naturalSizeOf(e.currentTarget))}
-                          src={lightboxImage.url}
-                          alt="Avatar preview"
-                          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                          style={avatarTransformStyle(avatarScale, avatarPosX, avatarPosY)}
-                          draggable={false}
-                        />
-                      </div>
-
-                      {/* Zoom slider — avatar only */}
-                      <div className="flex items-center gap-2 w-48">
-                        <span className="text-xs text-ink-2 shrink-0">Zoom</span>
-                        <input
-                          type="range"
-                          min="1"
-                          max="3"
-                          step="0.01"
-                          value={avatarScale}
-                          onChange={(e) => avatarDrag.setScale(parseFloat(e.target.value))}
-                          className="flex-1 accent-[rgb(var(--gem))]"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onTouchStart={(e) => e.stopPropagation()}
-                        />
-                        <span className="text-xs text-ink-2 w-7 shrink-0">{avatarScale.toFixed(1)}×</span>
-                      </div>
-                    </div>
+                    {/* The same crop editor the character page's picker uses:
+                        one shape, one zoom range, one drawing function. */}
+                    <AvatarCropEditor drag={avatarDrag} imageUrl={lightboxImage.url} />
 
                     {avatarSaveErr && <p className="text-xs text-red-400">{avatarSaveErr}</p>}
 
@@ -837,7 +795,7 @@ export default function Images() {
                       >
                         {avatarSaveDone
                           ? <><Check className="w-3 h-3" />Saved</>
-                          : avatarSaving ? 'Saving…' : 'Save avatar'}
+                          : avatarSaving ? 'Saving…' : 'Save profile picture'}
                       </button>
                     </div>
                   </div>

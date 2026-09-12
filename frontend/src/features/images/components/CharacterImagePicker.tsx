@@ -3,9 +3,10 @@ import { X, Check, Camera, Loader2 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { LibraryImage } from '@/lib/types';
-import { naturalSizeOf, useObjectPositionDrag } from '../useObjectPositionDrag';
+import { useObjectPositionDrag } from '../useObjectPositionDrag';
 import CoverFramingPreview from './CoverFramingPreview';
-import { avatarTransformStyle } from '@/lib/media';
+import AvatarCropEditor from './AvatarCropEditor';
+import { DEFAULT_AVATAR_CROP } from '../avatarCropEditor';
 import { GALLERY_KINDS } from '../galleryKinds';
 
 /**
@@ -23,11 +24,13 @@ interface Props {
   characterId: number;
   characterName: string;
   mode: 'avatar' | 'cover';
-  /** Preselect the current cover and start straight in reposition mode. */
+  /** Preselect the current image and start straight in reposition/crop mode. */
   repositionOnly?: boolean;
   currentImageUrl?: string | null;
   initialPosX?: number;
   initialPosY?: number;
+  /** Avatar only: the stored zoom, so a re-crop opens on the current crop. */
+  initialScale?: number;
   onConfirmed: (result: { avatar_url?: string; cover_url?: string }) => void;
   onCancel: () => void;
 }
@@ -45,6 +48,7 @@ export default function CharacterImagePicker({
   currentImageUrl,
   initialPosX = 0.5,
   initialPosY = 0.5,
+  initialScale = 1,
   onConfirmed,
   onCancel,
 }: Props) {
@@ -61,6 +65,7 @@ export default function CharacterImagePicker({
     mode: mode === 'cover' ? 'objectPosition' : 'scaleTranslate',
     initialPosX,
     initialPosY,
+    initialScale: mode === 'avatar' ? initialScale : 1,
     debugLabel: `CharacterImagePicker:${mode}`,
   });
 
@@ -69,11 +74,12 @@ export default function CharacterImagePicker({
     return () => { mountedRef.current = false; drag.cleanupDrag(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reposition-only: skip selection, treat the current cover as the subject.
+  // Reposition-only: skip selection, treat the current image as the subject.
+  // Its id is a placeholder — this mode writes framing only and never sends it.
   useEffect(() => {
     if (repositionOnly && currentImageUrl) {
       setSelected({
-        id: -1, character_id: characterId, kind: 'cover', status: 'active',
+        id: -1, character_id: characterId, kind: mode, status: 'active',
         visibility: 'private', file_path: currentImageUrl, url: currentImageUrl,
         created_at: '',
       });
@@ -85,11 +91,13 @@ export default function CharacterImagePicker({
       .then((imgs) => { if (mountedRef.current) setImages(imgs); })
       .catch((err) => { if (mountedRef.current) setLoadError(err instanceof Error ? err.message : 'Failed to load images.'); })
       .finally(() => { if (mountedRef.current) setLoading(false); });
-  }, [characterId, repositionOnly, currentImageUrl]);
+  }, [characterId, repositionOnly, currentImageUrl, mode]);
 
   const handleSelect = (img: LibraryImage) => {
     setSelected(img);
-    drag.reset(0.5, 0.5, 1.0);
+    // A different source gets a fresh crop; the previous image's framing must
+    // not be carried onto a picture it was never framed for.
+    drag.reset(DEFAULT_AVATAR_CROP.x, DEFAULT_AVATAR_CROP.y, DEFAULT_AVATAR_CROP.scale);
     // The new image's shape is unknown until it loads; forget the old one so
     // a drag in between cannot use the previous image's overflow.
     drag.setImageSize(null);
@@ -121,14 +129,19 @@ export default function CharacterImagePicker({
           onConfirmed({ cover_url: result.cover_url });
         }
       } else {
-        const result = await apiClient.setCharacterAvatar(characterId, 'character', selected.id);
+        // Re-cropping the current picture changes only its framing: no image
+        // assignment, no new file, and never the placeholder id. Choosing a
+        // new picture assigns it first, then frames it.
+        const avatarUrl = repositionOnly
+          ? currentImageUrl ?? undefined
+          : (await apiClient.setCharacterAvatar(characterId, 'character', selected.id)).avatar_url;
         await apiClient.updateCharacter(characterId, {
           avatar_position_x: drag.posXRef.current,
           avatar_position_y: drag.posYRef.current,
           avatar_scale: drag.scaleRef.current,
         });
         if (!mountedRef.current) return;
-        onConfirmed({ avatar_url: result.avatar_url });
+        onConfirmed({ avatar_url: avatarUrl });
       }
     } catch (err) {
       if (!mountedRef.current) return;
@@ -146,13 +159,16 @@ export default function CharacterImagePicker({
   // labelled as if it did. "Set cover" on the current cover read as a
   // re-assignment and left the creator unsure whether pressing it would reset
   // anything. The wording follows the action, not the mode's internals.
-  const subject = isCover ? 'cover' : 'profile picture';
-  const title = repositionOnly
-    ? `Reposition ${subject}`
-    : isCover ? 'Cover image' : 'Profile picture';
-  const confirmLabel = repositionOnly
-    ? 'Save position'
-    : isCover ? 'Set cover' : 'Set profile picture';
+  //
+  // The avatar is a crop tool in both flows: whether the creator picks a new
+  // picture or re-frames the current one, what they are deciding is how the
+  // profile picture is cropped, and the outcome is a profile picture.
+  const title = isCover
+    ? (repositionOnly ? 'Reposition cover' : 'Cover image')
+    : 'Crop profile picture';
+  const confirmLabel = isCover
+    ? (repositionOnly ? 'Save position' : 'Set cover')
+    : 'Save profile picture';
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
@@ -174,41 +190,7 @@ export default function CharacterImagePicker({
           {previewUrl && (isCover ? (
             <CoverFramingPreview drag={drag} imageUrl={previewUrl} />
           ) : (
-            <div className="space-y-2">
-              <p className="text-xs text-ink-3">
-                Drag to reposition. The original image is never altered.
-              </p>
-              {/* The preview is drawn by the SAME function the character page
-                  and the public Home render the saved avatar with, so what is
-                  framed here is what is shown there. It reports its natural
-                  size to the drag so the pan spans the real overflow — a
-                  portrait can be moved up and down without zooming. */}
-              <div
-                ref={drag.frameRef}
-                data-testid="avatar-preview-frame"
-                onMouseDown={(e) => { e.preventDefault(); drag.startDrag(e.clientX, e.clientY); }}
-                onTouchStart={(e) => drag.startDrag(e.touches[0].clientX, e.touches[0].clientY)}
-                className="relative overflow-hidden bg-surface-elevated cursor-move select-none w-40 h-40 rounded-2xl mx-auto"
-              >
-                <img
-                  ref={(el) => { if (el?.complete) drag.setImageSize(naturalSizeOf(el)); }}
-                  onLoad={(e) => drag.setImageSize(naturalSizeOf(e.currentTarget))}
-                  src={previewUrl}
-                  alt="Preview"
-                  draggable={false}
-                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                  style={avatarTransformStyle(drag.scale, drag.posX, drag.posY)}
-                />
-              </div>
-              <div className="flex items-center gap-2 justify-center">
-                <span className="text-xs text-ink-3">Zoom</span>
-                <input
-                  type="range" min={1} max={2.5} step={0.05} value={drag.scale}
-                  onChange={(e) => drag.setScale(Number(e.target.value))}
-                  className="w-40"
-                />
-              </div>
-            </div>
+            <AvatarCropEditor drag={drag} imageUrl={previewUrl} />
           ))}
 
           {/* Selection grid — hidden in reposition-only mode */}

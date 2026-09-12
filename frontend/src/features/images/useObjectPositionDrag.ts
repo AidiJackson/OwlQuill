@@ -65,6 +65,10 @@ export function useObjectPositionDrag({
   const [posX, setPosX] = useState(initialPosX);
   const [posY, setPosY] = useState(initialPosY);
   const [scale, setScale] = useState(initialScale);
+  const [dragging, setDragging] = useState(false);
+  // State as well as a ref: the ref is what a drag in flight reads, the state
+  // is what lets the editor re-render its hint once the size arrives.
+  const [imageSize, setImageSizeState] = useState<Size | null>(null);
 
   // Live refs — the drag listeners are attached once and must read the latest
   // values without re-binding on every state change.
@@ -86,6 +90,7 @@ export function useObjectPositionDrag({
     activeCleanupRef.current?.();
 
     ficDebug.dragStart(debugLabel);
+    setDragging(true);
     dragStateRef.current = {
       startX: clientX,
       startY: clientY,
@@ -126,6 +131,7 @@ export function useObjectPositionDrag({
     const onTouchMove = (ev: TouchEvent) => { ev.preventDefault(); applyMove(ev.touches[0].clientX, ev.touches[0].clientY); };
     const onEnd = () => {
       ficDebug.dragEnd(debugLabel);
+      setDragging(false);
       dragStateRef.current = null;
       activeCleanupRef.current = null;
       window.removeEventListener('mousemove', onMouseMove);
@@ -161,16 +167,35 @@ export function useObjectPositionDrag({
    * not yet known, so a drag on the new image does not use the old geometry.
    */
   const setImageSize = useCallback((size: Size | null) => {
-    imageSizeRef.current = size && size.width > 0 && size.height > 0 ? size : null;
+    const next = size && size.width > 0 && size.height > 0 ? size : null;
+    imageSizeRef.current = next;
+    setImageSizeState((prev) =>
+      prev?.width === next?.width && prev?.height === next?.height ? prev : next,
+    );
   }, []);
+
+  /**
+   * Move the image by a pointer-equivalent number of frame pixels without a
+   * pointer (arrow keys). `scaleTranslate` only; bounded exactly as a drag is,
+   * so it can no more expose blank space than a drag can.
+   */
+  const nudge = useCallback((dxPx: number, dyPx: number) => {
+    const container = frameRef.current;
+    if (mode !== 'scaleTranslate' || !container) return;
+    const { offsetWidth: w, offsetHeight: h } = container;
+    const overflow = avatarOverflow(imageSizeRef.current, { width: w, height: h }, scaleRef.current);
+    const { dX, dY } = avatarDragDelta(dxPx, dyPx, overflow);
+    if (dX) setPosX((p) => clamp01(p + dX));
+    if (dY) setPosY((p) => clamp01(p + dY));
+  }, [mode]);
 
   useEffect(() => () => { activeCleanupRef.current?.(); }, []);
 
   return {
-    posX, posY, scale,
+    posX, posY, scale, dragging, imageSize,
     setPosX, setPosY, setScale,
     posXRef, posYRef, scaleRef,
-    frameRef, startDrag, cleanupDrag, reset,
+    frameRef, startDrag, cleanupDrag, reset, nudge,
     imageSizeRef, setImageSize,
   };
 }

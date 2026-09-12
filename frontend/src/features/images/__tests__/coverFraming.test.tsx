@@ -666,7 +666,7 @@ describe('CoverFramingPreview, through the picker', () => {
       />,
     );
 
-    await screen.findByText(/drag to reposition/i);
+    await screen.findByTestId('avatar-preview-frame');
     expect(screen.queryByTestId('cover-preview-frame')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Desktop' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Mobile' })).toBeNull();
