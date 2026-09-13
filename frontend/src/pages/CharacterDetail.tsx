@@ -25,7 +25,7 @@ import IdentityCanonSection from '@/features/characterCreation/components/Identi
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import CharacterImagePicker from '@/features/images/components/CharacterImagePicker';
-import { hasActingCharacter } from '@/lib/entitlements';
+import { hasActingCharacter, isFounder } from '@/lib/entitlements';
 import { avatarTransformStyle } from '@/lib/media';
 
 type Tab = 'timeline' | 'stories' | 'media' | 'mentions' | 'manage';
@@ -737,7 +737,7 @@ export default function CharacterDetail() {
               <CanonManager
                 characterId={character.id}
                 isOwner={isOwner}
-                isAdmin={!!currentUser?.is_admin}
+                isFounder={isFounder(currentUser)}
                 characterName={character.name}
               />
             </div>

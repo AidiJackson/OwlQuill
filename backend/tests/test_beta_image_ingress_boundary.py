@@ -1030,6 +1030,136 @@ class _FakeJob:
         self.image_id = None
 
 
+# ── 9b. Canon slot / mark uploads answer to the same boundary ────────────────
+#
+# ``POST /identity-canon/upload`` and ``POST /identity-canon/upload/mark/{id}``
+# carried a route-local ``_require_admin`` that predated ``is_founder_account``.
+# A seeder could already point a canon slot at an image URL through the PATCH
+# routes above but was refused when uploading the same image's bytes — one
+# capability, two answers. These pins make the two routes members of the
+# boundary: founder accounts (seeder AND admin) pass, an ordinary creator gets
+# the uniform refusal, and ownership is still checked for founders.
+
+CANON_PERSIST = "app.api.routes.canon_api.persist_image_asset"
+
+
+def _canon_file(name: str = "slot.png"):
+    return {"file": (name, io.BytesIO(_PNG_BYTES), "image/png")}
+
+
+def _add_text_mark(client: TestClient, token: str, cid: int) -> str:
+    """A text-only permanent mark — the half of the endpoint every owner keeps."""
+    resp = client.post(
+        f"/characters/{cid}/identity-canon/body/marks",
+        json={
+            "label": "Left forearm scar",
+            "type": "scar",
+            "body_region": "left_forearm",
+            "side": "left",
+            "description": "thin pale scar across the left forearm",
+        },
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["mark"]["id"]
+
+
+@pytest.mark.parametrize("role", ["seeder", "admin"])
+def test_founder_can_upload_a_canon_slot_image(client, role):
+    make = _seeder if role == "seeder" else _admin
+    token, cid = make(client, f"bib_cu_{role}@test.com", f"bibcu{role}")
+
+    resp = client.post(
+        f"/characters/{cid}/identity-canon/upload",
+        data={"slot": "body_front"},
+        files=_canon_file(),
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["slot"] == "body_front"
+    assert resp.json()["canon"]["body_canon"]["body_front_image_url"]
+
+
+@pytest.mark.parametrize("role", ["seeder", "admin"])
+def test_founder_can_upload_a_mark_reference_image(client, role):
+    make = _seeder if role == "seeder" else _admin
+    token, cid = make(client, f"bib_cm_{role}@test.com", f"bibcm{role}")
+    mark_id = _add_text_mark(client, token, cid)
+
+    resp = client.post(
+        f"/characters/{cid}/identity-canon/upload/mark/{mark_id}",
+        data={"slot": "reference"},
+        files=_canon_file("mark.png"),
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201, resp.text
+    marks = resp.json()["canon"]["body_canon"]["permanent_body_marks"]
+    assert next(m for m in marks if m["id"] == mark_id)["reference_image_url"]
+
+
+def test_creator_canon_slot_upload_is_refused_before_anything_is_stored(client):
+    from unittest.mock import patch
+
+    token, cid = _creator(client, "bib_cu_c@test.com", "bibcuc")
+    with patch(CANON_PERSIST) as mock_persist:
+        resp = client.post(
+            f"/characters/{cid}/identity-canon/upload",
+            data={"slot": "body_front"},
+            files=_canon_file(),
+            headers=auth_headers(token),
+        )
+    _assert_boundary_refusal(resp)
+    assert resp.json()["detail"]["fields"] == ["file"]
+    mock_persist.assert_not_called()
+
+
+def test_creator_mark_upload_is_refused_but_the_text_mark_stays(client):
+    """Field-by-field, not route-by-route: the mark itself is text the owner
+    keeps; only its uploaded reference image is closed."""
+    from unittest.mock import patch
+
+    token, cid = _creator(client, "bib_cm_c@test.com", "bibcmc")
+    mark_id = _add_text_mark(client, token, cid)
+    with patch(CANON_PERSIST) as mock_persist:
+        resp = client.post(
+            f"/characters/{cid}/identity-canon/upload/mark/{mark_id}",
+            data={"slot": "reference"},
+            files=_canon_file("mark.png"),
+            headers=auth_headers(token),
+        )
+    _assert_boundary_refusal(resp)
+    mock_persist.assert_not_called()
+
+    canon = client.get(f"/characters/{cid}/identity-canon", headers=auth_headers(token))
+    marks = canon.json()["body_canon"]["permanent_body_marks"]
+    mark = next(m for m in marks if m["id"] == mark_id)
+    assert mark["label"] == "Left forearm scar"
+    assert mark["reference_image_url"] is None
+
+
+@pytest.mark.parametrize("role", ["seeder", "admin"])
+def test_founder_canon_upload_still_requires_owning_the_character(client, role):
+    """Widening the account predicate must not have loosened ownership: the
+    boundary says who may SUPPLY imagery, ``_get_owned_character`` says whose
+    canon it may land in, and both still apply."""
+    from unittest.mock import patch
+
+    make = _seeder if role == "seeder" else _admin
+    token, _own_cid = make(client, f"bib_co_{role}@test.com", f"bibco{role}")
+    _other_token, other_cid = _creator(client, f"bib_co_o_{role}@test.com", f"bibcoo{role}")
+
+    with patch(CANON_PERSIST) as mock_persist:
+        resp = client.post(
+            f"/characters/{other_cid}/identity-canon/upload",
+            data={"slot": "body_front"},
+            files=_canon_file(),
+            headers=auth_headers(token),
+        )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"] == "You don't own this character."
+    mock_persist.assert_not_called()
+
+
 # ── 10. Text-driven identity generation is untouched ─────────────────────────
 
 

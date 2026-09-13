@@ -99,7 +99,12 @@ interface CharacterCanon {
 interface Props {
   characterId: number;
   isOwner: boolean;
-  isAdmin: boolean;
+  /** Founder tier (admin OR seeder) — see `isFounder` in `@/lib/entitlements`.
+   *  Gates the image-upload and lock controls. This was `isAdmin`, fed from the
+   *  raw `is_admin` flag, which hid every upload control from the seeding
+   *  account even though the server's image-ingress boundary admits it. A UI
+   *  affordance only: the canon upload routes enforce the same predicate. */
+  isFounder: boolean;
   characterName?: string;
 }
 
@@ -127,14 +132,14 @@ function CanonImageSlot({
   url,
   slot,
   characterId,
-  isAdmin,
+  isFounder,
   onUploaded,
 }: {
   label: string;
   url: string | null;
   slot: string;
   characterId: number;
-  isAdmin: boolean;
+  isFounder: boolean;
   onUploaded: (url: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -177,7 +182,7 @@ function CanonImageSlot({
           </div>
         )}
       </div>
-      {isAdmin && (
+      {isFounder && (
         <label className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-ink cursor-pointer transition-colors">
           <Upload className="w-3 h-3" />
           {url ? 'Replace' : 'Upload'}
@@ -196,17 +201,17 @@ function CanonImageSlot({
 }
 
 // Per-mark visual truth. The uploaded image — not prose — is the primary
-// canon for a permanent marking. Admin can upload/replace even after the body
+// canon for a permanent marking. A founder can upload/replace even after the body
 // is locked (locked body truth still permits canon-edit corrections).
 function MarkImageSlot({
   mark,
   characterId,
-  isAdmin,
+  isFounder,
   onUploaded,
 }: {
   mark: PermanentBodyMark;
   characterId: number;
-  isAdmin: boolean;
+  isFounder: boolean;
   onUploaded: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -249,7 +254,7 @@ function MarkImageSlot({
           </div>
         )}
       </div>
-      {isAdmin && (
+      {isFounder && (
         <label className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-ink cursor-pointer transition-colors">
           <Upload className="w-3 h-3" />
           {url ? 'Replace marking image' : 'Upload marking image'}
@@ -272,12 +277,12 @@ function MarkImageSlot({
 function FaceCanonSection({
   canon,
   characterId,
-  isAdmin,
+  isFounder,
   onRefresh,
 }: {
   canon: CharacterCanon;
   characterId: number;
-  isAdmin: boolean;
+  isFounder: boolean;
   onRefresh: () => void;
 }) {
   const face = canon.face_canon;
@@ -336,7 +341,7 @@ function FaceCanonSection({
             url={url}
             slot={slot}
             characterId={characterId}
-            isAdmin={isAdmin}
+            isFounder={isFounder}
             onUploaded={onRefresh}
           />
         ))}
@@ -349,7 +354,7 @@ function FaceCanonSection({
           value={description}
           onChange={e => setDescription(e.target.value)}
           rows={2}
-          disabled={canon.face_locked && !isAdmin}
+          disabled={canon.face_locked && !isFounder}
           className="w-full text-xs bg-surface-elevated border border-edge-md rounded-lg px-3 py-2 text-ink resize-none focus:outline-none focus:ring-1 focus:ring-gem/40 disabled:opacity-50"
           placeholder="e.g. sharp angular jaw, dark brown eyes, olive skin"
         />
@@ -363,7 +368,7 @@ function FaceCanonSection({
       </div>
 
       {/* Lock button */}
-      {!canon.face_locked && isAdmin && (
+      {!canon.face_locked && isFounder && (
         <div className="pt-1">
           {lockError && <p className="text-xs text-red-400 mb-2">{lockError}</p>}
           <button
@@ -643,12 +648,12 @@ function SkinTruthSection({
 function BodyCanonSection({
   canon,
   characterId,
-  isAdmin,
+  isFounder,
   onRefresh,
 }: {
   canon: CharacterCanon;
   characterId: number;
-  isAdmin: boolean;
+  isFounder: boolean;
   onRefresh: () => void;
 }) {
   const body = canon.body_canon;
@@ -684,11 +689,11 @@ function BodyCanonSection({
 
   async function handleAddMark() {
     // Inline validation — never silently fail. Required: label, region, and
-    // (for admins) the marking image, which is the primary visual truth.
+    // (for founders) the marking image, which is the primary visual truth.
     const missing: string[] = [];
     if (!markForm.label.trim()) missing.push('label');
     if (!markForm.body_region.trim()) missing.push('body region');
-    if (isAdmin && !markFile) missing.push('marking image');
+    if (isFounder && !markFile) missing.push('marking image');
     if (missing.length > 0) {
       setMarkError(`Please add: ${missing.join(', ')}.`);
       return;
@@ -778,7 +783,7 @@ function BodyCanonSection({
             url={url}
             slot={slot}
             characterId={characterId}
-            isAdmin={isAdmin}
+            isFounder={isFounder}
             onUploaded={onRefresh}
           />
         ))}
@@ -847,7 +852,7 @@ function BodyCanonSection({
                   <MarkImageSlot
                     mark={mark}
                     characterId={characterId}
-                    isAdmin={isAdmin}
+                    isFounder={isFounder}
                     onUploaded={onRefresh}
                   />
                 </div>
@@ -961,7 +966,7 @@ function BodyCanonSection({
                   </optgroup>
                 </select>
                 {/* Image is the primary truth for the marking. */}
-                {isAdmin && (
+                {isFounder && (
                   <label className="flex items-center gap-1.5 text-xs text-ink-2 hover:text-ink cursor-pointer border border-dashed border-edge-md rounded px-2.5 py-2 transition-colors">
                     <Upload className="w-3 h-3 shrink-0" />
                     <span className="truncate">
@@ -983,7 +988,7 @@ function BodyCanonSection({
                   className="w-full text-xs bg-surface-elevated border border-edge-md rounded px-2.5 py-1.5 text-ink resize-none focus:outline-none"
                 />
                 <p className="text-xs text-ink-3">
-                  Required: label, body region{isAdmin ? ', marking image' : ''}.
+                  Required: label, body region{isFounder ? ', marking image' : ''}.
                 </p>
                 {markError && <p className="text-xs text-red-400">{markError}</p>}
                 <div className="flex gap-2">
@@ -1009,7 +1014,7 @@ function BodyCanonSection({
       </div>
 
       {/* Lock button */}
-      {!canon.body_locked && isAdmin && (
+      {!canon.body_locked && isFounder && (
         <div className="pt-1">
           {lockError && <p className="text-xs text-red-400 mb-2">{lockError}</p>}
           <button
@@ -1276,7 +1281,7 @@ function SceneImagesSection({
 
 type Tab = 'face' | 'body' | 'accessories' | 'scenes';
 
-export default function CanonManager({ characterId, isOwner, isAdmin }: Props) {
+export default function CanonManager({ characterId, isOwner, isFounder }: Props) {
   const [canon, setCanon] = useState<CharacterCanon | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1359,10 +1364,10 @@ export default function CanonManager({ characterId, isOwner, isAdmin }: Props) {
       {canon && (
         <div className="pt-2">
           {tab === 'face' && (
-            <FaceCanonSection canon={canon} characterId={characterId} isAdmin={isAdmin} onRefresh={load} />
+            <FaceCanonSection canon={canon} characterId={characterId} isFounder={isFounder} onRefresh={load} />
           )}
           {tab === 'body' && (
-            <BodyCanonSection canon={canon} characterId={characterId} isAdmin={isAdmin} onRefresh={load} />
+            <BodyCanonSection canon={canon} characterId={characterId} isFounder={isFounder} onRefresh={load} />
           )}
           {tab === 'accessories' && (
             <AccessoriesSection canon={canon} characterId={characterId} onRefresh={load} />

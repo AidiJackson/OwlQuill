@@ -10,12 +10,14 @@ Routes:
   DELETE /{character_id}/identity-canon/body/marks/{mark_id}  Remove permanent body mark
   POST   /{character_id}/identity-canon/accessories           Add removable accessory
   DELETE /{character_id}/identity-canon/accessories/{acc_id}  Remove accessory
-  POST   /{character_id}/identity-canon/upload                [Admin] Upload image to canon slot
-  POST   /{character_id}/identity-canon/upload/mark/{mark_id} [Admin] Upload reference for a mark
+  POST   /{character_id}/identity-canon/upload                [Founder] Upload image to canon slot
+  POST   /{character_id}/identity-canon/upload/mark/{mark_id} [Founder] Upload reference for a mark
   POST   /{character_id}/identity-canon/scenes/generate       Generate scene from locked canon
 
 All writes require character ownership.
-Admin upload requires admin role.
+Canon upload is user-supplied image input and is gated by the closed-beta
+image-ingress boundary (``may_supply_image_input`` — admin OR seeder), the same
+predicate that already governs the canon URL fields on the PATCH/POST routes.
 """
 import logging
 from typing import Optional
@@ -27,7 +29,11 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_owned_character, user_is_admin
-from app.core.image_ingress import guard_supplied_image_fields
+from app.core.image_ingress import (
+    guard_supplied_image_fields,
+    may_supply_image_input,
+    reject_user_supplied_image_input,
+)
 from app.core.storage import load_image_bytes, file_path_to_url
 from app.models.character import Character as CharacterModel
 from app.models.character_image import ImageKindEnum
@@ -124,9 +130,21 @@ def _mark_image_url(
     return None
 
 
-def _require_admin(user: User) -> None:
-    if not user_is_admin(user):
-        raise HTTPException(status_code=403, detail="Admin access required.")
+def _require_image_input(user: User, field: str = "file") -> None:
+    """Refuse a canon upload from an account the beta does not accept imagery from.
+
+    Replaces the route-local ``_require_admin`` these two upload routes carried.
+    That guard predated ``is_founder_account`` and read ``user_is_admin`` alone,
+    so a dedicated seeder — ``is_seeder`` with no admin rights — was refused
+    here while the SAME boundary, on the PATCH/POST routes above, already let
+    that account point a canon slot at an image URL. Uploading the bytes is the
+    same capability as supplying the URL; it answers to the same predicate.
+
+    ``field`` names the multipart part in the refusal payload, matching how
+    the Editor Studio upload reports ``images``.
+    """
+    if not may_supply_image_input(user):
+        reject_user_supplied_image_input([field])
 
 
 # ── Closed-beta image-ingress boundary (Phase Beta Boundary 1) ────────
@@ -507,7 +525,7 @@ class CanonUploadResponse(BaseModel):
     "/{character_id}/identity-canon/upload",
     response_model=CanonUploadResponse,
     status_code=201,
-    summary="[Admin] Upload an image to a canon slot",
+    summary="[Founder] Upload an image to a canon slot",
 )
 async def admin_upload_canon_image(
     character_id: int,
@@ -519,7 +537,7 @@ async def admin_upload_canon_image(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CanonUploadResponse:
-    """Upload an image to a specific canon slot. Admin only.
+    """Upload an image to a specific canon slot. Founder (admin or seeder) only.
 
     Accepts: face_front, face_left_3q, face_right_3q, face_expression,
              body_front, body_left, body_right, body_back, body_map,
@@ -529,7 +547,7 @@ async def admin_upload_canon_image(
     reference images. Does not affect scene generation directly — canon
     must be locked after upload for generation to use it.
     """
-    _require_admin(current_user)
+    _require_image_input(current_user)
     character = _get_owned_character(character_id, current_user, db)
 
     if slot not in SLOT_FIELD_MAP:
@@ -555,8 +573,8 @@ async def admin_upload_canon_image(
     # is the statement this path has to make — a user supplied these bytes and
     # Ficshon has no generation provenance for them. Ownership comes from the
     # CHARACTER the route already resolved, never from ``current_user``: this
-    # route is admin-gated, and an admin uploading onto a character files the
-    # asset in its OWNER's library.
+    # route is founder-gated, and a founder uploading onto a character files
+    # the asset in its OWNER's library.
     image = persist_image_asset(
         db,
         content=raw,
@@ -596,7 +614,7 @@ async def admin_upload_canon_image(
     "/{character_id}/identity-canon/upload/mark/{mark_id}",
     response_model=CanonUploadResponse,
     status_code=201,
-    summary="[Admin] Upload a reference / detail-crop image for a permanent body mark",
+    summary="[Founder] Upload a reference / detail-crop image for a permanent body mark",
 )
 async def admin_upload_mark_reference(
     character_id: int,
@@ -606,7 +624,7 @@ async def admin_upload_mark_reference(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CanonUploadResponse:
-    _require_admin(current_user)
+    _require_image_input(current_user)
     character = _get_owned_character(character_id, current_user, db)
 
     if slot not in ("reference", "detail"):
