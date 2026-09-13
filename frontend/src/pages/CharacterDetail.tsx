@@ -24,6 +24,7 @@ import ImageGrid from '@/features/images/components/ImageGrid';
 import IdentityCanonSection from '@/features/characterCreation/components/IdentityCanonSection';
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import CharacterImagePicker from '@/features/images/components/CharacterImagePicker';
 import { hasActingCharacter, isFounder } from '@/lib/entitlements';
 import { avatarTransformStyle } from '@/lib/media';
@@ -81,9 +82,11 @@ export default function CharacterDetail() {
   const [picker, setPicker] = useState<null | { mode: 'avatar' | 'cover'; repositionOnly: boolean }>(null);
 
   // Delete modal state
+  // Delete character — Polish Phase 0 (M2). One dialog, honestly titled, with
+  // the character's name typed to confirm. It was "Reset Character Identity"
+  // with a checkbox and a second "are you sure": a softer name for a permanent
+  // deletion, and two clicks that asked less of the user than typing the name.
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
-  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
@@ -102,15 +105,12 @@ export default function CharacterDetail() {
 
   const openDeleteModal = () => {
     setShowDeleteModal(true);
-    setDeleteStep(1);
-    setDeleteConfirmed(false);
     setDeleteError('');
   };
 
   const closeDeleteModal = () => {
+    if (deleting) return;
     setShowDeleteModal(false);
-    setDeleteStep(1);
-    setDeleteConfirmed(false);
     setDeleteError('');
   };
 
@@ -607,15 +607,23 @@ export default function CharacterDetail() {
                   <ImageIcon className="w-3.5 h-3.5" />
                   Generate Images
                 </button>
-                {character.visual_locked && (
-                  <button
-                    onClick={() => setShowCanonModal(true)}
-                    className="text-sm flex items-center gap-2 px-3.5 py-2 rounded-lg bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Manage Character Canon
-                  </button>
-                )}
+                {/* Polish Phase 0 (M3): always offered to the owner. This was
+                    gated on visual_locked, which left a draft character —
+                    the state every new character spends its first days in —
+                    with no way to reach its own body canon, marks or face
+                    description. The server never required a lock. */}
+                <button
+                  onClick={() => setShowCanonModal(true)}
+                  className="text-sm flex items-center gap-2 px-3.5 py-2 rounded-lg bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Manage Character Canon
+                  <span className={`ml-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+                    character.visual_locked ? 'bg-gem-soft text-gem' : 'bg-surface-overlay text-ink-3'
+                  }`}>
+                    {character.visual_locked ? 'Locked' : 'Draft'}
+                  </span>
+                </button>
               </div>
               <p className="text-xs text-ink-3">
                 Set the avatar from any gallery image (open it from the Media tab), and set a
@@ -636,7 +644,7 @@ export default function CharacterDetail() {
                 onClick={openDeleteModal}
               >
                 <Trash2 className="w-3 h-3" />
-                Reset Character Identity
+                Delete character
               </button>
             </div>
           </div>
@@ -745,78 +753,33 @@ export default function CharacterDetail() {
         </div>
       )}
 
-      {/* Delete character modal */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-surface-overlay border border-edge-md rounded-2xl p-6 max-w-md w-full mx-4 space-y-4">
-            {deleteStep === 1 ? (
-              <>
-                <h3 className="text-lg font-semibold text-red-400">Reset Character Identity</h3>
-                <div className="text-sm text-ink-2 space-y-2">
-                  <p>This will <strong>permanently delete</strong> your character <strong>{character.name}</strong> and all associated data:</p>
-                  <ul className="list-disc list-inside text-ink-3 space-y-1">
-                    <li>Character profile, bio, and DNA</li>
-                    <li>All generated images</li>
-                    <li>All conversations and messages as this character</li>
-                    <li>Character references on posts will be cleared</li>
-                  </ul>
-                  <p className="text-amber-400">After deletion, you must wait <strong>24 hours</strong> before creating a new character.</p>
-                </div>
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={deleteConfirmed}
-                    onChange={(e) => setDeleteConfirmed(e.target.checked)}
-                    className="mt-1 accent-red-500"
-                  />
-                  <span className="text-sm text-ink-2">I understand this action is permanent and cannot be undone.</span>
-                </label>
-                <div className="flex gap-3 pt-2">
-                  <button
-                    className="px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors flex-1"
-                    onClick={closeDeleteModal}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-2 rounded-lg transition-colors flex-1"
-                    disabled={!deleteConfirmed}
-                    onClick={() => setDeleteStep(2)}
-                  >
-                    Continue
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h3 className="text-lg font-semibold text-red-400">Final Confirmation</h3>
-                <p className="text-sm text-ink-2">
-                  Are you absolutely sure you want to permanently delete <strong>{character.name}</strong>?
-                </p>
-                {deleteError && (
-                  <p className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{deleteError}</p>
-                )}
-                <div className="flex gap-3 pt-2">
-                  <button
-                    className="px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors flex-1"
-                    onClick={closeDeleteModal}
-                    disabled={deleting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-sm px-4 py-2 rounded-lg transition-colors flex-1"
-                    onClick={handleDeleteCharacter}
-                    disabled={deleting}
-                  >
-                    {deleting ? 'Deleting…' : 'Delete Character Permanently'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Delete character — permanent, name typed to confirm (Polish Phase 0, M2) */}
+      <ConfirmDialog
+        open={showDeleteModal}
+        danger
+        title="Delete character"
+        confirmLabel="Delete character"
+        confirmText={character.name}
+        busy={deleting}
+        error={deleteError || null}
+        onConfirm={handleDeleteCharacter}
+        onCancel={closeDeleteModal}
+      >
+        <p>
+          This <strong>permanently deletes</strong> <strong>{character.name}</strong> and everything
+          that belongs to them:
+        </p>
+        <ul className="list-disc list-inside text-ink-3 space-y-1">
+          <li>Profile, bios and identity canon</li>
+          <li>All generated images</li>
+          <li>All conversations and messages as this character</li>
+          <li>Their name on existing posts is cleared</li>
+        </ul>
+        <p className="text-amber-400">
+          There is no undo. After deleting, you must wait <strong>24 hours</strong> before creating a
+          new character.
+        </p>
+      </ConfirmDialog>
 
       {/* Owner image-curation picker — avatar / cover, scoped to this character */}
       {picker && isOwner && (

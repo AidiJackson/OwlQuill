@@ -388,7 +388,7 @@ function FaceCanonSection({
       {canon.face_locked && (
         <div className="flex items-center gap-2 text-xs text-gem bg-gem-soft px-3 py-2 rounded-lg border border-gem/30">
           <Shield className="w-3 h-3" />
-          Face Canon is locked. Scene images cannot alter this.
+          Face Canon is locked in as the reference for every image generated from now on. Generated scenes never write back to it.
         </div>
       )}
     </div>
@@ -802,12 +802,12 @@ function BodyCanonSection({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-ink">Permanent Body Markings</p>
-          <p className="text-xs text-gem/80">Locked body truth — not accessories</p>
+          <p className="text-xs text-gem/80">Part of the identity reference — not accessories</p>
         </div>
 
         {(!body?.permanent_body_marks || body.permanent_body_marks.length === 0) && (
           <p className="text-xs text-ink-3">
-            No permanent markings yet. Tattoos, scars, and birthmarks added here are locked body truth.
+            No permanent markings yet. Tattoos, scars and birthmarks added here become part of the identity reference.
           </p>
         )}
 
@@ -1034,7 +1034,7 @@ function BodyCanonSection({
       {canon.body_locked && (
         <div className="flex items-center gap-2 text-xs text-gem bg-gem-soft px-3 py-2 rounded-lg border border-gem/30">
           <Shield className="w-3 h-3" />
-          Body Canon is locked. Permanent markings are anatomical truth.
+          Body Canon is locked in as the reference for every image generated from now on. Changes made here affect future images only.
         </div>
       )}
     </div>
