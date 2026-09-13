@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 //
 // The Interview shell and its groups, as a user sees them (Polish Phase 1).
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 
 import StepPersonality from '../StepPersonality';
 import type { CreationBasics, CreationSeeds } from '../../shared/types';
 
 afterEach(cleanup);
+beforeEach(() => localStorage.clear());
 
 function setup(seeds: Partial<CreationSeeds> = {}, basics: Partial<CreationBasics> = {}) {
   const onChange = vi.fn();
@@ -135,5 +136,66 @@ describe('Interview — hair rule (C9)', () => {
     expect(sent.identity.hair_length).toBe('Shaved');
     expect(sent.hair_style).toBeUndefined();
     expect(sent.hair_texture).toBeUndefined();
+  });
+});
+
+describe('Interview — face shape as picture cards (Phase 3A)', () => {
+  it('face shape is the visual picker; every other category is still a chip row', () => {
+    setup({ identitySpec: { gender: 'female', age_band: '26-35' } as never });
+    next();
+    const face = screen.getByRole('group', { name: 'Face shape' });
+    expect(face.querySelectorAll('img').length).toBe(5);
+    expect(within(face).getByRole('button', { name: /Angular/ })).toBeTruthy();
+    for (const name of ['Jaw', 'Cheekbones']) {
+      expect(screen.getByRole('group', { name }).querySelectorAll('img').length).toBe(0);
+    }
+    next();
+    for (const name of ['Eye shape', 'Eye spacing', 'Eyebrows']) {
+      expect(screen.getByRole('group', { name }).querySelectorAll('img').length).toBe(0);
+    }
+    next();
+    for (const name of ['Nose', 'Lips']) {
+      expect(screen.getByRole('group', { name }).querySelectorAll('img').length).toBe(0);
+    }
+  });
+
+  it('a picked face shape enters the spec with the same stored value as before', () => {
+    const { onChange } = setup({ identitySpec: { gender: 'female', age_band: '26-35' } as never });
+    next();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Face shape' })).getByRole('button', { name: /Angular/ }));
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identitySpec: expect.objectContaining({ face_shape: 'angular' }) }),
+    );
+    fireEvent.click(within(screen.getByRole('group', { name: 'Face shape' })).getByRole('button', { name: /Angular/ }));
+    expect(onChange.mock.calls[onChange.mock.calls.length - 1][0].identitySpec.face_shape).toBeUndefined();
+  });
+
+  it('the example-set toggle defaults from gender, switches the pictures, and never touches the spec', () => {
+    const { onChange } = setup({ identitySpec: { gender: 'male', age_band: '26-35', face_shape: 'square' } as never });
+    next();
+    const masc = screen.getByRole('radio', { name: 'Masculine' });
+    expect(masc.getAttribute('aria-checked')).toBe('true');
+    const face = screen.getByRole('group', { name: 'Face shape' });
+    expect(face.querySelector('img')?.getAttribute('src')).toContain('/masculine/');
+    fireEvent.click(screen.getByRole('radio', { name: 'Feminine' }));
+    expect(face.querySelector('img')?.getAttribute('src')).toContain('/feminine/');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(within(face).getByRole('button', { name: /Square/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(localStorage.getItem('ficshon.creator.exampleSet')).toBe('feminine');
+  });
+
+  it('colour chips carry a swatch and keep their exact stored values (C14)', () => {
+    const { onChange } = setup({ identitySpec: { gender: 'female', age_band: '26-35' } as never });
+    next(); next();
+    const eye = screen.getByRole('group', { name: 'Eye colour' });
+    expect(within(eye).getAllByTestId('color-swatch')).toHaveLength(7);
+    fireEvent.click(chip('Eye colour', 'Hazel'));
+    expect(onChange.mock.calls[onChange.mock.calls.length - 1][0].identitySpec.identity.eye_color).toBe('Hazel');
+    next(); next();
+    expect(within(screen.getByRole('group', { name: 'Hair colour' })).getAllByTestId('color-swatch')).toHaveLength(10);
+    expect(within(screen.getByRole('group', { name: 'Skin tone' })).getAllByTestId('color-swatch')).toHaveLength(10);
+    fireEvent.click(chip('Skin tone', 'Porcelain'));
+    expect(onChange.mock.calls[onChange.mock.calls.length - 1][0].identitySpec.identity.skin_tone).toBe('Porcelain');
+    expect(within(screen.getByRole('group', { name: 'Skin tone' })).getByText('Porcelain')).toBeTruthy();
   });
 });

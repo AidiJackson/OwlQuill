@@ -22,6 +22,7 @@ import { isInterviewComplete } from '../shared/interviewRules';
 import SketchFacePreview from '../components/SketchFacePreview';
 import NotesStrip from '../components/NotesStrip';
 import { GROUPS, GROUP_COMPONENTS, GROUP_COUNT, type GroupId } from './interviewGroups';
+import { useExampleSet } from '../visualRefs/useExampleSet';
 
 /* ── Empty spec ─────────────────────────────────────────────────────── */
 //
@@ -81,6 +82,10 @@ export default function StepPersonality({
   const [spec, setSpec] = useState<IdentitySpec>(() => normaliseSpec(data.identitySpec));
   const [activeGroup, setActiveGroup] = useState<GroupId>(0);
   const [triedSubmit, setTriedSubmit] = useState(false);
+  // Which explanatory example images the picture-card fields show (Phase 3A).
+  // A viewing preference: suggested by the chosen gender, overridable, never
+  // part of the spec.
+  const { exampleSet, setExampleSet } = useExampleSet(spec.gender);
 
   const propagate = useCallback(
     (next: IdentitySpec) => {
@@ -172,6 +177,8 @@ export default function StepPersonality({
             traits={data.traits}
             toggleTrait={toggleTrait}
             showMissing={triedSubmit}
+            exampleSet={exampleSet}
+            onExampleSetChange={setExampleSet}
           />
 
           {triedSubmit && !canProceed && !saving && (

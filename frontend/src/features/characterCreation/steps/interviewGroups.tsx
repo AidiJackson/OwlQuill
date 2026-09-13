@@ -20,7 +20,6 @@ import {
   EYE_COLORS,
   EYE_SHAPES,
   EYE_SPACINGS,
-  FACE_SHAPES,
   FACIAL_HAIR_TYPES,
   GENDER_OPTIONS,
   HAIR_COLORS,
@@ -37,6 +36,10 @@ import {
   SPECIES_TELLS_MAP,
 } from '../shared/types';
 import { hairDetailApplies, withHairLength } from '../shared/interviewRules';
+import VisualFeaturePicker from '../visualRefs/VisualFeaturePicker';
+import ExampleSetToggle from '../visualRefs/ExampleSetToggle';
+import { FACE_SHAPE_CATEGORY, type ExampleSet } from '../visualRefs/refCatalog';
+import { EYE_COLOR_SWATCHES, HAIR_COLOR_SWATCHES, SKIN_TONE_SWATCHES } from '../visualRefs/colorSwatches';
 
 // ── Groups ────────────────────────────────────────────────────────────
 
@@ -66,6 +69,7 @@ export function ChipRow({
   multi = false,
   maxMulti,
   ariaLabel,
+  swatches,
 }: {
   options: readonly string[];
   value: string | string[];
@@ -73,6 +77,8 @@ export function ChipRow({
   multi?: boolean;
   maxMulti?: number;
   ariaLabel?: string;
+  /** Explanatory colour per option (C14). The label stays; the value is untouched. */
+  swatches?: Record<string, string>;
 }) {
   const selectedSet = new Set(Array.isArray(value) ? value : value ? [value] : []);
 
@@ -101,10 +107,18 @@ export function ChipRow({
             disabled={disabled}
             aria-pressed={selected}
             onClick={() => handleClick(option)}
-            className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors border ${
               selected ? CHIP_ON : disabled ? 'bg-surface border-edge text-ink-3 cursor-not-allowed' : CHIP_OFF
             }`}
           >
+            {swatches?.[option] && (
+              <span
+                aria-hidden="true"
+                data-testid="color-swatch"
+                className="inline-block h-3 w-3 rounded-full ring-1 ring-black/20 shrink-0"
+                style={{ backgroundColor: swatches[option] }}
+              />
+            )}
             {option}
           </button>
         );
@@ -174,6 +188,9 @@ export interface GroupProps {
   toggleTrait: (t: string) => void;
   /** After a failed Continue: show which required answers are missing. */
   showMissing: boolean;
+  /** Which explanatory example images the picture-card fields show. UI only. */
+  exampleSet: ExampleSet;
+  onExampleSetChange: (set: ExampleSet) => void;
 }
 
 // ── Q0 — Basics: name, alias, gender, age, species ────────────────────
@@ -237,12 +254,23 @@ function GroupBasics({ spec, propagate, set, basics, onBasicsChange, showMissing
 
 // ── Q1 — Face shape ───────────────────────────────────────────────────
 
-function GroupFace({ spec, set }: GroupProps) {
+// Face shape is the first field shown as picture cards (Polish Phase 3A).
+// Same options, same stored value; the example-set toggle only changes which
+// pictures are shown and is never written anywhere.
+
+function GroupFace({ spec, set, exampleSet, onExampleSetChange }: GroupProps) {
   return (
     <div className="space-y-4">
-      <div>
+      <div className="space-y-2">
         <Note>Face shape</Note>
-        <LabeledChipRow ariaLabel="Face shape" options={FACE_SHAPES} value={spec.face_shape ?? ''} onChange={(v) => set('face_shape', v || undefined)} />
+        <VisualFeaturePicker
+          category={FACE_SHAPE_CATEGORY}
+          ariaLabel="Face shape"
+          value={spec.face_shape as typeof FACE_SHAPE_CATEGORY.options[number]['value'] | undefined}
+          onChange={(v) => set('face_shape', v)}
+          exampleSet={exampleSet}
+        />
+        <ExampleSetToggle value={exampleSet} onChange={onExampleSetChange} />
       </div>
       <div>
         <Note>Jaw</Note>
@@ -275,7 +303,7 @@ function GroupEyes({ spec, set, setIdentity }: GroupProps) {
       </div>
       <div>
         <Note>Eye colour</Note>
-        <ChipRow ariaLabel="Eye colour" options={EYE_COLORS} value={spec.identity.eye_color} onChange={(v) => setIdentity('eye_color', v as string)} />
+        <ChipRow ariaLabel="Eye colour" options={EYE_COLORS} value={spec.identity.eye_color} onChange={(v) => setIdentity('eye_color', v as string)} swatches={EYE_COLOR_SWATCHES} />
       </div>
       <div>
         <Note>Eyebrows</Note>
@@ -314,7 +342,7 @@ function GroupHair({ spec, propagate, set, setIdentity }: GroupProps) {
     <div className="space-y-4">
       <div>
         <Note>Hair colour</Note>
-        <ChipRow ariaLabel="Hair colour" options={HAIR_COLORS} value={spec.identity.hair_color} onChange={(v) => setIdentity('hair_color', v as string)} />
+        <ChipRow ariaLabel="Hair colour" options={HAIR_COLORS} value={spec.identity.hair_color} onChange={(v) => setIdentity('hair_color', v as string)} swatches={HAIR_COLOR_SWATCHES} />
       </div>
       <div>
         <Note>Hair length</Note>
@@ -343,7 +371,7 @@ function GroupHair({ spec, propagate, set, setIdentity }: GroupProps) {
       </div>
       <div>
         <Note>Skin tone</Note>
-        <ChipRow ariaLabel="Skin tone" options={SKIN_TONES} value={spec.identity.skin_tone} onChange={(v) => setIdentity('skin_tone', v as string)} />
+        <ChipRow ariaLabel="Skin tone" options={SKIN_TONES} value={spec.identity.skin_tone} onChange={(v) => setIdentity('skin_tone', v as string)} swatches={SKIN_TONE_SWATCHES} />
       </div>
       <div>
         <Note>Facial hair</Note>
