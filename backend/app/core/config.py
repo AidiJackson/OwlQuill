@@ -182,6 +182,10 @@ class Settings(BaseSettings):
 
     # Identity pack rate limit — per character, rolling 24-hour window
     IDENTITY_PACK_DAILY_LIMIT: int = 10
+    # Polish Phase 2 (C10): paid Sketch generations per character in a rolling
+    # 24-hour window. ONE quota concept, server-authoritative, no exemptions —
+    # the sketch is an optional preview and this is its cost boundary.
+    IDENTITY_SKETCH_ALLOWANCE: int = 3
 
     # StoryLab narrative engine
     # STORYLAB_PROVIDER: "stub" (deterministic, no key needed) | "openrouter"

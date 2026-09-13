@@ -54,6 +54,7 @@ from app.schemas.character_visual import (
     MomentGenerateRequest,
     IdentitySketchGenerateRequest,
     IdentitySketchGenerateResponse,
+    SketchAllowanceRead,
 )
 from app.services.asset_persistence import (
     OwnedBy,
@@ -62,7 +63,11 @@ from app.services.asset_persistence import (
 )
 from app.services.character_visual import upsert_character_dna, get_character_dna
 from app.services.identity_evolution import write_pack_stages
-from app.services.image_quota import check_identity_pack_quota
+from app.services.image_quota import (
+    check_identity_pack_quota,
+    get_sketch_allowance,
+    sketch_allowance_exhausted_response,
+)
 from app.services.appearance_spec import (
     build_appearance_spec,
     build_generation_prompt,
@@ -2340,10 +2345,32 @@ def generate_identity_sketch(
 
     Does not consume identity-pack quotas.  The sketch is saved immediately
     (is_temp=False) and the character's identity_anchor_json is updated with
-    sketch metadata.  Regeneration is allowed unlimited times — each call
-    simply overwrites the anchor entry.
+    sketch metadata.  Regeneration archives the previous sketch.
+
+    Polish Phase 2 (C10): bounded by the Sketch allowance —
+    ``settings.IDENTITY_SKETCH_ALLOWANCE`` per character per rolling 24 hours,
+    counted from persisted IDENTITY_SKETCH rows (see
+    ``image_quota.get_sketch_allowance`` for exactly what counts). The check
+    runs BEFORE the provider is called; an exhausted allowance is a 429 that
+    carries the allowance, and the provider is never invoked for it.
     """
     character = _get_owned_character(character_id, current_user, db)
+
+    # Serialise concurrent sketch requests for THIS character so two taps
+    # cannot both see "2 used" and both generate. On Postgres this is a row
+    # lock on the character held until the request commits or the session is
+    # closed (get_db closes on any exception, releasing it); a second request
+    # for the same character waits here, then sees the updated count. Other
+    # characters and plain reads are unaffected. SQLite (tests) ignores it.
+    db.query(CharacterModel).filter(CharacterModel.id == character_id).with_for_update().first()
+
+    allowance = get_sketch_allowance(character_id, db)
+    if not allowance["allowed"]:
+        logger.info(
+            "identity_sketch_allowance_exhausted character_id=%s used=%s limit=%s next=%s",
+            character_id, allowance["used"], allowance["limit"], allowance["next_available_at"],
+        )
+        return sketch_allowance_exhausted_response(allowance)  # type: ignore[return-value]
 
     style = body.style  # already coerced by schema validator
 
@@ -2479,7 +2506,29 @@ def generate_identity_sketch(
         style=style,
         prompt_preview=sketch_prompt,  # full prompt (already ≤ _SKETCH_PROMPT_CAP)
         provider_used=provider_name,
+        # Counted after the commit above, so this row is included.
+        allowance=get_sketch_allowance(character_id, db),
     )
+
+
+@router.get(
+    "/{character_id}/identity-sketch/allowance",
+    response_model=SketchAllowanceRead,
+    summary="How many sketch generations this character has left in the rolling 24h window",
+)
+def get_identity_sketch_allowance(
+    character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SketchAllowanceRead:
+    """The server-authoritative Sketch allowance, for the owner only.
+
+    Polish Phase 2 (C10). Read before the creator presses Generate so the
+    button and its copy reflect the real number; the generate response
+    carries the same shape after each attempt.
+    """
+    _get_owned_character(character_id, current_user, db)
+    return SketchAllowanceRead(**get_sketch_allowance(character_id, db))
 
 
 # ── B15.4: DEV-ONLY debug trace endpoint ─────────────────────────────

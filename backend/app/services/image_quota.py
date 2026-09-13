@@ -1,4 +1,5 @@
-"""Image generation weekly allowance service (B22) and identity-pack rate limit.
+"""Image generation weekly allowance service (B22), identity-pack rate limit,
+and the Sketch allowance (Polish Phase 2, C10).
 
 Rolling 7-day window per user (weekly quota):
 - ``check_weekly_quota(user, db)``  → 429 JSONResponse or None
@@ -22,6 +23,7 @@ from app.models.user import User
 
 _WINDOW_DAYS = 7
 _IDENTITY_PACK_WINDOW_HOURS = 24
+SKETCH_WINDOW_HOURS = 24
 
 
 def _is_quota_exempt(user: User) -> bool:
@@ -244,3 +246,92 @@ def check_weekly_quota(user: User, db: Session) -> JSONResponse | None:
             },
         )
     return None
+
+
+# ── Sketch allowance (Polish Phase 2, C10) ───────────────────────────
+#
+# ONE quota concept: settings.IDENTITY_SKETCH_ALLOWANCE paid sketch
+# generations per character in a rolling SKETCH_WINDOW_HOURS window. The
+# server is authoritative; the frontend only displays what this returns.
+#
+# WHAT COUNTS. A generation is counted iff it left an IDENTITY_SKETCH row for
+# the character — which the route writes only after the provider returned
+# bytes, in the same transaction as the archive of the previous sketch. So:
+#   * a provider failure (503 before any row)          → not counted;
+#   * provider success + persistence failure (no row)  → not counted — the
+#     provider was paid, the creator was not charged an attempt. Rare, and
+#     the safe direction to err in;
+#   * every persisted sketch counts, ARCHIVED or ACTIVE: regenerating archives
+#     the previous row and that row is exactly the attempt being counted;
+#   * historical rows count if they fall inside the window. There is no
+#     "before this feature" carve-out — the window is 24h, so it clears itself.
+#
+# WINDOW. A row counts while ``now - created_at < window``; ``created_at`` is
+# the model's naive-UTC default and ``now`` is ``datetime.utcnow()`` to match.
+# When the allowance is spent, ``next_available_at`` is the oldest counted
+# row's ``created_at + window`` — the instant the count first drops below the
+# limit. There is no calendar reset.
+#
+# No founder exemption, deliberately: the product decision names one rule,
+# and 3 previews per character per day does not obstruct seeding.
+
+
+def get_sketch_allowance(character_id: int, db: Session, *, now: datetime | None = None) -> dict:
+    """Current Sketch allowance for one character.
+
+    Pure read. Returns ``{limit, used, remaining, allowed, window_hours,
+    next_available_at}`` — ``next_available_at`` is an ISO-8601 UTC string
+    when ``remaining == 0`` and null otherwise.
+    """
+    from app.models.character_image import ImageKindEnum  # local: keeps the module header light
+
+    limit = max(0, int(settings.IDENTITY_SKETCH_ALLOWANCE))
+    now = now or datetime.utcnow()
+    since = now - timedelta(hours=SKETCH_WINDOW_HOURS)
+    counted = (
+        db.query(CharacterImage.created_at)
+        .filter(
+            CharacterImage.character_id == character_id,
+            CharacterImage.kind == ImageKindEnum.IDENTITY_SKETCH,
+            CharacterImage.created_at > since,
+        )
+        .order_by(CharacterImage.created_at.asc())
+        .all()
+    )
+    used = len(counted)
+    remaining = max(0, limit - used)
+    next_available_at = None
+    if remaining == 0 and counted:
+        # The count drops below the limit when the (used - limit + 1)-th oldest
+        # counted row leaves the window. With used == limit that is the oldest.
+        idx = max(0, used - limit)
+        oldest = counted[idx][0]
+        next_available_at = (oldest + timedelta(hours=SKETCH_WINDOW_HOURS)).replace(microsecond=0).isoformat() + "Z"
+    return {
+        "limit": limit,
+        "used": used,
+        "remaining": remaining,
+        "allowed": remaining > 0,
+        "window_hours": SKETCH_WINDOW_HOURS,
+        "next_available_at": next_available_at,
+    }
+
+
+def sketch_allowance_exhausted_response(allowance: dict) -> JSONResponse:
+    """The 429 the sketch route returns when the allowance is spent.
+
+    Same shape family as ``check_identity_pack_quota``: top-level ``error`` and
+    ``detail``, plus the full allowance so the client can reconcile to the
+    server's state instead of showing a generic failure.
+    """
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "sketch_allowance_exhausted",
+            "detail": (
+                f"You've used your {allowance['limit']} sketch attempts for now. "
+                "The sketch is optional — you can skip it and build the Identity Pack."
+            ),
+            "allowance": allowance,
+        },
+    )

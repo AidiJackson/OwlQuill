@@ -348,6 +348,20 @@ class IdentitySketchGenerateRequest(BaseModel):
         return normed if normed in _VALID_SKETCH_STYLES else "pencil"
 
 
+class SketchAllowanceRead(BaseModel):
+    """The Sketch allowance as the server sees it (Polish Phase 2, C10).
+
+    ``next_available_at`` is set only when ``remaining == 0``: the UTC instant
+    the oldest counted attempt leaves the rolling window.
+    """
+    limit: int
+    used: int
+    remaining: int
+    allowed: bool
+    window_hours: int
+    next_available_at: Optional[str] = None
+
+
 class IdentitySketchGenerateResponse(BaseModel):
     """Response from POST /characters/{id}/identity-sketch/generate."""
     image_url: str
@@ -355,3 +369,6 @@ class IdentitySketchGenerateResponse(BaseModel):
     style: str
     prompt_preview: str
     provider_used: str
+    # The allowance AFTER this generation was counted, so the client shows the
+    # server's number rather than decrementing its own.
+    allowance: Optional[SketchAllowanceRead] = None
