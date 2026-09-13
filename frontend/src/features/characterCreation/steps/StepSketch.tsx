@@ -1,112 +1,31 @@
-import { useState, useEffect, useRef } from 'react';
+// The Sketch — a quick preview of how the artist reads the Interview.
+//
+// Polish Phase 1 (C12, C16). The product truth, stated on the page: the
+// sketch is a preview of the system's reading of the Interview; the Identity
+// Pack is generated from the Interview's answers, not from this image
+// (product decision P1 — the sketch does not seed the V2 pack, and nothing
+// here pretends otherwise). Actions say what they do: Generate sketch, Try
+// again, Yes — that's them, Skip the sketch.
+//
+// The B15.5/B15.6 DEV debug panel and trace logging that lived here were
+// removed in the same pass (authorised touch-when-modifying cleanup); the
+// session guard they observed is unchanged and still enforced.
+import { useState, useEffect } from 'react';
 import { PenLine, RefreshCw, CheckCircle } from 'lucide-react';
-import type { SketchResponse, SketchStyle, IdentitySpec, CreationBasics } from '../shared/types';
-import { SKETCH_STYLES } from '../shared/types';
+import type { SketchResponse, SketchStyle, IdentitySpec } from '../shared/types';
+import { GENDER_OPTIONS, SKETCH_STYLES, SPECIES_OPTIONS } from '../shared/types';
 import { generateIdentitySketch, resolveImageUrl } from '../shared/api';
 import { isSketchBlocked } from '../shared/sessionGuard';
-
-// ── B15.5: DEV-ONLY sketch trace ─────────────────────────────────────
-// All logging and the on-screen debug panel are gated behind the Vite
-// build-time flag so they are tree-shaken out of production bundles.
-const _SKETCH_TRACE = import.meta.env.DEV;
-
-function _traceLog(event: string, data?: Record<string, unknown>) {
-  if (!_SKETCH_TRACE) return;
-  // eslint-disable-next-line no-console
-  console.info(`[SketchTrace] ${event}`, data ?? '');
-}
-
-// ── B15.5/B15.6: Dev-only debug panel ────────────────────────────────
-// Renders a collapsible on-screen overlay with live sketch trace state.
-// Easy to inspect on mobile: visible directly in the viewport without
-// needing desktop DevTools.
-interface _DebugPanelProps {
-  characterId: number;
-  mountCharacterId: number;
-  specFingerprint: string;
-  sketch: SketchResponse | null;
-  loading: boolean;
-  // B15.6 additions
-  activeCreationCharacterId: number | null | undefined;
-  routeCharacterId: number | null | undefined;
-  pageshowPersisted: boolean | undefined;
-  sessionRecoveryAction: string | undefined;
-  sketchBlocked: boolean;
-}
-function _SketchDebugPanel({
-  characterId,
-  mountCharacterId,
-  specFingerprint,
-  sketch,
-  loading,
-  activeCreationCharacterId,
-  routeCharacterId,
-  pageshowPersisted,
-  sessionRecoveryAction,
-  sketchBlocked,
-}: _DebugPanelProps) {
-  if (!_SKETCH_TRACE) return null;
-  const idDrift = characterId !== mountCharacterId;
-  const renderedUrl = sketch ? resolveImageUrl(sketch.image_url) : null;
-  return (
-    <details className="mt-2 rounded-lg border border-green-800 bg-black/80 px-3 py-2 text-xs font-mono">
-      <summary className="cursor-pointer select-none text-green-400 font-semibold">
-        ▶ [DEV] Sketch Trace
-      </summary>
-      <div className="mt-2 space-y-1 text-green-300 leading-relaxed">
-        <div>
-          <span className="text-green-600">characterId (prop):</span>{' '}
-          <span className={idDrift ? 'text-red-400 font-bold' : ''}>{characterId}</span>
-          {idDrift && (
-            <span className="ml-2 text-red-400">⚠ DRIFTED from mount id={mountCharacterId}</span>
-          )}
-        </div>
-        <div><span className="text-green-600">mountCharacterId:</span> {mountCharacterId}</div>
-        <div><span className="text-green-600">activeCreationCharacterId:</span>{' '}
-          <span className={activeCreationCharacterId != null && characterId !== activeCreationCharacterId ? 'text-red-400 font-bold' : ''}>
-            {activeCreationCharacterId ?? 'n/a'}
-          </span>
-        </div>
-        <div><span className="text-green-600">routeCharacterId:</span> {routeCharacterId ?? 'n/a'}</div>
-        <div>
-          <span className="text-green-600">pageshowPersisted:</span>{' '}
-          <span className={pageshowPersisted ? 'text-yellow-400 font-bold' : ''}>{String(pageshowPersisted ?? false)}</span>
-        </div>
-        <div>
-          <span className="text-green-600">recoveryAction:</span>{' '}
-          <span className={sessionRecoveryAction ? 'text-yellow-300' : ''}>{sessionRecoveryAction || 'none'}</span>
-        </div>
-        <div>
-          <span className="text-green-600">sketchBlocked:</span>{' '}
-          <span className={sketchBlocked ? 'text-red-400 font-bold' : ''}>{String(sketchBlocked)}</span>
-        </div>
-        <div><span className="text-green-600">specFingerprint:</span> <span className="break-all">{specFingerprint || '(none)'}</span></div>
-        <div><span className="text-green-600">loading:</span> {String(loading)}</div>
-        <div><span className="text-green-600">sketchImageId:</span> {sketch?.image_id ?? 'null'}</div>
-        <div><span className="text-green-600">sketchImageUrl:</span> <span className="break-all">{sketch?.image_url ?? 'null'}</span></div>
-        <div><span className="text-green-600">renderedUrl:</span> <span className="break-all">{renderedUrl ?? 'null'}</span></div>
-        <div><span className="text-green-600">imageSource:</span> {sketch ? 'local-state' : 'none'}</div>
-        <div><span className="text-green-600">providerUsed:</span> {sketch?.provider_used ?? 'n/a'}</div>
-      </div>
-    </details>
-  );
-}
 
 interface Props {
   characterId: number;
   identitySpec?: IdentitySpec | null;
-  basics?: CreationBasics | null;
-  onConfirmed: (sketchImageId: number) => void;
+  /** The creator accepted the sketch, or chose to skip it. Either way, on to the pack. */
+  onConfirmed: () => void;
   onBack: () => void;
   // B15.6: session hardening — optional so the component stays usable in isolation
   /** The flow's authoritative active character id. Must match characterId or sketch is blocked. */
   activeCreationCharacterId?: number | null;
-  /** The characterId parsed from the URL query params at the time of this mount. */
-  routeCharacterId?: number | null;
-  /** True when this mount was triggered after a bfcache page restore. */
-  pageshowPersisted?: boolean;
-  /** Human-readable string describing what recovery action the flow took (dev/debug). */
-  sessionRecoveryAction?: string;
 }
 
 /**
@@ -119,12 +38,12 @@ function specFingerprint(spec?: IdentitySpec | null): string {
     spec.gender,
     spec.age_band,
     spec.species,
+    (spec.species_tells ?? []).join(','),
     spec.face_shape,
     spec.jaw_type,
     spec.cheekbone_type,
     spec.eye_shape,
     spec.eye_spacing,
-    spec.brow_type,
     spec.eyebrow_shape,
     spec.nose_type,
     spec.lip_type,
@@ -136,8 +55,6 @@ function specFingerprint(spec?: IdentitySpec | null): string {
     spec.hair_style,
     spec.identity?.eye_color,
     spec.identity?.skin_tone,
-    (spec.identity?.face_features ?? []).join(','),
-    spec.extra_notes,
   ].join('|');
 }
 
@@ -155,13 +72,9 @@ function NoteRow({ label, value }: { label: string; value: string }) {
 export default function StepSketch({
   characterId,
   identitySpec,
-  basics: _basics,
   onConfirmed,
   onBack,
   activeCreationCharacterId,
-  routeCharacterId,
-  pageshowPersisted,
-  sessionRecoveryAction,
 }: Props) {
   const [selectedStyle, setSelectedStyle] = useState<SketchStyle>('pencil');
   const [sketch, setSketch] = useState<SketchResponse | null>(null);
@@ -169,130 +82,46 @@ export default function StepSketch({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // B15.5: record the characterId at mount time so we can detect drift
-  const mountCharacterIdRef = useRef<number>(characterId);
-
   // B15.6: explicit mismatch guard — true when this component's characterId no
-  // longer matches the flow's authoritative active creation character id.
-  // In the normal flow this is always false; key={nonce} remount handles bfcache
-  // restores before they reach this component, but this is a belt-and-suspenders
-  // check that also surfaces clearly in the debug panel.
+  // longer matches the flow's authoritative active creation character id. In
+  // the normal flow this is always false; the key={nonce} remount handles
+  // bfcache restores before they reach this component.
   const sketchBlocked = isSketchBlocked({ characterId, activeCreationCharacterId });
 
-  // Clear stale sketch whenever the identity spec changes after a sketch was made.
-  // In the current creation flow the component unmounts on Back/Next, so this
-  // mainly guards against edge cases where the prop updates while mounted.
+  // Clear a stale sketch whenever the identity spec changes after one was made.
   const currentSpecKey = specFingerprint(identitySpec);
   useEffect(() => {
     if (sketch && sketchSpecKey && currentSpecKey !== sketchSpecKey) {
-      _traceLog('specFingerprint changed → clearing stale sketch', {
-        old: sketchSpecKey,
-        new: currentSpecKey,
-        characterId,
-      });
       setSketch(null);
       setSketchSpecKey('');
     }
   }, [currentSpecKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // B15.5/B15.6: mount/unmount trace
-  useEffect(() => {
-    _traceLog('MOUNT', {
-      characterId,
-      mountCharacterId: mountCharacterIdRef.current,
-      specFingerprint: currentSpecKey || '(none)',
-      // B15.6 fields
-      afterBfcacheRestore: pageshowPersisted ?? false,
-      activeCreationCharacterId: activeCreationCharacterId ?? 'n/a',
-      routeCharacterId: routeCharacterId ?? 'n/a',
-      sessionRecoveryAction: sessionRecoveryAction || 'none',
-      sketchBlocked,
-    });
-    return () => {
-      _traceLog('UNMOUNT', {
-        characterId,
-        hadSketch: sketch !== null,
-        sketchImageId: sketch?.image_id ?? null,
-      });
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // B15.5: characterId drift trace — fires if the prop changes after mount
-  // (should not happen in normal flow because CharacterCreationFlow uses key={characterId})
-  useEffect(() => {
-    if (characterId !== mountCharacterIdRef.current) {
-      _traceLog('⚠ characterId DRIFT detected (prop changed after mount)', {
-        mountCharacterId: mountCharacterIdRef.current,
-        currentCharacterId: characterId,
-        hasSketch: sketch !== null,
-        sketchImageId: sketch?.image_id ?? null,
-        sketchBelongsTo: mountCharacterIdRef.current,
-      });
-    }
-  }, [characterId]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const handleGenerate = async () => {
-    // B15.6: block if characterId no longer matches the flow's active draft.
-    // This should not happen in normal operation (nonce remount prevents it), but
-    // is an explicit last-resort guard for any residual drift that slips through.
     if (sketchBlocked) {
-      _traceLog('⚠ GENERATE blocked: session mismatch', {
-        characterId,
-        activeCreationCharacterId,
-        routeCharacterId,
-      });
       setError('Session mismatch — please go back and try again.');
       return;
     }
-
-    _traceLog('GENERATE start', {
-      characterId,
-      mountCharacterId: mountCharacterIdRef.current,
-      style: selectedStyle,
-      specFingerprint: currentSpecKey,
-      previousSketchId: sketch?.image_id ?? null,
-    });
     // Clear any previously displayed sketch immediately so the user never sees
     // a stale image while the new one is loading.
     setSketch(null);
-    _traceLog('setSketch(null) fired');
     setLoading(true);
     setError('');
     try {
       const result = await generateIdentitySketch(characterId, selectedStyle);
       if (!result.image_url) {
-        _traceLog('GENERATE error: no image_url in response', { result });
         setError('Sketch generated, but no image was returned. Please try again.');
         return;
       }
       const resolvedUrl = resolveImageUrl(result.image_url);
-      _traceLog('GENERATE response received', {
-        image_id: result.image_id,
-        image_url: result.image_url,
-        resolvedUrl,
-        style: result.style,
-        provider_used: result.provider_used,
-        prompt_preview: result.prompt_preview?.slice(0, 80),
-      });
       await new Promise<void>((resolve, reject) => {
         const img = new Image();
-        img.onload = () => {
-          _traceLog('img preload SUCCESS', { resolvedUrl });
-          resolve();
-        };
-        img.onerror = () => {
-          _traceLog('img preload FAILED', { resolvedUrl });
+        img.onload = () => resolve();
+        img.onerror = () =>
           reject(new Error('Sketch generated, but the image could not be loaded. Please try again.'));
-        };
         img.src = resolvedUrl;
       });
       setSketch(result);
-      _traceLog('setSketch(result) committed', {
-        image_id: result.image_id,
-        image_url: result.image_url,
-        renderedUrl: resolveImageUrl(result.image_url),
-        imageSource: 'local-state (just set)',
-      });
       setSketchSpecKey(currentSpecKey);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate sketch.');
@@ -301,37 +130,27 @@ export default function StepSketch({
     }
   };
 
-  const handleConfirm = () => {
-    if (sketch) {
-      onConfirmed(sketch.image_id);
-    }
-  };
-
   // Derive artist notes from identitySpec
   const spec = identitySpec;
-
-  // Core identity
   const hairParts = [spec?.identity.hair_length, spec?.hair_texture, spec?.hair_style?.replace(/_/g, ' '), spec?.identity.hair_color]
     .filter(Boolean);
   const hair = hairParts.join(' ') + (hairParts.length ? ' hair' : '');
   const eyes = spec?.identity.eye_color ?? '';
-  const features = spec?.identity.face_features?.join(', ') ?? '';
-  const genderLabel = spec?.gender === 'female' ? 'Woman' : spec?.gender === 'male' ? 'Man' : spec?.gender ?? '';
+  const genderLabel = GENDER_OPTIONS.find((g) => g.value === spec?.gender)?.label ?? spec?.gender ?? '';
   const ageBand = spec?.age_band ?? '';
   const speciesLabel =
     spec?.species && spec.species !== 'human'
-      ? [spec.species, ...(spec.species_tells ?? []).map((t) => t.replace(/_/g, ' '))]
-          .join(', ')
+      ? [
+          SPECIES_OPTIONS.find((o) => o.value === spec.species)?.label ?? spec.species,
+          ...(spec.species_tells ?? []).map((t) => t.replace(/_/g, ' ')),
+        ].join(', ')
       : '';
-
-  // B15.2 — additional fields for verification
-  const eyebrowLabel = spec?.eyebrow_shape ?? spec?.brow_type ?? '';
+  const eyebrowLabel = spec?.eyebrow_shape ?? '';
   const facialHairLabel =
     spec?.facial_hair_type && spec.facial_hair_type !== 'none'
       ? spec.facial_hair_type.replace(/_/g, ' ')
       : '';
-
-  const hasNotes = !!(genderLabel || ageBand || hair || eyes || features || speciesLabel);
+  const hasNotes = !!(genderLabel || ageBand || hair || eyes || speciesLabel);
 
   return (
     <div className="flex flex-col gap-6">
@@ -342,7 +161,12 @@ export default function StepSketch({
           <h2 className="text-lg font-semibold text-ink">Sketch</h2>
         </div>
         <p className="text-sm text-ink-2">
-          We've briefed the artist. Now let's see if you recognise them.
+          A quick preview of how the artist reads your answers.
+        </p>
+        {/* The relationship to the Identity Pack, stated once, where it matters (C16). */}
+        <p className="text-xs text-ink-3 mt-1">
+          Your Identity Pack is generated from your answers, not from this sketch — so it&apos;s
+          fine to skip it, and fine to try a couple of styles.
         </p>
       </div>
 
@@ -350,7 +174,7 @@ export default function StepSketch({
       {hasNotes && (
         <div className="rounded-lg border border-edge bg-surface px-4 py-3 space-y-1.5">
           <p className="text-xs text-ink-3 uppercase tracking-wider font-medium mb-2">
-            Sketch Artist Notes
+            What the artist was told
           </p>
           <NoteRow label="Gender" value={genderLabel} />
           <NoteRow label="Age range" value={ageBand} />
@@ -358,23 +182,24 @@ export default function StepSketch({
           <NoteRow label="Eyes" value={eyes} />
           {eyebrowLabel && <NoteRow label="Eyebrows" value={eyebrowLabel} />}
           {facialHairLabel && <NoteRow label="Facial hair" value={facialHairLabel} />}
-          {features && <NoteRow label="Features" value={features} />}
           {speciesLabel && <NoteRow label="Species" value={speciesLabel} />}
         </div>
       )}
 
       {/* Style selector */}
       <div>
-        <p className="text-xs text-ink-3 uppercase tracking-wider mb-2">Sketch Style</p>
-        <div className="grid grid-cols-3 gap-2">
+        <p className="text-xs text-ink-3 uppercase tracking-wider mb-2">Sketch style</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="group" aria-label="Sketch style">
           {SKETCH_STYLES.map((s) => (
             <button
               key={s.value}
+              type="button"
+              aria-pressed={selectedStyle === s.value}
               onClick={() => setSelectedStyle(s.value as SketchStyle)}
               className={`p-3 rounded-lg border text-left transition-colors ${
                 selectedStyle === s.value
                   ? 'border-gem/50 bg-gem-soft text-gem'
-                  : 'border-edge-md bg-surface-elevated text-ink-2 hover:border-edge-md'
+                  : 'border-edge-md bg-surface-elevated text-ink-2 hover:border-gem/40'
               }`}
             >
               <p className="text-sm font-medium">{s.label}</p>
@@ -387,12 +212,13 @@ export default function StepSketch({
       {/* Lead-in copy before first generation */}
       {!sketch && !loading && (
         <p className="text-sm text-ink-3 text-center italic">
-          "Alright… let's see if I've captured them."
+          &ldquo;Alright… let&apos;s see if I&apos;ve captured them.&rdquo;
         </p>
       )}
 
-      {/* Generate / Refine button */}
+      {/* Generate / Try again */}
       <button
+        type="button"
         onClick={handleGenerate}
         disabled={loading || sketchBlocked}
         className="flex items-center justify-center gap-2 w-full py-3 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -400,19 +226,19 @@ export default function StepSketch({
         {loading ? (
           <>
             <RefreshCw className="w-4 h-4 animate-spin" />
-            Generating…
+            Sketching…
           </>
         ) : (
           <>
             <PenLine className="w-4 h-4" />
-            {sketch ? 'Refine sketch' : 'Generate Sketch'}
+            {sketch ? 'Try again' : 'Generate sketch'}
           </>
         )}
       </button>
 
       {/* Error */}
       {error && (
-        <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2 text-center">
+        <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-2 text-center" role="alert">
           {error}
         </p>
       )}
@@ -430,46 +256,34 @@ export default function StepSketch({
 
           <p className="text-sm text-ink-2 font-medium">Do you recognise them?</p>
 
-          {/* Confirm button */}
           <button
-            onClick={handleConfirm}
+            type="button"
+            onClick={onConfirmed}
             className="flex items-center justify-center gap-2 w-full max-w-xs py-3 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink font-medium transition-colors"
           >
             <CheckCircle className="w-4 h-4" />
-            Yes — that's them
+            Yes — that&apos;s them
           </button>
         </div>
       )}
 
-      {/* Skip / Back */}
+      {/* Back / Skip */}
       <div className="flex gap-3">
         <button
+          type="button"
           onClick={onBack}
-          className="flex-1 py-2 rounded-lg border border-edge-md text-ink-2 hover:text-ink hover:border-edge-md text-sm transition-colors"
+          className="flex-1 py-2 rounded-lg border border-edge-md text-ink-2 hover:text-ink hover:border-gem/40 text-sm transition-colors"
         >
           Back
         </button>
         <button
-          onClick={() => onConfirmed(sketch?.image_id ?? 0)}
-          className="flex-1 py-2 rounded-lg border border-edge-md text-ink-3 hover:text-ink-2 hover:border-edge-md text-sm transition-colors"
+          type="button"
+          onClick={onConfirmed}
+          className="flex-1 py-2 rounded-lg border border-edge-md text-ink-3 hover:text-ink-2 hover:border-gem/40 text-sm transition-colors"
         >
-          Skip for now
+          {sketch ? 'Skip — build the pack' : 'Skip the sketch'}
         </button>
       </div>
-
-      {/* B15.5/B15.6: DEV-ONLY debug panel — tree-shaken in production */}
-      <_SketchDebugPanel
-        characterId={characterId}
-        mountCharacterId={mountCharacterIdRef.current}
-        specFingerprint={currentSpecKey}
-        sketch={sketch}
-        loading={loading}
-        activeCreationCharacterId={activeCreationCharacterId}
-        routeCharacterId={routeCharacterId}
-        pageshowPersisted={pageshowPersisted}
-        sessionRecoveryAction={sessionRecoveryAction}
-        sketchBlocked={sketchBlocked}
-      />
     </div>
   );
 }
