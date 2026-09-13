@@ -1973,6 +1973,73 @@ _SKETCH_STYLE_PROMPTS = {
     ),
 }
 
+# Polish Phase 0 (C1). The sketch prompt used to be ``"...".join(parts)[:400]``
+# — a blind character cut applied AFTER the composition and safety clauses had
+# been appended last. A fully answered interview (geometry + hair + colours +
+# facial hair) reached ~600 characters, so the cut landed mid-word inside the
+# hair block and silently dropped hair colour, skin tone, eye colour, facial
+# hair, the gender anti-drift clause, the "head and shoulders sketch" framing
+# and the PG-13 safety clause. The more carefully a user answered, the less of
+# the answer reached the provider, and the result was not even asked to be a
+# sketch.
+#
+# The prompt is now assembled as named sections and trimmed by NAME, the same
+# policy ``identity_compiler._trim_to_cap`` uses: the head (style, gender
+# lock) and the tail (anti-drift, composition, safety) are protected and are
+# never removed; middle sections are dropped in ``_SKETCH_TRIM_ORDER`` — least
+# identity-bearing first — until the prompt fits. The cap is generous enough
+# that no realistic interview trims at all; the trim exists so that an
+# unrealistic one degrades by losing a hairline before it loses its safety
+# clause, never the other way round.
+_SKETCH_PROMPT_CAP = 900
+_SKETCH_TRIM_ORDER: tuple[str, ...] = (
+    "face_features",
+    "hairline",
+    "facial_hair",
+    "skin",
+    "eye_colour",
+    "hair",
+    "species",
+    "geometry",
+    "age",
+)
+
+
+def _fit_sketch_sections(
+    head: list[str],
+    middle: list[tuple[str, str]],
+    tail: list[str],
+    *,
+    cap: int = _SKETCH_PROMPT_CAP,
+) -> str:
+    """Join ``head + middle + tail`` with ". ", trimming ``middle`` by name to fit.
+
+    ``head`` and ``tail`` are never removed. If the prompt still exceeds ``cap``
+    with every trimmable section gone, the remaining middle text is hard-cut —
+    the protected clauses are still intact because they are re-joined after
+    the cut, not truncated with it.
+    """
+    working = list(middle)
+
+    def _join(mid: list[tuple[str, str]]) -> str:
+        return ". ".join([*head, *(v for _, v in mid), *tail])
+
+    prompt = _join(working)
+    if len(prompt) <= cap:
+        return prompt
+    for name in _SKETCH_TRIM_ORDER:
+        working = [(n, v) for n, v in working if n != name]
+        prompt = _join(working)
+        if len(prompt) <= cap:
+            return prompt
+    # Nothing trimmable left and still over: cut the middle, keep the ends.
+    fixed = ". ".join([*head, *tail])
+    room = cap - len(fixed) - 2  # the ". " that joins a middle block in
+    mid_text = ". ".join(v for _, v in working)
+    if room > 0 and mid_text:
+        return ". ".join([*head, mid_text[:room], *tail])
+    return fixed[:cap]
+
 
 # ── B15.4: Sketch generation helpers ────────────────────────────────
 
@@ -2105,7 +2172,8 @@ def _build_sketch_prompt(identity_spec, style: str, character_name: str | None =
 
     Implements the B15.2 hardened prompt structure:
     style → gender lock → age → species → geometry → hair → extras →
-    composition → safety.  Returns a string truncated to 400 characters.
+    anti-drift → composition → safety.  Fitted to ``_SKETCH_PROMPT_CAP`` by
+    :func:`_fit_sketch_sections`: composition and safety always survive.
 
     Args:
         identity_spec: ``CharacterIdentitySpec`` instance or ``None``.
@@ -2133,23 +2201,26 @@ def _build_sketch_prompt(identity_spec, style: str, character_name: str | None =
         "goatee":      "visible goatee",
     }
 
-    prompt_parts: list[str] = [_SKETCH_STYLE_PROMPTS[style]]
+    # Protected head / trimmable middle / protected tail (see _SKETCH_TRIM_ORDER).
+    head: list[str] = [_SKETCH_STYLE_PROMPTS[style]]
+    middle: list[tuple[str, str]] = []
+    tail: list[str] = []
 
     if identity_spec:
         gender_val = identity_spec.gender or ""
 
         # 1. Gender lock
         if gender_val:
-            prompt_parts.append(_GENDER_LOCK.get(gender_val, f"adult {gender_val}"))
+            head.append(_GENDER_LOCK.get(gender_val, f"adult {gender_val}"))
 
         # 2. Age range
         if identity_spec.age_band:
-            prompt_parts.append(f"age range {identity_spec.age_band}")
+            middle.append(("age", f"age range {identity_spec.age_band}"))
 
         # 3. Species (non-human only)
         species_desc = _sp(identity_spec)
         if species_desc:
-            prompt_parts.append(species_desc)
+            middle.append(("species", species_desc))
 
         # 4. Face geometry block
         _geo: list[str] = []
@@ -2160,7 +2231,7 @@ def _build_sketch_prompt(identity_spec, style: str, character_name: str | None =
         if identity_spec.cheekbone_type:
             _geo.append(f"{identity_spec.cheekbone_type} cheekbones")
         if identity_spec.eye_shape:
-            _geo.append(f"{identity_spec.eye_shape} eyes")
+            _geo.append(f"{identity_spec.eye_shape.replace('_', ' ')} eyes")
         if identity_spec.eye_spacing:
             _geo.append(f"{identity_spec.eye_spacing.replace('_', ' ')} eyes")
         if identity_spec.eyebrow_shape:
@@ -2172,7 +2243,7 @@ def _build_sketch_prompt(identity_spec, style: str, character_name: str | None =
         if identity_spec.lip_type:
             _geo.append(f"{identity_spec.lip_type.replace('_', ' ')} lips")
         if _geo:
-            prompt_parts.append(", ".join(_geo))
+            middle.append(("geometry", ", ".join(_geo)))
 
         # 5. Hair block
         _hair_parts: list[str] = []
@@ -2187,18 +2258,20 @@ def _build_sketch_prompt(identity_spec, style: str, character_name: str | None =
             _hair_parts.append(core.hair_color)
         if _hair_parts:
             _hair_parts.append("hair")
-            prompt_parts.append(" ".join(_hair_parts))
+            middle.append(("hair", " ".join(_hair_parts)))
         if identity_spec.hairline_type:
-            prompt_parts.append(f"{identity_spec.hairline_type.replace('_', ' ')} hairline")
+            middle.append(
+                ("hairline", f"{identity_spec.hairline_type.replace('_', ' ')} hairline")
+            )
 
         # 6. Additional identity (eye colour, skin, face features)
         if core:
             if core.eye_color:
-                prompt_parts.append(f"{core.eye_color} eyes")
+                middle.append(("eye_colour", f"{core.eye_color} eyes"))
             if core.skin_tone:
-                prompt_parts.append(f"{core.skin_tone} skin")
+                middle.append(("skin", f"{core.skin_tone} skin"))
             if core.face_features:
-                prompt_parts.append(", ".join(core.face_features))
+                middle.append(("face_features", ", ".join(core.face_features)))
 
         # 7. Facial hair
         if identity_spec.facial_hair_type and identity_spec.facial_hair_type != "none":
@@ -2206,25 +2279,21 @@ def _build_sketch_prompt(identity_spec, style: str, character_name: str | None =
                 identity_spec.facial_hair_type,
                 f"visible {identity_spec.facial_hair_type.replace('_', ' ')}",
             )
-            prompt_parts.append(fh_label)
+            middle.append(("facial_hair", fh_label))
 
-        # 8. Anti-drift negative clause
+        # 8. Anti-drift negative clause — protected: it is half of the gender lock.
         anti_drift = _GENDER_ANTI_DRIFT.get(gender_val, "")
         if anti_drift:
-            prompt_parts.append(anti_drift)
+            tail.append(anti_drift)
 
     elif character_name:
-        prompt_parts.append(f"character named {character_name}")
+        middle.append(("name", f"character named {character_name}"))
 
-    # 9. Composition + safety (always last)
-    prompt_parts.append(
-        "head and shoulders sketch, plain paper background, no glamour styling"
-    )
-    prompt_parts.append(
-        f"{_SAFETY_PREFIX}. Fully clothed or bust portrait only. Non-sexual. PG-13."
-    )
+    # 9. Composition + safety (always last, never trimmed)
+    tail.append("head and shoulders sketch, plain paper background, no glamour styling")
+    tail.append(f"{_SAFETY_PREFIX}. Fully clothed or bust portrait only. Non-sexual. PG-13.")
 
-    return ". ".join(prompt_parts)[:400]
+    return _fit_sketch_sections(head, middle, tail)
 
 
 @router.post(
@@ -2379,7 +2448,7 @@ def generate_identity_sketch(
         image_url=image_url,
         image_id=sketch_img.id,
         style=style,
-        prompt_preview=sketch_prompt,  # full prompt (already ≤ 400 chars)
+        prompt_preview=sketch_prompt,  # full prompt (already ≤ _SKETCH_PROMPT_CAP)
         provider_used=provider_name,
     )
 
@@ -2478,7 +2547,7 @@ def sketch_debug_trace(
         "identity_spec": spec_summary,
         "sketch_prompt": sketch_prompt,
         "sketch_prompt_length": len(sketch_prompt),
-        "prompt_cap": 400,
+        "prompt_cap": _SKETCH_PROMPT_CAP,
         "style": style,
         "provider_mode": "text-to-image",
         "reference_image": None,

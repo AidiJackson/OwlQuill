@@ -2879,8 +2879,9 @@ def test_b15_2_gender_lock_precedes_geometry(client: TestClient):
     )
 
 
-def test_b15_2_prompt_within_400_chars(client: TestClient):
-    """Sketch prompt must stay within the 400-char cap even with many geometry fields."""
+def test_b15_2_prompt_within_cap(client: TestClient):
+    """Sketch prompt must stay within _SKETCH_PROMPT_CAP even with many geometry fields."""
+    from app.api.routes.character_visual import _SKETCH_PROMPT_CAP
     token = _register_and_login(client)
     cid = _create_character(client, token)
     preview = _sketch_preview(
@@ -2908,7 +2909,88 @@ def test_b15_2_prompt_within_400_chars(client: TestClient):
             },
         },
     )
-    assert len(preview) <= 400, f"Prompt too long: {len(preview)} chars"
+    assert len(preview) <= _SKETCH_PROMPT_CAP, f"Prompt too long: {len(preview)} chars"
+
+
+# ── Polish Phase 0 / C1: a full interview must reach the provider whole ───────
+#
+# Regression for the observed LIVE failure: the old ``[:400]`` cut fell inside
+# the hair block of a fully answered interview and silently discarded hair
+# colour, eye colour, skin tone, facial hair, the anti-drift clause, the
+# "head and shoulders sketch" framing and the PG-13 safety clause.
+
+_FULL_INTERVIEW_SPEC = {
+    "style": "realistic",
+    "gender": "female",
+    "age_band": "26-35",
+    "species": "vampire",
+    "species_tells": ["subtle_fangs", "pallid_complexion", "predatory_gaze"],
+    "face_shape": "angular",
+    "jaw_type": "square",
+    "cheekbone_type": "high",
+    "eye_shape": "deep_set",
+    "eye_spacing": "close_set",
+    "eyebrow_shape": "straight",
+    "brow_type": "thick",
+    "nose_type": "upturned",
+    "lip_type": "cupid_bow",
+    "hairline_type": "widows_peak",
+    "facial_hair_type": "stubble",
+    "hair_texture": "curly",
+    "hair_style": "slicked_back",
+    "identity": {
+        "hair_color": "Strawberry",
+        "hair_length": "Medium",
+        "eye_color": "Violet",
+        "skin_tone": "Porcelain",
+        "face_features": [],
+    },
+}
+
+
+def test_c1_full_interview_keeps_tail_and_every_answer(client: TestClient):
+    from app.api.routes.character_visual import _SKETCH_PROMPT_CAP
+
+    token = _register_and_login(client)
+    cid = _create_character(client, token)
+    preview = _sketch_preview(client, token, cid, _FULL_INTERVIEW_SPEC, style="dossier")
+
+    assert len(preview) <= _SKETCH_PROMPT_CAP
+    # The protected tail — previously the first casualty of the cut.
+    assert "head and shoulders sketch" in preview, preview
+    assert "pg-13" in preview, preview
+    assert "do not depict a man or masculine face" in preview, preview
+    # Every block that used to be cut off.
+    assert "strawberry hair" in preview, preview
+    assert "widows peak hairline" in preview, preview
+    assert "violet eyes" in preview, preview
+    assert "porcelain skin" in preview, preview
+    assert "visible male stubble" in preview, preview
+    # And the blocks that always survived still do, in order.
+    assert preview.index("angular face") < preview.index("strawberry hair") < preview.index("pg-13")
+    assert "deep set eyes" in preview, "eye_shape must read as words, not an identifier"
+
+
+def test_c1_trim_removes_middle_sections_never_the_tail():
+    """When a prompt genuinely cannot fit, sections go in _SKETCH_TRIM_ORDER and
+    the head and tail are untouched."""
+    from app.api.routes.character_visual import _fit_sketch_sections
+
+    head = ["STYLE", "GENDER"]
+    tail = ["ANTI", "COMPOSITION", "SAFETY"]
+    middle = [("age", "A" * 40), ("geometry", "G" * 40), ("hair", "H" * 40),
+              ("hairline", "L" * 40), ("face_features", "F" * 40)]
+    out = _fit_sketch_sections(head, middle, tail, cap=170)
+    assert out.startswith("STYLE. GENDER. ")
+    assert out.endswith(". ANTI. COMPOSITION. SAFETY")
+    assert "F" * 40 not in out and "L" * 40 not in out, "least identity-bearing sections go first"
+    assert "A" * 40 in out and "G" * 40 in out, "age and geometry survive when possible"
+    assert len(out) <= 170
+
+    # Even an absurd single section cannot push the tail off the end.
+    out = _fit_sketch_sections(head, [("geometry", "G" * 2000)], tail, cap=120)
+    assert out.endswith(". ANTI. COMPOSITION. SAFETY")
+    assert len(out) <= 120
 
 
 # ── B15.3: Sketch validation matrix ──────────────────────────────────
@@ -2923,7 +3005,7 @@ def test_b15_2_prompt_within_400_chars(client: TestClient):
 #   - species/style modifiers do not replace the geometry block
 #   - hair phrase remains natural and ordered
 #   - eye colour and key traits survive in the final prompt
-#   - prompt length stays within the 400-char hard limit
+#   - prompt length stays within the _SKETCH_PROMPT_CAP hard limit
 
 _B15_3_ARCHETYPES: dict[str, dict] = {
     "realistic_male": {
@@ -3113,7 +3195,7 @@ def test_b15_3_geometry_survives_male_archetype(client: TestClient):
     assert "square face" in preview, preview
     assert "sharp jaw" in preview, preview
     assert "high cheekbones" in preview, preview
-    assert "deep_set eyes" in preview, preview
+    assert "deep set eyes" in preview, preview
     assert "straight eyebrows" in preview, preview
     assert "roman nose" in preview, preview
     assert "thin lips" in preview, preview
@@ -3145,7 +3227,7 @@ def test_b15_3_geometry_survives_vampire_species(client: TestClient):
     assert "vampire character" in preview, preview
     assert "angular face" in preview, preview
     assert "sharp jaw" in preview, preview
-    assert "deep_set eyes" in preview, preview
+    assert "deep set eyes" in preview, preview
     assert "hooked nose" in preview, preview
     assert "thin lips" in preview, preview
 
@@ -3247,22 +3329,24 @@ def test_b15_3_eye_colour_other_archetype(client: TestClient):
     assert "grey eyes" in preview, preview
 
 
-# ── Prompt length within 400-char cap ────────────────────────────────
+# ── Prompt length within _SKETCH_PROMPT_CAP ────────────────────────────────
 
 def test_b15_3_prompt_length_vampire_archetype(client: TestClient):
-    """Vampire archetype (species + full geometry): prompt must stay within 400-char cap."""
+    """Vampire archetype (species + full geometry): prompt must stay within _SKETCH_PROMPT_CAP."""
     token = _register_and_login(client)
     cid = _create_character(client, token)
     preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["vampire"])
-    assert len(preview) <= 400, f"Prompt exceeds cap ({len(preview)} chars): {preview!r}"
+    from app.api.routes.character_visual import _SKETCH_PROMPT_CAP
+    assert len(preview) <= _SKETCH_PROMPT_CAP, f"Prompt exceeds cap ({len(preview)} chars): {preview!r}"
 
 
 def test_b15_3_prompt_length_werewolf_archetype(client: TestClient):
-    """Werewolf archetype (species + geometry + stubble): prompt must stay within 400-char cap."""
+    """Werewolf archetype (species + geometry + stubble): prompt must stay within _SKETCH_PROMPT_CAP."""
     token = _register_and_login(client)
     cid = _create_character(client, token)
     preview = _sketch_preview(client, token, cid, _B15_3_ARCHETYPES["werewolf"])
-    assert len(preview) <= 400, f"Prompt exceeds cap ({len(preview)} chars): {preview!r}"
+    from app.api.routes.character_visual import _SKETCH_PROMPT_CAP
+    assert len(preview) <= _SKETCH_PROMPT_CAP, f"Prompt exceeds cap ({len(preview)} chars): {preview!r}"
 
 
 # ── Anime/Fae composite ───────────────────────────────────────────────
@@ -3443,7 +3527,7 @@ def test_b15_4_debug_trace_prompt_matches_generate_prompt(client: TestClient):
 
 
 def test_b15_4_debug_trace_prompt_length_within_cap(client: TestClient):
-    """Debug-trace sketch_prompt_length must equal len(sketch_prompt) and be ≤ 400."""
+    """Debug-trace sketch_prompt_length must equal len(sketch_prompt) and be ≤ _SKETCH_PROMPT_CAP."""
     from unittest.mock import patch
     token = _register_and_login(client)
     cid = _create_character(client, token)
@@ -3462,8 +3546,10 @@ def test_b15_4_debug_trace_prompt_length_within_cap(client: TestClient):
         )
     data = resp.json()
     assert data["sketch_prompt_length"] == len(data["sketch_prompt"])
-    assert data["sketch_prompt_length"] <= 400, (
-        f"Prompt length {data['sketch_prompt_length']} exceeds 400-char cap"
+    from app.api.routes.character_visual import _SKETCH_PROMPT_CAP
+    assert data["prompt_cap"] == _SKETCH_PROMPT_CAP
+    assert data["sketch_prompt_length"] <= _SKETCH_PROMPT_CAP, (
+        f"Prompt length {data['sketch_prompt_length']} exceeds cap"
     )
 
 
