@@ -888,6 +888,35 @@ def upsert_dna(
     return dna
 
 
+@router.get(
+    "/{character_id}/dna",
+    response_model=CharacterDNARead,
+    summary="Read the character DNA the creator stored",
+)
+def get_dna(
+    character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CharacterDNARead:
+    """Return the character's DNA row — the persisted Interview.
+
+    Polish Phase 1 (C2). The creation wizard writes the whole Interview into
+    ``visual_traits_json["identity_spec"]`` (plus ``personality_traits``) via
+    the POST above, but nothing could read it back: resuming a draft reloaded
+    only the Character row and restarted the Interview from nothing. This is
+    the read half of the same resource, owner-only like the write half, and
+    returns exactly what was stored — no derivation, no defaults.
+
+    404 when the character has no DNA yet (Basics saved, Interview never
+    completed): the wizard treats that as "resume at the Interview".
+    """
+    _get_owned_character(character_id, current_user, db)
+    dna = db.query(CharacterDNA).filter(CharacterDNA.character_id == character_id).first()
+    if dna is None:
+        raise HTTPException(status_code=404, detail="This character has no DNA yet.")
+    return CharacterDNARead.model_validate(dna)
+
+
 # ── 2) POST /characters/{id}/identity-pack/generate ─────────────────
 
 @router.post(
