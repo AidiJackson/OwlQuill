@@ -4,7 +4,8 @@
 // progress, navigation, validation) and the vocabulary (what is asked, in
 // which group, with which options) can be read and changed separately. This
 // file IS the visible Interview vocabulary: Phase 3's visual reference cards
-// replace individual `LabeledChipRow`s here and nowhere else.
+// replace individual `LabeledChipRow`s here and nowhere else (face shape in
+// 3A; jaw, cheekbones, eye shape, nose and lips in 3C).
 //
 // Every control rendered here either changes the generated identity (the
 // sketch and the V2 pack read the spec these write) or says, next to itself,
@@ -15,10 +16,8 @@
 import type { IdentitySpec, Species, CreationBasics } from '../shared/types';
 import {
   AGE_BAND_OPTIONS,
-  CHEEKBONE_TYPES,
   EYEBROW_SHAPE_OPTIONS,
   EYE_COLORS,
-  EYE_SHAPES,
   EYE_SPACINGS,
   FACIAL_HAIR_TYPES,
   GENDER_OPTIONS,
@@ -27,9 +26,6 @@ import {
   HAIR_STYLE_OPTIONS,
   HAIR_TEXTURE_OPTIONS,
   HAIRLINE_TYPES,
-  JAW_TYPES,
-  LIP_TYPES,
-  NOSE_TYPES,
   PERSONALITY_TRAITS,
   SKIN_TONES,
   SPECIES_OPTIONS,
@@ -38,7 +34,21 @@ import {
 import { hairDetailApplies, withHairLength } from '../shared/interviewRules';
 import VisualFeaturePicker from '../visualRefs/VisualFeaturePicker';
 import ExampleSetToggle from '../visualRefs/ExampleSetToggle';
-import { FACE_SHAPE_CATEGORY, type ExampleSet } from '../visualRefs/refCatalog';
+import {
+  CHEEKBONE_CATEGORY,
+  EYE_SHAPE_CATEGORY,
+  FACE_SHAPE_CATEGORY,
+  JAW_CATEGORY,
+  LIP_CATEGORY,
+  NOSE_CATEGORY,
+  type CheekboneValue,
+  type EyeShapeValue,
+  type ExampleSet,
+  type FaceShapeValue,
+  type JawValue,
+  type LipValue,
+  type NoseValue,
+} from '../visualRefs/refCatalog';
 import { EYE_COLOR_SWATCHES, HAIR_COLOR_SWATCHES, SKIN_TONE_SWATCHES } from '../visualRefs/colorSwatches';
 
 // ── Groups ────────────────────────────────────────────────────────────
@@ -252,33 +262,47 @@ function GroupBasics({ spec, propagate, set, basics, onBasicsChange, showMissing
   );
 }
 
-// ── Q1 — Face shape ───────────────────────────────────────────────────
-
-// Face shape is the first field shown as picture cards (Polish Phase 3A).
-// Same options, same stored value; the example-set toggle only changes which
-// pictures are shown and is never written anywhere.
+// ── Q1 — Face: shape, jaw, cheekbones ────────────────────────────────
+//
+// Picture cards (Polish Phase 3A for face shape, 3C for jaw and cheekbones).
+// Same options, same stored values; the example-set toggle — one per group,
+// above the first picture field so the creator picks the set before
+// scrolling the cards — only changes which pictures are shown and is never
+// written anywhere.
 
 function GroupFace({ spec, set, exampleSet, onExampleSetChange }: GroupProps) {
   return (
     <div className="space-y-4">
+      <ExampleSetToggle value={exampleSet} onChange={onExampleSetChange} />
       <div className="space-y-2">
         <Note>Face shape</Note>
         <VisualFeaturePicker
           category={FACE_SHAPE_CATEGORY}
           ariaLabel="Face shape"
-          value={spec.face_shape as typeof FACE_SHAPE_CATEGORY.options[number]['value'] | undefined}
+          value={spec.face_shape as FaceShapeValue | undefined}
           onChange={(v) => set('face_shape', v)}
           exampleSet={exampleSet}
         />
-        <ExampleSetToggle value={exampleSet} onChange={onExampleSetChange} />
       </div>
-      <div>
+      <div className="space-y-2">
         <Note>Jaw</Note>
-        <LabeledChipRow ariaLabel="Jaw" options={JAW_TYPES} value={spec.jaw_type ?? ''} onChange={(v) => set('jaw_type', v || undefined)} />
+        <VisualFeaturePicker
+          category={JAW_CATEGORY}
+          ariaLabel="Jaw"
+          value={spec.jaw_type as JawValue | undefined}
+          onChange={(v) => set('jaw_type', v)}
+          exampleSet={exampleSet}
+        />
       </div>
-      <div>
+      <div className="space-y-2">
         <Note>Cheekbones</Note>
-        <LabeledChipRow ariaLabel="Cheekbones" options={CHEEKBONE_TYPES} value={spec.cheekbone_type ?? ''} onChange={(v) => set('cheekbone_type', v || undefined)} />
+        <VisualFeaturePicker
+          category={CHEEKBONE_CATEGORY}
+          ariaLabel="Cheekbones"
+          value={spec.cheekbone_type as CheekboneValue | undefined}
+          onChange={(v) => set('cheekbone_type', v)}
+          exampleSet={exampleSet}
+        />
       </div>
     </div>
   );
@@ -290,12 +314,19 @@ function GroupFace({ spec, set, exampleSet, onExampleSetChange }: GroupProps) {
 // with a subset of the same words, was ignored by the V2 pack, and was ignored
 // by the sketch whenever this one was answered (C5).
 
-function GroupEyes({ spec, set, setIdentity }: GroupProps) {
+function GroupEyes({ spec, set, setIdentity, exampleSet, onExampleSetChange }: GroupProps) {
   return (
     <div className="space-y-4">
-      <div>
+      <ExampleSetToggle value={exampleSet} onChange={onExampleSetChange} />
+      <div className="space-y-2">
         <Note>Eye shape</Note>
-        <LabeledChipRow ariaLabel="Eye shape" options={EYE_SHAPES} value={spec.eye_shape ?? ''} onChange={(v) => set('eye_shape', v || undefined)} />
+        <VisualFeaturePicker
+          category={EYE_SHAPE_CATEGORY}
+          ariaLabel="Eye shape"
+          value={spec.eye_shape as EyeShapeValue | undefined}
+          onChange={(v) => set('eye_shape', v)}
+          exampleSet={exampleSet}
+        />
       </div>
       <div>
         <Note>Eye spacing</Note>
@@ -315,16 +346,29 @@ function GroupEyes({ spec, set, setIdentity }: GroupProps) {
 
 // ── Q3 — Nose and mouth ───────────────────────────────────────────────
 
-function GroupNoseMouth({ spec, set }: GroupProps) {
+function GroupNoseMouth({ spec, set, exampleSet, onExampleSetChange }: GroupProps) {
   return (
     <div className="space-y-4">
-      <div>
+      <ExampleSetToggle value={exampleSet} onChange={onExampleSetChange} />
+      <div className="space-y-2">
         <Note>Nose</Note>
-        <LabeledChipRow ariaLabel="Nose" options={NOSE_TYPES} value={spec.nose_type ?? ''} onChange={(v) => set('nose_type', v || undefined)} />
+        <VisualFeaturePicker
+          category={NOSE_CATEGORY}
+          ariaLabel="Nose"
+          value={spec.nose_type as NoseValue | undefined}
+          onChange={(v) => set('nose_type', v)}
+          exampleSet={exampleSet}
+        />
       </div>
-      <div>
+      <div className="space-y-2">
         <Note>Lips</Note>
-        <LabeledChipRow ariaLabel="Lips" options={LIP_TYPES} value={spec.lip_type ?? ''} onChange={(v) => set('lip_type', v || undefined)} />
+        <VisualFeaturePicker
+          category={LIP_CATEGORY}
+          ariaLabel="Lips"
+          value={spec.lip_type as LipValue | undefined}
+          onChange={(v) => set('lip_type', v)}
+          exampleSet={exampleSet}
+        />
       </div>
     </div>
   );

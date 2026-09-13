@@ -139,24 +139,76 @@ describe('Interview — hair rule (C9)', () => {
   });
 });
 
-describe('Interview — face shape as picture cards (Phase 3A)', () => {
-  it('face shape is the visual picker; every other category is still a chip row', () => {
+describe('Interview — geometry fields as picture cards (Phase 3A face shape, 3C the rest)', () => {
+  it('the six approved fields are pickers with one example-set toggle per group; everything else stays a chip row', () => {
     setup({ identitySpec: { gender: 'female', age_band: '26-35' } as never });
     next();
     const face = screen.getByRole('group', { name: 'Face shape' });
     expect(face.querySelectorAll('img').length).toBe(5);
     expect(within(face).getByRole('button', { name: /Angular/ })).toBeTruthy();
-    for (const name of ['Jaw', 'Cheekbones']) {
-      expect(screen.getByRole('group', { name }).querySelectorAll('img').length).toBe(0);
-    }
+    expect(screen.getByRole('group', { name: 'Jaw' }).querySelectorAll('img').length).toBe(4);
+    expect(screen.getByRole('group', { name: 'Cheekbones' }).querySelectorAll('img').length).toBe(3);
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(1);
     next();
-    for (const name of ['Eye shape', 'Eye spacing', 'Eyebrows']) {
+    expect(screen.getByRole('group', { name: 'Eye shape' }).querySelectorAll('img').length).toBe(4);
+    for (const name of ['Eye spacing', 'Eyebrows', 'Eye colour']) {
       expect(screen.getByRole('group', { name }).querySelectorAll('img').length).toBe(0);
     }
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(1);
     next();
-    for (const name of ['Nose', 'Lips']) {
+    expect(screen.getByRole('group', { name: 'Nose' }).querySelectorAll('img').length).toBe(6);
+    expect(screen.getByRole('group', { name: 'Lips' }).querySelectorAll('img').length).toBe(4);
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(1);
+    next();
+    expect(screen.queryByRole('radiogroup')).toBeNull();
+    for (const name of ['Hair texture', 'Hair style', 'Hairline', 'Facial hair']) {
       expect(screen.getByRole('group', { name }).querySelectorAll('img').length).toBe(0);
     }
+  });
+
+  it('each 3C picker writes only its own field with the exact stored value, and clears it on re-press', () => {
+    const { onChange } = setup({ identitySpec: { gender: 'female', age_band: '26-35' } as never });
+    const last = () => onChange.mock.calls[onChange.mock.calls.length - 1][0].identitySpec;
+    next();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Jaw' })).getByRole('button', { name: /Sharp/ }));
+    expect(last().jaw_type).toBe('sharp');
+    fireEvent.click(within(screen.getByRole('group', { name: 'Cheekbones' })).getByRole('button', { name: /High/ }));
+    expect(last()).toEqual(expect.objectContaining({ jaw_type: 'sharp', cheekbone_type: 'high' }));
+    next();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Eye shape' })).getByRole('button', { name: /Deep-set/ }));
+    expect(last().eye_shape).toBe('deep_set');
+    next();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Nose' })).getByRole('button', { name: /Upturned/ }));
+    expect(last().nose_type).toBe('upturned');
+    fireEvent.click(within(screen.getByRole('group', { name: 'Lips' })).getByRole('button', { name: /Cupid bow/ }));
+    expect(last().lip_type).toBe('cupid_bow');
+    fireEvent.click(within(screen.getByRole('group', { name: 'Lips' })).getByRole('button', { name: /Cupid bow/ }));
+    expect(last().lip_type).toBeUndefined();
+    expect(last()).toEqual(expect.objectContaining({ jaw_type: 'sharp', cheekbone_type: 'high', eye_shape: 'deep_set', nose_type: 'upturned' }));
+  });
+
+  it('the example-set toggle comes before the first picture field in each group', () => {
+    setup({ identitySpec: { gender: 'female', age_band: '26-35' } as never });
+    const toggleFirst = (group: string) => {
+      const toggle = screen.getByRole('radiogroup');
+      const cards = screen.getByRole('group', { name: group });
+      // DOCUMENT_POSITION_FOLLOWING: the cards come after the toggle
+      expect(toggle.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    };
+    next(); toggleFirst('Face shape');
+    next(); toggleFirst('Eye shape');
+    next(); toggleFirst('Nose');
+  });
+
+  it('the example-set choice made in one group carries to the next group', () => {
+    setup({ identitySpec: { gender: 'female', age_band: '26-35' } as never });
+    next();
+    fireEvent.click(screen.getByRole('radio', { name: 'Masculine' }));
+    next();
+    expect(screen.getByRole('radio', { name: 'Masculine' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('group', { name: 'Eye shape' }).querySelector('img')?.getAttribute('src')).toBe('/creator-refs/eye_shape/masculine/almond.webp');
+    next();
+    expect(screen.getByRole('group', { name: 'Nose' }).querySelector('img')?.getAttribute('src')).toBe('/creator-refs/nose_type/masculine/straight.webp');
   });
 
   it('a picked face shape enters the spec with the same stored value as before', () => {

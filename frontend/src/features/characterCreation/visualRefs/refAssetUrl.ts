@@ -6,10 +6,10 @@
 // adding a category is a folder and a catalog entry — never a filename map.
 // A missing file answers with the SPA index (text/html), which an <img>
 // reports as an error, and the picker degrades to its text tile.
-import type { ExampleSet } from './refCatalog';
+import type { ExampleSet, VisualCategoryKey } from './refCatalog';
 
 export const CREATOR_REFS_BASE = '/creator-refs';
 
-export function refAssetUrl(category: string, set: ExampleSet, value: string): string {
+export function refAssetUrl(category: VisualCategoryKey, set: ExampleSet, value: string): string {
   return `${CREATOR_REFS_BASE}/${category}/${set}/${value}.webp`;
 }
