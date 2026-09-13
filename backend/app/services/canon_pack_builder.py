@@ -125,21 +125,39 @@ def _spec_face_description(spec: dict) -> str:
         bits.extend(feats)
     # Facial geometry — labelled so it reads as appealing detail, not a bare
     # adjective list ("oval face, high cheekbones" not "oval, high").
+    #
+    # Polish Phase 0 (C7): eye_spacing and hairline_type are here now. Both
+    # were collected by the interview and sent to the sketch, then silently
+    # dropped by this tuple — the pack, which is what the user actually keeps,
+    # never saw them. Every interview control must reach the pack or not be
+    # asked; these two are asked, so they reach it.
     geometry = (
         ("face_shape", "{} face"),
         ("jaw_type", "{} jaw"),
         ("cheekbone_type", "{} cheekbones"),
         ("eye_shape", "{} eyes"),
+        ("eye_spacing", "{} eyes"),
         ("eyebrow_shape", "{} eyebrows"),
         ("nose_type", "{} nose"),
         ("lip_type", "{} lips"),
+        ("hairline_type", "{} hairline"),
         ("facial_hair_type", "{} facial hair"),
     )
     for key, tmpl in geometry:
         v = spec.get(key)
         if v and v != "none":
             bits.append(tmpl.format(str(v).replace("_", " ")))
+    # Polish Phase 0 (C6): species itself. ``FounderIdentity`` has no species
+    # field, so a vampire whose creator picked no tells was rendered as a
+    # human. The species phrase is the same one the sketch uses
+    # (``identity_compiler._species_prompt``): "<species> character" plus the
+    # tells, so the two surfaces describe the same being. Human contributes
+    # nothing, exactly as before.
+    species = spec.get("species")
+    species_str = getattr(species, "value", species)
     tells = spec.get("species_tells") or []
+    if species_str and str(species_str) != "human":
+        bits.append(f"{species_str} character")
     if isinstance(tells, list):
         bits.extend(t.replace("_", " ") for t in tells)
     return ", ".join(b for b in bits if b)
