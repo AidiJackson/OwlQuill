@@ -66,6 +66,19 @@ export function isFounder(user: MaybeUser): boolean {
 }
 
 /**
+ * Is this an admin — the narrower tier inside `isFounder`?
+ *
+ * Mirror of backend `app.core.dependencies.user_is_admin` as the client can
+ * see it (the `ADMIN_EMAILS` term is server-only, and the server sets
+ * `is_admin` in the `/users/me` payload accordingly). Gates the surfaces whose
+ * routers are `require_admin` — the 18+ Studio above all — so a seeder is not
+ * offered a door that 403s. UI affordance only; the server decides.
+ */
+export function isAdmin(user: MaybeUser): boolean {
+  return !!user?.is_admin;
+}
+
+/**
  * Is this a Wanderer — a complete, permanent account type with no character
  * and no Writer Unlock? Never "an account that hasn't finished signing up".
  */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canUseCreatorTools, hasActingCharacter, isFounder } from '../entitlements';
+import { canUseCreatorTools, hasActingCharacter, isAdmin, isFounder } from '../entitlements';
 import type { User } from '../types';
 
 function makeUser(overrides: Partial<User>): User {
@@ -60,5 +60,20 @@ describe('isFounder', () => {
   it('is false when there is no user', () => {
     expect(isFounder(null)).toBe(false);
     expect(isFounder(undefined)).toBe(false);
+  });
+});
+
+describe('isAdmin', () => {
+  it('is true only for an admin — a seeder is a founder but not an admin', () => {
+    expect(isAdmin(makeUser({ is_admin: true }))).toBe(true);
+    expect(isAdmin(makeUser({ is_seeder: true }))).toBe(false);
+    expect(isAdmin(makeUser({ is_admin: true, is_seeder: true }))).toBe(true);
+  });
+
+  it('is false for a Writer, a Wanderer, and no user', () => {
+    expect(isAdmin(makeUser({ character_count: 1 }))).toBe(false);
+    expect(isAdmin(makeUser({}))).toBe(false);
+    expect(isAdmin(null)).toBe(false);
+    expect(isAdmin(undefined)).toBe(false);
   });
 });

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon, Download, RefreshCw, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
+import { isAdmin as isAdminAccount } from '@/lib/entitlements';
 import type { Character, AdultStudioStatus, AdultStudioGenerateResult, AdultStudioFounderJob, ReplicateTestResult } from '@/lib/types';
 import {
   canFounderGenerate,
@@ -62,7 +63,7 @@ function identityStatus(c: Character): string {
 }
 
 export default function Studio18Plus() {
-  const isAdmin = useAuthStore((s) => !!s.user?.is_admin);
+  const isAdmin = useAuthStore((s) => isAdminAccount(s.user));
 
   const [searchParams] = useSearchParams();
   // Optionally forwarded from the Image Library entry point.
@@ -291,6 +292,14 @@ export default function Studio18Plus() {
     }, 5000);
     return () => clearInterval(t);
   }, [showFounderPanel, selectedId, founderActive]);
+
+  // Polish Phase 0 (X1). The whole studio router is admin-only server-side;
+  // a non-admin reaching this URL (an old bookmark, a guessed path) was shown
+  // the page shell and then a 403. Send them back to the library instead. All
+  // hooks above run unconditionally, so this early return is hook-safe.
+  if (!isAdmin) {
+    return <Navigate to="/images" replace />;
+  }
 
   return (
     <div className="min-h-screen">

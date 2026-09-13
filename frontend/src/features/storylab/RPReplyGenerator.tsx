@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/apiClient';
+import { useAuthStore } from '@/lib/store';
+import { isFounder } from '@/lib/entitlements';
 import type {
   Character,
   RPReplyFormatting,
@@ -38,8 +40,17 @@ const ARCHETYPE_OPTIONS: { val: RPStyleArchetype; label: string; desc: string }[
   { val: 'primal_restraint',       label: 'Primal Restraint',       desc: 'Coiled control on the edge of breaking' },
 ];
 
-const IS_INTERNAL =
-  import.meta.env.VITE_INTERNAL_TESTING === 'true' || import.meta.env.DEV === true;
+// Polish Phase 0 (X4). The bake-off model picker and the generation
+// diagnostics are Ficshon's laboratory, not a user feature — backend
+// rp_models.py says so in its first line. They used to hang on a BUILD-TIME
+// flag: on in every DEV build for every account, off in every production
+// build for every account including founders. That is the wrong axis. Who may
+// see the lab is an entitlement question, so it is now answered per user by
+// `isFounder`; VITE_INTERNAL_TESTING stays as an explicit build-level escape
+// hatch for test rigs. As with every entitlement mirror this decides what is
+// OFFERED; the server resolves the profile it is sent (rp_models.resolve_rp_model)
+// and a request that names none gets the default.
+const INTERNAL_BUILD_FLAG = import.meta.env.VITE_INTERNAL_TESTING === 'true';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -50,6 +61,8 @@ interface Props {
 }
 
 export default function RPReplyGenerator({ theme, preselectedCharacterId, preselectedStoryId }: Props) {
+  const user = useAuthStore((s) => s.user);
+  const isInternal = INTERNAL_BUILD_FLAG || isFounder(user);
   const [partnerReply, setPartnerReply] = useState('');
   const [partnerReplyOpen, setPartnerReplyOpen] = useState(false);
   const [instructions, setInstructions] = useState('');
@@ -199,8 +212,8 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
         formatting,
         intensity: contentLevel,
         heat_level: heatLevel,
-        model_profile: IS_INTERNAL ? modelProfile : undefined,
-        style_archetype: IS_INTERNAL ? styleArchetype : undefined,
+        model_profile: isInternal ? modelProfile : undefined,
+        style_archetype: isInternal ? styleArchetype : undefined,
       });
       setReply(result.reply);
       setWarnings(result.warnings ?? []);
@@ -462,7 +475,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
             </div>
 
             {/* Internal bake-off — gated, inside advanced */}
-            {IS_INTERNAL && (
+            {isInternal && (
               <div className="border border-violet-900/30 bg-violet-950/10 rounded-xl p-4 space-y-3">
                 <span className="text-[10px] font-semibold text-violet-500/80 uppercase tracking-widest">
                   Internal — Bake-off
@@ -544,7 +557,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
         </div>
       )}
 
-      {IS_INTERNAL && styleWarnings.length > 0 && (
+      {isInternal && styleWarnings.length > 0 && (
         <div className="space-y-1.5">
           {styleWarnings.map((w, i) => (
             <p key={i} className="text-xs text-violet-400/70 bg-violet-950/10 border border-violet-900/20 rounded-xl px-4 py-2.5">
@@ -562,7 +575,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
               Generated reply
             </label>
             <div className="flex items-center gap-2">
-              {IS_INTERNAL && (
+              {isInternal && (
                 <button
                   type="button"
                   onClick={handleBenchmarkCopy}
@@ -589,7 +602,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
           />
 
           {/* Internal diagnostics */}
-          {IS_INTERNAL && (modelUsed || generationTimeMs > 0 || detectedStage || continuationScore !== null) && (
+          {isInternal && (modelUsed || generationTimeMs > 0 || detectedStage || continuationScore !== null) && (
             <div className="flex flex-wrap items-center gap-4 text-[11px] text-ink-3 px-1">
               {modelUsed && <span><span className="text-gray-700">model</span> <span className="text-ink-3 font-mono">{modelUsed}</span></span>}
               {generationTimeMs > 0 && <span><span className="text-gray-700">time</span> <span className="text-ink-3">{generationTimeMs.toLocaleString()}ms</span></span>}
@@ -612,7 +625,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
           )}
 
           {/* Godmod gate — internal only */}
-          {IS_INTERNAL && godmodDetected !== null && (
+          {isInternal && godmodDetected !== null && (
             <div className={`border rounded-xl p-3 space-y-2 ${godmodDetected ? 'border-red-800/50 bg-red-950/20' : 'border-edge bg-gray-900/20'}`}>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-semibold text-red-500/80 uppercase tracking-widest">Godmod Gate</span>
@@ -636,7 +649,7 @@ export default function RPReplyGenerator({ theme, preselectedCharacterId, presel
           )}
 
           {/* Scene beat engine — internal only */}
-          {IS_INTERNAL && (nextSceneGoal || repetitionScore !== null || progressionSuccess !== null || aiCadenceRisk !== null || spatialPosition || resolvedHeat || multiBeatDetected !== null || resolvedLengthProfile || maxTokensUsed !== null) && (
+          {isInternal && (nextSceneGoal || repetitionScore !== null || progressionSuccess !== null || aiCadenceRisk !== null || spatialPosition || resolvedHeat || multiBeatDetected !== null || resolvedLengthProfile || maxTokensUsed !== null) && (
             <div className="border border-violet-900/30 bg-violet-950/10 rounded-xl p-3 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-semibold text-violet-500/80 uppercase tracking-widest">Scene Beat Engine</span>
