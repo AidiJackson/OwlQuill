@@ -20,6 +20,16 @@ function getToken(): string | null {
   return safeGet('token');
 }
 
+/** An HTTP failure with its status, so a caller can tell 404 from 500. */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -38,7 +48,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Something went wrong' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    throw new ApiError(error.detail || `HTTP ${response.status}`, response.status);
   }
 
   if (response.status === 204) return null as T;
@@ -84,6 +94,22 @@ export async function setCharacterAvatar(
 }
 
 // ── Character Visual API ────────────────────────────────────────────
+
+/**
+ * The DNA the creator stored — the persisted Interview — or null when the
+ * character has none yet. Polish Phase 1 (C2): the read half of upsertDNA, so
+ * a draft can resume with its answers instead of restarting the Interview.
+ * Any failure other than 404 is rethrown: "no DNA" and "could not load" are
+ * different answers and the wizard must not treat the second as the first.
+ */
+export async function getDNA(characterId: number): Promise<CharacterDNARead | null> {
+  try {
+    return await request<CharacterDNARead>(`/characters/${characterId}/dna`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
 
 export async function upsertDNA(
   characterId: number,

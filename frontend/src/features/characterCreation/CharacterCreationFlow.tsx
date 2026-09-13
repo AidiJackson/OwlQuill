@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Feather } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 
-import StepBasics from './steps/StepBasics';
 import StepPersonality from './steps/StepPersonality';
 import StepSketch from './steps/StepSketch';
 import StepGeneratePack from './steps/StepGeneratePack';
@@ -11,42 +10,48 @@ import StepSelect from './steps/StepSelect';
 import StepDossierLock from './steps/StepDossierLock';
 
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { upsertDNA } from './shared/api';
+import { getDNA, upsertDNA } from './shared/api';
 import { checkCreationSession } from './shared/sessionGuard';
+import { characterFieldsFromSpec, isInterviewComplete } from './shared/interviewRules';
 import type {
   CreationBasics,
   CreationSeeds,
+  IdentitySpec,
   V2PackResponse,
   BodyMorphology,
 } from './shared/types';
-import { STEP_LABELS, DEFAULT_BODY_MORPHOLOGY } from './shared/types';
+import {
+  STEP_LABELS,
+  STEP_INTERVIEW,
+  STEP_SKETCH,
+  STEP_PACK,
+  STEP_SELECT,
+  STEP_DOSSIER,
+  DEFAULT_BODY_MORPHOLOGY,
+} from './shared/types';
 
 export default function CharacterCreationFlow() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(STEP_INTERVIEW);
   const [characterId, setCharacterId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [loadingDraft, setLoadingDraft] = useState(() => !!searchParams.get('characterId'));
 
-  const [basics, setBasics] = useState<CreationBasics>({
-    name: '',
-    age: '',
-    species: '',
-    gender_presentation: '',
-  });
+  const [basics, setBasics] = useState<CreationBasics>({ name: '', alias: '' });
 
   const [seeds, setSeeds] = useState<CreationSeeds>({
     traits: [],
-    vibeText: '',
     identitySpec: null,
   });
 
   const [bodyMorphology, setBodyMorphology] = useState<BodyMorphology>(DEFAULT_BODY_MORPHOLOGY);
 
-  const [_sketchImageId, setSketchImageId] = useState<number | null>(null);
+  // Polish Phase 1: the accepted sketch's image id used to be kept here and
+  // read by nothing — the sketch is a preview and does not seed the pack
+  // (product decision P1). Removed rather than carried.
   const [generatedPack, setGeneratedPack] = useState<V2PackResponse | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
@@ -54,8 +59,6 @@ export default function CharacterCreationFlow() {
   // sketchSessionNonce: incremented on bfcache restore so StepSketch remounts
   // with clean state, preventing a stale sketch from surviving a back/fwd restore.
   const [sketchSessionNonce, setSketchSessionNonce] = useState(0);
-  const [pageshowPersisted, setPageshowPersisted] = useState(false);
-  const [sessionRecoveryAction, setSessionRecoveryAction] = useState('');
 
   // Refs give the pageshow handler access to current step/characterId without
   // stale-closure issues (handler is registered once, deps array is []).
@@ -64,13 +67,9 @@ export default function CharacterCreationFlow() {
   useEffect(() => { stepRef.current = step; }, [step]);
   useEffect(() => { characterIdRef.current = characterId; }, [characterId]);
 
-  // The "route characterId" is the characterId present in the URL query string.
-  // On a normal resume it matches stateCharacterId; on bfcache-restore after
-  // navigating away it may differ, which is the key mismatch we guard against.
-  const routeCharacterIdRaw = searchParams.get('characterId');
-  const routeCharacterId = routeCharacterIdRaw
-    ? (Number.isNaN(Number(routeCharacterIdRaw)) ? null : Number(routeCharacterIdRaw))
-    : null;
+  // The "route characterId" (the ?characterId query param) is compared with
+  // the state id inside the pageshow guard below, read from the live URL at
+  // event time so the comparison cannot go stale.
 
   // ── B15.6: pageshow guard — fires on every page navigation including bfcache
   useEffect(() => {
@@ -104,20 +103,15 @@ export default function CharacterCreationFlow() {
         });
       }
 
-      setPageshowPersisted(true);
-      setSessionRecoveryAction(result.recoveryAction);
-
       if (result.recoveryAction === 'bfcache-mismatch:reset-to-step-0') {
         // Route and state ids diverge — recover to a safe starting point.
         setCharacterId(null);
-        setStep(0);
-        setSketchImageId(null);
+        setStep(STEP_INTERVIEW);
         return;
       }
 
       if (result.recoveryAction === 'bfcache-restore:sketch-cleared') {
         // Same ids but bfcache restored the sketch step — clear stale sketch.
-        setSketchImageId(null);
         setSketchSessionNonce((n) => n + 1);
       }
     };
@@ -126,7 +120,15 @@ export default function CharacterCreationFlow() {
     return () => window.removeEventListener('pageshow', handlePageshow);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Load existing draft when characterId query param is present
+  // ── Resume a draft when ?characterId is present (Polish Phase 1, C2)
+  //
+  // The Character row gives the name and alias; the DNA row gives the whole
+  // Interview (identity_spec + personality_traits), which the wizard writes
+  // on "Continue to Sketch" and could never read back before. Resume opens at
+  // the furthest step the persisted state honestly supports:
+  //   * a complete Interview (gender + age band answered) → Sketch;
+  //   * a stored but incomplete Interview, or none → Interview, with whatever
+  //     was stored filled in and nothing invented.
   useEffect(() => {
     const resumeId = searchParams.get('characterId');
     if (!resumeId) return;
@@ -135,16 +137,19 @@ export default function CharacterCreationFlow() {
       setLoadingDraft(false);
       return;
     }
-    apiClient
-      .getCharacter(id)
-      .then((char) => {
+    Promise.all([apiClient.getCharacter(id), getDNA(id)])
+      .then(([char, dna]) => {
         setCharacterId(char.id);
-        setBasics({
-          name: char.name || '',
-          age: char.age || '',
-          species: char.species || '',
-          gender_presentation: '',
-        });
+        setBasics({ name: char.name || '', alias: char.alias || '' });
+        const traits = dna?.visual_traits_json?.personality_traits;
+        const spec = dna?.visual_traits_json?.identity_spec as IdentitySpec | undefined;
+        if (spec) {
+          setSeeds({
+            traits: Array.isArray(traits) ? (traits as string[]) : [],
+            identitySpec: spec,
+          });
+          if (isInterviewComplete(spec)) setStep(STEP_SKETCH);
+        }
       })
       .catch(() => {
         setError('Failed to load draft character.');
@@ -154,46 +159,43 @@ export default function CharacterCreationFlow() {
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Transition: Personality → Sketch (create character + upsert DNA)
+  // ── Transition: Interview → Sketch (create/update character + upsert DNA)
+  //
+  // Polish Phase 1 (C8): the Interview is the single truth. The Character
+  // row's display fields (species label, age band) and the DNA's
+  // species/gender are all written from the same spec, so they cannot
+  // disagree. Name and alias come from the Interview's opening group.
   const handleAfterPersonality = async () => {
     setSaving(true);
     setError('');
     try {
+      const spec = seeds.identitySpec;
+      const display = spec ? characterFieldsFromSpec(spec) : {};
+      const fields = {
+        name: basics.name.trim(),
+        alias: basics.alias.trim() || undefined,
+        ...display,
+      };
       let cid = characterId;
-
-      // Create character if not yet created
       if (!cid) {
-        const character = await apiClient.createCharacter({
-          name: basics.name,
-          age: basics.age || undefined,
-          species: basics.species || undefined,
-        });
+        const character = await apiClient.createCharacter(fields);
         cid = character.id;
         setCharacterId(cid);
       } else {
-        // Update basics if character already exists
-        await apiClient.updateCharacter(cid, {
-          name: basics.name,
-          age: basics.age || undefined,
-          species: basics.species || undefined,
-        });
+        await apiClient.updateCharacter(cid, fields);
       }
-
-      // Upsert DNA
       await upsertDNA(cid, {
-        species: basics.species || undefined,
-        gender_presentation: basics.gender_presentation || undefined,
+        species: spec?.species || undefined,
+        gender_presentation: spec?.gender || undefined,
         visual_traits_json: {
           personality_traits: seeds.traits,
-          vibe: seeds.vibeText,
-          identity_spec: seeds.identitySpec || undefined,
+          identity_spec: spec || undefined,
         },
         structural_profile_json: {
-          age_band: basics.age || undefined,
+          age_band: spec?.age_band || undefined,
         },
       });
-
-      setStep(2);
+      setStep(STEP_SKETCH);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save character data.');
     } finally {
@@ -272,46 +274,31 @@ export default function CharacterCreationFlow() {
       {/* Step content */}
       <div className="flex-1 max-w-xl mx-auto w-full px-4 py-6">
         <ErrorBoundary fallback={<p className="text-center text-sm text-ink-2 py-8">Something went wrong. Please refresh and try again.</p>}>
-        {step === 0 && (
-          <StepBasics
-            data={basics}
-            onChange={setBasics}
-            onNext={() => setStep(1)}
-          />
-        )}
-
-        {step === 1 && (
+        {step === STEP_INTERVIEW && (
           <StepPersonality
+            basics={basics}
+            onBasicsChange={setBasics}
             data={seeds}
             onChange={setSeeds}
             onNext={handleAfterPersonality}
-            onBack={() => setStep(0)}
             saving={saving}
           />
         )}
 
-        {step === 2 && characterId && (
+        {step === STEP_SKETCH && characterId && (
           <StepSketch
             key={`${characterId}-${sketchSessionNonce}`}
             characterId={characterId}
             identitySpec={seeds.identitySpec}
-            basics={basics}
             activeCreationCharacterId={characterId}
-            routeCharacterId={routeCharacterId}
-            pageshowPersisted={pageshowPersisted}
-            sessionRecoveryAction={sessionRecoveryAction}
-            onConfirmed={(id) => {
-              setSketchImageId(id || null);
-              setStep(3);
-            }}
-            onBack={() => setStep(1)}
+            onConfirmed={() => setStep(STEP_PACK)}
+            onBack={() => setStep(STEP_INTERVIEW)}
           />
         )}
 
-        {step === 3 && characterId && (
+        {step === STEP_PACK && characterId && (
           <StepGeneratePack
             characterId={characterId}
-            vibeText={seeds.vibeText}
             identitySpec={seeds.identitySpec}
             bodyMorphology={bodyMorphology}
             onBodyMorphologyChange={setBodyMorphology}
@@ -320,27 +307,28 @@ export default function CharacterCreationFlow() {
               setGeneratedPack(pack);
               setSelectedImageIndex(0);
             }}
-            onNext={() => setStep(4)}
-            onBack={() => setStep(2)}
+            onNext={() => setStep(STEP_SELECT)}
+            onBack={() => setStep(STEP_SKETCH)}
           />
         )}
 
-        {step === 4 && generatedPack && (
+        {step === STEP_SELECT && generatedPack && (
           <StepSelect
             pack={generatedPack}
             selectedIndex={selectedImageIndex}
             onSelect={setSelectedImageIndex}
-            onNext={() => setStep(5)}
-            onBack={() => setStep(3)}
+            onNext={() => setStep(STEP_DOSSIER)}
+            onBack={() => setStep(STEP_PACK)}
           />
         )}
 
-        {step === 5 && characterId && generatedPack && (
+        {step === STEP_DOSSIER && characterId && generatedPack && (
           <StepDossierLock
             characterId={characterId}
             pack={generatedPack}
             selectedIndex={selectedImageIndex}
             basics={basics}
+            species={seeds.identitySpec ? characterFieldsFromSpec(seeds.identitySpec).species : undefined}
           />
         )}
         </ErrorBoundary>

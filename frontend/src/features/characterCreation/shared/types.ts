@@ -342,7 +342,10 @@ export const LIP_TYPES = [
 
 export const HAIRLINE_TYPES = [
   { label: 'Straight',     value: 'straight'    },
-  { label: 'Messy',        value: 'messy'       },
+  // Polish Phase 1 (C9): relabelled from "Messy", which also appears as a hair
+  // TEXTURE option and read as the same thing twice. The stored value stays
+  // "messy" — the backend enum and existing characters both use it.
+  { label: 'Uneven',       value: 'messy'       },
   { label: "Widow's peak", value: 'widows_peak' },
   { label: 'Receding',     value: 'receding'    },
 ] as const;
@@ -387,16 +390,17 @@ export const EYEBROW_SHAPE_OPTIONS = [
 
 // ── Flow state slices ───────────────────────────────────────────────
 
+// Polish Phase 1 (C8). Basics is name and alias only. Gender, age and species
+// are asked ONCE, in the Interview's opening group, and the Interview's answers
+// are what populate the Character row and the DNA — there is one truth.
 export interface CreationBasics {
   name: string;
-  age: string;
-  species: string;
-  gender_presentation: string;
+  alias: string;
 }
 
+// Polish Phase 1 (C17): ``vibeText`` removed — no control ever set it.
 export interface CreationSeeds {
   traits: string[];
-  vibeText: string;
   identitySpec: IdentitySpec | null;
 }
 
@@ -437,8 +441,16 @@ export const SKETCH_STYLES = [
 
 export type SketchStyle = 'pencil' | 'charcoal' | 'dossier';
 
+// Polish Phase 1 (C8): the Basics screen is gone — name and alias open the
+// Interview. Steps are named here and referenced by constant, never by a bare
+// number, so the session guard and the flow cannot drift apart.
+export const STEP_INTERVIEW = 0;
+export const STEP_SKETCH = 1;
+export const STEP_PACK = 2;
+export const STEP_SELECT = 3;
+export const STEP_DOSSIER = 4;
+
 export const STEP_LABELS = [
-  'Basics',
   'Interview',
   'Sketch',
   'Identity Pack',

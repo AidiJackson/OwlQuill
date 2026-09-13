@@ -149,13 +149,16 @@ function eyeSpacingOffset(spacing?: string): number {
 
 interface Props {
   spec: Partial<IdentitySpec>;
+  /** Rendered width in px; height follows the 100:130 viewBox. Default 154. */
+  width?: number;
 }
 
 function op(answered: boolean): number {
   return answered ? SOLID : GHOST;
 }
 
-export default function SketchFacePreview({ spec }: Props) {
+export default function SketchFacePreview({ spec, width = 154 }: Props) {
+  const height = Math.round(width * 1.3);
   const faceOutlinePath = (spec.face_shape && FACE_OUTLINE[spec.face_shape]) ?? FACE_DEFAULT;
   const jawPath  = spec.jaw_type ? JAW_ACCENTS[spec.jaw_type] : null;
   const eyes     = (spec.eye_shape ? EYE_SHAPES[spec.eye_shape] : null) ?? EYE_DEFAULT;
@@ -193,11 +196,12 @@ export default function SketchFacePreview({ spec }: Props) {
   return (
     <div
       className="rounded-xl overflow-hidden shadow-md shrink-0"
-      style={{ width: 154, height: 200 }}
+      style={{ width, height }}
+      aria-hidden="true"
     >
       <svg
-        width={154}
-        height={200}
+        width={width}
+        height={height}
         viewBox="0 0 100 130"
         style={{ display: 'block' }}
       >

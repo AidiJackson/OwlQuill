@@ -21,7 +21,6 @@ import { safeGet } from '@/lib/safeStorage';
 
 interface Props {
   characterId: number;
-  vibeText: string;
   identitySpec?: IdentitySpec | null;
   bodyMorphology: BodyMorphology;
   onBodyMorphologyChange: (m: BodyMorphology) => void;
@@ -67,7 +66,6 @@ function errorMessage(err: unknown, fallback: string): string {
 
 export default function StepGeneratePack({
   characterId,
-  vibeText,
   identitySpec,
   bodyMorphology,
   onBodyMorphologyChange,
@@ -181,7 +179,7 @@ export default function StepGeneratePack({
         const spec: IdentitySpec | null = identitySpec
           ? { ...identitySpec, body_height: bodyMorphology.height, body_build: bodyMorphology.build }
           : null;
-        const legacy = await generateIdentityPack(characterId, undefined, vibeText, spec);
+        const legacy = await generateIdentityPack(characterId, undefined, '', spec);
         onPackGenerated(legacyToV2(legacy));
       } catch (err) {
         console.error('[StepGeneratePack] legacy pack generation failed', err);

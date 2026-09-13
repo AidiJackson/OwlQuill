@@ -9,9 +9,11 @@ interface Props {
   pack: V2PackResponse;
   selectedIndex: number;
   basics: CreationBasics;
+  /** Species label from the Interview (the Character row's display value). */
+  species?: string;
 }
 
-export default function StepDossierLock({ characterId, pack, selectedIndex, basics }: Props) {
+export default function StepDossierLock({ characterId, pack, selectedIndex, basics, species }: Props) {
   const navigate = useNavigate();
   const [locking, setLocking] = useState(true);
   const [error, setError] = useState('');
@@ -87,7 +89,7 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
 
           <div className="flex-1 min-w-0 space-y-1.5 pt-1">
             {basics.name && <p className="text-sm font-semibold text-ink truncate">{basics.name}</p>}
-            {basics.species && <p className="text-xs text-ink-2 capitalize">{basics.species}</p>}
+            {species && <p className="text-xs text-ink-2">{species}</p>}
             <p className="text-xs text-gem font-medium">Visual identity confirmed</p>
           </div>
 

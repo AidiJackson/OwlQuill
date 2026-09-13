@@ -6,6 +6,8 @@
  * of truth for session validation decisions.
  */
 
+import { STEP_SKETCH } from './types';
+
 // ── Types ────────────────────────────────────────────────────────────
 
 export type RecoveryAction =
@@ -55,8 +57,10 @@ export function checkCreationSession({
     return { mismatch: true, recoveryAction: 'bfcache-mismatch:reset-to-step-0' };
   }
 
-  // Bfcache restore on the sketch step: clear stale sketch state
-  if (step === 2) {
+  // Bfcache restore on the sketch step: clear stale sketch state.
+  // Polish Phase 1 (C8): the step index comes from the shared constant — the
+  // Basics screen was removed and every step moved up one.
+  if (step === STEP_SKETCH) {
     return { mismatch: false, recoveryAction: 'bfcache-restore:sketch-cleared' };
   }
 

@@ -10,6 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { checkCreationSession, isSketchBlocked } from '../sessionGuard';
+import { STEP_INTERVIEW, STEP_PACK, STEP_SKETCH } from '../types';
 
 // ── checkCreationSession ─────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ describe('checkCreationSession', () => {
       persisted: false,
       stateCharacterId: 5,
       routeCharacterId: 5,
-      step: 2,
+      step: STEP_SKETCH,
     });
     expect(result.recoveryAction).toBe('none');
     expect(result.mismatch).toBe(false);
@@ -31,7 +32,7 @@ describe('checkCreationSession', () => {
       persisted: false,
       stateCharacterId: 5,
       routeCharacterId: 99,
-      step: 2,
+      step: STEP_SKETCH,
     });
     expect(result.recoveryAction).toBe('none');
     expect(result.mismatch).toBe(false);
@@ -46,7 +47,7 @@ describe('checkCreationSession', () => {
       persisted: true,
       stateCharacterId: 5,
       routeCharacterId: 99,
-      step: 2,
+      step: STEP_SKETCH,
     });
     expect(result.mismatch).toBe(true);
     expect(result.recoveryAction).toBe('bfcache-mismatch:reset-to-step-0');
@@ -57,7 +58,7 @@ describe('checkCreationSession', () => {
       persisted: true,
       stateCharacterId: 1,
       routeCharacterId: 2,
-      step: 0,
+      step: STEP_INTERVIEW,
     });
     expect(result.mismatch).toBe(true);
     expect(result.recoveryAction).toBe('bfcache-mismatch:reset-to-step-0');
@@ -65,12 +66,12 @@ describe('checkCreationSession', () => {
 
   // ── Scenario 3: bfcache restore on sketch step, same ids → sketch cleared ──
 
-  it('clears sketch state on bfcache restore when on step 2 (sketch step)', () => {
+  it('clears sketch state on bfcache restore when on the sketch step', () => {
     const result = checkCreationSession({
       persisted: true,
       stateCharacterId: 5,
       routeCharacterId: 5,
-      step: 2,
+      step: STEP_SKETCH,
     });
     expect(result.mismatch).toBe(false);
     expect(result.recoveryAction).toBe('bfcache-restore:sketch-cleared');
@@ -82,7 +83,7 @@ describe('checkCreationSession', () => {
       persisted: true,
       stateCharacterId: 7,
       routeCharacterId: null,
-      step: 2,
+      step: STEP_SKETCH,
     });
     expect(result.mismatch).toBe(false);
     expect(result.recoveryAction).toBe('bfcache-restore:sketch-cleared');
@@ -94,29 +95,29 @@ describe('checkCreationSession', () => {
       persisted: true,
       stateCharacterId: null,
       routeCharacterId: null,
-      step: 2,
+      step: STEP_SKETCH,
     });
     expect(result.mismatch).toBe(false);
     expect(result.recoveryAction).toBe('bfcache-restore:sketch-cleared');
   });
 
-  it('returns none on bfcache restore on step 0 with matching ids', () => {
+  it('returns none on bfcache restore on the interview step with matching ids', () => {
     const result = checkCreationSession({
       persisted: true,
       stateCharacterId: 5,
       routeCharacterId: 5,
-      step: 0,
+      step: STEP_INTERVIEW,
     });
     expect(result.mismatch).toBe(false);
     expect(result.recoveryAction).toBe('none');
   });
 
-  it('returns none on bfcache restore on step 1 with matching ids', () => {
+  it('returns none on bfcache restore on a later non-sketch step with matching ids', () => {
     const result = checkCreationSession({
       persisted: true,
       stateCharacterId: 5,
       routeCharacterId: null,
-      step: 1,
+      step: STEP_PACK,
     });
     expect(result.mismatch).toBe(false);
     expect(result.recoveryAction).toBe('none');
