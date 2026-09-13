@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type {
@@ -182,11 +183,22 @@ export default function RPStoryThread({ threadId }: Props) {
     }
   }
 
+  // Polish Phase 0 (X6): ConfirmDialog replaces the native confirm().
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState('');
+
   async function handleArchive() {
     if (!thread) return;
-    if (!confirm('Archive this thread?')) return;
-    await apiClient.archiveRPStory(thread.id);
-    navigate('/rp-stories');
+    setArchiving(true);
+    setArchiveError('');
+    try {
+      await apiClient.archiveRPStory(thread.id);
+      navigate('/rp-stories');
+    } catch (err) {
+      setArchiveError(err instanceof Error ? err.message : 'Could not archive this thread.');
+      setArchiving(false);
+    }
   }
 
   if (loading) {
@@ -254,7 +266,7 @@ export default function RPStoryThread({ threadId }: Props) {
           </div>
           {thread.status === 'active' && (
             <button
-              onClick={handleArchive}
+              onClick={() => { setArchiveError(''); setConfirmArchive(true); }}
               className="text-ink-3 hover:text-ink-2 text-xs transition-colors shrink-0"
             >
               Archive
@@ -435,6 +447,18 @@ export default function RPStoryThread({ threadId }: Props) {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmArchive}
+        title="Archive this thread?"
+        confirmLabel="Archive thread"
+        busy={archiving}
+        error={archiveError || null}
+        onConfirm={handleArchive}
+        onCancel={() => { if (!archiving) setConfirmArchive(false); }}
+      >
+        <p>The thread leaves your active RP Stories. Nothing in it is deleted.</p>
+      </ConfirmDialog>
     </div>
   );
 }

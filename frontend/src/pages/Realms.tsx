@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
+import InlineNotice from '@/components/InlineNotice';
 import type { Realm } from '@/lib/types';
 
 export default function Realms() {
@@ -53,8 +54,11 @@ export default function Realms() {
     }
   };
 
+  const [createError, setCreateError] = useState('');
+
   const handleCreateRealm = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreateError('');
     try {
       await apiClient.createRealm(newRealm);
       setShowCreateForm(false);
@@ -62,7 +66,9 @@ export default function Realms() {
       await loadRealms();
     } catch (error) {
       console.error('Failed to create realm:', error);
-      alert('Failed to create realm. Please try again.');
+      setCreateError(
+        error instanceof Error ? error.message : 'Could not create the realm. Please try again.',
+      );
     }
   };
 
@@ -124,6 +130,9 @@ export default function Realms() {
         <div className="card mb-8">
           <h2 className="text-xl font-semibold mb-4">Create New Realm</h2>
           <form onSubmit={handleCreateRealm} className="space-y-4">
+            {createError && (
+              <InlineNotice tone="error" onDismiss={() => setCreateError('')}>{createError}</InlineNotice>
+            )}
             <div>
               <label className="block text-sm font-medium mb-2">Name</label>
               <input

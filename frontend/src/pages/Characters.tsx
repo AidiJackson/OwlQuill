@@ -4,6 +4,7 @@ import { Search } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import CharacterDirectory from '@/pages/CharacterDirectory';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import type { Character, CharacterSearchResult, User } from '@/lib/types';
 import { canUseCreatorTools } from '@/lib/entitlements';
 
@@ -134,13 +135,26 @@ function CharacterManagement() {
     return { hours, minutes };
   }, [currentUser]);
 
-  const handleDeleteDraft = async (id: number) => {
-    if (!window.confirm('Delete this draft character? This cannot be undone.')) return;
+  // Draft deletion — Polish Phase 0 (X6): a ConfirmDialog instead of the
+  // browser's confirm()/alert() pair. A draft has no images yet, so the
+  // consequence is small and typing the name is not required; the dialog is
+  // still the same one every other deletion uses.
+  const [draftToDelete, setDraftToDelete] = useState<Character | null>(null);
+  const [deletingDraft, setDeletingDraft] = useState(false);
+  const [deleteDraftError, setDeleteDraftError] = useState('');
+
+  const handleDeleteDraft = async () => {
+    if (!draftToDelete) return;
+    setDeletingDraft(true);
+    setDeleteDraftError('');
     try {
-      await apiClient.deleteCharacter(id);
-      setCharacters((prev) => prev.filter((c) => c.id !== id));
-    } catch {
-      alert('Failed to delete draft.');
+      await apiClient.deleteCharacter(draftToDelete.id);
+      setCharacters((prev) => prev.filter((c) => c.id !== draftToDelete.id));
+      setDraftToDelete(null);
+    } catch (err) {
+      setDeleteDraftError(err instanceof Error ? err.message : 'Could not delete this draft.');
+    } finally {
+      setDeletingDraft(false);
     }
   };
 
@@ -517,7 +531,7 @@ function CharacterManagement() {
                   </button>
                   <button
                     className="btn btn-secondary text-sm"
-                    onClick={() => handleDeleteDraft(character.id)}
+                    onClick={() => { setDeleteDraftError(''); setDraftToDelete(character); }}
                   >
                     Delete
                   </button>
@@ -527,6 +541,22 @@ function CharacterManagement() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={draftToDelete !== null}
+        danger
+        title="Delete draft"
+        confirmLabel="Delete draft"
+        busy={deletingDraft}
+        error={deleteDraftError || null}
+        onConfirm={handleDeleteDraft}
+        onCancel={() => { if (!deletingDraft) setDraftToDelete(null); }}
+      >
+        <p>
+          Delete the draft <strong>{draftToDelete?.name}</strong>? Their interview answers go with
+          them. This cannot be undone.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }

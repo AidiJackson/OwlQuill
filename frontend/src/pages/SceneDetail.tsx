@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { Scene, ScenePost, Character } from '@/lib/types';
+import { useAuthStore } from '@/lib/store';
+import { isFounder } from '@/lib/entitlements';
 
 export default function SceneDetail() {
   const { sceneId } = useParams<{ sceneId: string }>();
+  const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -71,6 +74,13 @@ export default function SceneDetail() {
     const b = map[v] || map.PUBLIC;
     return <span className={`px-2 py-0.5 text-xs font-semibold rounded ${b.className}`}>{b.label}</span>;
   };
+
+  // Polish Phase 0 (P4): Realm Scenes are founder-only for this programme —
+  // the same gate RealmDetail applies to the section that links here. A
+  // non-founder who reaches the URL directly is sent to the realms list.
+  if (!isFounder(user)) {
+    return <Navigate to="/realms" replace />;
+  }
 
   if (loading) {
     return (

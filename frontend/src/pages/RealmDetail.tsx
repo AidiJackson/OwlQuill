@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Image } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
+import InlineNotice from '@/components/InlineNotice';
+import { isFounder } from '@/lib/entitlements';
 import { useAuthStore } from '@/lib/store';
 import type { Realm, Post, Character, Scene, SceneVisibility, LibraryImage } from '@/lib/types';
 import { authorLink } from '@/lib/authorLink';
@@ -37,6 +39,7 @@ export default function RealmDetail() {
     character_id: undefined as number | undefined,
   });
   const [sceneCreating, setSceneCreating] = useState(false);
+  const [sceneError, setSceneError] = useState('');
 
   const [showImageModal, setShowImageModal] = useState(false);
   const [attachedImage, setAttachedImage] = useState<LibraryImage | null>(null);
@@ -88,16 +91,24 @@ export default function RealmDetail() {
     }
   }, [characters]);
 
-  const handleJoinRealm = async () => {
-    if (!realmId) return;
+  // Join feedback — Polish Phase 0 (X6): inline, where the button is, instead
+  // of a browser alert. Membership isn't re-read here (the page derives it
+  // client-side, see isMember below), so the notice is the confirmation.
+  const [joinNotice, setJoinNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const [joining, setJoining] = useState(false);
 
+  const handleJoinRealm = async () => {
+    if (!realmId || joining) return;
+    setJoining(true);
+    setJoinNotice(null);
     try {
       await apiClient.joinRealm(Number(realmId));
-      // Reload realm to update membership status (or show success message)
-      alert('Successfully joined realm!');
+      setJoinNotice({ tone: 'success', text: `You've joined ${realm?.name ?? 'this realm'}.` });
     } catch (error) {
       console.error('Failed to join realm:', error);
-      alert('Failed to join realm. You may already be a member.');
+      setJoinNotice({ tone: 'error', text: "Couldn't join this realm. You may already be a member." });
+    } finally {
+      setJoining(false);
     }
   };
 
@@ -193,7 +204,7 @@ export default function RealmDetail() {
       navigate(`/scenes/${scene.id}`);
     } catch (err) {
       console.error('Failed to create scene:', err);
-      alert('Failed to create scene. Make sure you are a member of this realm.');
+      setSceneError("Couldn't create the scene. Make sure you're a member of this realm.");
     } finally {
       setSceneCreating(false);
     }
@@ -250,12 +261,18 @@ export default function RealmDetail() {
                 {realm.is_public ? 'Public' : 'Private'}
               </span>
               {!realm.is_commons && (
-                <button onClick={handleJoinRealm} className="btn btn-primary">
-                  Join Realm
+                <button onClick={handleJoinRealm} className="btn btn-primary" disabled={joining}>
+                  {joining ? 'Joining…' : 'Join Realm'}
                 </button>
               )}
             </div>
           </div>
+
+          {joinNotice && (
+            <InlineNotice tone={joinNotice.tone} onDismiss={() => setJoinNotice(null)} className="mb-4">
+              {joinNotice.text}
+            </InlineNotice>
+          )}
 
           {realm.description && (
             <p className="text-ink-2 mb-4 whitespace-pre-wrap">{realm.description}</p>
@@ -270,7 +287,14 @@ export default function RealmDetail() {
         </div>
       </div>
 
-      {/* Scenes section */}
+      {/* Scenes section — Polish Phase 0 (P4): founder-only for this
+          programme. Realm Scenes are one of four overlapping ways to write
+          together and have no nav entry, explanation or finished styling; an
+          outsider meeting "Scenes" next to "Posts" with no way to tell them
+          apart reads it as unfinished. The code, data and /scenes/:id route
+          stay intact (SceneDetail applies the same gate); this only decides
+          who is offered the section. Not a redesign and not a deletion. */}
+      {isFounder(user) && (
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-2xl font-bold">Scenes</h2>
@@ -286,6 +310,9 @@ export default function RealmDetail() {
           <div className="card mb-4">
             <h3 className="text-lg font-semibold mb-3">Create Open Starter Scene</h3>
             <div className="space-y-3">
+              {sceneError && (
+                <InlineNotice tone="error" onDismiss={() => setSceneError('')}>{sceneError}</InlineNotice>
+              )}
               <div>
                 <label className="block text-sm font-medium mb-1">Title</label>
                 <input
@@ -375,6 +402,7 @@ export default function RealmDetail() {
           </div>
         )}
       </div>
+      )}
 
       {/* First-post nudge — shown to members who haven't posted yet */}
       {user && !loading && isMember && !hasOwnPost && (
