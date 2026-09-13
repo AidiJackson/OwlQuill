@@ -60,7 +60,7 @@ export const FACE_SHAPE_CATEGORY: VisualCategory<FaceShapeValue> = {
   hints: {
     oval: 'Gently curved',
     round: 'Soft, full cheeks',
-    square: 'Broad, straight sides',
+    square: 'Broad, flat jaw',
     angular: 'Sharper planes',
     long: 'Longer than wide',
   },
