@@ -425,12 +425,25 @@ export const PERSONALITY_TRAITS = [
 
 // ── Identity Sketch ──────────────────────────────────────────────────
 
+/** The Sketch allowance as the server reports it (Polish Phase 2, C10). */
+export interface SketchAllowance {
+  limit: number;
+  used: number;
+  remaining: number;
+  allowed: boolean;
+  window_hours: number;
+  /** UTC ISO-8601 instant the oldest counted attempt leaves the window; only when remaining is 0. */
+  next_available_at: string | null;
+}
+
 export interface SketchResponse {
   image_url: string;
   image_id: number;
   style: string;
   prompt_preview: string;
   provider_used?: string;
+  /** The allowance after this generation was counted. */
+  allowance?: SketchAllowance | null;
 }
 
 export const SKETCH_STYLES = [

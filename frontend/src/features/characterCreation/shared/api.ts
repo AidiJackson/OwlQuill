@@ -1,5 +1,6 @@
 /** Typed API helpers for the character visual endpoints. */
 import type {
+  SketchAllowance,
   CharacterCanonRead,
   CharacterDNARead,
   CharacterImageRead,
@@ -20,13 +21,16 @@ function getToken(): string | null {
   return safeGet('token');
 }
 
-/** An HTTP failure with its status, so a caller can tell 404 from 500. */
+/** An HTTP failure with its status and parsed body, so a caller can tell 404
+ *  from 500 and read a structured refusal (e.g. an exhausted allowance). */
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  body: unknown;
+  constructor(message: string, status: number, body: unknown = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -48,7 +52,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Something went wrong' }));
-    throw new ApiError(error.detail || `HTTP ${response.status}`, response.status);
+    throw new ApiError(error.detail || `HTTP ${response.status}`, response.status, error);
   }
 
   if (response.status === 204) return null as T;
@@ -267,6 +271,11 @@ export async function generateImage(
       is_cover: isCover,
     }),
   });
+}
+
+/** The server-authoritative Sketch allowance for an owned character (Polish Phase 2, C10). */
+export async function getSketchAllowance(characterId: number): Promise<SketchAllowance> {
+  return request(`/characters/${characterId}/identity-sketch/allowance`);
 }
 
 export async function generateIdentitySketch(
