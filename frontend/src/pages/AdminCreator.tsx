@@ -353,6 +353,7 @@ export default function AdminCreator() {
       <section className="rounded-xl border border-edge-md bg-surface-elevated/40 p-3 sm:p-4">
         <ReferenceCardBoard
           characterId={characterId}
+          characters={characters}
           slots={slots}
           onChange={setSlots}
           disabled={busy}

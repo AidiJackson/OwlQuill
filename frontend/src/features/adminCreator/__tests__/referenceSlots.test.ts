@@ -4,10 +4,12 @@ import { MAX_REFERENCES } from '@/features/images/referenceKinds';
 import {
   ADMIN_CREATOR_REFERENCE_MODE,
   clearSlot,
+  crossCharacterMisrole,
   emptySlots,
   fillSlot,
   filledCount,
   firstEmptySlot,
+  isCrossCharacter,
   normalizeSlots,
   removeImage,
   setSlotRole,
@@ -17,8 +19,10 @@ import {
 } from '../referenceSlots';
 
 /** Minimal LibraryImage stand-in — only the fields the slot rules read. */
-function img(id: number, kind = 'generated'): LibraryImage {
-  return { id, kind, url: `https://example.test/${id}.png` } as unknown as LibraryImage;
+function img(id: number, kind = 'generated', character_id: number | null = 7): LibraryImage {
+  return {
+    id, kind, character_id, url: `https://example.test/${id}.png`,
+  } as unknown as LibraryImage;
 }
 
 describe('reference slots — shape', () => {
@@ -202,5 +206,47 @@ describe('reference slots — helpers', () => {
     for (const kind of ['generated', 'scene_only', 'cover']) {
       expect(slotSource({ image: img(1, kind), role: 'unspecified' })).toBe('library');
     }
+  });
+});
+
+describe('reference slots — Character 2 from another owned character', () => {
+  // Mirror of manual_references._row_in_scope: the ONLY card that may hold
+  // another character's image is a Character 2 card. The board names the
+  // source and warns on the mis-roled case; the server still decides.
+  const selected = 7;
+
+  it('reads a same-character image as not cross-character', () => {
+    expect(isCrossCharacter({ image: img(1, 'generated', 7), role: 'character_2' }, selected)).toBe(false);
+    expect(isCrossCharacter({ image: img(1, 'generated', 7), role: 'clothing' }, selected)).toBe(false);
+  });
+
+  it('reads another character\'s image as cross-character regardless of role', () => {
+    expect(isCrossCharacter({ image: img(1, 'generated', 9), role: 'character_2' }, selected)).toBe(true);
+    expect(isCrossCharacter({ image: img(1, 'uploaded', 9), role: 'clothing' }, selected)).toBe(true);
+  });
+
+  it('treats a characterless image as nobody\'s, not as another character\'s', () => {
+    expect(isCrossCharacter({ image: img(1, 'generated', null), role: 'character_2' }, selected)).toBe(false);
+  });
+
+  it('is never cross-character before a character is selected', () => {
+    expect(isCrossCharacter({ image: img(1, 'generated', 9), role: 'character_2' }, null)).toBe(false);
+  });
+
+  it('warns only when a cross-character image sits on a non-Character-2 card', () => {
+    expect(crossCharacterMisrole({ image: img(1, 'generated', 9), role: 'character_2' }, selected)).toBe(false);
+    for (const role of ['character_1', 'clothing', 'eyes', 'unspecified'] as const) {
+      expect(crossCharacterMisrole({ image: img(1, 'generated', 9), role }, selected)).toBe(true);
+    }
+    expect(crossCharacterMisrole({ image: img(1, 'generated', 7), role: 'character_1' }, selected)).toBe(false);
+  });
+
+  it('keeps sending the image id and role unchanged — scoping is the server\'s call', () => {
+    const s = setSlotRole(fillSlot(emptySlots(), 1, img(42, 'generated', 9)), 1, 'character_2');
+    expect(toSubmission(s)).toEqual({
+      reference_image_ids: [42],
+      reference_roles: ['character_2'],
+      reference_mode: ADMIN_CREATOR_REFERENCE_MODE,
+    });
   });
 });

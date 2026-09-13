@@ -122,7 +122,8 @@ export function isFeatureRole(role: AdminCreatorRole): boolean {
 export const ROLE_HINTS: Record<AdminCreatorRole, string> = {
   unspecified: 'Sent with no explanation of what it is for.',
   character_1: 'This person. All Character 1 cards are the same individual.',
-  character_2: 'A second, different person. Never blended with Character 1.',
+  character_2:
+    'A second, different person. Never blended with Character 1. Replace to pick them from another of your characters.',
   clothing: 'The outfit to reproduce, including sleeve and hem length. Not identity.',
   environment: 'Setting, atmosphere and lighting. Not identity.',
   tattoo_mark: 'Mark design and placement. Does not force a covered mark to show.',

@@ -649,19 +649,44 @@ def resolve_manual_references(
     character_id: int,
     image_ids: Iterable[int],
     roles: Optional[Iterable[Optional[str]]] = None,
+    reference_mode: str = REFERENCE_MODE_AUGMENT,
+    owner_user_id: Optional[int] = None,
 ) -> list[ResolvedReference]:
     """Validate hand-picked reference ids against the database.
 
     Every id must independently satisfy ALL of:
 
     * it exists;
-    * it belongs to THIS character (an id from another character the founder
-      also owns is refused — a generation is character-scoped, exactly as post
-      image attachment is);
+    * it belongs to THIS character — a generation is character-scoped, exactly
+      as post image attachment is — with ONE deliberate exception, below;
     * its status is ACTIVE (an archived/soft-deleted image is refused);
     * its kind is in ``REFERENCE_SELECTABLE_IMAGE_KINDS`` (canon/identity slots
       are not hand-pickable — see that constant for why);
     * it is not a temporary pack preview.
+
+    The Character 2 exception (Admin Creator, ``deliberate`` mode only)
+    ------------------------------------------------------------------
+    A card in the CHARACTER_2 bucket is, by definition, a DIFFERENT person from
+    the character the result is saved to. The natural source for that person is
+    another character the same account owns, so under ``reference_mode ==
+    "deliberate"`` a CHARACTER_2 reference may instead belong to ANY character
+    owned by ``owner_user_id``. Authority is the asset's own owner column
+    (``CharacterImage.user_id``, Phase 4B) compared against the requesting
+    account — never a character id the client names. Nothing else widens:
+
+    * every other role, CHARACTER_1 included, keeps the same-character rule;
+    * ``augment`` mode (the Image Generator on /images) keeps it for every
+      role, because there the identity buckets carry no meaning at all;
+    * the kind, status and temp-preview checks apply unchanged, so the
+      exception cannot reach canon cards, ``identity_*`` slots or archived
+      rows on the other character either;
+    * an image owned by another ACCOUNT is refused exactly as before, with
+      the same merged "not available" message so the refusal confirms nothing
+      about what exists.
+
+    ``owner_user_id`` is REQUIRED for the exception to apply: a caller that
+    omits it gets the strict rule for every role, which is the safe default for
+    any path that has no requesting account in hand.
 
     Ids are never trusted: the rows are re-read here and the caller's ownership
     check on the CHARACTER is what authorises the whole set. Order is preserved
@@ -699,12 +724,24 @@ def resolve_manual_references(
     )
     by_id = {int(r.id): r for r in rows}
 
+    cross_character_ok = (
+        normalise_reference_mode(reference_mode) == REFERENCE_MODE_DELIBERATE
+        and owner_user_id is not None
+    )
+
     resolved: list[ResolvedReference] = []
     for position, image_id in enumerate(ids):
         row = by_id.get(image_id)
-        # One message for "missing" and "not this character's": distinguishing
-        # them would confirm which ids exist on characters the caller cannot see.
-        if row is None or int(row.character_id) != int(character_id):
+        role = parsed_roles[position]
+        # One message for "missing", "not this character's" and "not this
+        # account's": distinguishing them would confirm which ids exist on
+        # characters — or accounts — the caller cannot see.
+        if row is None or not _row_in_scope(
+            row,
+            character_id=character_id,
+            role=role,
+            owner_user_id=owner_user_id if cross_character_ok else None,
+        ):
             raise ManualReferenceError(
                 422,
                 f"Reference image {image_id} is not available for this character.",
@@ -724,9 +761,35 @@ def resolve_manual_references(
             raise ManualReferenceError(
                 422, f"Reference image {image_id} is a temporary preview and can't be used."
             )
-        resolved.append(ResolvedReference(row, parsed_roles[position], position))
+        resolved.append(ResolvedReference(row, role, position))
 
     return resolved
+
+
+def _row_in_scope(
+    row: CharacterImage,
+    *,
+    character_id: int,
+    role: ReferenceRole,
+    owner_user_id: Optional[int],
+) -> bool:
+    """Is this row an acceptable source for a reference in ``role``?
+
+    The same-character rule for everything, with the single Character 2
+    widening spelled out where it can be read in one place. ``owner_user_id``
+    is already ``None`` unless the caller's mode permits the widening, so this
+    function never has to know about modes.
+    """
+    same_character = row.character_id is not None and int(row.character_id) == int(character_id)
+    if same_character:
+        return True
+    if role is not ReferenceRole.CHARACTER_2 or owner_user_id is None:
+        return False
+    # Another character's image: it must still be A character's image (an
+    # asset that has lost its character is not "another character owned by
+    # this account") and that account must be the requester, per the asset's
+    # own owner column.
+    return row.character_id is not None and int(row.user_id) == int(owner_user_id)
 
 
 def merge_reference_sets(

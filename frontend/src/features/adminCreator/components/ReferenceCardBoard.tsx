@@ -15,7 +15,10 @@
 //
 // The selected character is an ownership and storage destination: it scopes
 // which library images can be picked and owns the generated row. It does not
-// contribute to the image, and nothing here writes to canon.
+// contribute to the image, and nothing here writes to canon. The one widening
+// (Phase 0B): a card in the Character 2 bucket may be picked from ANOTHER
+// character this account owns — the modal offers that when the card carries
+// the role, and the card then names where its image came from.
 //
 // The /images Image Generator is unaffected: it sends no mode and keeps the
 // canon-driven policy it has always had.
@@ -27,8 +30,8 @@
 // All slot rules live in referenceSlots.ts so they can be pinned by tests; this
 // component renders their output and owns no selection logic of its own.
 import { useState } from 'react';
-import { ImagePlus, Layers, Repeat2, X } from 'lucide-react';
-import type { LibraryImage } from '@/lib/types';
+import { AlertTriangle, ImagePlus, Layers, Repeat2, X } from 'lucide-react';
+import type { Character, LibraryImage } from '@/lib/types';
 import { MAX_REFERENCES } from '@/features/images/referenceKinds';
 import {
   ROLE_GROUPS,
@@ -40,8 +43,10 @@ import {
 import IsolationPreview from '@/features/adminCreator/components/IsolationPreview';
 import {
   clearSlot,
+  crossCharacterMisrole,
   fillSlot,
   filledCount,
+  isCrossCharacter,
   normalizeSlots,
   removeImage,
   setSlotRole,
@@ -54,6 +59,8 @@ import ReferenceUploadControl from '@/features/adminCreator/components/Reference
 
 interface Props {
   characterId: number | null;
+  /** Every character this account owns — offered as Character 2 sources. */
+  characters?: readonly Character[];
   slots: ReferenceSlots;
   onChange: (next: ReferenceSlots) => void;
   disabled?: boolean;
@@ -65,6 +72,7 @@ interface Props {
 
 export default function ReferenceCardBoard({
   characterId,
+  characters = [],
   slots,
   onChange,
   disabled = false,
@@ -77,6 +85,9 @@ export default function ReferenceCardBoard({
   const board = normalizeSlots(slots);
   const filled = filledCount(board);
   const used = usedImageIds(board);
+
+  const characterName = (id: number | null) =>
+    characters.find((c) => c.id === id)?.name ?? 'another character';
 
   function handleLibrarySelect(image: LibraryImage) {
     if (pickingFor == null) return;
@@ -165,6 +176,25 @@ export default function ReferenceCardBoard({
                       and the wrong guess is what put a rolled sleeve on a suit. */}
                   <p className="text-[10px] leading-snug text-ink-3">{ROLE_HINTS[slot.role]}</p>
 
+                  {/* Where a cross-character image came from — always named,
+                      so a board with two people on it reads as two people. */}
+                  {isCrossCharacter(slot, characterId) && (
+                    <p
+                      className={`flex items-start gap-1 text-[10px] leading-snug ${
+                        crossCharacterMisrole(slot, characterId) ? 'text-amber-400' : 'text-ink-3'
+                      }`}
+                    >
+                      {crossCharacterMisrole(slot, characterId) && (
+                        <AlertTriangle className="w-3 h-3 shrink-0 mt-px" />
+                      )}
+                      <span>
+                        From {characterName(slot.image.character_id)}.
+                        {crossCharacterMisrole(slot, characterId) &&
+                          ' Only a Character 2 card may use another character’s image.'}
+                      </span>
+                    </p>
+                  )}
+
                   {/* Feature references are transformed before they reach the
                       provider. This is the only way to see that happen. */}
                   {isFeatureRole(slot.role) && characterId != null && (
@@ -231,7 +261,9 @@ export default function ReferenceCardBoard({
       <ReferenceLibraryModal
         open={pickingFor != null}
         characterId={characterId}
+        characters={characters}
         slotIndex={pickingFor}
+        slotRole={pickingFor != null ? (board[pickingFor]?.role ?? null) : null}
         usedImageIds={used}
         onSelect={handleLibrarySelect}
         onClose={() => setPickingFor(null)}

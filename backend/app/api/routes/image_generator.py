@@ -277,6 +277,11 @@ def _guard_manual_references(
             character_id=character_id,
             image_ids=body.reference_image_ids,
             roles=[r for r in body.reference_roles],
+            # Character 2 may come from another character THIS account owns,
+            # under deliberate mode only. The mode was founder-gated above and
+            # the account is the authenticated caller — never client input.
+            reference_mode=getattr(body, "reference_mode", REFERENCE_MODE_AUGMENT),
+            owner_user_id=user.id,
         )
     except ManualReferenceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

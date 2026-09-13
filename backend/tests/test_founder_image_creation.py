@@ -369,8 +369,11 @@ class TestUploadStoredSemantics:
 
 class TestManualReferenceValidation:
     def test_cross_character_reference_is_rejected(self, client, db_session, founder):
-        """Even a character the SAME founder owns is refused: generation is
-        character-scoped, exactly as post image attachment is."""
+        """The default rule: a reference is scoped to the selected character,
+        exactly as post image attachment is — even for a character the SAME
+        founder owns. The one exception is the Character 2 bucket under
+        deliberate mode, pinned in :class:`TestCharacter2CrossCharacter`; this
+        request names no role and no mode, so it gets the strict rule."""
         token, cid = founder
         other_cid = _create_character(client, token, "Second Character")
         foreign = _upload(client, token, other_cid).json()
@@ -495,6 +498,241 @@ class TestManualReferenceValidation:
                 "reference_roles": [role],
             })
         assert resp.status_code == 200, resp.text
+
+
+
+# ── 3b. Character 2 may reference another character the SAME account owns ───
+#
+# Admin Creator policy (Phase 0B): a Character 2 card is a different person from
+# the character the result is saved to, so under ``deliberate`` mode it may come
+# from another character owned by the requesting account. Authority is the
+# asset's ``user_id`` against the authenticated caller. Every other role, every
+# other mode, every other account, and every kind/status rule are unchanged —
+# and each of those negatives is pinned here beside the one positive.
+
+
+class TestCharacter2CrossCharacter:
+    def _other_owned_upload(self, client, token) -> tuple[int, int]:
+        """An upload on a SECOND character the same founder owns.
+
+        Distinct bytes from the default stub: the pipeline dedups references by
+        content (first occurrence wins), so two identical PNGs would reach the
+        provider as one anchor and hide whether the second card was accepted.
+        """
+        from app.services.stub_image_generator import render_placeholder_png
+
+        other_cid = _create_character(client, token, "Second Character")
+        data = render_placeholder_png(label="second", sublabel="character")
+        image_id = _upload(client, token, other_cid, data=data).json()["id"]
+        return other_cid, image_id
+
+    def _other_users_upload(self, client) -> int:
+        """An upload on a character owned by a DIFFERENT founder account."""
+        stranger = _register(client, "stranger@example.com", "strangeracct")
+        _make_seeder("stranger@example.com")
+        stranger_cid = _create_character(client, stranger, "Stranger's Character")
+        return _upload(client, stranger, stranger_cid).json()["id"]
+
+    def test_character_2_may_reference_another_character_the_same_account_owns(
+        self, client, db_session, founder
+    ):
+        """The one widening. Both cards reach the provider, grouped as two
+        people, and the result is still saved to the SELECTED character."""
+        token, cid = founder
+        own_id = _upload(client, token, cid).json()["id"]
+        other_cid, other_id = self._other_owned_upload(client, token)
+
+        provider = _mock_provider()
+        with patch(f"{PIPELINE}.get_provider_for_option", return_value=provider):
+            resp = _generate(client, token, cid, {
+                "prompt": "two people at a bar",
+                "reference_image_ids": [own_id, other_id],
+                "reference_roles": ["character_1", "character_2"],
+                "reference_mode": "deliberate",
+            })
+        assert resp.status_code == 200, resp.text
+        provider.generate_with_anchors.assert_called_once()
+        assert len(provider.generate_with_anchors.call_args.kwargs["anchor_images"]) == 2
+
+        body = resp.json()
+        assert body["character_id"] == cid, "saved to the selected character, not Character 2's"
+        meta = body["metadata_json"]
+        assert meta["manual_refs_sent"] == 2
+        groups = {r["image_id"]: r.get("identity_group") for r in meta["manual_refs"]}
+        assert groups == {own_id: "person_a", other_id: "person_b"}
+
+    def test_character_2_still_refuses_another_users_image(self, client, db_session, founder):
+        """Ownership is the asset's ``user_id`` against the caller — another
+        account's character is as invisible as it was, with the same message."""
+        token, cid = founder
+        stranger_id = self._other_users_upload(client)
+
+        resp = _generate(client, token, cid, {
+            "prompt": "a scene",
+            "reference_image_ids": [stranger_id],
+            "reference_roles": ["character_2"],
+            "reference_mode": "deliberate",
+        })
+        assert resp.status_code == 422, resp.text
+        assert "not available for this character" in resp.json()["detail"]
+
+    def test_character_1_still_refuses_a_cross_character_image(self, client, db_session, founder):
+        """Character 1 IS the selected character; its evidence stays scoped."""
+        token, cid = founder
+        _other_cid, other_id = self._other_owned_upload(client, token)
+
+        resp = _generate(client, token, cid, {
+            "prompt": "a scene",
+            "reference_image_ids": [other_id],
+            "reference_roles": ["character_1"],
+            "reference_mode": "deliberate",
+        })
+        assert resp.status_code == 422, resp.text
+        assert "not available for this character" in resp.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "role",
+        ["character_appearance", "clothing", "environment", "eyes", "hair", "other", "unspecified"],
+    )
+    def test_other_roles_keep_the_same_character_rule(self, client, db_session, founder, role):
+        token, cid = founder
+        _other_cid, other_id = self._other_owned_upload(client, token)
+
+        resp = _generate(client, token, cid, {
+            "prompt": "a scene",
+            "reference_image_ids": [other_id],
+            "reference_roles": [role],
+            "reference_mode": "deliberate",
+        })
+        assert resp.status_code == 422, resp.text
+        assert "not available for this character" in resp.json()["detail"]
+
+    def test_character_2_widening_is_deliberate_mode_only(self, client, db_session, founder):
+        """Under ``augment`` (the /images Image Generator) the identity buckets
+        carry no meaning, so the strict rule applies to Character 2 too."""
+        token, cid = founder
+        _other_cid, other_id = self._other_owned_upload(client, token)
+
+        resp = _generate(client, token, cid, {
+            "prompt": "a scene",
+            "reference_image_ids": [other_id],
+            "reference_roles": ["character_2"],
+            # no reference_mode → augment
+        })
+        assert resp.status_code == 422, resp.text
+        assert "not available for this character" in resp.json()["detail"]
+
+    def test_character_2_cross_character_still_refuses_canon_kinds(
+        self, client, db_session, founder
+    ):
+        """The kind allowlist is unchanged: the other character's ``identity_*``
+        rows and canon cards are no more pickable than the selected one's."""
+        from app.models.character_image import (
+            CharacterImage,
+            ImageKindEnum,
+            ImageStatusEnum,
+            ImageVisibilityEnum,
+        )
+
+        token, cid = founder
+        other_cid = _create_character(client, token, "Second Character")
+        row = CharacterImage(
+            character_id=other_cid,
+            user_id=character_owner_id(db_session, other_cid),
+            kind=ImageKindEnum.IDENTITY_FACE_REF,
+            status=ImageStatusEnum.ACTIVE,
+            visibility=ImageVisibilityEnum.PRIVATE,
+            file_path="static/generated/other-face.png",
+        )
+        db_session.add(row)
+        db_session.commit()
+        db_session.refresh(row)
+
+        resp = _generate(client, token, cid, {
+            "prompt": "a scene",
+            "reference_image_ids": [row.id],
+            "reference_roles": ["character_2"],
+            "reference_mode": "deliberate",
+        })
+        assert resp.status_code == 422, resp.text
+        assert "canon" in resp.json()["detail"].lower()
+
+    def test_character_2_cross_character_still_refuses_archived_images(
+        self, client, db_session, founder
+    ):
+        token, cid = founder
+        other_cid, other_id = self._other_owned_upload(client, token)
+        client.delete(f"/characters/{other_cid}/images/{other_id}", headers=auth_headers(token))
+
+        resp = _generate(client, token, cid, {
+            "prompt": "a scene",
+            "reference_image_ids": [other_id],
+            "reference_roles": ["character_2"],
+            "reference_mode": "deliberate",
+        })
+        assert resp.status_code == 422, resp.text
+        assert "deleted" in resp.json()["detail"].lower()
+
+    def test_job_submission_accepts_the_same_board(self, client, db_session, founder):
+        """The founder job route validates through the same guard, so the board
+        the sync route accepted is accepted at job submission too."""
+        token, cid = founder
+        own_id = _upload(client, token, cid).json()["id"]
+        _other_cid, other_id = self._other_owned_upload(client, token)
+
+        with patch(
+            "app.services.image_generation_job_service.start_image_generation_job",
+        ) as start:
+            start.return_value = (MagicMock(
+                public_id="job-c2-1", character_id=cid, status="queued", stage=None,
+                progress_message=None, attempt_count=0, created_at=None,
+                started_at=None, finished_at=None, error_code=None,
+                error_message=None, result_json=None, image_id=None,
+            ), False)
+            resp = client.post(
+                f"/characters/{cid}/image-generator/jobs",
+                json={
+                    "prompt": "two people at a bar",
+                    "reference_image_ids": [own_id, other_id],
+                    "reference_roles": ["character_1", "character_2"],
+                    "reference_mode": "deliberate",
+                    "idempotency_key": "c2-cross-character-key",
+                },
+                headers=auth_headers(token),
+            )
+        assert resp.status_code == 202, resp.text
+        start.assert_called_once()
+
+    def test_resolver_requires_the_owner_to_be_named(self, client, db_session, founder):
+        """Execution-time contract: the resolver widens only when handed the
+        requesting account. The pipeline passes ``user.id``; a caller that
+        passes nothing gets the strict rule for every role. Pinned directly so
+        the two call sites cannot silently diverge."""
+        from app.services.manual_references import (
+            ManualReferenceError,
+            resolve_manual_references,
+        )
+
+        token, cid = founder
+        _other_cid, other_id = self._other_owned_upload(client, token)
+        owner_id = character_owner_id(db_session, cid)
+
+        resolved = resolve_manual_references(
+            db_session, character_id=cid, image_ids=[other_id], roles=["character_2"],
+            reference_mode="deliberate", owner_user_id=owner_id,
+        )
+        assert [r.image_id for r in resolved] == [other_id]
+
+        with pytest.raises(ManualReferenceError):
+            resolve_manual_references(
+                db_session, character_id=cid, image_ids=[other_id], roles=["character_2"],
+                reference_mode="deliberate",  # no owner named
+            )
+        with pytest.raises(ManualReferenceError):
+            resolve_manual_references(
+                db_session, character_id=cid, image_ids=[other_id], roles=["character_2"],
+                reference_mode="deliberate", owner_user_id=owner_id + 1,  # somebody else
+            )
 
 
 # ── 4. Merge policy, refs_source, and what the provider receives ─────────────

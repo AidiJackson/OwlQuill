@@ -169,6 +169,39 @@ export function slotSource(slot: AdminCreatorReference): ReferenceSource {
 }
 
 /**
+ * Does this card hold an image from a character OTHER than the selected one?
+ *
+ * Phase 0B: a Character 2 card may be picked from another character the same
+ * account owns. This is the one board rule that knows about it, so the badge
+ * ("from <name>") and the mis-role warning below read the same fact.
+ *
+ * An image with no character (its character was deleted) is not "another
+ * character's" — it is nobody's, and the server refuses it for every role.
+ */
+export function isCrossCharacter(slot: AdminCreatorReference, characterId: number | null): boolean {
+  return (
+    characterId != null &&
+    slot.image.character_id != null &&
+    slot.image.character_id !== characterId
+  );
+}
+
+/**
+ * A cross-character image on a card whose role the server will refuse.
+ *
+ * Mirror of `manual_references._row_in_scope`: only CHARACTER_2 may reach into
+ * another owned character's library. A founder who picks one and then changes
+ * the role to Clothing has built a card the submission will 422 on — this
+ * names it before they press Generate.
+ */
+export function crossCharacterMisrole(
+  slot: AdminCreatorReference,
+  characterId: number | null,
+): boolean {
+  return isCrossCharacter(slot, characterId) && slot.role !== 'character_2';
+}
+
+/**
  * The merge policy Admin Creator asks the server for.
  *
  * "deliberate" means the cards ARE the reference set: they are sent first, in

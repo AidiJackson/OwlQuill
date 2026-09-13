@@ -626,11 +626,16 @@ def run_image_generation(
     # ── Manual references: re-validated against the DB, never trusted ──
     # Resolved here as well as at submission so the driver's fresh session
     # revalidates: an image deleted between submit and run must not be sent.
+    # Same resolver, same arguments as submission: the stored mode and the
+    # requesting account (the job's ``user_id``), so a Character 2 card from
+    # another owned character passes here iff it passed at submission.
     manual_refs: list[ResolvedReference] = resolve_manual_references(
         db,
         character_id=character_id,
         image_ids=params.reference_image_ids,
         roles=params.reference_roles,
+        reference_mode=params.reference_mode,
+        owner_user_id=int(user.id),
     )
 
     # ── Reference mode: what grounds this generation ──────────────────
