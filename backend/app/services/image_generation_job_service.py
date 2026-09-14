@@ -405,11 +405,16 @@ def run_image_generation_job(
             image, summary = pipeline(job, db, _on_progress)
         except HTTPException as exc:
             db.rollback()
+            # A pipeline GenerationFailure carries internal diagnostics (the
+            # classified kind, provider/model, and a safe truncated copy of the
+            # provider's own error). Persisting them is what lets a dead
+            # account be told apart from a refused prompt on the job row. A
+            # plain HTTPException carries none, and the row looks as before.
             _fail(
                 db, job_id,
                 error_code=f"http_{exc.status_code}",
                 error_message=str(exc.detail)[:400],
-                diag={"http_status": exc.status_code},
+                diag={"http_status": exc.status_code, **getattr(exc, "diag", {})},
             )
             logger.info(
                 "image_generation_job classified failure job_id=%s status=%s",

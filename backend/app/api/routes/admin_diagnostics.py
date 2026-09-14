@@ -13,6 +13,9 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.services.image_providers.google_provider import google_effective_config
+from app.services.image_provider import (
+    admin_creator_openai_config as _admin_creator_openai_config,
+)
 from app.services.model_profiles import (
     supports_input_fidelity as _supports_input_fidelity,
 )
@@ -131,6 +134,11 @@ def admin_diagnostics(
         "google_model": settings.GOOGLE_IMAGE_MODEL,
         # Model-profile facts consumed by the pipeline (model_profiles.py).
         "openai_input_fidelity_supported": _supports_input_fidelity(settings.IMAGE_MODEL),
+        # Admin Creator's OWN OpenAI configuration (deliberate mode + option1).
+        # Reported as the EFFECTIVE values after validation: a quality the
+        # configured model rejects is shown as None with *_supported=False,
+        # which is the one place a bad env value becomes visible.
+        "admin_creator_openai": _admin_creator_openai_config(),
     }
 
     # ── Google (Gemini) — dev-vs-production comparison surface ──

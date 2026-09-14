@@ -16,6 +16,11 @@ exactly the model-level facts Ficshon consumes — nothing speculative:
     limit (Google generateContent). This is an API fact, distinct from the
     app's own routing budget (scene_router.MAX_PROVIDER_REFS = 6), which
     stays the operative cap and must never exceed the hard limit.
+  * ``quality_values`` — the ``quality`` strings the model's Images API call
+    accepts. gpt-image-1/1.5 take low/medium/high/auto; gpt-image-2 and the
+    2.5 variants add xhigh and max (per the official image-generation guide).
+    Empty = the model takes no quality parameter / nothing is known, and the
+    caller must not send one.
 
 Matching is by (provider, longest model-id prefix) so versioned ids like
 "gpt-image-2-2026-04-21" resolve without new entries. Unknown models get a
@@ -32,14 +37,23 @@ class ModelProfile:
     """Model-level facts Ficshon's pipeline actually consumes."""
     supports_input_fidelity: bool = False
     max_reference_images: int | None = None
+    quality_values: frozenset[str] = frozenset()
+
+
+_GPT_IMAGE_1_QUALITIES = frozenset({"low", "medium", "high", "auto"})
+_GPT_IMAGE_2_QUALITIES = frozenset({"low", "medium", "high", "xhigh", "max", "auto"})
 
 
 # (provider, model-id prefix) → profile. Longest prefix wins.
 _PROFILES: dict[tuple[str, str], ModelProfile] = {
     # OpenAI Images API — images.edit hard limit is 16 input images.
-    ("openai", "gpt-image-1"):   ModelProfile(supports_input_fidelity=True,  max_reference_images=16),
-    ("openai", "gpt-image-1.5"): ModelProfile(supports_input_fidelity=True,  max_reference_images=16),
-    ("openai", "gpt-image-2"):   ModelProfile(supports_input_fidelity=False, max_reference_images=16),
+    ("openai", "gpt-image-1"):   ModelProfile(supports_input_fidelity=True,  max_reference_images=16, quality_values=_GPT_IMAGE_1_QUALITIES),
+    ("openai", "gpt-image-1.5"): ModelProfile(supports_input_fidelity=True,  max_reference_images=16, quality_values=_GPT_IMAGE_1_QUALITIES),
+    ("openai", "gpt-image-2"):   ModelProfile(supports_input_fidelity=False, max_reference_images=16, quality_values=_GPT_IMAGE_2_QUALITIES),
+    # The 2.5 variants share gpt-image-2's contract and pricing; listed
+    # explicitly so a "gpt-image-2.5-*" id is a deliberate match, not a
+    # prefix accident.
+    ("openai", "gpt-image-2.5"): ModelProfile(supports_input_fidelity=False, max_reference_images=16, quality_values=_GPT_IMAGE_2_QUALITIES),
     # Google generateContent — no documented per-request reference cap; the
     # app budget (MAX_PROVIDER_REFS) is the operative limit.
     ("google", "gemini-3.1-flash-image"):      ModelProfile(),
@@ -71,3 +85,15 @@ def model_profile(provider: str, model: str) -> ModelProfile:
 def supports_input_fidelity(model: str) -> bool:
     """True when OpenAI's images.edit accepts input_fidelity for this model."""
     return model_profile("openai", model).supports_input_fidelity
+
+
+def supports_quality(model: str, quality: str | None) -> bool:
+    """True when OpenAI's Images API accepts ``quality`` for this model.
+
+    ``None`` (send no parameter) is always acceptable. Unknown models have an
+    empty ``quality_values`` and therefore accept nothing — the conservative
+    default: a quality the model might reject is never sent.
+    """
+    if quality is None:
+        return True
+    return quality in model_profile("openai", model).quality_values

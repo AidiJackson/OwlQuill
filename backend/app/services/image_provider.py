@@ -2,11 +2,15 @@
 
 Provides a pluggable interface for image generation backends.
 OpenAI model selection lives in settings.IMAGE_MODEL (model-level behaviour
-differences are described by services/model_profiles.py).
+differences are described by services/model_profiles.py). Admin Creator's
+OpenAI option is the one exception: it has its own model/quality/format
+(settings.ADMIN_CREATOR_OPENAI_*) behind the registry entry
+"openai_admin_creator" — see get_admin_creator_provider.
 """
 from __future__ import annotations
 
 import base64
+import logging
 import tempfile
 import urllib.request
 from contextlib import contextmanager
@@ -16,7 +20,10 @@ from typing import IO, Iterator
 from openai import OpenAI, OpenAIError
 
 from app.core.config import settings
+from app.core.storage import detect_image_format
 from app.services.provider_capabilities import Capability
+
+logger = logging.getLogger(__name__)
 
 _MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 _DOWNLOAD_TIMEOUT_S = 10
@@ -170,17 +177,23 @@ class ImageProvider:
 
 
 @contextmanager
-def _open_png_tempfiles(images: list[bytes]) -> Iterator[list[IO[bytes]]]:
-    """Write image bytes to temp .png files and yield open read handles.
+def _open_image_tempfiles(images: list[bytes]) -> Iterator[list[IO[bytes]]]:
+    """Write image bytes to temp files and yield open read handles.
 
     Handles are closed and temp files removed on exit — the write/open/cleanup
     dance previously duplicated in every OpenAI images.edit call path.
+
+    The suffix is the DETECTED format of the bytes (png/jpg/webp), not a fixed
+    ``.png``: the SDK derives the multipart content type from the filename, so
+    a JPEG upload used to reach OpenAI labelled ``image/png``. The bytes sent
+    are unchanged; only the label is now truthful.
     """
     tmp_paths: list[Path] = []
     handles: list[IO[bytes]] = []
     try:
         for img_bytes in images:
-            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            ext, _ = detect_image_format(img_bytes)
+            tmp = tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False)
             tmp_paths.append(Path(tmp.name))
             tmp.write(img_bytes)
             tmp.flush()
@@ -207,6 +220,54 @@ def is_moderation_block(exc: BaseException | str) -> bool:
     """
     msg = str(exc).lower()
     return any(kw in msg for kw in ("moderation_blocked", "safety system", "safety_violation"))
+
+
+#: Substrings (lower-cased) of OpenAI's account-level failures. Checked in
+#: this order — a quota error also arrives as HTTP 429, so quota must win over
+#: the generic rate-limit match. Kept OpenAI-specific on purpose: Google's
+#: failure vocabulary is classified by google_provider.parse_prompt_block and
+#: is deliberately not widened here.
+_QUOTA_MARKERS = (
+    "insufficient_quota",
+    "credit_balance_exhausted",
+    "no credits remaining",
+    "exceeded your current quota",
+    "billing_hard_limit_reached",
+)
+_AUTH_MARKERS = (
+    "invalid_api_key",
+    "incorrect api key",
+    "error code: 401",
+    "authenticationerror",
+)
+_RATE_LIMIT_MARKERS = (
+    "rate_limit_exceeded",
+    "rate limit reached",
+    "error code: 429",
+    "ratelimiterror",
+)
+
+
+def classify_account_failure(exc: BaseException | str) -> str | None:
+    """Classify an OpenAI failure that is about the ACCOUNT, not the content.
+
+    Returns ``"quota"`` (no credits / hard limit), ``"auth"`` (key rejected),
+    ``"rate_limit"`` (transient 429) or ``None`` when the failure is none of
+    those — which includes every moderation refusal, so ``is_moderation_block``
+    stays the single authority on content verdicts.
+
+    Motivation: an exhausted credit balance fails in seconds with a 429 whose
+    text matches no moderation keyword, and the pipeline rendered it as the
+    generic "try again" for three weeks. Naming the cause is the fix.
+    """
+    msg = str(exc).lower()
+    if any(m in msg for m in _QUOTA_MARKERS):
+        return "quota"
+    if any(m in msg for m in _AUTH_MARKERS):
+        return "auth"
+    if any(m in msg for m in _RATE_LIMIT_MARKERS):
+        return "rate_limit"
+    return None
 
 
 def _download_image(url: str) -> Path:
@@ -242,7 +303,16 @@ def _download_image(url: str) -> Path:
 
 
 class _OpenAIImageProvider(ImageProvider):
-    """OpenAI Images API provider."""
+    """OpenAI Images API provider.
+
+    Constructed with no arguments (the registry entry ``"openai"``) it behaves
+    exactly as it always has: the model is ``settings.IMAGE_MODEL`` read at
+    call time and no optional parameter is sent. The keyword arguments exist
+    for the Admin Creator entry (``"openai_admin_creator"``), which pins its
+    own model, quality and output format — see ``get_admin_creator_provider``.
+    Every kwarg defaults to "not set", and an unset kwarg adds NOTHING to the
+    request, so the two entries differ only by what was explicitly configured.
+    """
 
     capabilities = frozenset({
         Capability.TEXT_TO_IMAGE,
@@ -250,13 +320,52 @@ class _OpenAIImageProvider(ImageProvider):
         Capability.MULTI_IMAGE_ANCHORS,
     })
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        quality: str | None = None,
+        output_format: str | None = None,
+        max_retries: int | None = None,
+    ) -> None:
         if not settings.OPENAI_API_KEY:
             raise RuntimeError(
                 "OPENAI_API_KEY is not configured. "
                 "Set it in your environment or .env file to use the OpenAI image provider."
             )
-        self._client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        client_kwargs: dict = {"api_key": settings.OPENAI_API_KEY}
+        if max_retries is not None:
+            client_kwargs["max_retries"] = max_retries
+        self._client = OpenAI(**client_kwargs)
+        self._model = model
+        self._quality = quality
+        self._output_format = output_format
+
+    @property
+    def model_name(self) -> str:
+        """The model id this instance sends (pinned, else IMAGE_MODEL live)."""
+        return self._model or settings.IMAGE_MODEL
+
+    @property
+    def quality(self) -> str | None:
+        return self._quality
+
+    @property
+    def output_format(self) -> str | None:
+        return self._output_format
+
+    def _request_kwargs(self) -> dict:
+        """Keyword arguments shared by every images.* call this instance makes.
+
+        Only explicitly configured parameters appear, so the legacy entry's
+        request is byte-for-byte what it was (model + prompt + n + size).
+        """
+        kwargs: dict = {"model": self.model_name}
+        if self._quality is not None:
+            kwargs["quality"] = self._quality
+        if self._output_format is not None:
+            kwargs["output_format"] = self._output_format
+        return kwargs
 
     def _generate(
         self,
@@ -289,7 +398,7 @@ class _OpenAIImageProvider(ImageProvider):
 
     def _text_to_image(self, *, prompt: str, size: str) -> bytes:
         response = self._client.images.generate(
-            model=settings.IMAGE_MODEL,
+            **self._request_kwargs(),
             prompt=prompt,
             n=1,
             size=size,
@@ -301,7 +410,7 @@ class _OpenAIImageProvider(ImageProvider):
         try:
             with open(tmp_path, "rb") as fh:
                 response = self._client.images.edit(
-                    model=settings.IMAGE_MODEL,
+                    **self._request_kwargs(),
                     image=fh,
                     prompt=prompt,
                     n=1,
@@ -313,9 +422,9 @@ class _OpenAIImageProvider(ImageProvider):
 
     def _edit_from_bytes(self, *, prompt: str, size: str, image_bytes: bytes) -> bytes:
         """Run images.edit with seed bytes written to a temp file."""
-        with _open_png_tempfiles([image_bytes]) as handles:
+        with _open_image_tempfiles([image_bytes]) as handles:
             response = self._client.images.edit(
-                model=settings.IMAGE_MODEL,
+                **self._request_kwargs(),
                 image=handles[0],
                 prompt=prompt,
                 n=1,
@@ -331,11 +440,11 @@ class _OpenAIImageProvider(ImageProvider):
         size: str,
     ) -> bytes:
         """Call images.edit with multiple anchor images as reference inputs (B19)."""
-        with _open_png_tempfiles(anchor_images) as handles:
+        with _open_image_tempfiles(anchor_images) as handles:
             image_arg = handles if len(handles) > 1 else handles[0]
             try:
                 response = self._client.images.edit(
-                    model=settings.IMAGE_MODEL,
+                    **self._request_kwargs(),
                     image=image_arg,
                     prompt=prompt,
                     n=1,
@@ -773,8 +882,81 @@ class _FalProviderAdapter(ImageProvider):
 # (plus an option key in _PROVIDER_OPTION_NAMES if it should be selectable
 # through the B17 option flow). No runtime discovery, no plugins.
 
+#: Registry name of Admin Creator's OpenAI configuration. Reachable only via
+#: get_admin_creator_provider (deliberate mode + option1); never a
+#: configurable IMAGE_PROVIDER value and never a B17 option key.
+ADMIN_CREATOR_OPENAI_PROVIDER = "openai_admin_creator"
+
+_VALID_OUTPUT_FORMATS = frozenset({"png", "jpeg", "webp"})
+
+
+def admin_creator_openai_config() -> dict:
+    """The EFFECTIVE Admin Creator OpenAI configuration, validated.
+
+    Returns ``model``, ``quality``, ``output_format`` as they will be sent, plus
+    ``quality_supported`` / ``output_format_supported`` saying whether the
+    configured values survived validation. An unsupported quality for the
+    configured model is replaced by ``None`` (the provider default, "auto")
+    rather than raising: a bad env value must degrade to a working generation
+    the founder can see in diagnostics, not to a dead provider. Pure — no
+    client is built, so admin diagnostics can call it without a key.
+    """
+    from app.services.model_profiles import supports_quality
+
+    model = (settings.ADMIN_CREATOR_OPENAI_MODEL or "").strip() or settings.IMAGE_MODEL
+    quality: str | None = (settings.ADMIN_CREATOR_OPENAI_QUALITY or "").strip().lower() or None
+    quality_supported = supports_quality(model, quality)
+    if not quality_supported:
+        logger.warning(
+            "ADMIN_CREATOR_OPENAI_QUALITY=%r is not accepted by model %s — sending no "
+            "quality (provider default)", quality, model,
+        )
+        quality = None
+    fmt: str | None = (settings.ADMIN_CREATOR_OPENAI_OUTPUT_FORMAT or "").strip().lower() or None
+    fmt_supported = fmt is None or fmt in _VALID_OUTPUT_FORMATS
+    if not fmt_supported:
+        logger.warning(
+            "ADMIN_CREATOR_OPENAI_OUTPUT_FORMAT=%r is not one of %s — sending no "
+            "output_format (provider default)", fmt, sorted(_VALID_OUTPUT_FORMATS),
+        )
+        fmt = None
+    return {
+        "model": model,
+        "quality": quality,
+        "output_format": fmt,
+        "quality_supported": quality_supported,
+        "output_format_supported": fmt_supported,
+    }
+
+
+def _make_admin_creator_openai_provider() -> ImageProvider:
+    cfg = admin_creator_openai_config()
+    return _OpenAIImageProvider(
+        model=cfg["model"],
+        quality=cfg["quality"],
+        output_format=cfg["output_format"],
+        # An account-level failure (no credits, bad key) is not transient; the
+        # SDK's default two retries only delay the founder's answer.
+        max_retries=1,
+    )
+
+
+def get_admin_creator_provider() -> ImageProvider:
+    """The OpenAI provider Admin Creator uses under deliberate mode + option1.
+
+    Separate from ``create_provider("openai")`` so Admin Creator's model,
+    quality and format never leak into the identity pack, scene images,
+    accessories or the public /images generator — and vice versa.
+
+    Raises:
+        RuntimeError: If OPENAI_API_KEY is missing.
+    """
+    return create_provider(ADMIN_CREATOR_OPENAI_PROVIDER)
+
+
 _PROVIDER_FACTORIES: dict[str, "Callable[[], ImageProvider]"] = {
     "openai": _OpenAIImageProvider,
+    ADMIN_CREATOR_OPENAI_PROVIDER: _make_admin_creator_openai_provider,
     "google": _GoogleImageProviderAdapter,
     "openrouter": _OpenRouterImageProviderAdapter,
     "flux_pro": lambda: _FluxOpenRouterAdapter(

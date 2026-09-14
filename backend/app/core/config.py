@@ -99,6 +99,26 @@ class Settings(BaseSettings):
     # diagnostics endpoint reports the effective value the process is using.
     IMAGE_MODEL: str = "gpt-image-2"
     OPENAI_API_KEY: Optional[str] = None
+
+    # ── Admin Creator (founder-only) OpenAI configuration ────────────────
+    # Admin Creator's OpenAI option (option1 under reference_mode="deliberate")
+    # is the production tool for the Creator visual-reference assets, so it
+    # gets its OWN model/quality/format instead of inheriting IMAGE_MODEL. The
+    # registry entry "openai" (identity pack, scene images, accessories, the
+    # public /images generator) keeps reading IMAGE_MODEL and is untouched by
+    # these. See image_provider.get_admin_creator_provider.
+    #   ADMIN_CREATOR_OPENAI_MODEL: any Images-API model id (gpt-image-2 is
+    #     OpenAI's current recommended model; the 2.5 variants are drop-in).
+    #   ADMIN_CREATOR_OPENAI_QUALITY: low | medium | high | xhigh | max | auto.
+    #     Validated against model_profiles — an unsupported value for the
+    #     configured model falls back to the provider default ("auto") with a
+    #     warning and is reported by admin diagnostics. Medium is the default:
+    #     the assets are explanatory examples, not identity material.
+    #   ADMIN_CREATOR_OPENAI_OUTPUT_FORMAT: png | jpeg | webp. Storage sniffs
+    #     the bytes, so any of the three persists correctly.
+    ADMIN_CREATOR_OPENAI_MODEL: str = "gpt-image-2"
+    ADMIN_CREATOR_OPENAI_QUALITY: str = "medium"
+    ADMIN_CREATOR_OPENAI_OUTPUT_FORMAT: str = "png"
     BACKEND_PUBLIC_URL: str = "http://localhost:8000"
 
     # Fallback image provider (used when primary blocks/fails in tier C)

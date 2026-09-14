@@ -6,9 +6,15 @@
 - STORYLAB_PROVIDER=openrouter
 - OPENROUTER_API_KEY
 - STORYLAB_MODEL (or tiered STORYLAB_MODEL_SFW/FADE/SENSUAL)
-- IMAGE_PROVIDER=openai
-- OPENAI_API_KEY
-- IMAGE_MODEL=gpt-image-1.5
+- IMAGE_PROVIDER=google (Canon default; GOOGLE_AI_API_KEY required)
+- OPENAI_API_KEY (founder OpenAI option, identity-pack fallback, vision checks)
+- IMAGE_MODEL — leave UNSET to take the code default (`gpt-image-2`). Setting
+  it pins the model for every "openai" caller (identity pack, scene images,
+  accessories, public /images). Older `gpt-image-1.5` pins should be removed.
+- ADMIN_CREATOR_OPENAI_MODEL / ADMIN_CREATOR_OPENAI_QUALITY /
+  ADMIN_CREATOR_OPENAI_OUTPUT_FORMAT — optional; Admin Creator's OWN OpenAI
+  configuration (defaults `gpt-image-2` / `medium` / `png`). Independent of
+  IMAGE_MODEL. Effective values: `images.admin_creator_openai` in diagnostics.
 - ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_USERNAME
 - SMTP_* (optional for beta; required if you expect password reset email delivery)
 
@@ -17,8 +23,14 @@ GET /api/admin/diagnostics
 Confirm:
 - storylab.provider=openrouter
 - storylab.openrouter_key_present=true
-- images.provider=openai
+- images.provider=google
 - images.openai_key_present=true
+- images.model = gpt-image-2 (the model every "openai" caller sends)
+- images.admin_creator_openai.model = gpt-image-2, .quality = medium,
+  .quality_supported = true (Admin Creator's own OpenAI configuration)
+- OpenAI credit balance > 0 on the platform billing page — an exhausted
+  balance fails every OpenAI call in seconds; Admin Creator now reports it as
+  "OpenAI has no remaining credits" rather than "try again".
 - storylab.daily_limit matches desired beta cap
 - images.weekly_limit matches desired beta cap
 

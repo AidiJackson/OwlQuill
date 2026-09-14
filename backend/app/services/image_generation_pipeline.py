@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -60,6 +61,9 @@ from app.services.canon_compiler import compile_canon_prompt, has_any_canon_cont
 from app.services.canon_service import load_face_canon
 from app.services.face_verifier import verify_face_match, passes as _face_passes
 from app.services.image_provider import (
+    ADMIN_CREATOR_OPENAI_PROVIDER,
+    classify_account_failure,
+    get_admin_creator_provider,
     get_provider_for_option,
     get_fallback_provider,
     is_moderation_block,
@@ -210,6 +214,59 @@ _DETAIL_IMAGE_RECITATION = (
 _DETAIL_GENERIC_FAILURE = (
     "Image generation failed for this character. Please try again."
 )
+# Account-level OpenAI failures. Not content verdicts and not transient in
+# the "try again" sense: the founder has to act on the account (or switch
+# provider), so the text says exactly that. ``{provider}`` is the display name.
+_DETAIL_PROVIDER_QUOTA = (
+    "{provider} has no remaining credits, so this generation could not run. "
+    "Add credits to the {provider} account or switch this board to "
+    "Canon · Google, then try again."
+)
+_DETAIL_PROVIDER_AUTH = (
+    "{provider} rejected Ficshon's API key, so this generation could not run. "
+    "Check the {provider} key in the deployment secrets or switch this board "
+    "to Canon · Google."
+)
+_DETAIL_PROVIDER_RATE_LIMITED = (
+    "{provider} is rate-limiting requests right now. Wait a minute and try "
+    "again, or switch this board to Canon · Google."
+)
+_PROVIDER_DISPLAY_NAMES = {"openai": "OpenAI", "google": "Google"}
+
+#: Bound on the provider error text persisted for diagnosis. Long enough for
+#: an OpenAI error body (code + message), short enough that a runaway
+#: traceback cannot bloat the job row.
+_DIAG_REASON_CHARS = 300
+
+
+class GenerationFailure(HTTPException):
+    """A classified pipeline failure that also carries INTERNAL diagnostics.
+
+    ``detail`` is the founder-facing text exactly as before. ``diag`` is for
+    the job row's ``diag_json`` (never serialised to a client): the failure
+    kind, the provider/model, and a safe, truncated copy of the provider's
+    own error text. Until this existed the raw reason was only logged, and a
+    dead OpenAI account was indistinguishable from a bad prompt on the job
+    record. Sync callers see an ordinary HTTPException.
+    """
+
+    def __init__(self, *, status_code: int, detail: str, diag: dict | None = None) -> None:
+        super().__init__(status_code=status_code, detail=detail)
+        self.diag: dict = dict(diag or {})
+
+
+def _safe_diag_reason(reason: str | None) -> str | None:
+    """Provider error text made safe to persist: secrets masked, truncated.
+
+    Provider messages carry no credential of ours, but masking anything that
+    looks like an API key costs nothing and makes the guarantee explicit. No
+    URLs of ours appear in provider errors either — the reference audit uses
+    digests for that on purpose.
+    """
+    if not reason:
+        return None
+    masked = re.sub(r"\b(sk|AIza|key)[-_][A-Za-z0-9_\-]{8,}", "<redacted>", reason)
+    return masked[:_DIAG_REASON_CHARS]
 
 # Google safety-category substrings that genuinely denote sexual content. A
 # category list that contains none of these (including the common EMPTY list
@@ -278,10 +335,19 @@ class GenerationParams:
 # ── Helpers (moved verbatim from the route) ───────────────────────────
 
 
-def _classify_ref_failure(reason: str | None) -> tuple[str, str | None, list[str]]:
+def _classify_ref_failure(
+    reason: str | None, provider_name: str | None = None
+) -> tuple[str, str | None, list[str]]:
     """Classify why every reference-bearing provider call failed.
 
     Returns ``(kind, block_reason, safety_categories)`` where kind is one of:
+
+      ``"provider_quota"`` / ``"provider_auth"`` / ``"provider_rate_limited"``
+          — ACCOUNT-level failures, OpenAI only (``provider_name == "openai"``):
+          no credits, key rejected, transient 429. Checked first because a
+          quota failure is also a 429 and matches no content vocabulary, and
+          restricted to OpenAI so Google's classification is byte-identical
+          to before.
 
       ``"sexual_refusal"``  — the provider refused on sexual/adult grounds.
           ONLY returned when there is actual sexual/safety evidence: a Google
@@ -296,6 +362,14 @@ def _classify_ref_failure(reason: str | None) -> tuple[str, str | None, list[str
           consume references at all.
     """
     reason = reason or ""
+    if provider_name == "openai":
+        account = classify_account_failure(reason)
+        if account == "quota":
+            return "provider_quota", None, []
+        if account == "auth":
+            return "provider_auth", None, []
+        if account == "rate_limit":
+            return "provider_rate_limited", None, []
     block_reason, categories = parse_prompt_block(reason)
     if block_reason:
         joined = " ".join(categories).upper()
@@ -723,8 +797,17 @@ def run_image_generation(
         compiled_prompt = base_prompt
 
     # ── Resolve provider (needed before merging: it sets the budget) ──
+    # Admin Creator (deliberate) on OpenAI gets its OWN configuration — model,
+    # quality, output format — through a separate registry entry, so tuning it
+    # for the creator-reference assets never changes what the identity pack,
+    # scene images or the public /images generator send. Every other
+    # (mode, option) pair resolves exactly as before.
+    admin_creator_openai = deliberate and resolved_provider_name == "openai"
     try:
-        provider = get_provider_for_option(effective_option)
+        if admin_creator_openai:
+            provider = get_admin_creator_provider()
+        else:
+            provider = get_provider_for_option(effective_option)
     except (RuntimeError, ValueError):
         logger.warning(
             "image_generator provider_unavailable option=%s provider=%s character_id=%s",
@@ -1059,7 +1142,9 @@ def run_image_generation(
     # stay intact for genuine non-ref flows (no references selected at all, or no
     # provider configured → offline/stub path).
     if png_bytes is None and ref_bytes and provider is not None:
-        kind, block_reason, safety_categories = _classify_ref_failure(ref_failure_reason)
+        kind, block_reason, safety_categories = _classify_ref_failure(
+            ref_failure_reason, resolved_provider_name
+        )
         model_slug = _provider_model_slug(provider)
         refused = kind == "sexual_refusal"
 
@@ -1120,17 +1205,34 @@ def run_image_generation(
                     character_id, block_reason, exc_info=True,
                 )
 
+        display = _PROVIDER_DISPLAY_NAMES.get(resolved_provider_name, resolved_provider_name)
         if kind == "sexual_refusal":
             detail = _DETAIL_SEXUAL_REFUSAL
         elif kind == "image_recitation":
             detail = _DETAIL_IMAGE_RECITATION
         elif kind == "provider_blocked":
             detail = _DETAIL_PROVIDER_BLOCKED
+        elif kind == "provider_quota":
+            detail = _DETAIL_PROVIDER_QUOTA.format(provider=display)
+        elif kind == "provider_auth":
+            detail = _DETAIL_PROVIDER_AUTH.format(provider=display)
+        elif kind == "provider_rate_limited":
+            detail = _DETAIL_PROVIDER_RATE_LIMITED.format(provider=display)
         else:
             detail = _DETAIL_GENERIC_FAILURE
-        raise HTTPException(
+        raise GenerationFailure(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=detail,
+            diag={
+                "failure_kind": kind,
+                "provider": resolved_provider_name,
+                "provider_profile": (
+                    ADMIN_CREATOR_OPENAI_PROVIDER if admin_creator_openai else None
+                ),
+                "model": model_slug,
+                "block_reason": block_reason,
+                "provider_reason": _safe_diag_reason(ref_failure_reason),
+            },
         )
 
     if png_bytes is None and provider is not None:
@@ -1317,7 +1419,10 @@ def run_image_generation(
         "image_generator": True,
         "provider_option": effective_option,
         "provider": actual_provider_name,
-        # Model slug used for generation (populated for FLUX providers; None for others).
+        # Model slug used for generation. Populated for providers that expose
+        # ``model_name`` — FLUX/Together, and OpenAI since the Admin Creator
+        # split (the request itself is unchanged; the record just names the
+        # model it went to). None for the Google adapter.
         "model": (lambda v: v if isinstance(v, str) else None)(
             getattr(provider, "model_name", None) if provider is not None else None
         ),
@@ -1404,6 +1509,14 @@ def run_image_generation(
 
     # Beta provider-gating audit trail (empty unless a fallback occurred).
     metadata.update(provider_gate_meta)
+
+    # Admin Creator on OpenAI: which registry entry generated this and the
+    # quality/format it sent, so an asset can be traced to its settings. Keys
+    # are added ONLY on this path — every other record keeps its exact shape.
+    if admin_creator_openai:
+        metadata["provider_profile"] = ADMIN_CREATOR_OPENAI_PROVIDER
+        metadata["quality"] = getattr(provider, "quality", None)
+        metadata["output_format"] = getattr(provider, "output_format", None)
 
     logger.info(
         "IMAGE_GEN_STORAGE_START character_id=%s source=%s bytes=%d object_storage=%s",
