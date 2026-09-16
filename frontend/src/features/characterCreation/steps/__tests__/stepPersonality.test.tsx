@@ -236,6 +236,23 @@ describe('Interview — geometry fields as picture cards (Phase 3A face shape, 3
     expect(localStorage.getItem('ficshon.creator.exampleSet')).toBe('feminine');
   });
 
+  it('a resumed character shows its stored nose as the pressed card and edits it in place', () => {
+    const { onChange } = setup({ identitySpec: { gender: 'male', age_band: '26-35', nose_type: 'roman', lip_type: 'full' } as never });
+    next(); next(); next();
+    expect(screen.getByText('4 of 6 · Nose & mouth')).toBeTruthy();
+    const nose = screen.getByRole('group', { name: 'Nose' });
+    expect(within(nose).getByRole('button', { name: /Roman/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(nose).getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+    // The example set suggested by gender changes the pictures only.
+    expect(nose.querySelector('img')?.getAttribute('src')).toBe('/creator-refs/nose_type/masculine/straight.webp');
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(within(nose).getByRole('button', { name: /Broad/ }));
+    const sent = onChange.mock.calls[onChange.mock.calls.length - 1][0].identitySpec;
+    expect(sent.nose_type).toBe('broad');
+    expect(sent.lip_type).toBe('full');
+    expect(sent).not.toHaveProperty('exampleSet');
+  });
+
   it('colour chips carry a swatch and keep their exact stored values (C14)', () => {
     const { onChange } = setup({ identitySpec: { gender: 'female', age_band: '26-35' } as never });
     next(); next();
