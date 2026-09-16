@@ -253,6 +253,26 @@ describe('Interview — geometry fields as picture cards (Phase 3A face shape, 3
     expect(sent).not.toHaveProperty('exampleSet');
   });
 
+  it('a resumed character shows its stored lips as the pressed card and edits it in place', () => {
+    const { onChange } = setup({ identitySpec: { gender: 'female', age_band: '26-35', nose_type: 'narrow', lip_type: 'cupid_bow' } as never });
+    next(); next(); next();
+    const lips = screen.getByRole('group', { name: 'Lips' });
+    expect(within(lips).getByRole('button', { name: /Cupid bow/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(within(lips).getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+    expect(lips.querySelector('img')?.getAttribute('src')).toBe('/creator-refs/lip_type/feminine/thin.webp');
+    expect(onChange).not.toHaveBeenCalled();
+    // Re-press clears; the neighbouring nose field is untouched either way.
+    fireEvent.click(within(lips).getByRole('button', { name: /Cupid bow/ }));
+    let sent = onChange.mock.calls[onChange.mock.calls.length - 1][0].identitySpec;
+    expect(sent.lip_type).toBeUndefined();
+    expect(sent.nose_type).toBe('narrow');
+    fireEvent.click(within(lips).getByRole('button', { name: /Thin/ }));
+    sent = onChange.mock.calls[onChange.mock.calls.length - 1][0].identitySpec;
+    expect(sent.lip_type).toBe('thin');
+    expect(sent.nose_type).toBe('narrow');
+    expect(sent).not.toHaveProperty('exampleSet');
+  });
+
   it('colour chips carry a swatch and keep their exact stored values (C14)', () => {
     const { onChange } = setup({ identitySpec: { gender: 'female', age_band: '26-35' } as never });
     next(); next();
