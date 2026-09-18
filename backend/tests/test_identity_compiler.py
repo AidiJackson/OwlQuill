@@ -698,7 +698,8 @@ class TestFacialGeometryInPrompt:
         spec = _make_grace_spec(face_shape="oval")
         prompt = compile_identity_prompt(spec, "anchor_front")
         assert "oval" in prompt.lower(), f"face_shape 'oval' not in prompt: {prompt!r}"
-        assert "face shape" in prompt.lower(), f"'face shape' label missing: {prompt!r}"
+        # Polish Phase 3: the label reads as anatomy from face_geometry_semantics.
+        assert "oval face, softly curved" in prompt.lower(), f"face shape phrase missing: {prompt!r}"
 
     def test_jaw_type_in_prompt(self):
         """jaw_type must appear in the identity prompt."""
@@ -721,10 +722,11 @@ class TestFacialGeometryInPrompt:
         assert "almond" in prompt.lower(), f"eye_shape 'almond' not in prompt: {prompt!r}"
 
     def test_eye_shape_deep_set_expanded(self):
-        """deep_set must appear as 'deep set' (underscore → space)."""
+        """deep_set must never reach the prompt with its underscore."""
         spec = _make_grace_spec(eye_shape="deep_set")
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert "deep set" in prompt.lower(), f"'deep set' not found in prompt: {prompt!r}"
+        assert "deep_set" not in prompt.lower()
+        assert "deep-set eyes" in prompt.lower(), f"'deep-set eyes' not found in prompt: {prompt!r}"
 
     def test_nose_type_in_prompt(self):
         """nose_type must appear in the identity prompt."""
@@ -748,10 +750,11 @@ class TestFacialGeometryInPrompt:
         assert "lips" in prompt.lower(), f"'lips' label missing: {prompt!r}"
 
     def test_lip_type_cupid_bow_expanded(self):
-        """cupid_bow must appear as 'cupid bow' (underscore → space)."""
+        """cupid_bow must never reach the prompt with its underscore."""
         spec = _make_grace_spec(lip_type="cupid_bow")
         prompt = compile_identity_prompt(spec, "anchor_front")
-        assert "cupid bow" in prompt.lower(), f"'cupid bow' not found in prompt: {prompt!r}"
+        assert "cupid_bow" not in prompt.lower()
+        assert "cupid's-bow lips" in prompt.lower(), f"'cupid's-bow lips' not found in prompt: {prompt!r}"
 
     def test_hairline_type_in_prompt(self):
         """hairline_type must appear in the identity prompt."""

@@ -34,6 +34,7 @@ from app.schemas.canon import SLOT_IMAGE_KIND
 from app.services import canon_service as cs
 from app.services.asset_persistence import OwnedBy, persist_image_asset
 from app.services.canon_references import archive_superseded_canon_asset
+from app.services.face_geometry_semantics import geometry_phrases
 from app.services.canon_card_generator import (
     SpendCapExceeded,
     SpendTracker,
@@ -131,19 +132,21 @@ def _spec_face_description(spec: dict) -> str:
     # dropped by this tuple — the pack, which is what the user actually keeps,
     # never saw them. Every interview control must reach the pack or not be
     # asked; these two are asked, so they reach it.
-    geometry = (
-        ("face_shape", "{} face"),
-        ("jaw_type", "{} jaw"),
-        ("cheekbone_type", "{} cheekbones"),
-        ("eye_shape", "{} eyes"),
-        ("eye_spacing", "{} eyes"),
-        ("eyebrow_shape", "{} eyebrows"),
-        ("nose_type", "{} nose"),
-        ("lip_type", "{} lips"),
-        ("hairline_type", "{} hairline"),
-        ("facial_hair_type", "{} facial hair"),
-    )
-    for key, tmpl in geometry:
+    #
+    # Polish Phase 3: the six Interview geometry fields (face shape, jaw,
+    # cheekbones, eye shape, nose, lips) come from face_geometry_semantics —
+    # the one anatomical mapping shared with the sketch, the identity prompt
+    # and the lock string — in the same slots as before. Eye spacing,
+    # eyebrows, hairline and facial hair keep their own wording here.
+    bits.extend(geometry_phrases(
+        spec, tier="full", fields=("face_shape", "jaw_type", "cheekbone_type", "eye_shape"),
+    ))
+    for key, tmpl in (("eye_spacing", "{} eyes"), ("eyebrow_shape", "{} eyebrows")):
+        v = spec.get(key)
+        if v and v != "none":
+            bits.append(tmpl.format(str(v).replace("_", " ")))
+    bits.extend(geometry_phrases(spec, tier="full", fields=("nose_type", "lip_type")))
+    for key, tmpl in (("hairline_type", "{} hairline"), ("facial_hair_type", "{} facial hair")):
         v = spec.get(key)
         if v and v != "none":
             bits.append(tmpl.format(str(v).replace("_", " ")))

@@ -15,6 +15,7 @@ import logging
 from typing import Optional
 
 from app.schemas.character_visual import CharacterIdentitySpec
+from app.services.face_geometry_semantics import LOCK_FIELDS, geometry_phrases
 from app.services.body_canon import (
     build_body_canon_lock_string,
     build_arm_side_binding_str,
@@ -167,8 +168,10 @@ def compile_identity_prompt(
       7. Vibe traits (extra_notes) + lighting
 
     Hard cap: 1500 characters. Sections 6.5 (body markings) and earlier are
-    protected. Trimming removes extra_notes → outfit_lock → shot in that order.
-    Last resort: hard truncate (logged as warning).
+    protected. Over the cap, the six facial-geometry phrases are first
+    re-rendered at the compact tier of face_geometry_semantics (same anatomy,
+    fewer words); only if that is not enough does trimming remove
+    extra_notes → outfit_lock → shot in that order. Last resort: hard truncate.
 
     Args:
         markings: Pre-loaded list of BodyMarking objects from body_canon_json.
@@ -248,24 +251,20 @@ def compile_identity_prompt(
     # B21: facial geometry — inject structural face traits for generic-face hardening.
     # These are B14 fields on the spec; they are independent of spec.identity being set.
     # Face shape, jaw, nose, and lips are the primary drift axes for generic characters.
-    if spec.face_shape:
-        identity_parts.append(f"{spec.face_shape.replace('_', ' ')} face shape")
-    if spec.jaw_type:
-        identity_parts.append(f"{spec.jaw_type.replace('_', ' ')} jaw")
-    if spec.cheekbone_type:
-        identity_parts.append(f"{spec.cheekbone_type.replace('_', ' ')} cheekbones")
-    if spec.eye_shape:
-        identity_parts.append(f"{spec.eye_shape.replace('_', ' ')} eye shape")
-    if spec.nose_type:
-        identity_parts.append(f"{spec.nose_type.replace('_', ' ')} nose")
-    if spec.lip_type:
-        identity_parts.append(f"{spec.lip_type.replace('_', ' ')} lips")
+    # Polish Phase 3: the six geometry fields read as anatomy, not raw labels,
+    # from face_geometry_semantics — the one mapping every prompt path shares.
+    # The full tier is the default; the compact ("lock") tier of the same
+    # module is substituted only if the assembled prompt is over the cap.
+    identity_tail: list[str] = []
     if spec.hairline_type:
-        identity_parts.append(f"{spec.hairline_type.replace('_', ' ')} hairline")
+        identity_tail.append(f"{spec.hairline_type.replace('_', ' ')} hairline")
     if spec.facial_hair_type and spec.facial_hair_type != "none":
-        identity_parts.append(spec.facial_hair_type.replace('_', ' '))
+        identity_tail.append(spec.facial_hair_type.replace('_', ' '))
 
-    sections.append(("identity", ", ".join(identity_parts)))
+    def _identity_section(geometry_tier: str) -> str:
+        return ", ".join(identity_parts + geometry_phrases(spec, tier=geometry_tier) + identity_tail)
+
+    sections.append(("identity", _identity_section("full")))
 
     # 3b. Species descriptor (only injected for non-human species)
     species_desc = _species_prompt(spec)
@@ -345,13 +344,31 @@ def compile_identity_prompt(
         sections.append(("extra_notes", spec.extra_notes))
 
     # Assemble with safety prefix
-    prompt = f"{_SAFETY_PREFIX}, " + ", ".join(v for _, v in sections)
+    prompt = _assemble(sections)
+
+    # Budget pressure: before any section is dropped, say the same facial
+    # geometry more briefly. Every human spec fits at the full tier; a
+    # non-human species descriptor on a heavy spec can push it over, and this
+    # keeps outfit_lock / shot / extra_notes intact exactly as before the
+    # full-tier wording existed. No-op when the tiers render identically.
+    if len(prompt) > _PROMPT_CAP:
+        compact = _identity_section("lock")
+        sections = [(n, compact if n == "identity" else v) for n, v in sections]
+        prompt = _assemble(sections)
+        logger.info(
+            "compile_identity_prompt: over cap for role=%s; geometry rendered at compact tier (%d chars)",
+            role, len(prompt),
+        )
 
     # Hard cap at _PROMPT_CAP — trim by section name, never by index
     if len(prompt) > _PROMPT_CAP:
         prompt = _trim_to_cap(prompt, sections, failsafe)
 
     return prompt
+
+
+def _assemble(sections: list[tuple[str, str]]) -> str:
+    return f"{_SAFETY_PREFIX}, " + ", ".join(v for _, v in sections)
 
 
 
@@ -374,7 +391,7 @@ def _trim_to_cap(
     working = list(sections)
     for name in _TRIM_ORDER:
         working = [(n, v) for n, v in working if n != name]
-        prompt = f"{_SAFETY_PREFIX}, " + ", ".join(v for _, v in working)
+        prompt = _assemble(working)
         if len(prompt) <= _PROMPT_CAP:
             return prompt
     return prompt[:_PROMPT_CAP]
@@ -420,14 +437,9 @@ def compile_identity_lock_string(spec: CharacterIdentitySpec) -> str:
     # B21: core face geometry in lock string so scene/moment prompts stay consistent.
     # Kept to the highest-signal structural traits (shape, jaw, nose, lips) to avoid
     # inflating the lock string; eye_shape and hairline are in the full identity prompt.
-    if spec.face_shape:
-        parts.append(f"{spec.face_shape.replace('_', ' ')} face")
-    if spec.jaw_type:
-        parts.append(f"{spec.jaw_type.replace('_', ' ')} jaw")
-    if spec.nose_type:
-        parts.append(f"{spec.nose_type.replace('_', ' ')} nose")
-    if spec.lip_type:
-        parts.append(f"{spec.lip_type.replace('_', ' ')} lips")
+    # Polish Phase 3: compact "lock" tier of the shared semantics — this string
+    # is persisted at pack-accept and truncated by scene prompts, so it stays short.
+    parts.extend(geometry_phrases(spec, tier="lock", fields=LOCK_FIELDS))
 
     # B16 / B34: body morphology — include in lock string so scene prompts stay consistent
     _body_height = getattr(spec, "body_height", None)

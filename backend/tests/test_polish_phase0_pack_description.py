@@ -54,8 +54,9 @@ def test_species_and_tells_read_as_one_phrase_group():
 
 
 def test_human_contributes_nothing_as_before():
-    assert _spec_face_description({"species": "human", "face_shape": "round", "identity": {}}) == "round face"
-    assert _spec_face_description({"face_shape": "round", "identity": {}}) == "round face"
+    round_face = "round face, short wide proportions, rounded sides"  # face_geometry_semantics (Phase 3)
+    assert _spec_face_description({"species": "human", "face_shape": "round", "identity": {}}) == round_face
+    assert _spec_face_description({"face_shape": "round", "identity": {}}) == round_face
 
 
 def test_species_enum_instances_are_handled():
@@ -66,7 +67,13 @@ def test_species_enum_instances_are_handled():
 
 
 def test_previously_working_fields_are_unchanged():
-    """Regression guard: the pre-existing description shape is untouched."""
+    """Regression guard: the pre-existing description shape is untouched.
+
+    Polish Phase 3: the six geometry fields now read as anatomy from
+    face_geometry_semantics, in the same slots; everything around them
+    (skin, hair, eyes, eyebrows, the eye-shape → eyebrows → nose order) is
+    exactly as before.
+    """
     desc = _spec_face_description({
         "hair_texture": "wavy",
         "hair_style": "tied_back",
@@ -88,8 +95,11 @@ def test_previously_working_fields_are_unchanged():
     })
     assert desc == (
         "Olive skin, wavy Long Black hair, tied back hairstyle, Brown eyes, "
-        "square face, sharp jaw, high cheekbones, deep set eyes, arched eyebrows, "
-        "roman nose, full lips"
+        "square face, broad proportions, straight outer sides, "
+        "sharp jawline, defined mandibular angle, "
+        "high cheekbones, ridge set high under the eyes, "
+        "deep-set eyes recessed beneath the brow ridge, arched eyebrows, "
+        "Roman nose, prominent convex bridge, full lips, pronounced vertical fullness"
     )
 
 

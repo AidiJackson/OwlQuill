@@ -2966,9 +2966,15 @@ def test_c1_full_interview_keeps_tail_and_every_answer(client: TestClient):
     assert "violet eyes" in preview, preview
     assert "porcelain skin" in preview, preview
     assert "visible male stubble" in preview, preview
-    # And the blocks that always survived still do, in order.
-    assert preview.index("angular face") < preview.index("strawberry hair") < preview.index("pg-13")
-    assert "deep set eyes" in preview, "eye_shape must read as words, not an identifier"
+    # And the blocks that always survived still do, in order. A non-human full
+    # interview is over the 900-char cap at the full anatomical tier, so the
+    # geometry block is rendered at the compact tier of face_geometry_semantics
+    # (Phase 3) rather than losing hairline/skin — read the phrase from there.
+    from app.services.face_geometry_semantics import geometry_phrase
+    angular = geometry_phrase("face_shape", "angular", tier="lock")
+    assert angular in preview, preview
+    assert preview.index(angular) < preview.index("strawberry hair") < preview.index("pg-13")
+    assert "deep-set eyes" in preview, "eye_shape must read as words, not an identifier"
 
 
 def test_c1_trim_removes_middle_sections_never_the_tail():
@@ -3195,7 +3201,7 @@ def test_b15_3_geometry_survives_male_archetype(client: TestClient):
     assert "square face" in preview, preview
     assert "sharp jaw" in preview, preview
     assert "high cheekbones" in preview, preview
-    assert "deep set eyes" in preview, preview
+    assert "deep-set eyes" in preview, preview  # face_geometry_semantics (Phase 3)
     assert "straight eyebrows" in preview, preview
     assert "roman nose" in preview, preview
     assert "thin lips" in preview, preview
@@ -3227,7 +3233,7 @@ def test_b15_3_geometry_survives_vampire_species(client: TestClient):
     assert "vampire character" in preview, preview
     assert "angular face" in preview, preview
     assert "sharp jaw" in preview, preview
-    assert "deep set eyes" in preview, preview
+    assert "deep-set eyes" in preview, preview  # face_geometry_semantics (Phase 3)
     assert "hooked nose" in preview, preview
     assert "thin lips" in preview, preview
 
@@ -3241,7 +3247,7 @@ def test_b15_3_geometry_survives_werewolf_species(client: TestClient):
     preview = _sketch_preview(client, token, cid, spec)
     assert "werewolf character" in preview, preview
     assert "square face" in preview, preview
-    assert "wide cheekbones" in preview, preview
+    assert "wide-set cheekbones" in preview, preview  # face_geometry_semantics (Phase 3)
     assert "narrow eyes" in preview, preview
     assert "broad nose" in preview, preview
 

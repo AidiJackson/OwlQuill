@@ -79,6 +79,7 @@ from app.services.identity_compiler import (
     identity_prompt_hash,
     _SAFETY_PREFIX,
 )
+from app.services.face_geometry_semantics import geometry_phrases
 from app.services.body_canon import load_markings, build_body_canon_lock_string
 from app.services.stub_image_generator import render_placeholder_png
 from app.services.provider_capabilities import Capability, provider_supports
@@ -2045,13 +2046,17 @@ def _fit_sketch_sections(
     tail: list[str],
     *,
     cap: int = _SKETCH_PROMPT_CAP,
+    compact: dict[str, str] | None = None,
 ) -> str:
     """Join ``head + middle + tail`` with ". ", trimming ``middle`` by name to fit.
 
-    ``head`` and ``tail`` are never removed. If the prompt still exceeds ``cap``
-    with every trimmable section gone, the remaining middle text is hard-cut —
-    the protected clauses are still intact because they are re-joined after
-    the cut, not truncated with it.
+    ``head`` and ``tail`` are never removed. Over ``cap``, any section named in
+    ``compact`` is first replaced by its shorter rendering (same content, fewer
+    words — the geometry block's compact tier); only then are sections dropped
+    in ``_SKETCH_TRIM_ORDER``. If the prompt still exceeds ``cap`` with every
+    trimmable section gone, the remaining middle text is hard-cut — the
+    protected clauses are still intact because they are re-joined after the
+    cut, not truncated with it.
     """
     working = list(middle)
 
@@ -2061,6 +2066,11 @@ def _fit_sketch_sections(
     prompt = _join(working)
     if len(prompt) <= cap:
         return prompt
+    if compact:
+        working = [(n, compact.get(n, v)) for n, v in working]
+        prompt = _join(working)
+        if len(prompt) <= cap:
+            return prompt
     for name in _SKETCH_TRIM_ORDER:
         working = [(n, v) for n, v in working if n != name]
         prompt = _join(working)
@@ -2236,9 +2246,11 @@ def _build_sketch_prompt(identity_spec, style: str, character_name: str | None =
     }
 
     # Protected head / trimmable middle / protected tail (see _SKETCH_TRIM_ORDER).
+    # ``compact`` holds shorter renderings the fitter may substitute over cap.
     head: list[str] = [_SKETCH_STYLE_PROMPTS[style]]
     middle: list[tuple[str, str]] = []
     tail: list[str] = []
+    compact: dict[str, str] = {}
 
     if identity_spec:
         gender_val = identity_spec.gender or ""
@@ -2256,28 +2268,32 @@ def _build_sketch_prompt(identity_spec, style: str, character_name: str | None =
         if species_desc:
             middle.append(("species", species_desc))
 
-        # 4. Face geometry block
-        _geo: list[str] = []
-        if identity_spec.face_shape:
-            _geo.append(f"{identity_spec.face_shape} face")
-        if identity_spec.jaw_type:
-            _geo.append(f"{identity_spec.jaw_type} jaw")
-        if identity_spec.cheekbone_type:
-            _geo.append(f"{identity_spec.cheekbone_type} cheekbones")
-        if identity_spec.eye_shape:
-            _geo.append(f"{identity_spec.eye_shape.replace('_', ' ')} eyes")
+        # 4. Face geometry block. The six Interview geometry fields come from
+        # face_geometry_semantics (Polish Phase 3) — the one anatomical mapping
+        # shared with the identity prompt, the lock string and the V2 pack.
+        # Eye spacing and eyebrows keep their own wording, in their existing
+        # slot between eye shape and nose. The full tier is the default; the
+        # compact ("lock") tier of the same module is substituted by
+        # _fit_sketch_sections only if the prompt is over its cap.
+        _geo_mid: list[str] = []
         if identity_spec.eye_spacing:
-            _geo.append(f"{identity_spec.eye_spacing.replace('_', ' ')} eyes")
+            _geo_mid.append(f"{identity_spec.eye_spacing.replace('_', ' ')} eyes")
         if identity_spec.eyebrow_shape:
-            _geo.append(f"{identity_spec.eyebrow_shape} eyebrows")
+            _geo_mid.append(f"{identity_spec.eyebrow_shape} eyebrows")
         elif identity_spec.brow_type:
-            _geo.append(f"{identity_spec.brow_type} eyebrows")
-        if identity_spec.nose_type:
-            _geo.append(f"{identity_spec.nose_type} nose")
-        if identity_spec.lip_type:
-            _geo.append(f"{identity_spec.lip_type.replace('_', ' ')} lips")
-        if _geo:
-            middle.append(("geometry", ", ".join(_geo)))
+            _geo_mid.append(f"{identity_spec.brow_type} eyebrows")
+
+        def _geometry_block(tier: str) -> str:
+            return ", ".join([
+                *geometry_phrases(identity_spec, tier=tier,
+                                  fields=("face_shape", "jaw_type", "cheekbone_type", "eye_shape")),
+                *_geo_mid,
+                *geometry_phrases(identity_spec, tier=tier, fields=("nose_type", "lip_type")),
+            ])
+
+        if _geometry_block("full"):
+            middle.append(("geometry", _geometry_block("full")))
+            compact["geometry"] = _geometry_block("lock")
 
         # 5. Hair block
         _hair_parts: list[str] = []
@@ -2327,7 +2343,7 @@ def _build_sketch_prompt(identity_spec, style: str, character_name: str | None =
     tail.append("head and shoulders sketch, plain paper background, no glamour styling")
     tail.append(f"{_SAFETY_PREFIX}. Fully clothed or bust portrait only. Non-sexual. PG-13.")
 
-    return _fit_sketch_sections(head, middle, tail)
+    return _fit_sketch_sections(head, middle, tail, compact=compact)
 
 
 @router.post(
