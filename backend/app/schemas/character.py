@@ -91,20 +91,49 @@ class Character(CharacterBase):
     are populated by the route, which passes ``avatar_url`` and ``cover_url``
     through the public-media resolver first — see
     ``app.services.character_projection``.
+
+    VIEWER-AWARE (Polish Phase 5.1). Four fields are OWNER-ONLY and are
+    ``None`` for anyone else, applied by ``project_character`` on the server —
+    never by the client deciding what to hide:
+
+    * ``owner_id`` — a public character must not be traceable to the account
+      that owns it (identity-first policy). The directory and search never
+      carried it; the detail read did, which let two public characters be
+      clustered by account. The client never needed the number: what it asks
+      is "may I manage this?", and ``is_owner`` answers that directly.
+    * ``owner_username`` — same rule, already owner-only before this pass.
+    * ``identity_anchor_json`` — identity infrastructure (lock string, prompt
+      hash, anchor image urls). The anchors are working references the media
+      surface deliberately withholds from visitors; this string handed them
+      over. Owner surfaces (generation readiness) still read it.
+    * ``identity_health`` — derived from the same anchor data (which slots
+      exist and whether they are stale). Owner tooling state, not a fact about
+      the character a visitor has any use for, so it goes with its source.
+
+    ``is_owner`` is the one ownership signal the client uses. Every route that
+    returns this schema sets it: the owner-scoped routes (create, list, update)
+    to ``True``; the detail read to whatever the viewer actually is.
     """
     avatar_url: Optional[str] = None
     cover_url: Optional[str] = None
     portrait_url: Optional[str] = None
     id: int
-    owner_id: int
+    #: Owner-only; ``None`` for every other viewer.
+    owner_id: Optional[int] = None
+    #: Owner-only; ``None`` for every other viewer.
     owner_username: Optional[str] = None
+    #: True when the caller owns this character. The client's only ownership
+    #: signal — it must not be derived from ``owner_id``.
+    is_owner: bool = False
     visual_locked: bool = False
     # True when the character has a generated identity canon (a face_front image
     # exists), even if it has not been locked yet. Used by the character list to
     # route existing characters to their detail page instead of the creation flow
     # (S24AR). Populated by the route layer; defaults False elsewhere.
     has_identity_canon: bool = False
+    #: Owner-only; ``None`` for every other viewer (see the class docstring).
     identity_anchor_json: Optional[str] = None
+    #: Owner-only; ``None`` for every other viewer.
     identity_health: Optional[dict] = None
     created_at: datetime
     updated_at: datetime

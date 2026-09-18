@@ -93,6 +93,7 @@ const OWNER = { id: 7, email: 'owner@test.invalid', username: 'owner' };
 const CHARACTER: Character = {
   id: 42,
   owner_id: OWNER.id,
+  is_owner: true,
   name: 'Shadow',
   species: 'wolf',
   visibility: 'public',

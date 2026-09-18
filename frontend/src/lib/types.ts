@@ -45,8 +45,16 @@ export interface IdentityHealth {
 
 export interface Character {
   id: number;
-  owner_id: number;
-  owner_username?: string;
+  /** True when the signed-in viewer owns this character — the ONLY ownership
+   *  signal the client uses. Set by the server on every character read; the
+   *  detail read answers for the actual viewer, the owner-scoped list/create/
+   *  update routes always answer true. Never derive ownership from owner_id. */
+  is_owner: boolean;
+  /** Owner-only. `null` for any other viewer (Polish Phase 5.1): a public
+   *  character is not traceable to the account behind it. */
+  owner_id?: number | null;
+  /** Owner-only. `null` for any other viewer. */
+  owner_username?: string | null;
   name: string;
   alias?: string;
   age?: string;
@@ -69,7 +77,10 @@ export interface Character {
   visual_locked?: boolean;
   /** True when a generated identity canon exists (even if not yet locked). */
   has_identity_canon?: boolean;
+  /** Owner-only. `null` for any other viewer (Polish Phase 5.1): lock string,
+   *  prompt hash and anchor image urls are identity infrastructure. */
   identity_anchor_json?: string | null;
+  /** Owner-only. `null` for any other viewer — derived from the anchor data. */
   identity_health?: IdentityHealth | null;
   created_at: string;
   updated_at: string;

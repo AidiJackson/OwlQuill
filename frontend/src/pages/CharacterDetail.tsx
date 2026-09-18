@@ -243,7 +243,11 @@ export default function CharacterDetail() {
     );
   }
 
-  const isOwner = !!(currentUser && character.owner_id === currentUser.id);
+  // Ownership is the SERVER's answer (Polish Phase 5.1). The detail read no
+  // longer carries owner_id for a non-owner, so it is not compared here — and
+  // it must not be: is_owner is the one signal, and this the one place it is
+  // read into the page.
+  const isOwner = character.is_owner === true;
 
   const coverPosX = character.cover_position_x ?? 0.5;
   const coverPosY = character.cover_position_y ?? 0.5;

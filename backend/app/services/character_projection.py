@@ -47,24 +47,50 @@ from app.services.character_home_media import (
 )
 
 
-def project_character(db: Session, character) -> CharacterSchema:
-    """One character, with its avatar and cover put through the safety rule.
+def _apply_viewer_boundary(schema: CharacterSchema, *, viewer_is_owner: bool) -> CharacterSchema:
+    """The owner-only fields, withheld from everyone else (Polish Phase 5.1).
+
+    Applied to the SCHEMA instance, like the media rule: the ORM row keeps its
+    values, and a later flush cannot persist a suppression as a deletion.
+    Fields withheld: ``owner_id``, ``owner_username``, ``identity_anchor_json``,
+    ``identity_health`` — see the schema docstring for why each one.
+    """
+    schema.is_owner = viewer_is_owner
+    if not viewer_is_owner:
+        schema.owner_id = None
+        schema.owner_username = None
+        schema.identity_anchor_json = None
+        schema.identity_health = None
+    return schema
+
+
+def project_character(db: Session, character, *, viewer_is_owner: bool) -> CharacterSchema:
+    """One character, with its avatar and cover put through the safety rule and
+    its owner-only fields withheld unless *viewer_is_owner*.
 
     Call AFTER the route has attached its computed extras (``owner_username``,
     ``identity_health``, ``has_identity_canon``) to *character*, since those are
     read off the object during validation.
+
+    ``viewer_is_owner`` is keyword-only and has no default on purpose: a route
+    that returns this schema to someone has to say who that someone is, and the
+    boundary is applied here, on the server, rather than left to the client.
     """
     out = CharacterSchema.model_validate(character)
     out.avatar_url = resolve_public_media_url(db, out.avatar_url)
     out.cover_url = resolve_public_media_url(db, out.cover_url)
-    return out
+    return _apply_viewer_boundary(out, viewer_is_owner=viewer_is_owner)
 
 
-def project_characters(db: Session, characters: Iterable) -> list[CharacterSchema]:
+def project_characters(
+    db: Session, characters: Iterable, *, viewer_is_owner: bool
+) -> list[CharacterSchema]:
     """:func:`project_character` for a list, resolving every pointer in one pass.
 
     A roster or a directory page asks the same question about the same one or
     two urls repeatedly; the per-character form would issue two queries each.
+    One ``viewer_is_owner`` for the whole list: a roster is either the caller's
+    own characters or somebody else's, never a mixture.
     """
     characters = list(characters)
     resolved = _batch(db, characters)
@@ -73,7 +99,7 @@ def project_characters(db: Session, characters: Iterable) -> list[CharacterSchem
         schema = CharacterSchema.model_validate(character)
         schema.avatar_url = _lookup(resolved, schema.avatar_url)
         schema.cover_url = _lookup(resolved, schema.cover_url)
-        out.append(schema)
+        out.append(_apply_viewer_boundary(schema, viewer_is_owner=viewer_is_owner))
     return out
 
 

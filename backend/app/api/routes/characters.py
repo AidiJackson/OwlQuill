@@ -207,6 +207,8 @@ def create_character(
     db.add(db_character)
     db.commit()
     db.refresh(db_character)
+    # The creator is the owner; the read schema says so explicitly (Phase 5.1).
+    db_character.is_owner = True
     return db_character
 
 
@@ -254,6 +256,8 @@ def list_my_characters(
     canon_ids = _canon_generated_ids(db, [c.id for c in characters])
     for c in characters:
         c.has_identity_canon = c.id in canon_ids
+        # Owner-scoped by the filter above; say so on each row (Phase 5.1).
+        c.is_owner = True
     return characters
 
 
@@ -364,7 +368,14 @@ def get_character(
     # verdict lands on the schema and never on the row — assigning it back to
     # ``character.avatar_url`` would mark the row dirty and let a later flush
     # persist a suppression as a deletion.
-    return project_character(db, character)
+    #
+    # Polish Phase 5.1: the projection is also where the VIEWER boundary is
+    # applied. A non-owner reading a PUBLIC character receives ``is_owner``
+    # false and none of ``owner_id`` / ``owner_username`` /
+    # ``identity_anchor_json`` / ``identity_health`` — the account behind a
+    # character and its identity infrastructure are the owner's alone. The
+    # same rule as the directory and search, which never carried them.
+    return project_character(db, character, viewer_is_owner=is_owner)
 
 
 def _get_visible_character(
@@ -528,6 +539,8 @@ def update_character(
 
     db.commit()
     db.refresh(character)
+    # Ownership was checked above; the read schema says so (Phase 5.1).
+    character.is_owner = True
     return character
 
 

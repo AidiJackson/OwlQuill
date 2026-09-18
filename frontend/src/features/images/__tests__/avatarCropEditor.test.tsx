@@ -55,6 +55,7 @@ const AVATAR_URL = 'https://cdn.test/avatar.png';
 const CHARACTER: Character = {
   id: 42,
   owner_id: OWNER.id,
+  is_owner: true,
   name: 'Taylor',
   species: 'human',
   visibility: 'public',
