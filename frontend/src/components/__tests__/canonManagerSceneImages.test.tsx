@@ -80,12 +80,16 @@ function renderManager(props: { isFounder: boolean; isOwner?: boolean }) {
   return render(<CanonManager characterId={7} isOwner={props.isOwner ?? true} isFounder={props.isFounder} />);
 }
 
-async function waitForCanon() {
-  await waitFor(() => expect(screen.getByText(/Canon: draft/)).toBeTruthy());
+// Phase 5.7: the status line is role-aware — founders read the lock flags,
+// owners read one product word — and tabs carry tab semantics.
+async function waitForCanon(isFounder: boolean) {
+  await waitFor(() =>
+    expect(screen.getAllByText(isFounder ? /Canon: draft/ : /In progress/).length).toBeGreaterThan(0),
+  );
 }
 
 function tabButton(label: string) {
-  return screen.queryByRole('button', { name: label });
+  return screen.queryByRole('tab', { name: label });
 }
 
 beforeEach(() => {
@@ -98,14 +102,14 @@ afterEach(cleanup);
 describe('CanonManager — Scene Images gating (Phase 5.2, PD-3)', () => {
   it('ordinary owner does not see the Scene Images tab or surface', async () => {
     renderManager({ isFounder: false });
-    await waitForCanon();
+    await waitForCanon(false);
 
     expect(tabButton('Scene Images')).toBeNull();
     expect(screen.queryByText('Generate Scene')).toBeNull();
     expect(screen.queryByPlaceholderText(/standing on a beach/)).toBeNull();
     // The owner tabs are all still there.
-    expect(tabButton('Face Canon')).toBeTruthy();
-    expect(tabButton('Body Canon')).toBeTruthy();
+    expect(tabButton('Face')).toBeTruthy();
+    expect(tabButton('Body')).toBeTruthy();
     expect(tabButton('Accessories')).toBeTruthy();
   });
 
@@ -114,8 +118,8 @@ describe('CanonManager — Scene Images gating (Phase 5.2, PD-3)', () => {
     // owner with the same component instance — the tab state still says
     // "scenes", and the view must not honour it.
     const view = renderManager({ isFounder: true });
-    await waitForCanon();
-    fireEvent.click(screen.getByRole('button', { name: 'Scene Images' }));
+    await waitForCanon(true);
+    fireEvent.click(screen.getByRole('tab', { name: 'Scene Images' }));
     expect(screen.getByText('Generate Scene')).toBeTruthy();
 
     view.rerender(<CanonManager characterId={7} isOwner isFounder={false} />);
@@ -124,16 +128,16 @@ describe('CanonManager — Scene Images gating (Phase 5.2, PD-3)', () => {
     expect(screen.queryByText('Generate Scene')).toBeNull();
     expect(screen.queryByPlaceholderText(/standing on a beach/)).toBeNull();
     // Fell back to a valid owner-visible section, not an empty pane.
-    expect(screen.getByText('Core Face Identity')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Face' })).toBeTruthy();
     expect(generateCanonScene).not.toHaveBeenCalled();
   });
 
   it('no founder-only control leaks into the owner view on any tab', async () => {
     renderManager({ isFounder: false });
-    await waitForCanon();
+    await waitForCanon(false);
 
-    for (const label of ['Face Canon', 'Body Canon', 'Accessories']) {
-      fireEvent.click(screen.getByRole('button', { name: label }));
+    for (const label of ['Face', 'Body', 'Accessories']) {
+      fireEvent.click(screen.getByRole('tab', { name: label }));
       for (const control of FOUNDER_ONLY_CONTROLS) {
         expect(screen.queryByText(control), `${control} leaked on ${label}`).toBeNull();
       }
@@ -143,9 +147,9 @@ describe('CanonManager — Scene Images gating (Phase 5.2, PD-3)', () => {
   it('founder retains the Scene Images tab and can generate', async () => {
     generateCanonScene.mockResolvedValue({ id: 99, url: '/static/scene.png' });
     renderManager({ isFounder: true });
-    await waitForCanon();
+    await waitForCanon(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Scene Images' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Scene Images' }));
     const button = screen.getByText('Generate Scene').closest('button') as HTMLButtonElement;
     expect(button.disabled).toBe(true); // empty prompt only
 
@@ -159,8 +163,8 @@ describe('CanonManager — Scene Images gating (Phase 5.2, PD-3)', () => {
 
   it('founder lock copy is truthful: nothing locked does not block generation', async () => {
     renderManager({ isFounder: true });
-    await waitForCanon();
-    fireEvent.click(screen.getByRole('button', { name: 'Scene Images' }));
+    await waitForCanon(true);
+    fireEvent.click(screen.getByRole('tab', { name: 'Scene Images' }));
 
     // The old copy claimed a rule the server never had.
     expect(screen.queryByText(OLD_MISLEADING_COPY)).toBeNull();
@@ -176,7 +180,7 @@ describe('CanonManager — Scene Images gating (Phase 5.2, PD-3)', () => {
     getIdentityCanon.mockResolvedValue(makeCanon({ face_locked: true }));
     renderManager({ isFounder: true });
     await waitFor(() => expect(screen.getByText(/Face: locked/)).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', { name: 'Scene Images' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Scene Images' }));
 
     expect(screen.queryByText(TRUTHFUL_COPY)).toBeNull();
     expect(screen.queryByText(OLD_MISLEADING_COPY)).toBeNull();

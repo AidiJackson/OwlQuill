@@ -386,17 +386,27 @@ export default function SceneGeneratorPanel({
         </div>
       )}
 
-      {/* Locked-character guard message */}
+      {/* Readiness guard copy (Polish Phase 5.7). The CONDITIONS are
+          computeGeneratorGuards', unchanged; only the words are the user's.
+          "Not established" = visual_locked is false, which the creation flow
+          sets on its final step — so the action is to finish setup, reached
+          from the Characters page ("Continue setup"). */}
       {lockedGuardActive && (
-        <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
-          Complete and lock your identity pack before generating character images.
+        <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2" role="status">
+          {selectedChar?.name ?? 'This character'}&apos;s Character Canon isn&apos;t established yet, so
+          images of them can&apos;t be generated.{' '}
+          {selectedChar?.has_identity_canon
+            ? <>Open their page and establish their Character Canon, then come back here.</>
+            : <>Finish their setup from the Characters page, then come back here.</>}
         </p>
       )}
 
-      {/* Anchor-data guard message (character is locked but identity_anchor_json is missing) */}
+      {/* Legacy character: marked established, but neither a canon nor the
+          older reference record exists to ground an image on. */}
       {anchorGuardActive && (
-        <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2">
-          Your character's identity anchor is missing. Please regenerate and accept the identity pack from the character page.
+        <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2" role="status">
+          Ficshon can&apos;t find {selectedChar?.name ?? 'this character'}&apos;s reference images, so it
+          can&apos;t generate new images of them yet. Open their page and check their Character Canon.
         </p>
       )}
 

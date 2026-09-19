@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Character, ProfileTimelineItem, User } from '@/lib/types';
-import CanonManager from '@/components/CanonManager';
+import CanonManager, { type OwnerStatus } from '@/components/CanonManager';
 import MentionText from '@/components/MentionText';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { CharacterGalleryImage } from '@/lib/types';
@@ -347,6 +347,19 @@ export default function CharacterDetail() {
   const avatarPosY = character.avatar_position_y ?? 0.5;
 
   const metaLine = [character.role, character.era].filter(Boolean).join(' · ');
+
+  // The ONE owner-facing definition of the canon's state (Phase 5.7
+  // addendum, B), shared with CanonManager so launcher and manager agree.
+  // 'established' is visual_locked AND has_identity_canon: the readiness
+  // guard's v2 path (computeGeneratorGuards) and the server's canon-content
+  // requirement (has_any_canon_content) are both met. 'legacy' is a
+  // pre-canon character — visual_locked with nothing in the v2 canon — which
+  // the guard may admit but the server cannot ground, so it is not called
+  // established. Everything else is 'unfinished'.
+  const canonStatus: OwnerStatus = character.visual_locked
+    ? (character.has_identity_canon ? 'established' : 'legacy')
+    : 'unfinished';
+  const canonStatusLabel = { established: 'Established', legacy: 'Needs attention', unfinished: 'In progress' }[canonStatus];
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'timeline', label: 'Timeline' },
@@ -829,15 +842,17 @@ export default function CharacterDetail() {
                   <h3 id="manage-canon-heading" className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3">
                     Identity Canon
                   </h3>
+                  {/* Same word the manager shows, from the same definition
+                      (canonStatus above). */}
                   <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
-                    character.visual_locked ? 'bg-gem-soft text-gem' : 'bg-surface-overlay text-ink-3'
+                    canonStatus === 'established' ? 'bg-gem-soft text-gem' : 'bg-surface-overlay text-ink-3'
                   }`}>
-                    {character.visual_locked ? 'Locked' : 'Draft'}
+                    {canonStatusLabel}
                   </span>
                 </div>
                 <p className="text-xs text-ink-3">
-                  The reference set that keeps {character.name} looking like themselves from one
-                  image to the next.
+                  The reference images and details that keep {character.name} looking like
+                  themselves in every new image.
                 </p>
                 <button
                   type="button"
@@ -945,16 +960,24 @@ export default function CharacterDetail() {
           (CanonManager). Gated on isOwner like the picker: the shell must
           not outlive ownership either. */}
       {showCanonModal && isOwner && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-surface-overlay border border-edge-md rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowCanonModal(false); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="canon-modal-title"
+            className="bg-surface-overlay border border-edge-md rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]"
+          >
 
             {/* Header */}
             <div className="flex items-center justify-between gap-3 px-6 pt-6 pb-4 flex-shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-gem-soft border border-gem/25 flex items-center justify-center flex-shrink-0">
-                  <Sparkles className="w-4 h-4 text-gem" />
+                  <Sparkles className="w-4 h-4 text-gem" aria-hidden />
                 </div>
-                <h2 className="text-sm font-semibold text-ink">Manage Character Canon</h2>
+                <h2 id="canon-modal-title" className="text-sm font-semibold text-ink">Manage Character Canon</h2>
               </div>
               <button
                 onClick={() => setShowCanonModal(false)}
@@ -972,6 +995,15 @@ export default function CharacterDetail() {
                 isOwner={isOwner}
                 isFounder={isFounder(currentUser)}
                 characterName={character.name}
+                ownerStatus={canonStatus}
+                onEstablished={() => {
+                  // The lock routes mirrored visual_locked onto the character;
+                  // re-read it (a READ, no provider) so the launcher badge and
+                  // the generator's readiness agree with the manager.
+                  apiClient.getCharacter(character.id)
+                    .then((fresh) => { if (mountedRef.current) setCharacter(fresh); })
+                    .catch(() => { /* badge settles on next load */ });
+                }}
               />
             </div>
           </div>

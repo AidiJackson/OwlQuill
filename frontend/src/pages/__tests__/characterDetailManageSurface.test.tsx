@@ -19,6 +19,9 @@ import type { Character, User } from '@/lib/types';
 const getCharacter = vi.fn();
 const getMe = vi.fn();
 const getCharacterMentions = vi.fn();
+const getIdentityCanon = vi.fn();
+const lockFaceCanon = vi.fn();
+const lockBodyCanon = vi.fn();
 
 vi.mock('@/lib/apiClient', () => ({
   apiClient: {
@@ -28,7 +31,9 @@ vi.mock('@/lib/apiClient', () => ({
     listCharacterImages: () => Promise.resolve([]),
     getCharacterPosts: () => Promise.resolve([]),
     listMyCharacterImages: () => Promise.resolve([]),
-    getIdentityCanon: () => Promise.resolve(null),
+    getIdentityCanon: (...a: unknown[]) => getIdentityCanon(...a),
+    lockFaceCanon: (...a: unknown[]) => lockFaceCanon(...a),
+    lockBodyCanon: (...a: unknown[]) => lockBodyCanon(...a),
     hasToken: () => true,
   },
 }));
@@ -84,8 +89,19 @@ beforeEach(() => {
   );
   getMe.mockResolvedValue(ORDINARY);
   getCharacterMentions.mockResolvedValue([]);
+  getIdentityCanon.mockResolvedValue(null);
   useAuthStore.setState({ user: ORDINARY, status: 'authenticated' });
 });
+
+/** A canon as the server returns it, with the front images the lock routes require. */
+function canonWith(flags: { face_locked: boolean; body_locked: boolean }) {
+  return {
+    id: 1, character_id: 42, status: flags.face_locked && flags.body_locked ? 'locked' : 'draft',
+    face_canon: { face_front_image_url: '/f.png', face_description: null, locked: flags.face_locked },
+    body_canon: { body_front_image_url: '/b.png', permanent_body_marks: [], locked: flags.body_locked },
+    accessories: [], ...flags, updated_at: '2026-09-19T00:00:00Z', locked_at: null,
+  };
+}
 
 afterEach(cleanup);
 
@@ -227,7 +243,7 @@ describe('Owner Manage surface', () => {
     renderPage();
     await openManage();
     const canon = screen.getByRole('region', { name: 'Identity Canon' });
-    expect(within(canon).getByText('Draft')).toBeTruthy();
+    expect(within(canon).getByText('In progress')).toBeTruthy();
     fireEvent.click(within(canon).getByRole('button', { name: 'Manage Character Canon' }));
     expect(screen.getByRole('heading', { name: 'Manage Character Canon' })).toBeTruthy();
   });
@@ -258,6 +274,63 @@ describe('Owner Manage surface', () => {
     expect(screen.queryByText(/Admin/)).toBeNull();
     // Source-level: the page links nowhere gated above "creator".
     expect(characterDetailSource).not.toMatch(/studio\/18-plus|\/admin|adminCreator/);
+  });
+});
+
+describe('Canon status — launcher and manager agree (Phase 5.7 addendum)', () => {
+  it('abandoned pack: launcher and manager both say In progress; establishing flips both to Established', async () => {
+    let locked = false;
+    getCharacter.mockImplementation(() => Promise.resolve({ ...OWNED, has_identity_canon: true, visual_locked: locked }));
+    getIdentityCanon.mockImplementation(() => Promise.resolve(canonWith({ face_locked: locked, body_locked: locked })));
+    lockFaceCanon.mockResolvedValue({});
+    lockBodyCanon.mockImplementation(() => { locked = true; return Promise.resolve({}); });
+
+    renderPage();
+    await openManage();
+    const canonCard = screen.getByRole('region', { name: 'Identity Canon' });
+    expect(within(canonCard).getByText('In progress')).toBeTruthy();
+    fireEvent.click(within(canonCard).getByRole('button', { name: 'Manage Character Canon' }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText('In progress');
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Establish Character Canon' }));
+    await within(dialog).findByText('Established');
+    // The page re-read the character (a READ) and the launcher agrees.
+    await waitFor(() => expect(within(canonCard).getByText('Established')).toBeTruthy());
+    expect(lockFaceCanon).toHaveBeenCalledWith(42);
+    expect(lockBodyCanon).toHaveBeenCalledWith(42);
+    expect(getCharacter).toHaveBeenCalledTimes(2);
+  });
+
+  it('legacy character (visual_locked, no v2 canon): launcher and manager both say Needs attention, never Established', async () => {
+    getCharacter.mockResolvedValue({ ...OWNED, visual_locked: true, has_identity_canon: false });
+    getIdentityCanon.mockResolvedValue({
+      id: 1, character_id: 42, status: 'draft', face_canon: null, body_canon: null, accessories: [],
+      face_locked: false, body_locked: false, updated_at: '2026-09-19T00:00:00Z', locked_at: null,
+    });
+    renderPage();
+    await openManage();
+    const canonCard = screen.getByRole('region', { name: 'Identity Canon' });
+    expect(within(canonCard).getByText('Needs attention')).toBeTruthy();
+    fireEvent.click(within(canonCard).getByRole('button', { name: 'Manage Character Canon' }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText('Needs attention');
+    expect(screen.queryByText('Established')).toBeNull();
+    expect(screen.queryByText('In progress')).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Establish Character Canon' })).toBeNull();
+  });
+
+  it('established character: both say Established and no action is offered', async () => {
+    getCharacter.mockResolvedValue({ ...OWNED, visual_locked: true, has_identity_canon: true });
+    getIdentityCanon.mockResolvedValue(canonWith({ face_locked: true, body_locked: true }));
+    renderPage();
+    await openManage();
+    const canonCard = screen.getByRole('region', { name: 'Identity Canon' });
+    expect(within(canonCard).getByText('Established')).toBeTruthy();
+    fireEvent.click(within(canonCard).getByRole('button', { name: 'Manage Character Canon' }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText('Established');
+    expect(within(dialog).queryByRole('button', { name: 'Establish Character Canon' })).toBeNull();
   });
 });
 
