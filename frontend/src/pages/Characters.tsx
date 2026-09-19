@@ -7,7 +7,7 @@ import CharacterDirectory from '@/pages/CharacterDirectory';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import CharacterDeleteCooldownNote from '@/components/CharacterDeleteCooldownNote';
 import type { Character, CharacterSearchResult, User } from '@/lib/types';
-import { canUseCreatorTools } from '@/lib/entitlements';
+import { canCreateCharacter, canUseCreatorTools } from '@/lib/entitlements';
 import { avatarTransformStyle } from '@/lib/media';
 
 /** One nav item, two experiences: Character Owners get their management
@@ -32,19 +32,6 @@ function CharacterManagement() {
   const setUser = useAuthStore((s) => s.setUser);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [generatingBio, setGeneratingBio] = useState(false);
-  const [newCharacter, setNewCharacter] = useState({
-    name: '',
-    species: '',
-    role: '',
-    era: '',
-    tags: '',
-    short_bio: '',
-    long_bio: '',
-    visibility: 'public' as 'public' | 'friends' | 'private',
-  });
-
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   // Founders (admin or seeder) hold unlimited characters and never see the
@@ -188,61 +175,6 @@ function CharacterManagement() {
     }
   };
 
-  const handleGenerateBio = async () => {
-    if (!newCharacter.name) {
-      alert('Please enter a character name first');
-      return;
-    }
-
-    setGeneratingBio(true);
-    try {
-      const tags = newCharacter.tags ? newCharacter.tags.split(',').map((t) => t.trim()) : [];
-      const result = await apiClient.generateCharacterBio(
-        newCharacter.name,
-        newCharacter.species,
-        newCharacter.role,
-        newCharacter.era,
-        tags
-      );
-      setNewCharacter({
-        ...newCharacter,
-        short_bio: result.short_bio,
-        long_bio: result.long_bio,
-      });
-    } catch (error) {
-      console.error('Failed to generate bio:', error);
-      alert('Failed to generate bio. Please try again.');
-    } finally {
-      setGeneratingBio(false);
-    }
-  };
-
-  const handleCreateCharacter = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (cooldownInfo && !hasUnlimitedCharacters) {
-      alert(`Character creation is on cooldown. You can create a new character in ${cooldownInfo.hours}h ${cooldownInfo.minutes}m.`);
-      return;
-    }
-    try {
-      await apiClient.createCharacter(newCharacter);
-      setShowCreateForm(false);
-      setNewCharacter({
-        name: '',
-        species: '',
-        role: '',
-        era: '',
-        tags: '',
-        short_bio: '',
-        long_bio: '',
-            visibility: 'public',
-      });
-      await loadCharacters();
-    } catch (error) {
-      console.error('Failed to create character:', error);
-      alert(error instanceof Error ? error.message : 'Failed to create character. Please try again.');
-    }
-  };
-
   if (loading) {
     return <div className="p-8">Loading...</div>;
   }
@@ -252,21 +184,13 @@ function CharacterManagement() {
       <div className="flex justify-between items-center mb-8">
         <h1 className="font-serif text-4xl font-medium tracking-[-0.02em] text-ink">My Characters</h1>
         {hasUnlimitedCharacters ? (
-          // Founder (admin/seeder): always show create actions, no beta-limit badge
-          <div className="flex gap-2">
-            <button
-              onClick={() => navigate('/characters/new')}
-              className="btn btn-primary"
-            >
-              + New Character
-            </button>
-            <button
-              onClick={() => setShowCreateForm(!showCreateForm)}
-              className="btn btn-secondary text-sm"
-            >
-              Quick Create
-            </button>
-          </div>
+          // Founder (admin/seeder): always show the create action, no beta-limit badge
+          <button
+            onClick={() => navigate('/characters/new')}
+            className="btn btn-primary"
+          >
+            + New Character
+          </button>
         ) : characters.length === 0 && cooldownInfo ? (
           <div className="flex items-center gap-3">
             <span className="text-xs text-ink-3 bg-surface-elevated px-3 py-1.5 rounded-full">
@@ -277,20 +201,25 @@ function CharacterManagement() {
             </span>
           </div>
         ) : characters.length === 0 ? (
-          <div className="flex gap-2">
+          // First character. An account the server lets create goes to the
+          // Creator; one it refuses is shown the Writer path itself rather
+          // than a button that would only land on it (Polish Phase 6.2 — the
+          // legacy inline creation shortcut that sat beside this is retired).
+          canCreateCharacter(currentUser) ? (
             <button
               onClick={() => navigate('/characters/new')}
               className="btn btn-primary"
             >
               + New Character
             </button>
+          ) : (
             <button
-              onClick={() => setShowCreateForm(!showCreateForm)}
-              className="btn btn-secondary text-sm"
+              onClick={() => navigate('/become-a-writer')}
+              className="btn btn-primary"
             >
-              Quick Create
+              Become a Writer
             </button>
-          </div>
+          )
         ) : (
           <div className="flex items-center gap-3">
             <span className="text-xs text-ink-3 bg-surface-elevated px-3 py-1.5 rounded-full">
@@ -367,109 +296,6 @@ function CharacterManagement() {
         )}
       </div>
 
-      {showCreateForm && (
-        <div className="card mb-8">
-          <h2 className="text-xl font-semibold mb-4">Create New Character</h2>
-          <form onSubmit={handleCreateCharacter} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Name *</label>
-                <input
-                  type="text"
-                  value={newCharacter.name}
-                  onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })}
-                  className="input"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Species</label>
-                <input
-                  type="text"
-                  value={newCharacter.species}
-                  onChange={(e) => setNewCharacter({ ...newCharacter, species: e.target.value })}
-                  className="input"
-                  placeholder="e.g., vampire, human, elf"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Role</label>
-                <input
-                  type="text"
-                  value={newCharacter.role}
-                  onChange={(e) => setNewCharacter({ ...newCharacter, role: e.target.value })}
-                  className="input"
-                  placeholder="e.g., assassin, healer, detective"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Era</label>
-                <input
-                  type="text"
-                  value={newCharacter.era}
-                  onChange={(e) => setNewCharacter({ ...newCharacter, era: e.target.value })}
-                  className="input"
-                  placeholder="e.g., modern, medieval, sci-fi"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Tags (comma-separated)</label>
-              <input
-                type="text"
-                value={newCharacter.tags}
-                onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })}
-                className="input"
-                placeholder="e.g., gothic, mysterious, angst"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="block text-sm font-medium">Short Bio</label>
-                <button
-                  type="button"
-                  onClick={handleGenerateBio}
-                  disabled={generatingBio}
-                  className="text-sm text-gem hover:opacity-80 disabled:opacity-50"
-                >
-                  {generatingBio ? 'Generating...' : '✨ AI Suggest Bio'}
-                </button>
-              </div>
-              <textarea
-                value={newCharacter.short_bio}
-                onChange={(e) => setNewCharacter({ ...newCharacter, short_bio: e.target.value })}
-                className="textarea"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Long Bio</label>
-              <textarea
-                value={newCharacter.long_bio}
-                onChange={(e) => setNewCharacter({ ...newCharacter, long_bio: e.target.value })}
-                className="textarea"
-                rows={6}
-              />
-            </div>
-
-            <div className="flex gap-4">
-              <button type="submit" className="btn btn-primary">
-                Create
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCreateForm(false)}
-                className="btn btn-secondary"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
       {/* Empty-state guidance — only shown when data is settled and no characters exist */}
       {!loading && characters.length === 0 && (
         <div className="border border-edge rounded-lg bg-surface px-6 py-8 mb-6 text-center space-y-3">
@@ -478,12 +304,21 @@ function CharacterManagement() {
             Characters unlock image generation, posting, and roleplay.
           </p>
           <div className="pt-1">
-            <button
-              onClick={() => navigate('/characters/new')}
-              className="btn btn-primary"
-            >
-              Create character
-            </button>
+            {canCreateCharacter(currentUser) ? (
+              <button
+                onClick={() => navigate('/characters/new')}
+                className="btn btn-primary"
+              >
+                Create character
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('/become-a-writer')}
+                className="btn btn-primary"
+              >
+                Become a Writer
+              </button>
+            )}
           </div>
         </div>
       )}

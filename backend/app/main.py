@@ -22,7 +22,7 @@ from app.core.admin_seed import (
 from app.core.starter_seed import ensure_starter_realms_and_posts
 from app.core.invite_seed import seed_invite_codes
 from app.core.style_shop_seed import seed_style_presets
-from app.api.routes import auth, users, characters, realms, posts, comments, composition, reactions, ai, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory, identity_evolution, candidate_slot, notifications, style_shops, body_canon, body_identity, canon_api, adult_studio, adult_studio_admin, editor_studio
+from app.api.routes import auth, users, characters, realms, posts, comments, composition, reactions, scenes, character_visual, messages, images, scene_images, image_generator, grammar, storylab, reports, admin, blocks, admin_diagnostics, story_spaces, character_accessory, identity_evolution, candidate_slot, notifications, style_shops, body_canon, body_identity, canon_api, adult_studio, adult_studio_admin, editor_studio
 from app.api.routes.story_spaces import published_router
 from app.api.routes import rp_stories
 from app.api.routes import character_home
@@ -181,7 +181,6 @@ app.include_router(realms.router, prefix="/realms", tags=["realms"])
 app.include_router(posts.router, prefix="/posts", tags=["posts"])
 app.include_router(comments.router, prefix="/comments", tags=["comments"])
 app.include_router(reactions.router, prefix="/reactions", tags=["reactions"])
-app.include_router(ai.router, prefix="/ai", tags=["ai"])
 app.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 app.include_router(character_visual.router, prefix="/characters", tags=["character-visual"])
 app.include_router(scene_images.router, prefix="/characters", tags=["scene-images"])
@@ -219,7 +218,6 @@ api_router.include_router(realms.router, prefix="/realms", tags=["realms"])
 api_router.include_router(posts.router, prefix="/posts", tags=["posts"])
 api_router.include_router(comments.router, prefix="/comments", tags=["comments"])
 api_router.include_router(reactions.router, prefix="/reactions", tags=["reactions"])
-api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 api_router.include_router(character_visual.router, prefix="/characters", tags=["character-visual"])
 api_router.include_router(scene_images.router, prefix="/characters", tags=["scene-images"])

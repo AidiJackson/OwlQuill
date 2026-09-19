@@ -248,7 +248,6 @@ PAID_CREDENTIAL_ENV_VARS = (
 NON_PROVIDER_CREDENTIAL_FIELDS = {
     "SECRET_KEY": "JWT signing key — local, set to a test value by conftest",
     "SMTP_PASSWORD": "outbound email, not a metered generation provider",
-    "AI_API_KEY": "legacy generic field with no consumer in app/ (AI_PROVIDER='fake')",
 }
 
 

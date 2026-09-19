@@ -7,7 +7,6 @@ from app.schemas.realm import Realm, RealmCreate, RealmUpdate, RealmMembership, 
 from app.schemas.post import Post, PostCreate, PostUpdate
 from app.schemas.comment import Comment, CommentCreate, CommentUpdate
 from app.schemas.reaction import Reaction, ReactionCreate
-from app.schemas.ai import CharacterBioRequest, CharacterBioResponse, SceneRequest, SceneResponse
 from app.schemas.messaging import (
     CharacterSummary,
     ConversationCreate,
@@ -43,10 +42,6 @@ __all__ = [
     "CommentUpdate",
     "Reaction",
     "ReactionCreate",
-    "CharacterBioRequest",
-    "CharacterBioResponse",
-    "SceneRequest",
-    "SceneResponse",
     "CharacterSummary",
     "ConversationCreate",
     "ConversationRead",

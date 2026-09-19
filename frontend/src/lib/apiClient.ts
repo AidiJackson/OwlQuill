@@ -327,27 +327,6 @@ class ApiClient {
     });
   }
 
-  // AI
-  async generateCharacterBio(
-    name: string,
-    species?: string,
-    role?: string,
-    era?: string,
-    tags: string[] = []
-  ): Promise<{ short_bio: string; long_bio: string }> {
-    return this.request('/ai/character-bio', {
-      method: 'POST',
-      body: JSON.stringify({ name, species, role, era, tags }),
-    });
-  }
-
-  async generateScene(characters: string[], setting: string, mood?: string, prompt = ''): Promise<{ scene: string; dialogue: string }> {
-    return this.request('/ai/scene', {
-      method: 'POST',
-      body: JSON.stringify({ characters, setting, mood, prompt }),
-    });
-  }
-
   // Image library — user-scoped. All options are additive; calling with no
   // args preserves the original whole-archive behaviour.
   async listMyCharacterImages(opts?: {
@@ -490,13 +469,6 @@ class ApiClient {
   // Images library (legacy)
   async listLibraryImages(): Promise<LibraryImage[]> {
     return this.request<LibraryImage[]>('/images/');
-  }
-
-  async generateLibraryImage(prompt: string): Promise<LibraryImage> {
-    return this.request<LibraryImage>('/images/generate', {
-      method: 'POST',
-      body: JSON.stringify({ prompt }),
-    });
   }
 
   async deleteCharacterImage(characterId: number, imageId: number): Promise<void> {

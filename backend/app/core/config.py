@@ -49,10 +49,6 @@ class Settings(BaseSettings):
     # Redis (stubbed for now)
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # AI (stubbed)
-    AI_PROVIDER: Literal["fake", "openai", "anthropic"] = "fake"
-    AI_API_KEY: str = ""
-
     # Password reset
     RESET_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour
     FRONTEND_URL: str = "http://localhost:5173"

@@ -20,7 +20,6 @@ import MessageNew from '@/pages/MessageNew';
 import ConversationsList from '@/features/messaging/ConversationsList';
 import ConversationThread from '@/features/messaging/ConversationThread';
 import Images from '@/pages/Images';
-import ImageNew from '@/pages/ImageNew';
 import Workspace from '@/pages/Workspace';
 import StoryLab from '@/pages/StoryLab';
 import StoryLabSession from '@/pages/StoryLabSession';
@@ -121,14 +120,11 @@ function App() {
           }
         />
 
-        <Route
-          path="/images/new"
-          element={
-            <CreatorRoute workspaceName="The Image Library" description="The Image Library is where creators generate and curate imagery for their characters.">
-              <ImageNew />
-            </CreatorRoute>
-          }
-        />
+        {/* Retired (Polish Phase 6.2): the characterless generator made a
+            placeholder image and spent the weekly allowance on it. Old
+            bookmarks land on the Image Library, which is where generation
+            lives — character-first. */}
+        <Route path="/images/new" element={<Navigate to="/images" replace />} />
 
         {/* 18+ Studio — internal admin experiment. The adult-studio router is
             admin-only server-side, so the route is too (Polish Phase 6.1):

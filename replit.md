@@ -44,12 +44,6 @@ Preferred communication style: Simple, everyday language.
 - `/posts` - Create posts in realms, feed endpoint
 - `/comments` - Comment on posts
 - `/reactions` - React to posts
-- `/ai` - AI-powered bio and scene generation (stub implementation)
-
-**AI Service**:
-- Stubbed AI client generating template-based character bios and scenes
-- Designed for future integration with OpenAI/Anthropic APIs
-- Configuration via `AI_PROVIDER` environment variable
 
 ### Frontend Architecture
 
@@ -129,5 +123,3 @@ Key environment variables (set in `.env` or Replit Secrets):
 - `SECRET_KEY`: JWT signing key (required in production)
 - `DEBUG`: Enable debug mode (defaults to false)
 - `BACKEND_CORS_ORIGINS`: Comma-separated allowed origins
-- `AI_PROVIDER`: AI service selection (fake/openai/anthropic)
-- `AI_API_KEY`: API key for AI service

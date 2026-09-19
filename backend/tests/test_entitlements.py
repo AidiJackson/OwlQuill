@@ -81,7 +81,7 @@ def test_zero_character_admin_has_no_acting_character(db_session):
 #: ever inverts, a Wanderer learns the request shape of a workspace they have no
 #: access to.
 GUARDED_MUTATIONS = [
-    ("/images/generate", {"prompt": "anything"}),
+    # ("/images/generate") was here until Polish Phase 6.2 retired that route.
     ("/storylab/generate", {}),
     ("/storylab/stories", {}),
     ("/storylab/rp-reply/generate", {}),

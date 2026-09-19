@@ -102,12 +102,17 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId, 
             </>
           ) : images.length === 0 ? (
             <>
+              {/* The library is the one place images are made (Phase 6.2).
+                  Opening it leaves this composer; nothing comes back on its
+                  own, so the copy says "then come back". characterId is the
+                  posting character — known whenever this branch renders. */}
               <p className="text-sm text-ink-2 mb-4">
-                No generated images saved yet. Generate an image first, then attach it here.
+                No images of this character yet. Make one in the Image Library, then come back
+                and attach it here.
               </p>
               <div className="flex items-center gap-3">
-                <Link to="/images/new" className="btn btn-primary text-sm">
-                  Generate an image
+                <Link to={`/images?characterId=${characterId}`} className="btn btn-primary text-sm">
+                  Open Image Library
                 </Link>
                 <button onClick={onClose} className="btn btn-secondary text-sm">
                   Close
@@ -152,8 +157,8 @@ export default function AttachImageModal({ open, onClose, onSelect, selectedId, 
                 <button onClick={onClose} className="btn btn-secondary text-sm">
                   Close
                 </button>
-                <Link to="/images/new" className="text-xs text-gem hover:opacity-80 ml-auto">
-                  Generate new
+                <Link to={`/images?characterId=${characterId}`} className="text-xs text-gem hover:opacity-80 ml-auto">
+                  Open Image Library
                 </Link>
               </div>
               <p className="text-xs text-ink-3 mt-2">

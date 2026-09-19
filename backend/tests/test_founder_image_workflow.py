@@ -348,27 +348,3 @@ def test_assignment_cannot_target_wrong_character(client, db_session):
         headers=auth_headers(owner),
     )
     assert resp.status_code == 404, resp.text
-
-
-# ── Entitlement gating ──────────────────────────────────────────────────────
-
-def test_wanderer_cannot_generate_images(client):
-    """A Wanderer (no characters, no flags) is refused by require_creator."""
-    wanderer = get_auth_token(client, email="wanderer@test.com", username="wanderer_one")
-    resp = client.post(
-        "/api/images/generate",
-        json={"prompt": "anything"},
-        headers=auth_headers(wanderer),
-    )
-    assert resp.status_code == 403, resp.text
-
-
-def test_creator_with_character_can_generate(client):
-    creator = get_auth_token(client, email="realcreator@test.com", username="realcreator")
-    _create_character(client, creator, "Muse")
-    resp = client.post(
-        "/api/images/generate",
-        json={"prompt": "a muse at dawn"},
-        headers=auth_headers(creator),
-    )
-    assert resp.status_code == 200, resp.text
