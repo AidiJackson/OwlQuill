@@ -5,11 +5,17 @@
  *   A. Face Canon        — face identity lock (images + description)
  *   B. Body Canon        — anatomy + permanent body marks
  *   C. Removable Accessories — mask, jewellery, weapons etc.
- *   D. Scene Images      — output only, never canon
+ *   D. Scene Images      — output only, never canon. FOUNDER-ONLY (Phase 5.2,
+ *                          PD-3): ordinary owners generate scenes through the
+ *                          product's scene-image surface, not from here.
  *
  * Permanent tattoos and scars appear in Body Canon, not accessories.
  * Accessories only appear when the scene prompt requests them.
  * Scene images do not update canon.
+ *
+ * Gating here is a UI affordance only. The scene-generation endpoint is
+ * owner-authorised and metered by the weekly image allowance on the server,
+ * so hiding this tab is a product decision, not the cost control.
  */
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -1229,7 +1235,12 @@ function SceneImagesSection({
     }
   }
 
-  const canGenerate = canon.face_locked || canon.body_locked;
+  // Neither section locked. This is information, not a gate: the server has
+  // never required a lock on this route — it grounds on whatever face/body
+  // content exists, locked or draft, and runs the prompt alone when there is
+  // none. The old banner ("Lock at least Face Canon or Body Canon before
+  // generating scenes") described a rule nothing enforced, so it is gone.
+  const nothingLocked = !canon.face_locked && !canon.body_locked;
 
   return (
     <div className="space-y-4">
@@ -1240,9 +1251,9 @@ function SceneImagesSection({
         </p>
       </div>
 
-      {!canGenerate && (
+      {nothingLocked && (
         <div className="text-xs text-amber-400 bg-amber-900/20 px-3 py-2 rounded-lg border border-amber-800/40">
-          Lock at least Face Canon or Body Canon before generating scenes.
+          Face Canon and Body Canon are both still draft. Scenes will still generate — they use whatever canon content exists so far, and the prompt alone if there is none.
         </div>
       )}
 
@@ -1281,11 +1292,23 @@ function SceneImagesSection({
 
 type Tab = 'face' | 'body' | 'accessories' | 'scenes';
 
+/** Tabs every owner sees. `scenes` is appended for founders only (PD-3). */
+const OWNER_TABS: { id: Tab; label: string }[] = [
+  { id: 'face', label: 'Face Canon' },
+  { id: 'body', label: 'Body Canon' },
+  { id: 'accessories', label: 'Accessories' },
+];
+const FOUNDER_TABS: { id: Tab; label: string }[] = [
+  ...OWNER_TABS,
+  { id: 'scenes', label: 'Scene Images' },
+];
+const DEFAULT_TAB: Tab = 'face';
+
 export default function CanonManager({ characterId, isOwner, isFounder }: Props) {
   const [canon, setCanon] = useState<CharacterCanon | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<Tab>('face');
+  const [selectedTab, setSelectedTab] = useState<Tab>(DEFAULT_TAB);
 
   const load = useCallback(async () => {
     if (!isOwner) return;
@@ -1305,12 +1328,12 @@ export default function CanonManager({ characterId, isOwner, isFounder }: Props)
 
   if (!isOwner) return null;
 
-  const TABS: { id: Tab; label: string }[] = [
-    { id: 'face', label: 'Face Canon' },
-    { id: 'body', label: 'Body Canon' },
-    { id: 'accessories', label: 'Accessories' },
-    { id: 'scenes', label: 'Scene Images' },
-  ];
+  const TABS = isFounder ? FOUNDER_TABS : OWNER_TABS;
+  // The rendered tab is derived, never trusted from state alone: if the
+  // selection names a tab this viewer cannot see (a founder-only tab held in
+  // state when `isFounder` flips, or any future stale value) the view falls
+  // back to the default owner section instead of rendering hidden content.
+  const tab: Tab = TABS.some(t => t.id === selectedTab) ? selectedTab : DEFAULT_TAB;
 
   return (
     <div className="space-y-4">
@@ -1342,7 +1365,7 @@ export default function CanonManager({ characterId, isOwner, isFounder }: Props)
         {TABS.map(t => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => setSelectedTab(t.id)}
             className={`px-3 py-2 text-xs font-medium transition-colors rounded-t-lg ${
               tab === t.id
                 ? 'text-ink border-b-2 border-gem/50 -mb-px'
@@ -1372,7 +1395,9 @@ export default function CanonManager({ characterId, isOwner, isFounder }: Props)
           {tab === 'accessories' && (
             <AccessoriesSection canon={canon} characterId={characterId} onRefresh={load} />
           )}
-          {tab === 'scenes' && (
+          {/* Belt and braces with the tab fallback above: the founder check is
+              repeated at the render site so no tab-state path can mount this. */}
+          {tab === 'scenes' && isFounder && (
             <SceneImagesSection canon={canon} characterId={characterId} onRefresh={load} />
           )}
         </div>

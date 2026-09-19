@@ -15,6 +15,10 @@ Routes:
   POST   /{character_id}/identity-canon/scenes/generate       Generate scene from locked canon
 
 All writes require character ownership.
+Scene generation additionally consumes the general weekly image allowance
+(``check_weekly_quota``) exactly as ``/scene-images/generate`` does — the
+SCENE_ONLY row it writes was always counted by that quota; Phase 5.2 made the
+route check it too, so calling the endpoint directly cannot bypass the cap.
 Canon upload is user-supplied image input and is gated by the closed-beta
 image-ingress boundary (``may_supply_image_input`` — admin OR seeder), the same
 predicate that already governs the canon URL fields on the PATCH/POST routes.
@@ -78,6 +82,7 @@ from app.services.image_provider import (
     get_fallback_provider,
     resolve_canon_provider_option,
 )
+from app.services.image_quota import check_weekly_quota
 from app.services.stub_image_generator import render_placeholder_png
 from app.services.asset_persistence import OwnedBy, persist_image_asset
 from app.services.canon_references import archive_superseded_canon_asset
@@ -714,10 +719,26 @@ def generate_scene_from_canon(
     Compiles prompt in strict order: face → body → marks → accessories → scene.
     Saves result as SCENE_ONLY — never updates canon.
 
+    Owner-only and metered by the weekly image allowance: an exhausted quota
+    returns the shared 429 ``quota_exceeded`` response before any provider
+    call; a founder/seeder account is exempt, as everywhere else.
+
     Logging covers: payload, compiled prompt, selected references,
     image kind, provider response, saved record.
     """
     char = _get_owned_character(character_id, current_user, db)
+
+    # ── Weekly image allowance (Phase 5.2) ────────────────────────
+    # Same server-authoritative gate, in the same position, as
+    # ``scene_images.generate_scene_image``: after ownership, before any
+    # reference bytes are loaded or a paid provider is reached. Founder/seeder
+    # exemption and the 429 ``quota_exceeded`` contract come from the helper —
+    # nothing Canon-specific is added here. Deduction is the SCENE_ONLY row
+    # persisted below: ``QUOTA_COUNTED_IMAGE_KINDS`` already counted it, so
+    # before this check the route spent the allowance without ever honouring it.
+    quota_error = check_weekly_quota(current_user, db)
+    if quota_error is not None:
+        return quota_error
 
     canon = db.query(CharacterIdentityCanon).filter(
         CharacterIdentityCanon.character_id == character_id
