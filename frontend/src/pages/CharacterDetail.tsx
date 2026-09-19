@@ -25,9 +25,11 @@ import IdentityCanonSection from '@/features/characterCreation/components/Identi
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import CharacterDeleteCooldownNote from '@/components/CharacterDeleteCooldownNote';
 import CharacterImagePicker from '@/features/images/components/CharacterImagePicker';
 import { hasActingCharacter, isFounder } from '@/lib/entitlements';
 import { avatarTransformStyle } from '@/lib/media';
+import { useAuthStore } from '@/lib/store';
 
 type Tab = 'timeline' | 'stories' | 'media' | 'mentions' | 'manage';
 
@@ -38,6 +40,8 @@ export default function CharacterDetail() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const setUser = useAuthStore((s) => s.setUser);
 
   const [character, setCharacter] = useState<Character | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -96,11 +100,31 @@ export default function CharacterDetail() {
     setDeleteError('');
     try {
       await apiClient.deleteCharacter(Number(id));
-      navigate('/characters');
     } catch (err) {
+      // Only a failed DELETE is a deletion error. Nothing below this line can
+      // be reported here — the character would already be gone.
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete character.');
       setDeleting(false);
+      return;
     }
+
+    // Phase 5.3: the account changed on the server (active_character cleared,
+    // character_count down, cooldown set) and the auth store is what the
+    // sidebar, Profile and creator gating read — so refresh it before leaving,
+    // the same way every other mutation does (``setUser`` with the server's
+    // account, cf. Profile/BecomeAWriter). DELETE returns no body, so the
+    // account is re-read rather than merged. Not ``fetchUser``: it treats any
+    // ``/me`` failure as "signed out", and a blip here must not log the user
+    // out of a session that just did exactly what they asked.
+    try {
+      setUser(await apiClient.getMe());
+    } catch {
+      // The character IS deleted. A stale account snapshot until the next
+      // load is the whole cost, and there is nothing the user could do about
+      // it here except retry a DELETE that must not be retried — so this is
+      // deliberately silent.
+    }
+    navigate('/characters');
   };
 
   const openDeleteModal = () => {
@@ -769,20 +793,29 @@ export default function CharacterDetail() {
         onConfirm={handleDeleteCharacter}
         onCancel={closeDeleteModal}
       >
+        {/* Every line below states what the server actually does (PD-8).
+            Images are NOT deleted — the association is dropped and the asset
+            stays in the account library (Character.images has no delete
+            cascade); the old copy said the opposite. Conversations cascade for
+            both characters. Posts and comments keep the account's authorship
+            with the character detached. */}
         <p>
-          This <strong>permanently deletes</strong> <strong>{character.name}</strong> and everything
-          that belongs to them:
+          This <strong>permanently deletes</strong> <strong>{character.name}</strong>. There is no
+          undo.
         </p>
         <ul className="list-disc list-inside text-ink-3 space-y-1">
-          <li>Profile, bios and identity canon</li>
-          <li>All generated images</li>
-          <li>All conversations and messages as this character</li>
-          <li>Their name on existing posts is cleared</li>
+          <li>Their profile, bios and identity canon are removed.</li>
+          <li>
+            Generated images are <strong>not</strong> deleted — they stay in your image library,
+            no longer linked to {character.name}.
+          </li>
+          <li>
+            Every conversation {character.name} was part of is removed, with all its messages —
+            for the other character too.
+          </li>
+          <li>Posts and comments {character.name} wrote stay up, but no longer carry their name.</li>
         </ul>
-        <p className="text-amber-400">
-          There is no undo. After deleting, you must wait <strong>24 hours</strong> before creating a
-          new character.
-        </p>
+        <CharacterDeleteCooldownNote user={currentUser} />
       </ConfirmDialog>
 
       {/* Owner image-curation picker — avatar / cover, scoped to this character */}

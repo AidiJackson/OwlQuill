@@ -5,6 +5,7 @@ import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import CharacterDirectory from '@/pages/CharacterDirectory';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import CharacterDeleteCooldownNote from '@/components/CharacterDeleteCooldownNote';
 import type { Character, CharacterSearchResult, User } from '@/lib/types';
 import { canUseCreatorTools } from '@/lib/entitlements';
 
@@ -27,6 +28,7 @@ export default function Characters() {
 
 function CharacterManagement() {
   const navigate = useNavigate();
+  const setUser = useAuthStore((s) => s.setUser);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -136,9 +138,11 @@ function CharacterManagement() {
   }, [currentUser]);
 
   // Draft deletion — Polish Phase 0 (X6): a ConfirmDialog instead of the
-  // browser's confirm()/alert() pair. A draft has no images yet, so the
-  // consequence is small and typing the name is not required; the dialog is
-  // still the same one every other deletion uses.
+  // browser's confirm()/alert() pair. A draft has no locked identity and no
+  // public surface yet, so the consequence is small and typing the name is
+  // not required; the dialog is still the same one every other deletion uses.
+  // (Any preview images a draft generated are kept in the account library,
+  // exactly as for a full character — the server never deletes assets.)
   const [draftToDelete, setDraftToDelete] = useState<Character | null>(null);
   const [deletingDraft, setDeletingDraft] = useState(false);
   const [deleteDraftError, setDeleteDraftError] = useState('');
@@ -147,14 +151,32 @@ function CharacterManagement() {
     if (!draftToDelete) return;
     setDeletingDraft(true);
     setDeleteDraftError('');
+    const deletedId = draftToDelete.id;
     try {
-      await apiClient.deleteCharacter(draftToDelete.id);
-      setCharacters((prev) => prev.filter((c) => c.id !== draftToDelete.id));
-      setDraftToDelete(null);
+      await apiClient.deleteCharacter(deletedId);
     } catch (err) {
       setDeleteDraftError(err instanceof Error ? err.message : 'Could not delete this draft.');
-    } finally {
       setDeletingDraft(false);
+      return;
+    }
+    setCharacters((prev) => prev.filter((c) => c.id !== deletedId));
+    setDraftToDelete(null);
+    setDeletingDraft(false);
+
+    // Phase 5.3: the server just changed this account (character_count,
+    // active_character, and — for an ordinary account — the 24h cooldown that
+    // ``cooldownInfo`` above renders). Re-read it into both the auth store and
+    // this page's copy, as every other mutation does; the draft is already
+    // gone, so a failed re-read is only a stale snapshot, never a reason to
+    // show an error or retry the delete.
+    try {
+      const fresh = await apiClient.getMe();
+      // Local copy first: the store update can re-route this whole page (an
+      // account whose last character just went may no longer be a creator).
+      setCurrentUser(fresh);
+      setUser(fresh);
+    } catch {
+      /* stale until next load */
     }
   };
 
@@ -556,6 +578,7 @@ function CharacterManagement() {
           Delete the draft <strong>{draftToDelete?.name}</strong>? Their interview answers go with
           them. This cannot be undone.
         </p>
+        <CharacterDeleteCooldownNote user={currentUser} />
       </ConfirmDialog>
     </div>
   );
