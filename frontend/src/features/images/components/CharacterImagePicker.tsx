@@ -7,7 +7,6 @@ import { useObjectPositionDrag } from '../useObjectPositionDrag';
 import CoverFramingPreview from './CoverFramingPreview';
 import AvatarCropEditor from './AvatarCropEditor';
 import { DEFAULT_AVATAR_CROP } from '../avatarCropEditor';
-import { GALLERY_KINDS } from '../galleryKinds';
 
 /**
  * Owner-only image picker, scoped to a SINGLE character.
@@ -31,14 +30,22 @@ interface Props {
   initialPosY?: number;
   /** Avatar only: the stored zoom, so a re-crop opens on the current crop. */
   initialScale?: number;
+  /** Open with this library image already chosen (a fresh crop), e.g. from a
+   *  gallery lightbox's "Use as profile picture". Ignored in reposition mode. */
+  preselectImageId?: number;
   onConfirmed: (result: { avatar_url?: string; cover_url?: string }) => void;
   onCancel: () => void;
 }
 
-// Only finished, shareable output is eligible for a profile picture or cover —
-// never anchors, face refs or identity working plates. Same allowlist the
-// library and the public gallery use; see features/images/galleryKinds.
-const ELIGIBLE_KINDS = [...GALLERY_KINDS];
+// WHICH images are offered is the server's call (Polish Phase 5.5): the list
+// is asked for `eligibleFor: mode`, and answers with exactly the rows the
+// set-avatar / set-cover route would accept — canon face cards and uploads
+// for an avatar, finished full-frame output for a cover, never archived,
+// temporary, non-public or foreign rows. This component used to carry its own
+// list (the gallery kinds), which was narrower than the avatar rule — a fresh
+// character whose only pictures were its canon face cards had an empty
+// picker — and wider on one point (a `cover`-kind image, which the avatar
+// route refuses). One rule, one owner; the picker just renders the answer.
 
 export default function CharacterImagePicker({
   characterId,
@@ -46,6 +53,7 @@ export default function CharacterImagePicker({
   mode,
   repositionOnly = false,
   currentImageUrl,
+  preselectImageId,
   initialPosX = 0.5,
   initialPosY = 0.5,
   initialScale = 1,
@@ -87,11 +95,18 @@ export default function CharacterImagePicker({
       return;
     }
     apiClient
-      .listMyCharacterImages({ characterId, kind: ELIGIBLE_KINDS, sort: 'newest' })
-      .then((imgs) => { if (mountedRef.current) setImages(imgs); })
+      .listMyCharacterImages({ characterId, eligibleFor: mode, sort: 'newest' })
+      .then((imgs) => {
+        if (!mountedRef.current) return;
+        setImages(imgs);
+        // A preselection goes through the same path as a click, so it gets
+        // the same fresh crop and the same forgotten image size.
+        const pre = preselectImageId != null ? imgs.find((i) => i.id === preselectImageId) : undefined;
+        if (pre) handleSelect(pre);
+      })
       .catch((err) => { if (mountedRef.current) setLoadError(err instanceof Error ? err.message : 'Failed to load images.'); })
       .finally(() => { if (mountedRef.current) setLoading(false); });
-  }, [characterId, repositionOnly, currentImageUrl, mode]);
+  }, [characterId, repositionOnly, currentImageUrl, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelect = (img: LibraryImage) => {
     setSelected(img);
@@ -212,7 +227,11 @@ export default function CharacterImagePicker({
                   {images.map((img) => (
                     <button
                       key={img.id}
+                      type="button"
                       onClick={() => handleSelect(img)}
+                      aria-pressed={selected?.id === img.id}
+                      aria-label={`${(img.kind ?? 'image').replace(/_/g, ' ')}${img.prompt_summary ? ` — ${img.prompt_summary}` : ''}`}
+                      data-testid={`picker-image-${img.id}`}
                       className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
                         selected?.id === img.id ? 'border-gem' : 'border-transparent hover:border-edge-md'
                       }`}

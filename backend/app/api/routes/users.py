@@ -42,7 +42,11 @@ from app.schemas.post import Post
 from app.schemas.scene import SceneOut
 from app.schemas.user import User, UserUpdate, UsernameUpdate, PublicUserProfile
 from app.schemas.character import CharacterSearchResult
-from app.schemas.character_image import CharacterImageRead
+from app.schemas.character_image import (
+    CharacterImageRead,
+    is_avatar_eligible,
+    is_cover_eligible,
+)
 from app.services.canon_references import CANON_REFERENCED_MESSAGE, is_canon_referenced
 from app.services.asset_persistence import OwnedBy, persist_derived_image_asset
 from app.services.asset_withdrawal import clear_governed_pointers_for
@@ -592,6 +596,15 @@ def list_my_character_images(
     kind: List[str] | None = Query(
         None, description="Restrict to these image kinds. Repeatable."
     ),
+    eligible_for: str | None = Query(
+        None,
+        pattern="^(avatar|cover)$",
+        description=(
+            "Only rows the character avatar / cover routes would ACCEPT — the "
+            "server's own eligibility predicate, so a picker never offers an "
+            "image that would then be refused (Polish Phase 5.5)."
+        ),
+    ),
     sort: str = Query(
         "newest", pattern="^(newest|oldest)$", description="Creation-date order."
     ),
@@ -660,6 +673,19 @@ def list_my_character_images(
         for img in query.all()
         if not (img.metadata_json or {}).get("is_temp", False)
     ]
+
+    # ``eligible_for`` applies the SAME predicate the set-avatar / set-cover
+    # routes enforce (kind allowlist AND public-surface provenance), in Python
+    # for the same reason as ``is_temp``: provenance lives in metadata. The
+    # frontend picker used to carry its own narrower kind list — the gallery
+    # kinds — so a fresh character whose only images were its canon face cards
+    # saw an empty avatar picker although the route would have accepted them,
+    # and could pick a ``cover``-kind image the avatar route then refused. One
+    # rule, owned here, and the picker asks for the answer instead.
+    if eligible_for == "avatar":
+        images = [img for img in images if is_avatar_eligible(img)]
+    elif eligible_for == "cover":
+        images = [img for img in images if is_cover_eligible(img)]
 
     if offset:
         images = images[offset:]

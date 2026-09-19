@@ -353,6 +353,10 @@ class ApiClient {
   async listMyCharacterImages(opts?: {
     characterId?: number;
     kind?: string[];
+    /** Only rows the set-avatar / set-cover route would accept — the server's
+     *  own eligibility rule, so a picker never offers what would be refused
+     *  (Polish Phase 5.5). Replaces client-side kind lists for that purpose. */
+    eligibleFor?: 'avatar' | 'cover';
     sort?: 'newest' | 'oldest';
     limit?: number;
     offset?: number;
@@ -360,6 +364,7 @@ class ApiClient {
     const params = new URLSearchParams();
     if (opts?.characterId != null) params.set('character_id', String(opts.characterId));
     if (opts?.kind) opts.kind.forEach((k) => params.append('kind', k));
+    if (opts?.eligibleFor) params.set('eligible_for', opts.eligibleFor);
     if (opts?.sort) params.set('sort', opts.sort);
     if (opts?.limit != null) params.set('limit', String(opts.limit));
     if (opts?.offset != null) params.set('offset', String(opts.offset));
@@ -423,6 +428,18 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ image_type: imageType, image_id: imageId }),
     });
+  }
+
+  /** Remove the character's avatar. Clears the pointer and resets the avatar
+   *  framing; the image itself stays in the library. Returns the owner's
+   *  detail projection (Polish Phase 5.5). */
+  async removeCharacterAvatar(characterId: number): Promise<Character> {
+    return this.request<Character>(`/characters/${characterId}/avatar`, { method: 'DELETE' });
+  }
+
+  /** Remove the character's cover. Same contract as removeCharacterAvatar. */
+  async removeCharacterCover(characterId: number): Promise<Character> {
+    return this.request<Character>(`/characters/${characterId}/cover`, { method: 'DELETE' });
   }
 
   /**

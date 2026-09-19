@@ -8,6 +8,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import CharacterDeleteCooldownNote from '@/components/CharacterDeleteCooldownNote';
 import type { Character, CharacterSearchResult, User } from '@/lib/types';
 import { canUseCreatorTools } from '@/lib/entitlements';
+import { avatarTransformStyle } from '@/lib/media';
 
 /** One nav item, two experiences: Character Owners get their management
  *  surface; Wanderers get the public character directory. */
@@ -487,12 +488,16 @@ function CharacterManagement() {
             to={`/characters/${character.id}`}
             className="card flex gap-4 hover:border-edge-md transition-colors no-underline text-inherit"
           >
-            {character.portrait_url && (
-              <div className="flex-shrink-0">
+            {/* The canonical avatar with its stored framing (Polish Phase 5.5).
+                This read ``portrait_url`` — a retired RP-sheet field no route
+                writes — so the roster never showed the picture the owner chose. */}
+            {character.avatar_url && (
+              <div className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden">
                 <img
-                  src={character.portrait_url}
+                  src={character.avatar_url}
                   alt={character.name}
-                  className="w-24 h-24 rounded-lg object-cover"
+                  className="w-full h-full object-cover"
+                  style={avatarTransformStyle(character.avatar_scale, character.avatar_position_x, character.avatar_position_y)}
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
                   }}

@@ -6,7 +6,6 @@ import {
   MessageSquare,
   Trash2,
   X,
-  Check,
   Sparkles,
   Image as ImageIcon,
   Camera,
@@ -18,7 +17,7 @@ import { apiClient } from '@/lib/apiClient';
 import type { Character, ProfileTimelineItem, User } from '@/lib/types';
 import CanonManager from '@/components/CanonManager';
 import MentionText from '@/components/MentionText';
-import { resolveImageUrl, setCharacterAvatar } from '@/features/characterCreation/shared/api';
+import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { CharacterGalleryImage } from '@/lib/types';
 import ImageGrid from '@/features/images/components/ImageGrid';
 import IdentityCanonSection from '@/features/characterCreation/components/IdentityCanonSection';
@@ -29,7 +28,7 @@ import CharacterDeleteCooldownNote from '@/components/CharacterDeleteCooldownNot
 import CharacterEditDetails from '@/components/CharacterEditDetails';
 import CharacterImagePicker from '@/features/images/components/CharacterImagePicker';
 import { hasActingCharacter, isFounder } from '@/lib/entitlements';
-import { avatarTransformStyle } from '@/lib/media';
+import { avatarTransformStyle, coverObjectPosition } from '@/lib/media';
 import { useAuthStore } from '@/lib/store';
 
 type Tab = 'timeline' | 'stories' | 'media' | 'mentions' | 'manage';
@@ -66,8 +65,6 @@ export default function CharacterDetail() {
   const [lbVisible, setLbVisible] = useState(false);
 
   // Set-avatar state
-  const [settingAvatar, setSettingAvatar] = useState(false);
-  const [avatarSet, setAvatarSet] = useState(false);
 
   // Mounted guard — prevents stale setState calls after navigation away
   const mountedRef = useRef(true);
@@ -84,7 +81,18 @@ export default function CharacterDetail() {
   const [coverToast, setCoverToast] = useState('');
 
   // Owner image-curation picker — opened from the avatar/cover edit controls.
-  const [picker, setPicker] = useState<null | { mode: 'avatar' | 'cover'; repositionOnly: boolean }>(null);
+  const [picker, setPicker] = useState<null | {
+    mode: 'avatar' | 'cover';
+    repositionOnly: boolean;
+    /** Gallery lightbox → picker with that image already chosen (fresh crop). */
+    preselectImageId?: number;
+  }>(null);
+
+  // Remove avatar / cover (Polish Phase 5.5, PD-6) — a confirmation, not a
+  // typed-name one: it clears an association and deletes no image.
+  const [removeTarget, setRemoveTarget] = useState<null | 'avatar' | 'cover'>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState('');
 
   // Delete modal state
   // Delete character — Polish Phase 0 (M2). One dialog, honestly titled, with
@@ -133,21 +141,49 @@ export default function CharacterDetail() {
     setDeleteError('');
   };
 
+  // The sidebar draws the active character's name and avatar from the auth
+  // store's copy of /me. After a mutation that changes either, re-read it the
+  // way Phase 5.3 does (getMe + setUser, never fetchUser). Always AFTER the
+  // mutation has succeeded and always quiet: a failed re-read is a stale
+  // sidebar until the next load, and must not make a finished save look
+  // like a failure.
+  const refreshAccountQuietly = () => {
+    apiClient.getMe()
+      .then((me) => { if (mountedRef.current) setUser(me); })
+      .catch(() => { /* stale sidebar until next load */ });
+  };
+
   // Edit Details (Polish Phase 5.4). The PATCH returns the owner's detail
   // projection — the same document GET returns — so it replaces the page's
   // character outright rather than being merged field by field.
-  //
-  // A rename also changes ``active_character.name`` on the account, which the
-  // sidebar reads from the auth store; re-read it the way Phase 5.3 does
-  // (getMe + setUser, never fetchUser). The save has already succeeded, so a
-  // failed re-read is a stale sidebar until the next load and nothing more.
   const handleDetailsSaved = (updated: Character) => {
     const renamed = character !== null && updated.name !== character.name;
     setCharacter(updated);
-    if (renamed) {
-      apiClient.getMe()
-        .then((me) => { if (mountedRef.current) setUser(me); })
-        .catch(() => { /* stale sidebar until next load */ });
+    if (renamed) refreshAccountQuietly();
+  };
+
+  // Remove avatar / cover (Polish Phase 5.5). The DELETE returns the owner
+  // projection with the pointer cleared and that surface's framing back at
+  // defaults; adopt it outright. Only the avatar reaches the sidebar.
+  const handleRemoveConfirmed = async () => {
+    if (!character || !removeTarget || removing) return;
+    setRemoving(true);
+    setRemoveError('');
+    try {
+      const updated = removeTarget === 'avatar'
+        ? await apiClient.removeCharacterAvatar(character.id)
+        : await apiClient.removeCharacterCover(character.id);
+      if (!mountedRef.current) return;
+      setCharacter(updated);
+      setRemoveTarget(null);
+      setCoverToast(removeTarget === 'avatar' ? 'Profile picture removed' : 'Cover removed');
+      setTimeout(() => { if (mountedRef.current) setCoverToast(''); }, 2500);
+      if (removeTarget === 'avatar') refreshAccountQuietly();
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setRemoveError(err instanceof Error ? err.message : 'Could not remove. Try again.');
+    } finally {
+      if (mountedRef.current) setRemoving(false);
     }
   };
 
@@ -155,25 +191,6 @@ export default function CharacterDetail() {
     if (deleting) return;
     setShowDeleteModal(false);
     setDeleteError('');
-  };
-
-  const handleSetAvatar = async (img: CharacterGalleryImage) => {
-    if (!character) return;
-    setSettingAvatar(true);
-    setAvatarSet(false);
-    try {
-      await setCharacterAvatar(character.id, img.id);
-      if (!mountedRef.current) return;
-      setCharacter({ ...character, avatar_url: resolveImageUrl(img.url) });
-      setAvatarSet(true);
-      const t = setTimeout(() => { if (mountedRef.current) setAvatarSet(false); }, 2000);
-      // Store timer so it can be GC'd; no explicit cancel needed since the guard is inside
-      void t;
-    } catch {
-      // Silently fail — user can retry
-    } finally {
-      if (mountedRef.current) setSettingAvatar(false);
-    }
   };
 
   const handleUseInPost = (image: CharacterGalleryImage) => {
@@ -218,6 +235,17 @@ export default function CharacterDetail() {
   const closeLightbox = () => {
     setLbVisible(false);
     setTimeout(() => { if (mountedRef.current) setLightboxIdx(null); }, 200);
+  };
+
+  // Gallery lightbox → "Use as profile picture" (Polish Phase 5.5). This
+  // used to be its own write path: the legacy set-avatar route, no crop, the
+  // previous picture's framing left on the new one, a locally invented
+  // avatar_url and a silent catch. It now opens the ONE owner path — the
+  // picker — with that image chosen, so it gets the same fresh crop, the same
+  // canonical route and the same errors as choosing it there.
+  const handleUseAsAvatar = (img: CharacterGalleryImage) => {
+    closeLightbox();
+    setPicker({ mode: 'avatar', repositionOnly: false, preselectImageId: img.id });
   };
 
   useEffect(() => {
@@ -648,6 +676,101 @@ export default function CharacterDetail() {
                 the same is_owner gate as the rest of this tab. */}
             <CharacterEditDetails character={character} onSaved={handleDetailsSaved} />
 
+            {/* Avatar & cover (Polish Phase 5.5). The hero's corner buttons
+                remain; this is the discoverable, labelled version of the same
+                controls plus Remove. Every button opens the ONE picker or the
+                ONE remove dialog — no second write path. */}
+            <section
+              aria-labelledby="manage-media-heading"
+              className="rounded-2xl p-5 bg-surface border border-edge space-y-4"
+            >
+              <h3 id="manage-media-heading" className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3">
+                Profile picture &amp; cover
+              </h3>
+
+              <div className="flex flex-wrap items-start gap-4">
+                <div
+                  className="w-20 h-20 rounded-xl overflow-hidden border border-edge-md bg-surface-elevated flex-shrink-0"
+                  data-testid="manage-avatar-preview"
+                >
+                  {character.avatar_url ? (
+                    <img
+                      src={character.avatar_url}
+                      alt={`${character.name}'s profile picture`}
+                      className="w-full h-full object-cover"
+                      style={avatarTransformStyle(avatarScale, avatarPosX, avatarPosY)}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-serif text-2xl font-semibold text-gem bg-gem-soft" aria-label="No profile picture">
+                      {character.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <p className="text-sm font-medium text-ink">Profile picture</p>
+                  <p className="text-xs text-ink-3">
+                    {character.avatar_url
+                      ? 'Shown wherever this character appears.'
+                      : 'Choose one of this character\u2019s images — canon face cards and uploads included.'}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setPicker({ mode: 'avatar', repositionOnly: false })} className="btn btn-secondary text-xs">
+                      {character.avatar_url ? 'Change picture' : 'Choose picture'}
+                    </button>
+                    {character.avatar_url && (
+                      <>
+                        <button type="button" onClick={() => setPicker({ mode: 'avatar', repositionOnly: true })} className="btn btn-secondary text-xs">
+                          Crop
+                        </button>
+                        <button type="button" onClick={() => { setRemoveError(''); setRemoveTarget('avatar'); }} className="btn btn-secondary text-xs text-red-400 hover:text-red-300">
+                          Remove picture
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-start gap-4">
+                <div
+                  className="w-32 h-16 rounded-xl overflow-hidden border border-edge-md bg-surface-elevated flex-shrink-0"
+                  data-testid="manage-cover-preview"
+                >
+                  {character.cover_url ? (
+                    <img
+                      src={character.cover_url}
+                      alt={`${character.name}'s cover`}
+                      className="w-full h-full object-cover"
+                      style={{ objectPosition: coverObjectPosition(coverPosX, coverPosY) }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-[10px] text-ink-3" aria-label="No cover">
+                      No cover
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <p className="text-sm font-medium text-ink">Cover</p>
+                  <p className="text-xs text-ink-3">The banner across the top of the profile.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setPicker({ mode: 'cover', repositionOnly: false })} className="btn btn-secondary text-xs">
+                      {character.cover_url ? 'Change cover' : 'Choose cover'}
+                    </button>
+                    {character.cover_url && (
+                      <>
+                        <button type="button" onClick={() => setPicker({ mode: 'cover', repositionOnly: true })} className="btn btn-secondary text-xs">
+                          Reposition
+                        </button>
+                        <button type="button" onClick={() => { setRemoveError(''); setRemoveTarget('cover'); }} className="btn btn-secondary text-xs text-red-400 hover:text-red-300">
+                          Remove cover
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <div className="rounded-2xl p-5 bg-surface border border-edge space-y-3">
               <h3 className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3">Character Tools</h3>
               <div className="flex flex-wrap gap-2">
@@ -750,17 +873,12 @@ export default function CharacterDetail() {
               </p>
               {isOwner && (
                 <button
-                  className="text-xs px-3 py-1.5 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                  disabled={settingAvatar}
-                  onClick={() => handleSetAvatar(galleryImages[lightboxIdx!])}
+                  type="button"
+                  className="text-xs px-3 py-1.5 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition-colors flex items-center gap-1.5"
+                  onClick={() => handleUseAsAvatar(galleryImages[lightboxIdx!])}
                 >
-                  {avatarSet ? (
-                    <><Check className="w-3 h-3" />Avatar set</>
-                  ) : settingAvatar ? (
-                    <><RefreshCw className="w-3 h-3 animate-spin" />Saving…</>
-                  ) : (
-                    'Set as avatar'
-                  )}
+                  <Camera className="w-3 h-3" />
+                  Use as profile picture
                 </button>
               )}
             </div>
@@ -848,6 +966,7 @@ export default function CharacterDetail() {
           characterName={character.name}
           mode={picker.mode}
           repositionOnly={picker.repositionOnly}
+          preselectImageId={picker.preselectImageId}
           currentImageUrl={picker.mode === 'cover' ? character.cover_url : character.avatar_url}
           initialPosX={picker.mode === 'cover' ? coverPosX : avatarPosX}
           initialPosY={picker.mode === 'cover' ? coverPosY : avatarPosY}
@@ -884,9 +1003,32 @@ export default function CharacterDetail() {
             apiClient.getCharacter(character.id)
               .then((fresh) => { if (mountedRef.current) setCharacter(fresh); })
               .catch(() => { /* keep the optimistic image; framing settles on next load */ });
+            // The sidebar shows the active character's avatar (Phase 5.5).
+            if (picker.mode === 'avatar') refreshAccountQuietly();
           }}
         />
       )}
+
+      {/* Remove avatar / cover — an association, not an image (Phase 5.5) */}
+      <ConfirmDialog
+        open={removeTarget !== null}
+        danger
+        title={removeTarget === 'cover' ? 'Remove cover' : 'Remove profile picture'}
+        confirmLabel={removeTarget === 'cover' ? 'Remove cover' : 'Remove profile picture'}
+        busy={removing}
+        error={removeError || null}
+        onConfirm={handleRemoveConfirmed}
+        onCancel={() => { if (!removing) { setRemoveTarget(null); setRemoveError(''); } }}
+      >
+        <p>
+          {removeTarget === 'cover'
+            ? <>{character.name}&apos;s profile will show no cover until you choose another.</>
+            : <>{character.name}&apos;s profile will show their initial until you choose another picture.</>}
+        </p>
+        <p className="text-ink-3">
+          The image itself is not deleted — it stays in your image library.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }

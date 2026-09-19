@@ -776,6 +776,75 @@ def set_character_cover(
     )
 
 
+# ── Remove avatar / cover (Polish Phase 5.5, PD-6) ────────────────────
+#
+# Two small owner-only operations that CLEAR AN ASSOCIATION. Neither touches
+# a ``CharacterImage`` row: the avatar crop, the source image and the cover
+# image all stay in the account library exactly as Phase 5.3 established for
+# every asset — an owner who wants an image gone uses the library's archive.
+#
+# DELETE on the sub-resource, mirroring how the set routes are POST on the
+# same path, and returning the owner's detail projection (the same document
+# GET and PATCH return since Phase 5.4) so the client can adopt it outright.
+#
+# Framing is reset to the column defaults alongside the pointer. The six
+# framing floats describe a crop OF A PARTICULAR IMAGE; once there is no image
+# they describe nothing, and leaving them would hand the next picture a crop
+# chosen for a different one — the stale-framing defect this phase closes on
+# the legacy path. Idempotent: removing what is already absent is a 200 that
+# changes nothing.
+
+
+def _remove_governed_pointer(
+    character_id: int, current_user: User, db: Session, *, surface: str
+) -> Character:
+    character = db.query(CharacterModel).filter(CharacterModel.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+    if character.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    if surface == "avatar":
+        character.avatar_url = None
+        character.avatar_position_x = 0.5
+        character.avatar_position_y = 0.5
+        character.avatar_scale = 1.0
+    else:
+        character.cover_url = None
+        character.cover_position_x = 0.5
+        character.cover_position_y = 0.5
+        character.cover_scale = 1.0
+    db.commit()
+    db.refresh(character)
+    return _detail_projection(db, character, viewer_is_owner=True)
+
+
+@router.delete(
+    "/{character_id}/avatar",
+    response_model=Character,
+    summary="Remove the character's avatar (the image stays in the library)",
+)
+def remove_character_avatar(
+    character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Character:
+    return _remove_governed_pointer(character_id, current_user, db, surface="avatar")
+
+
+@router.delete(
+    "/{character_id}/cover",
+    response_model=Character,
+    summary="Remove the character's cover (the image stays in the library)",
+)
+def remove_character_cover(
+    character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Character:
+    return _remove_governed_pointer(character_id, current_user, db, surface="cover")
+
+
 @router.delete("/{character_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_character(
     character_id: int,

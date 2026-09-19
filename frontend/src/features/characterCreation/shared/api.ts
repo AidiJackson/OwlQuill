@@ -88,14 +88,6 @@ export function resolveImageUrl(url: string): string {
 // lie to every public viewer. It lives on apiClient as listCharacterImages(),
 // returning CharacterGalleryImage[], and there is one client for it, not two.
 
-export async function setCharacterAvatar(
-  characterId: number,
-  imageId: number,
-): Promise<CharacterImageRead> {
-  return request(`/characters/${characterId}/images/${imageId}/set-avatar`, {
-    method: 'POST',
-  });
-}
 
 // ── Character Visual API ────────────────────────────────────────────
 
