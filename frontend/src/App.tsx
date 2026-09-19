@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
-import { ProtectedRoute, PublicOnlyRoute, CreatorRoute, WriterRoute } from '@/components/routeGuards';
+import { ProtectedRoute, PublicOnlyRoute, CreatorRoute, WriterRoute, AdminRoute, FounderRoute } from '@/components/routeGuards';
 import Layout from '@/components/Layout';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
@@ -130,12 +130,15 @@ function App() {
           }
         />
 
+        {/* 18+ Studio — internal admin experiment. The adult-studio router is
+            admin-only server-side, so the route is too (Polish Phase 6.1):
+            nobody else mounts the page, and its requests never fire for them. */}
         <Route
           path="/studio/18-plus"
           element={
-            <CreatorRoute workspaceName="The 18+ Studio" description="The 18+ Studio is a creator workspace for mature character imagery.">
+            <AdminRoute>
               <Studio18Plus />
-            </CreatorRoute>
+            </AdminRoute>
           }
         />
 
@@ -149,16 +152,16 @@ function App() {
         />
 
         {/* Admin Creator — experimental four-reference workflow, founder/seeder
-            only. CreatorRoute keeps Wanderers out of the route entirely; the
-            page itself then re-checks canUseAdminCreator, so an ordinary
-            creator who reaches the URL gets "Not available" rather than the
-            tool. The server authorises every call independently. */}
+            only. FounderRoute (Polish Phase 6.1) is the route boundary: a
+            non-founder never mounts the page. The page keeps its own
+            canUseAdminCreator assertion as the tool-specific alias of the
+            same capability. The server authorises every call independently. */}
         <Route
           path="/admin-creator"
           element={
-            <CreatorRoute workspaceName="Admin Creator" description="Admin Creator is an internal tool for testing image generation workflows.">
+            <FounderRoute>
               <AdminCreator />
-            </CreatorRoute>
+            </FounderRoute>
           }
         />
 

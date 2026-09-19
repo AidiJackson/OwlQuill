@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Sparkles, Shield, Lock, CheckCircle2, Clock, XCircle, Loader2, ImageIcon, Download, RefreshCw, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
@@ -293,13 +293,10 @@ export default function Studio18Plus() {
     return () => clearInterval(t);
   }, [showFounderPanel, selectedId, founderActive]);
 
-  // Polish Phase 0 (X1). The whole studio router is admin-only server-side;
-  // a non-admin reaching this URL (an old bookmark, a guessed path) was shown
-  // the page shell and then a 403. Send them back to the library instead. All
-  // hooks above run unconditionally, so this early return is hook-safe.
-  if (!isAdmin) {
-    return <Navigate to="/images" replace />;
-  }
+  // Access is the route's (AdminRoute, Polish Phase 6.1): a non-admin never
+  // mounts this page, so the Phase 0 in-page redirect — which ran after the
+  // character fetch above had already fired — is gone. `isAdmin` below only
+  // selects the admin-only sections within an already-admitted page.
 
   return (
     <div className="min-h-screen">

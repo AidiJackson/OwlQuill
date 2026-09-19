@@ -1,7 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
 import { buildReturnTo, returnToFromState } from '@/lib/returnTo';
-import { canCreateCharacter, canUseCreatorTools } from '@/lib/entitlements';
+import { canCreateCharacter, canUseCreatorTools, isAdmin, isFounder } from '@/lib/entitlements';
 import type { User } from '@/lib/types';
 import WandererNotice from '@/components/WandererNotice';
 import BecomeAWriter from '@/pages/BecomeAWriter';
@@ -137,6 +137,54 @@ export function WriterRoute({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute>
       <EntitlementGate allow={canCreateCharacter} fallback={<BecomeAWriter />}>
+        {children}
+      </EntitlementGate>
+    </ProtectedRoute>
+  );
+}
+
+/**
+ * Where a signed-in visitor lands when a route is not part of their product.
+ *
+ * The internal tools guarded below hang off the Image Library, so that is
+ * the truthful "back to what you can use" destination — the same place the
+ * pages themselves used to bounce to. A redirect rather than a notice: these
+ * routes are not an upgrade path, they are not advertised, and there is
+ * nothing to explain.
+ */
+const INTERNAL_TOOL_HOME = '/images';
+
+/**
+ * Gate an admin-only surface (Polish Phase 6.1).
+ *
+ * Mirrors the backend's ``require_admin`` through the same ``isAdmin``
+ * helper every admin-only control already uses (the Image Library's 18+
+ * Studio card, the generator's adult nudge). A seeder is not an admin here,
+ * exactly as the adult-studio router refuses one. The protected page never
+ * mounts for anyone else, so none of its requests fire before the decision.
+ */
+export function AdminRoute({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <EntitlementGate allow={isAdmin} fallback={<Navigate to={INTERNAL_TOOL_HOME} replace />}>
+        {children}
+      </EntitlementGate>
+    </ProtectedRoute>
+  );
+}
+
+/**
+ * Gate a founder-tier surface (Polish Phase 6.1).
+ *
+ * ``isFounder`` — admin OR seeder — is the mirror of the backend's
+ * ``is_founder_account`` / ``require_founder``, and the predicate the Admin
+ * Creator link and ``canUseAdminCreator`` already resolve. Same audience,
+ * one definition.
+ */
+export function FounderRoute({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <EntitlementGate allow={isFounder} fallback={<Navigate to={INTERNAL_TOOL_HOME} replace />}>
         {children}
       </EntitlementGate>
     </ProtectedRoute>

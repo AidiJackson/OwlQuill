@@ -13,7 +13,9 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuthStore } from '@/lib/store';
 import type { User } from '@/lib/types';
 import {
+  AdminRoute,
   CreatorRoute,
+  FounderRoute,
   ProtectedRoute,
   PublicOnlyRoute,
   WriterRoute,
@@ -461,5 +463,118 @@ describe('logout', () => {
 
     expect(screen.getByText('LOGIN PAGE')).toBeTruthy();
     expect(screen.getByTestId('from').textContent).toBe('');
+  });
+});
+
+// ── Privileged routes: AdminRoute / FounderRoute (Polish Phase 6.1) ──────────
+//
+// Frontend route access mirrors backend authorization: AdminRoute is
+// ``isAdmin`` (require_admin), FounderRoute is ``isFounder`` — admin OR seeder
+// (require_founder / is_founder_account). A denied visitor is redirected to
+// the Image Library and the protected child is never mounted, so none of its
+// requests can fire before the decision.
+
+describe('AdminRoute and FounderRoute', () => {
+  const mounted = vi.fn();
+  function Tool() {
+    mounted();
+    return <div>PRIVILEGED TOOL</div>;
+  }
+
+  function renderPrivileged(guard: React.ReactNode, entry = '/studio/18-plus?characterId=4') {
+    return render(
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/login" element={<div>LOGIN PAGE<LocationProbe /></div>} />
+          <Route path="/images" element={<div>IMAGE LIBRARY<LocationProbe /></div>} />
+          <Route path="/studio/18-plus" element={guard} />
+          <Route path="/admin-creator" element={guard} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  const ORDINARY = makeUser({ character_count: 1, is_admin: false, is_seeder: false });
+  const SEEDER = makeUser({ character_count: 1, is_admin: false, is_seeder: true });
+  const ADMIN = makeUser({ character_count: 0, is_admin: true, is_seeder: false });
+  const ADMIN_SEEDER = makeUser({ character_count: 0, is_admin: true, is_seeder: true });
+
+  beforeEach(() => mounted.mockClear());
+
+  function expectDenied() {
+    expect(screen.getByText('IMAGE LIBRARY')).toBeTruthy();
+    expect(screen.queryByText('PRIVILEGED TOOL')).toBeNull();
+    expect(mounted).not.toHaveBeenCalled();
+    expect(path()).toBe('/images');
+  }
+
+  describe('AdminRoute', () => {
+    it('unauthenticated: redirects to /login with the deep link preserved, tool not mounted', () => {
+      renderPrivileged(<AdminRoute><Tool /></AdminRoute>);
+      expect(screen.getByText('LOGIN PAGE')).toBeTruthy();
+      expect(screen.getByTestId('from').textContent).toBe('/studio/18-plus?characterId=4');
+      expect(mounted).not.toHaveBeenCalled();
+    });
+
+    it('waits for auth resolution, mounting nothing meanwhile', () => {
+      useAuthStore.setState({ status: 'resolving', user: null });
+      renderPrivileged(<AdminRoute><Tool /></AdminRoute>);
+      expect(screen.getByRole('status')).toBeTruthy();
+      expect(mounted).not.toHaveBeenCalled();
+    });
+
+    it('ordinary creator: redirected to the Image Library, tool never mounted', () => {
+      useAuthStore.setState({ status: 'authenticated', user: ORDINARY });
+      renderPrivileged(<AdminRoute><Tool /></AdminRoute>);
+      expectDenied();
+    });
+
+    it('seeder (not admin): denied — a seeder is not an admin, exactly as require_admin refuses one', () => {
+      useAuthStore.setState({ status: 'authenticated', user: SEEDER });
+      renderPrivileged(<AdminRoute><Tool /></AdminRoute>);
+      expectDenied();
+    });
+
+    it('admin: mounts', () => {
+      useAuthStore.setState({ status: 'authenticated', user: ADMIN });
+      renderPrivileged(<AdminRoute><Tool /></AdminRoute>);
+      expect(screen.getByText('PRIVILEGED TOOL')).toBeTruthy();
+      expect(mounted).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('FounderRoute', () => {
+    const entry = '/admin-creator';
+
+    it('unauthenticated: redirects to /login with the deep link preserved, tool not mounted', () => {
+      renderPrivileged(<FounderRoute><Tool /></FounderRoute>, entry);
+      expect(screen.getByText('LOGIN PAGE')).toBeTruthy();
+      expect(screen.getByTestId('from').textContent).toBe('/admin-creator');
+      expect(mounted).not.toHaveBeenCalled();
+    });
+
+    it('ordinary creator: redirected to the Image Library, tool never mounted', () => {
+      useAuthStore.setState({ status: 'authenticated', user: ORDINARY });
+      renderPrivileged(<FounderRoute><Tool /></FounderRoute>, entry);
+      expectDenied();
+    });
+
+    it('seeder: mounts — founder capability is admin OR seeder', () => {
+      useAuthStore.setState({ status: 'authenticated', user: SEEDER });
+      renderPrivileged(<FounderRoute><Tool /></FounderRoute>, entry);
+      expect(screen.getByText('PRIVILEGED TOOL')).toBeTruthy();
+    });
+
+    it('admin: mounts — an admin is founder-capable under the existing entitlement', () => {
+      useAuthStore.setState({ status: 'authenticated', user: ADMIN });
+      renderPrivileged(<FounderRoute><Tool /></FounderRoute>, entry);
+      expect(screen.getByText('PRIVILEGED TOOL')).toBeTruthy();
+    });
+
+    it('admin+seeder: mounts', () => {
+      useAuthStore.setState({ status: 'authenticated', user: ADMIN_SEEDER });
+      renderPrivileged(<FounderRoute><Tool /></FounderRoute>, entry);
+      expect(screen.getByText('PRIVILEGED TOOL')).toBeTruthy();
+    });
   });
 });
