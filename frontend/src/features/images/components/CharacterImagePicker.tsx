@@ -186,14 +186,20 @@ export default function CharacterImagePicker({
     : 'Save profile picture';
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={`picker-title-${characterId}`}
+      onKeyDown={(e) => { if (e.key === 'Escape' && !saving) onCancel(); }}
+    >
       <div className="bg-surface border border-edge rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-edge">
-          <h2 className="font-serif text-lg text-ink">
+          <h2 id={`picker-title-${characterId}`} className="font-serif text-lg text-ink">
             {title}
             <span className="text-ink-3 font-sans text-sm"> · {characterName}</span>
           </h2>
-          <button onClick={onCancel} className="text-ink-3 hover:text-ink transition-colors" aria-label="Cancel">
+          <button type="button" onClick={onCancel} className="text-ink-3 hover:text-ink transition-colors" aria-label="Close">
             <X className="w-5 h-5" />
           </button>
         </div>

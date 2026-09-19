@@ -108,11 +108,18 @@ function CharacterManagement() {
     }
   };
 
-  // An existing character is one that's locked OR already has a generated
-  // identity canon. Both open the character detail page; only true drafts
-  // (no canon yet) resume the creation flow (S24AR).
-  const isExistingCharacter = (c: Character) =>
-    c.visual_locked === true || c.has_identity_canon === true;
+  // Established characters are the roster; everything else is in progress
+  // (Polish Phase 5.8). This was `visual_locked || has_identity_canon`, which
+  // filed a character whose reference set was generated but never
+  // established — or generated only partway — among the finished ones, with
+  // no way back into setup. `visual_locked` is the one signal every other
+  // surface reads for "established" (CharacterDetail, CanonManager, the
+  // image generator's guard), so the roster reads it too.
+  const isExistingCharacter = (c: Character) => c.visual_locked === true;
+  // A pre-canon character: established before Character Canon existed, with
+  // nothing for the ordinary generator to ground on. Its page says what to do.
+  const needsAttention = (c: Character) =>
+    c.visual_locked === true && c.has_identity_canon !== true;
 
   const activeCharacters = useMemo(
     () => characters.filter(isExistingCharacter),
@@ -468,7 +475,7 @@ function CharacterManagement() {
         <div className="border border-edge rounded-lg bg-surface px-6 py-8 mb-6 text-center space-y-3">
           <p className="text-base font-semibold text-ink">Create your first character</p>
           <p className="text-sm text-ink-2 max-w-sm mx-auto">
-            Characters unlock identity-locked scenes, posting, and roleplay.
+            Characters unlock image generation, posting, and roleplay.
           </p>
           <div className="pt-1">
             <button
@@ -505,7 +512,14 @@ function CharacterManagement() {
               </div>
             )}
             <div className="flex-1">
-              <h3 className="text-xl font-semibold">{character.name}</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-xl font-semibold">{character.name}</h3>
+                {needsAttention(character) && (
+                  <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full font-medium">
+                    Needs attention
+                  </span>
+                )}
+              </div>
               {(character.species || character.role || character.era) && (
                 <p className="text-sm text-ink-2">
                   {[character.species, character.role, character.era].filter(Boolean).join(' • ')}
@@ -533,29 +547,44 @@ function CharacterManagement() {
 
       {draftCharacters.length > 0 && (
         <div className="mt-10">
-          <h2 className="text-xl font-semibold mb-4 text-ink-2">Draft Characters</h2>
+          <h2 className="text-xl font-semibold mb-4 text-ink-2">In progress</h2>
           <div className="grid gap-3">
             {draftCharacters.map((character) => (
-              <div key={character.id} className="card flex items-center gap-4">
+              <div key={character.id} className="card flex flex-wrap items-center gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold truncate">{character.name}</h3>
                     <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full font-medium">
-                      Draft
+                      In progress
                     </span>
                   </div>
                   {character.species && (
                     <p className="text-sm text-ink-2">{character.species}</p>
                   )}
-                  <p className="text-xs text-ink-3 mt-1">Finish setup to unlock identity.</p>
+                  {/* Continue setup resumes the Creator, which picks up a
+                      generated reference set as it stands (finished cards are
+                      never remade) and ends by establishing the canon. */}
+                  <p className="text-xs text-ink-3 mt-1">
+                    {character.has_identity_canon
+                      ? 'Reference images made — finish setup to establish their Character Canon.'
+                      : 'Finish setup to establish their Character Canon.'}
+                  </p>
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
+                <div className="flex flex-wrap gap-2 flex-shrink-0">
                   <button
                     className="btn btn-primary text-sm"
                     onClick={() => navigate(`/characters/new?characterId=${character.id}`)}
                   >
-                    Continue
+                    Continue setup
                   </button>
+                  {character.has_identity_canon && (
+                    <button
+                      className="btn btn-secondary text-sm"
+                      onClick={() => navigate(`/characters/${character.id}`)}
+                    >
+                      Open
+                    </button>
+                  )}
                   <button
                     className="btn btn-secondary text-sm"
                     onClick={() => { setDeleteDraftError(''); setDraftToDelete(character); }}
@@ -580,8 +609,9 @@ function CharacterManagement() {
         onCancel={() => { if (!deletingDraft) setDraftToDelete(null); }}
       >
         <p>
-          Delete the draft <strong>{draftToDelete?.name}</strong>? Their interview answers go with
-          them. This cannot be undone.
+          Delete the draft <strong>{draftToDelete?.name}</strong>? Their interview answers
+          {draftToDelete?.has_identity_canon ? ' and Character Canon go with them; generated images stay in your image library' : ' go with them'}.
+          This cannot be undone.
         </p>
         <CharacterDeleteCooldownNote user={currentUser} />
       </ConfirmDialog>

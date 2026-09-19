@@ -155,6 +155,18 @@ describe('who sees management', () => {
 });
 
 describe('choosing an avatar — the one canonical path', () => {
+  it('the picker is a labelled dialog that closes on Escape (Phase 5.8)', async () => {
+    renderDetail();
+    const section = await openManage();
+    fireEvent.click(within(section).getByRole('button', { name: 'Change picture' }));
+    const picker = await screen.findByRole('dialog', { name: /profile picture/i });
+    expect(picker.getAttribute('aria-modal')).toBe('true');
+    expect(within(picker).getByRole('button', { name: 'Close' })).toBeTruthy();
+    expect(within(picker).getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    fireEvent.keyDown(picker, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
   it('asks the server for avatar-eligible images and offers a canon face card', async () => {
     renderDetail();
     const section = await openManage();

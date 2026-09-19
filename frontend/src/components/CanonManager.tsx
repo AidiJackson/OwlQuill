@@ -1593,11 +1593,14 @@ function OwnerStatusLine({
 
       {!established && ownerStatus !== 'legacy' && !canEstablish && hasFaceFront && (
         /* The pack wrote the face but stopped before the body front image,
-           which the body lock route requires. No route rebuilds one card. */
+           which the body lock route requires. The Creator finishes it
+           (Phase 5.8): Continue setup on the Characters page resumes with the
+           reference set as it stands, and its builder makes only the missing
+           images — finished ones are skipped, never remade. */
         <p className="text-xs text-ink-3">
           {name}&apos;s reference set is incomplete — their face was made but their body reference
-          wasn&apos;t — so their Character Canon can&apos;t be established yet and images of them
-          can&apos;t be generated. Contact Ficshon and we&apos;ll finish it.
+          wasn&apos;t — so their Character Canon can&apos;t be established yet. Finish their setup
+          from the Characters page; only the missing images are made.
         </p>
       )}
 

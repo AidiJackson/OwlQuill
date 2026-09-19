@@ -395,18 +395,22 @@ export default function SceneGeneratorPanel({
         <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2" role="status">
           {selectedChar?.name ?? 'This character'}&apos;s Character Canon isn&apos;t established yet, so
           images of them can&apos;t be generated.{' '}
+          {/* With a generated canon the character's page shows the one step
+              left — Establish, or finish the reference set from Characters —
+              so it is the destination; a true draft resumes from Characters. */}
           {selectedChar?.has_identity_canon
-            ? <>Open their page and establish their Character Canon, then come back here.</>
+            ? <>Open their page — it shows what&apos;s left to do.</>
             : <>Finish their setup from the Characters page, then come back here.</>}
         </p>
       )}
 
-      {/* Legacy character: marked established, but neither a canon nor the
-          older reference record exists to ground an image on. */}
+      {/* Pre-canon (legacy) character: marked established but with no
+          Character Canon for the generator to ground on. Their page carries
+          the "Needs attention" remediation. */}
       {anchorGuardActive && (
         <p className="text-sm text-amber-400 bg-amber-950/40 border border-amber-800/40 rounded-lg px-4 py-2" role="status">
-          Ficshon can&apos;t find {selectedChar?.name ?? 'this character'}&apos;s reference images, so it
-          can&apos;t generate new images of them yet. Open their page and check their Character Canon.
+          {selectedChar?.name ?? 'This character'} has no Character Canon for Ficshon to work from, so
+          new images of them can&apos;t be generated yet. Open their page for what to do next.
         </p>
       )}
 

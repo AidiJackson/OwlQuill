@@ -73,9 +73,10 @@ export default function StepSelect({ pack, selectedIndex, onSelect, onNext, onBa
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <h2 className="text-xl font-semibold text-ink">Review Your Identity Pack</h2>
+        <h2 className="text-xl font-semibold text-ink">Review the reference images</h2>
         <p className="text-sm text-ink-2">
-          Your full visual canon. Pick a face card as your primary portrait — tap any image to enlarge.
+          These become your character&apos;s Character Canon. Pick a face as their portrait — tap any
+          image to enlarge.
         </p>
       </div>
 

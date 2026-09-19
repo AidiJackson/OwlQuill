@@ -1,71 +1,63 @@
 import { describe, it, expect } from 'vitest';
-import { computeGeneratorGuards, parseHasIdentityAnchor } from '../generatorReadiness';
+import { computeGeneratorGuards } from '../generatorReadiness';
 
-const legacyAnchor = JSON.stringify({ anchors: { front: { url: 'https://x/a.png' } } });
-
-describe('parseHasIdentityAnchor', () => {
-  it('returns undefined when JSON is absent', () => {
-    expect(parseHasIdentityAnchor(null)).toBeUndefined();
-    expect(parseHasIdentityAnchor(undefined)).toBeUndefined();
-  });
-
-  it('returns true when anchors.front.url is present', () => {
-    expect(parseHasIdentityAnchor(legacyAnchor)).toBe(true);
-  });
-
-  it('returns false when the front url is missing or JSON is malformed', () => {
-    expect(parseHasIdentityAnchor(JSON.stringify({ anchors: { front: {} } }))).toBe(false);
-    expect(parseHasIdentityAnchor('{not json')).toBe(false);
-  });
-});
+/**
+ * The frontend readiness guard mirrors the ordinary generation path's server
+ * rule (Polish Phase 5.8): ``/image-generator/generate`` with a character
+ * requires a canon with content and consults no legacy identity source
+ * (backend/tests/test_image_generator.py::test_include_character_without_canon_returns_409,
+ * ::test_include_character_empty_canon_returns_409). ``has_identity_canon``
+ * is the server's signal that the canon holds a generated face — so the
+ * frontend offers generation only for visual_locked && has_identity_canon,
+ * and a legacy anchor is no longer a substitute the backend does not honour.
+ */
+const READY = { lockedGuardActive: false, anchorGuardActive: false };
 
 describe('computeGeneratorGuards', () => {
   it('no character selected → no guards active', () => {
-    expect(computeGeneratorGuards(null, null)).toEqual({
-      lockedGuardActive: false,
-      anchorGuardActive: false,
-    });
+    expect(computeGeneratorGuards(null, null)).toEqual(READY);
   });
 
-  it('incomplete draft (not locked) → locked guard blocks', () => {
+  it('A/B/C/D: not established (visual_locked false) → locked guard blocks, whatever else exists', () => {
+    for (const has_identity_canon of [false, true]) {
+      expect(
+        computeGeneratorGuards(7, { visual_locked: false, has_identity_canon }),
+      ).toEqual({ lockedGuardActive: true, anchorGuardActive: false });
+    }
+  });
+
+  it('E: established v2 character (locked + has_identity_canon) → ready', () => {
     expect(
-      computeGeneratorGuards(7, { visual_locked: false, identity_anchor_json: null }),
-    ).toEqual({ lockedGuardActive: true, anchorGuardActive: false });
+      computeGeneratorGuards(62, { visual_locked: true, has_identity_canon: true }),
+    ).toEqual(READY);
   });
 
-  it('legacy locked character with valid anchor → ready', () => {
-    expect(
-      computeGeneratorGuards(7, { visual_locked: true, identity_anchor_json: legacyAnchor }),
-    ).toEqual({ lockedGuardActive: false, anchorGuardActive: false });
-  });
-
-  it('legacy locked character with missing anchor and no canon → anchor guard blocks', () => {
+  it('F: legacy locked character with no v2 canon → blocked, even with a legacy anchor', () => {
+    // The backend would answer 409 "Character canon incomplete"; the anchor
+    // is not consulted on this route, so it must not unlock the button.
     expect(
       computeGeneratorGuards(7, {
         visual_locked: true,
         has_identity_canon: false,
-        identity_anchor_json: JSON.stringify({ anchors: { front: {} } }),
-      }),
+        identity_anchor_json: JSON.stringify({ anchors: { front: { url: 'https://x/a.png' } } }),
+      } as Parameters<typeof computeGeneratorGuards>[1]),
+    ).toEqual({ lockedGuardActive: false, anchorGuardActive: true });
+    expect(
+      computeGeneratorGuards(7, { visual_locked: true, has_identity_canon: false }),
     ).toEqual({ lockedGuardActive: false, anchorGuardActive: true });
   });
 
-  it('v2 canon character (locked + has_identity_canon, no legacy anchor) → ready (Bertie id=62)', () => {
+  it('G: bridged legacy character (locked + has_identity_canon, body not locked) → ready', () => {
+    // has_identity_canon means face_front is in the canon, which satisfies
+    // has_any_canon_content on the server.
     expect(
-      computeGeneratorGuards(62, {
-        visual_locked: true,
-        has_identity_canon: true,
-        identity_anchor_json: null,
-      }),
-    ).toEqual({ lockedGuardActive: false, anchorGuardActive: false });
+      computeGeneratorGuards(7, { visual_locked: true, has_identity_canon: true }),
+    ).toEqual(READY);
   });
 
-  it('v2 canon character whose stale anchor JSON lacks front.url → still ready', () => {
+  it('a payload that predates has_identity_canon is treated as no canon', () => {
     expect(
-      computeGeneratorGuards(62, {
-        visual_locked: true,
-        has_identity_canon: true,
-        identity_anchor_json: JSON.stringify({ anchors: { front: {} } }),
-      }),
-    ).toEqual({ lockedGuardActive: false, anchorGuardActive: false });
+      computeGeneratorGuards(7, { visual_locked: true } as Parameters<typeof computeGeneratorGuards>[1]),
+    ).toEqual({ lockedGuardActive: false, anchorGuardActive: true });
   });
 });

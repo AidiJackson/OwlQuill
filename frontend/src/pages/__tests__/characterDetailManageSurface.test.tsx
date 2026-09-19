@@ -20,6 +20,7 @@ const getCharacter = vi.fn();
 const getMe = vi.fn();
 const getCharacterMentions = vi.fn();
 const getIdentityCanon = vi.fn();
+const listCharacterImages = vi.fn();
 const lockFaceCanon = vi.fn();
 const lockBodyCanon = vi.fn();
 
@@ -28,7 +29,7 @@ vi.mock('@/lib/apiClient', () => ({
     getCharacter: (...a: unknown[]) => getCharacter(...a),
     getMe: (...a: unknown[]) => getMe(...a),
     getCharacterMentions: (...a: unknown[]) => getCharacterMentions(...a),
-    listCharacterImages: () => Promise.resolve([]),
+    listCharacterImages: (...a: unknown[]) => listCharacterImages(...a),
     getCharacterPosts: () => Promise.resolve([]),
     listMyCharacterImages: () => Promise.resolve([]),
     getIdentityCanon: (...a: unknown[]) => getIdentityCanon(...a),
@@ -90,6 +91,7 @@ beforeEach(() => {
   getMe.mockResolvedValue(ORDINARY);
   getCharacterMentions.mockResolvedValue([]);
   getIdentityCanon.mockResolvedValue(null);
+  listCharacterImages.mockResolvedValue([]);
   useAuthStore.setState({ user: ORDINARY, status: 'authenticated' });
 });
 
@@ -331,6 +333,43 @@ describe('Canon status — launcher and manager agree (Phase 5.7 addendum)', () 
     const dialog = await screen.findByRole('dialog');
     await within(dialog).findByText('Established');
     expect(within(dialog).queryByRole('button', { name: 'Establish Character Canon' })).toBeNull();
+  });
+});
+
+describe('Dialogs on the page (Phase 5.8 accessibility)', () => {
+  it('the Canon modal is a labelled dialog, takes focus, closes on Escape and returns focus to its launcher', async () => {
+    renderPage();
+    await openManage();
+    const launcher = screen.getByRole('button', { name: 'Manage Character Canon' });
+    fireEvent.click(launcher);
+    const dialog = await screen.findByRole('dialog', { name: 'Manage Character Canon' });
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Manage Character Canon' })).toBeNull());
+    expect(document.activeElement).toBe(launcher);
+  });
+
+  it('the image preview is a labelled dialog with a named close button, closes on Escape, and closes on an :id change', async () => {
+    listCharacterImages.mockImplementation((id: number) =>
+      Promise.resolve(id === 42 ? [{ id: 9, url: '/nine.png', kind: 'scene_only' }] : []),
+    );
+    renderPage();
+    await screen.findByRole('heading', { name: 'Taylor' });
+    fireEvent.click(screen.getByRole('button', { name: 'Media' }));
+    const thumb = await screen.findByRole('img', { name: /scene only/ });
+    fireEvent.click(thumb.closest('button') ?? thumb);
+    const preview = await screen.findByRole('dialog', { name: 'Image preview' });
+    expect(within(preview).getByRole('button', { name: 'Close preview' })).toBeTruthy();
+    fireEvent.keyDown(preview, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Image preview' })).toBeNull());
+
+    // Re-open, then change character: the overlay must not survive.
+    fireEvent.click(await screen.findByRole('img', { name: /scene only/ }));
+    await screen.findByRole('dialog', { name: 'Image preview' });
+    fireEvent.click(screen.getByText('go to 43'));
+    await screen.findByRole('heading', { name: 'Morgan' });
+    expect(screen.queryByRole('dialog', { name: 'Image preview' })).toBeNull();
   });
 });
 

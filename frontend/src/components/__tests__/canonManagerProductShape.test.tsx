@@ -447,13 +447,14 @@ describe('Establishing canon (addendum A) and the shared status (addendum B)', (
     expect(onEstablished).toHaveBeenCalledTimes(1);
   });
 
-  it('a pack that stopped before the body reference is told the truth, with no invented recovery', async () => {
+  it('a pack that stopped before the body reference is told the truth and sent to finish setup (the Creator makes only the missing images)', async () => {
     getIdentityCanon.mockResolvedValue(makeCanon({}, { face_front_image_url: '/f.png' }));
     render(<CanonManager characterId={7} isOwner isFounder={false} characterName="Taylor" ownerStatus="unfinished" />);
     await screen.findByText('In progress');
     expect(screen.queryByRole('button', { name: 'Establish Character Canon' })).toBeNull();
+    expect(screen.queryByText('Established')).toBeNull();
     expect(screen.getByText(/reference set is incomplete/)).toBeTruthy();
-    expect(screen.getByText(/Contact Ficshon/)).toBeTruthy();
+    expect(screen.getByText(/Finish their setup from the Characters page; only the missing images are made/)).toBeTruthy();
   });
 
   it('a true draft (no canon at all) is sent to finish setup', async () => {

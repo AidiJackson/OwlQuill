@@ -58,7 +58,7 @@ const renderPage = () =>
 
 async function openDraftDialog() {
   renderPage();
-  await screen.findByRole('heading', { name: 'Draft Characters' });
+  await screen.findByRole('heading', { name: 'In progress' });
   fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
   return screen.getByRole('dialog');
 }

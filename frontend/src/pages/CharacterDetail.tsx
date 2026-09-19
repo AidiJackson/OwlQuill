@@ -58,6 +58,19 @@ export default function CharacterDetail() {
 
   // Manage Character Canon modal — hosts the CanonManager (single source of identity truth)
   const [showCanonModal, setShowCanonModal] = useState(false);
+  // Focus: into the dialog on open, back to the launcher on close (Phase 5.8).
+  const canonDialogRef = useRef<HTMLDivElement>(null);
+  const canonLauncherRef = useRef<HTMLButtonElement>(null);
+  const canonWasOpenRef = useRef(false);
+  useEffect(() => {
+    if (showCanonModal) {
+      canonWasOpenRef.current = true;
+      canonDialogRef.current?.focus();
+    } else if (canonWasOpenRef.current) {
+      canonWasOpenRef.current = false;
+      canonLauncherRef.current?.focus();
+    }
+  }, [showCanonModal]);
 
   const [galleryImages, setGalleryImages] = useState<CharacterGalleryImage[]>([]);
   const [timeline, setTimeline] = useState<ProfileTimelineItem[]>([]);
@@ -266,6 +279,7 @@ export default function CharacterDetail() {
     setPicker(null);
     setRemoveTarget(null);
     setShowDeleteModal(false);
+    setLightboxIdx(null);
     Promise.all([
       apiClient.getCharacter(charId),
       apiClient.getMe().catch(() => null),
@@ -855,11 +869,12 @@ export default function CharacterDetail() {
                   themselves in every new image.
                 </p>
                 <button
+                  ref={canonLauncherRef}
                   type="button"
                   onClick={() => setShowCanonModal(true)}
                   className="btn btn-secondary text-xs flex items-center gap-2"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
+                  <Sparkles className="w-3.5 h-3.5" aria-hidden />
                   Manage Character Canon
                 </button>
               </div>
@@ -920,16 +935,23 @@ export default function CharacterDetail() {
         <div
           className={`fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm transition-opacity duration-200 ${lbVisible ? 'opacity-100' : 'opacity-0'}`}
           onClick={closeLightbox}
+          onKeyDown={(e) => { if (e.key === 'Escape') closeLightbox(); }}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Image preview"
             className={`relative max-w-md w-full mx-4 transition-all duration-200 ease-out ${lbVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
+              type="button"
+              autoFocus
+              aria-label="Close preview"
               className="absolute top-3 right-3 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 z-10"
               onClick={closeLightbox}
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4" aria-hidden />
             </button>
             <img
               src={resolveImageUrl(galleryImages[lightboxIdx].url)}
@@ -965,10 +987,12 @@ export default function CharacterDetail() {
           onKeyDown={(e) => { if (e.key === 'Escape') setShowCanonModal(false); }}
         >
           <div
+            ref={canonDialogRef}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-labelledby="canon-modal-title"
-            className="bg-surface-overlay border border-edge-md rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]"
+            className="bg-surface-overlay border border-edge-md rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh] focus:outline-none"
           >
 
             {/* Header */}

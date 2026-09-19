@@ -466,9 +466,9 @@ export const STEP_DOSSIER = 4;
 export const STEP_LABELS = [
   'Interview',
   'Sketch',
-  'Identity Pack',
-  'Choose Canon',
-  'Dossier',
+  'Reference images',
+  'Choose portrait',
+  'Character Canon',
 ];
 
 // ── B16: Body morphology ─────────────────────────────────────────────

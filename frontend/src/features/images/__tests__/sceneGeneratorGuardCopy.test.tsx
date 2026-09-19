@@ -52,16 +52,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('SceneGeneratorPanel guard copy', () => {
-  it('not established, canon generated (abandoned pack): blocked, sent to establish it on the character page', () => {
+  it('C/D — not established, canon generated: blocked, sent to the character page (which shows Establish or finish-setup)', () => {
     renderWith({ visual_locked: false, has_identity_canon: true });
     const note = screen.getByRole('status');
     expect(note.textContent).toMatch(/Taylor's Character Canon isn't established yet/);
-    expect(note.textContent).toMatch(/Open their page and establish their Character Canon/);
+    expect(note.textContent).toMatch(/Open their page — it shows what's left to do/);
+    // Never promises "establish" — a partial pack cannot be established yet.
+    expect(note.textContent).not.toMatch(/establish their/);
     expect(note.textContent).not.toMatch(IMPLEMENTATION_TERMS);
     expect(generateButton().disabled).toBe(true);
   });
 
-  it('not established, no canon (true draft): blocked, told to finish setup from the Characters page', () => {
+  it('A/B — not established, no canon (true draft): blocked, told to finish setup from the Characters page', () => {
     renderWith({ visual_locked: false, has_identity_canon: false });
     const note = screen.getByRole('status');
     expect(note.textContent).toMatch(/Finish their setup from the Characters page/);
@@ -69,23 +71,21 @@ describe('SceneGeneratorPanel guard copy', () => {
     expect(generateButton().disabled).toBe(true);
   });
 
-  it('established legacy character with no canon and no reference record: blocked, told where to look', () => {
-    renderWith({ visual_locked: true, has_identity_canon: false, identity_anchor_json: '{"anchors":{}}' });
-    const note = screen.getByRole('status');
-    expect(note.textContent).toMatch(/can't find Taylor's reference images/);
-    expect(note.textContent).toMatch(/check their Character Canon/);
-    expect(note.textContent).not.toMatch(IMPLEMENTATION_TERMS);
-    expect(generateButton().disabled).toBe(true);
+  it('F — legacy character (visual_locked, no v2 canon): blocked and sent to their page, with or without a legacy anchor', () => {
+    for (const identity_anchor_json of ['{"anchors":{}}', '{"anchors":{"front":{"url":"/a.png"}}}', null]) {
+      const view = renderWith({ visual_locked: true, has_identity_canon: false, identity_anchor_json });
+      const note = screen.getByRole('status');
+      expect(note.textContent).toMatch(/Taylor has no Character Canon for Ficshon to work from/);
+      expect(note.textContent).toMatch(/Open their page for what to do next/);
+      expect(note.textContent).not.toMatch(IMPLEMENTATION_TERMS);
+      expect(generateButton().disabled).toBe(true);
+      view.unmount();
+    }
   });
 
-  it('established with a canon: no guard, generation offered (button gated on the prompt only)', () => {
+  it('E/G — established with a canon: no guard, generation offered (button gated on the prompt only)', () => {
     renderWith({ visual_locked: true, has_identity_canon: true });
     expect(screen.queryByRole('status')).toBeNull();
     expect(generateButton().disabled).toBe(true); // empty prompt
-  });
-
-  it('established legacy character with a reference record: no guard', () => {
-    renderWith({ visual_locked: true, has_identity_canon: false, identity_anchor_json: '{"anchors":{"front":{"url":"/a.png"}}}' });
-    expect(screen.queryByRole('status')).toBeNull();
   });
 });

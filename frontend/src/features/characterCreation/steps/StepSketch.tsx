@@ -195,10 +195,10 @@ export default function StepSketch({
         <p className="text-sm text-ink-2">
           A quick preview of how the artist reads your answers.
         </p>
-        {/* The relationship to the Identity Pack, stated once, where it matters (C16). */}
+        {/* The relationship to the reference images, stated once, where it matters (C16). */}
         <p className="text-xs text-ink-3 mt-1">
-          Your Identity Pack is generated from your answers, not from this sketch — so it&apos;s
-          fine to skip it, and fine to try a couple of styles.
+          Your character&apos;s reference images are generated from your answers, not from this
+          sketch — so it&apos;s fine to skip it, and fine to try a couple of styles.
         </p>
       </div>
 
@@ -253,7 +253,7 @@ export default function StepSketch({
         <InlineNotice tone="info">
           <p>{allowanceCopy(allowance)}</p>
           <p className="text-xs text-ink-3 mt-1">
-            The sketch is optional — skip it and build the Identity Pack from your answers.
+            The sketch is optional — skip it and build the reference images from your answers.
           </p>
         </InlineNotice>
       ) : (
@@ -329,7 +329,7 @@ export default function StepSketch({
           onClick={onConfirmed}
           className="flex-1 py-2 rounded-lg border border-edge-md text-ink-3 hover:text-ink-2 hover:border-gem/40 text-sm transition-colors"
         >
-          {sketch ? 'Skip — build the pack' : 'Skip the sketch'}
+          {sketch ? 'Skip — make the reference images' : 'Skip the sketch'}
         </button>
       </div>
     </div>

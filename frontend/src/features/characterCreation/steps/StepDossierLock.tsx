@@ -17,25 +17,33 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
   const navigate = useNavigate();
   const [locking, setLocking] = useState(true);
   const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const who = basics.name || 'your character';
 
+  // Establishing Character Canon (Polish Phase 5.8 wording; behaviour
+  // unchanged): the same two owner-authorised lock routes, face then body,
+  // exactly as before. Both are idempotent server-side, so "Try again" after
+  // a failure simply repeats them. No provider is involved — a lock writes
+  // flags. No legacy accept/bridge.
   useEffect(() => {
     let cancelled = false;
-    // Lock the v2 canon directly — face first, then body. No legacy accept/bridge.
+    setLocking(true);
+    setError('');
     (async () => {
       try {
         await lockFaceCanon(characterId);
         await lockBodyCanon(characterId);
       } catch (err) {
         if (!cancelled) {
-          const msg = err instanceof Error ? err.message : 'Lock failed';
-          setError(msg);
+          const msg = err instanceof Error ? err.message : 'something went wrong';
+          setError(`Ficshon couldn't establish ${who}'s Character Canon (${msg}).`);
         }
       } finally {
         if (!cancelled) setLocking(false);
       }
     })();
     return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cardUrl = (slot: string) => pack.cards.find((c) => c.slot === slot)?.url || null;
   const frontImg = pack.cards[selectedIndex]?.url || cardUrl('face_front') || pack.cards[0]?.url || null;
@@ -47,9 +55,9 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
 
   if (locking) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20">
-        <Loader2 className="w-8 h-8 text-gem animate-spin" />
-        <p className="text-ink-2 text-sm">Locking identity…</p>
+      <div className="flex flex-col items-center justify-center gap-4 py-20" role="status">
+        <Loader2 className="w-8 h-8 text-gem animate-spin" aria-hidden />
+        <p className="text-ink-2 text-sm">Establishing Character Canon…</p>
       </div>
     );
   }
@@ -57,10 +65,15 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
   if (error) {
     return (
       <div className="space-y-4 text-center py-8">
-        <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-3">{error}</p>
-        <button className="btn btn-secondary" onClick={() => navigate('/characters')}>
-          Back to Characters
-        </button>
+        <p className="text-sm text-amber-400/90 bg-amber-400/10 rounded-lg px-4 py-3" role="alert">{error}</p>
+        <div className="flex flex-wrap justify-center gap-3">
+          <button className="btn btn-primary" onClick={() => setAttempt((n) => n + 1)}>
+            Try again
+          </button>
+          <button className="btn btn-secondary" onClick={() => navigate('/characters')}>
+            Back to Characters
+          </button>
+        </div>
       </div>
     );
   }
@@ -69,11 +82,12 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <div className="mx-auto w-14 h-14 rounded-full bg-gem-soft flex items-center justify-center">
-          <ShieldCheck className="w-7 h-7 text-gem" />
+          <ShieldCheck className="w-7 h-7 text-gem" aria-hidden />
         </div>
-        <h2 className="text-xl font-semibold text-ink">Identity Locked</h2>
+        <h2 className="text-xl font-semibold text-ink">Character Canon established</h2>
         <p className="text-sm text-ink-2">
-          {basics.name ? `${basics.name}'s` : "Your character's"} visual identity is now locked and saved.
+          {basics.name ? `${basics.name}'s` : "Your character's"} visual identity is saved and will
+          guide every new image of them. You can refine it any time from their page.
         </p>
       </div>
 
@@ -90,7 +104,7 @@ export default function StepDossierLock({ characterId, pack, selectedIndex, basi
           <div className="flex-1 min-w-0 space-y-1.5 pt-1">
             {basics.name && <p className="text-sm font-semibold text-ink truncate">{basics.name}</p>}
             {species && <p className="text-xs text-ink-2">{species}</p>}
-            <p className="text-xs text-gem font-medium">Visual identity confirmed</p>
+            <p className="text-xs text-gem font-medium">Character Canon established</p>
           </div>
 
           {bodyImg && (

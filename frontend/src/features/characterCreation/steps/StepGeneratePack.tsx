@@ -100,7 +100,7 @@ export default function StepGeneratePack({
       if (deliveredJobRef.current !== j.job_id && j.result) {
         deliveredJobRef.current = j.job_id;
         if (j.result.stopped) {
-          setError('Generation stopped early. Please try again.');
+          setError('Generation stopped before every reference image was made. Finishing makes only the missing ones.');
         }
         onPackGenerated(j.result);
       }
@@ -239,6 +239,17 @@ export default function StepGeneratePack({
   const cardBySlot = new Map<string, V2PackCard>();
   (pack?.cards ?? []).forEach((c) => cardBySlot.set(c.slot, c));
 
+  // The reference set as it stands (Polish Phase 5.8). The server builds
+  // per slot and SKIPS slots that already hold an image, so another run only
+  // makes the cards still missing — it never remakes a finished one, and on
+  // a complete set it makes nothing. Hence: "finish", never "regenerate".
+  // The next step establishes the canon through the face/body lock routes,
+  // which need the front face and front body images; without both it would
+  // fail there, so Next waits for them here.
+  const missingSlots = [...FACE_ORDER, ...BODY_ORDER].filter((slot) => !cardBySlot.get(slot)?.url);
+  const hasFrontImages = !!cardBySlot.get('face_front')?.url && !!cardBySlot.get('body_front')?.url;
+  const packIncomplete = !!pack && missingSlots.length > 0;
+
   const renderSection = (title: string, slots: string[]) => (
     <div className="space-y-2">
       <h3 className="text-sm font-medium text-ink-2">{title}</h3>
@@ -280,9 +291,10 @@ export default function StepGeneratePack({
         <div className="mx-auto w-12 h-12 rounded-full bg-gem-soft flex items-center justify-center">
           <ImageIcon className="w-6 h-6 text-gem" />
         </div>
-        <h2 className="text-xl font-semibold text-ink">Generate Identity Pack</h2>
+        <h2 className="text-xl font-semibold text-ink">Make the reference images</h2>
         <p className="text-sm text-ink-2">
-          We'll create your character's full visual canon — face, body, and details.
+          We'll create your character's reference images — face, body, and details. Together
+          they become their Character Canon.
         </p>
       </div>
 
@@ -331,30 +343,35 @@ export default function StepGeneratePack({
 
       <div className="text-center space-y-1">
         <p className="text-sm font-medium text-ink-2">
-          Locking facial identity first — outfits come next.
+          Face first — outfits come later, in the image generator.
         </p>
         <p className="text-xs text-ink-3">
-          This pack creates your character's visual canon (13 reference cards).
+          13 reference images: five of the face, eight of the body.
         </p>
       </div>
 
-      <div className="flex justify-center">
-        <button className="btn btn-primary flex items-center gap-2" onClick={handleGenerate} disabled={busy}>
-          {busy ? (
-            <>
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              {job?.status === 'queued' ? 'Queued…' : 'Generating your canon pack…'}
-            </>
-          ) : pack ? (
-            <>
-              <RefreshCw className="w-4 h-4" />
-              Regenerate Pack
-            </>
-          ) : (
-            'Generate Identity Pack'
-          )}
-        </button>
-      </div>
+      {/* One button, three honest states: nothing yet → make them; some
+          missing → finish them (only the missing ones are made); all present
+          → nothing to press, Next is the way on. */}
+      {(busy || !pack || packIncomplete) && (
+        <div className="flex justify-center">
+          <button className="btn btn-primary flex items-center gap-2" onClick={handleGenerate} disabled={busy}>
+            {busy ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" aria-hidden />
+                {job?.status === 'queued' ? 'Queued…' : 'Making the reference images…'}
+              </>
+            ) : packIncomplete ? (
+              <>
+                <RefreshCw className="w-4 h-4" aria-hidden />
+                Finish the reference images ({missingSlots.length} missing)
+              </>
+            ) : (
+              'Make the reference images'
+            )}
+          </button>
+        </div>
+      )}
 
       {jobActive && (
         <div className="max-w-sm mx-auto space-y-2" aria-live="polite">
@@ -452,11 +469,18 @@ export default function StepGeneratePack({
         </div>
       )}
 
+      {!busy && pack && !hasFrontImages && (
+        <p className="text-xs text-amber-400 text-center" role="status">
+          The front face and front body images are needed before Next — press Finish the reference
+          images to make them.
+        </p>
+      )}
+
       <div className="flex justify-between pt-2">
         <button className="btn btn-secondary" onClick={onBack}>
           Back
         </button>
-        <button className="btn btn-primary" disabled={!pack || loading} onClick={onNext}>
+        <button className="btn btn-primary" disabled={!pack || loading || !hasFrontImages} onClick={onNext}>
           Next
         </button>
       </div>
