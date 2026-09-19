@@ -353,29 +353,43 @@ def get_character(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Character not found"
         )
-    # Owner link is shown to the owner only (permanent, character-first policy):
-    # omit owner_username for non-owner viewers so a public character cannot be
-    # traced back to the account that owns it.
-    is_owner = character.owner_id == current_user.id
+    return _detail_projection(
+        db, character, viewer_is_owner=character.owner_id == current_user.id
+    )
+
+
+def _detail_projection(db: Session, character: CharacterModel, *, viewer_is_owner: bool) -> Character:
+    """The character detail read, for one viewer.
+
+    Shared by the detail GET and the owner PATCH (Polish Phase 5.4) so an
+    edit returns exactly what a subsequent read would — the client renders the
+    PATCH response in place of the page's character, and the two must not
+    disagree on the avatar, the cover, or the owner-only fields.
+
+    Owner link is shown to the owner only (permanent, character-first policy):
+    omit owner_username for non-owner viewers so a public character cannot be
+    traced back to the account that owns it.
+
+    Beta Boundary 2: project rather than return the ORM row, so the avatar and
+    cover answer to the public-media rule. Projected AFTER the computed extras
+    below, which are read off the object during validation. The resolver's
+    verdict lands on the schema and never on the row — assigning it back to
+    ``character.avatar_url`` would mark the row dirty and let a later flush
+    persist a suppression as a deletion.
+
+    Polish Phase 5.1: the projection is also where the VIEWER boundary is
+    applied. A non-owner reading a PUBLIC character receives ``is_owner``
+    false and none of ``owner_id`` / ``owner_username`` /
+    ``identity_anchor_json`` / ``identity_health`` — the account behind a
+    character and its identity infrastructure are the owner's alone. The
+    same rule as the directory and search, which never carried them.
+    """
     character.owner_username = (
-        character.owner.username if (is_owner and character.owner) else None
+        character.owner.username if (viewer_is_owner and character.owner) else None
     )
     character.identity_health = compute_identity_health(character)
     character.has_identity_canon = character.id in _canon_generated_ids(db, [character.id])
-    # Beta Boundary 2: project rather than return the ORM row, so the avatar and
-    # cover answer to the public-media rule. Projected AFTER the computed extras
-    # above, which are read off the object during validation. The resolver's
-    # verdict lands on the schema and never on the row — assigning it back to
-    # ``character.avatar_url`` would mark the row dirty and let a later flush
-    # persist a suppression as a deletion.
-    #
-    # Polish Phase 5.1: the projection is also where the VIEWER boundary is
-    # applied. A non-owner reading a PUBLIC character receives ``is_owner``
-    # false and none of ``owner_id`` / ``owner_username`` /
-    # ``identity_anchor_json`` / ``identity_health`` — the account behind a
-    # character and its identity infrastructure are the owner's alone. The
-    # same rule as the directory and search, which never carried them.
-    return project_character(db, character, viewer_is_owner=is_owner)
+    return project_character(db, character, viewer_is_owner=viewer_is_owner)
 
 
 def _get_visible_character(
@@ -539,9 +553,13 @@ def update_character(
 
     db.commit()
     db.refresh(character)
-    # Ownership was checked above; the read schema says so (Phase 5.1).
-    character.is_owner = True
-    return character
+    # Ownership was checked above, so this is the OWNER's detail read (Phase
+    # 5.1 ``is_owner`` true, owner-only fields present) put through the same
+    # projection as GET (Phase 5.4). It used to return the bare row: correct
+    # values, but an unresolved avatar/cover and no ``has_identity_canon``, so
+    # a client that adopted it in place of the page's character would have
+    # regressed exactly the fields it had not edited.
+    return _detail_projection(db, character, viewer_is_owner=True)
 
 
 @router.post("/{character_id}/avatar", response_model=SetCharacterAvatarResponse)

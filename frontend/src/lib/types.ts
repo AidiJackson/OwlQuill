@@ -86,6 +86,21 @@ export interface Character {
   updated_at: string;
 }
 
+/** Body of `PATCH /characters/{id}` for the owner's Edit Details form (Polish
+ *  Phase 5.4). Partial on the server (`exclude_unset`); an explicit `null`
+ *  clears an optional field. Only the PD-1 profile fields and visibility —
+ *  identity fields are deliberately not on this type. */
+export type CharacterProfilePatch = {
+  name?: string;
+  alias?: string | null;
+  role?: string | null;
+  era?: string | null;
+  short_bio?: string | null;
+  long_bio?: string | null;
+  tags?: string | null;
+  visibility?: Character['visibility'];
+};
+
 export interface CharacterSearchResult {
   id: number;
   name: string;

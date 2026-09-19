@@ -26,6 +26,7 @@ import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import CharacterDeleteCooldownNote from '@/components/CharacterDeleteCooldownNote';
+import CharacterEditDetails from '@/components/CharacterEditDetails';
 import CharacterImagePicker from '@/features/images/components/CharacterImagePicker';
 import { hasActingCharacter, isFounder } from '@/lib/entitlements';
 import { avatarTransformStyle } from '@/lib/media';
@@ -130,6 +131,24 @@ export default function CharacterDetail() {
   const openDeleteModal = () => {
     setShowDeleteModal(true);
     setDeleteError('');
+  };
+
+  // Edit Details (Polish Phase 5.4). The PATCH returns the owner's detail
+  // projection — the same document GET returns — so it replaces the page's
+  // character outright rather than being merged field by field.
+  //
+  // A rename also changes ``active_character.name`` on the account, which the
+  // sidebar reads from the auth store; re-read it the way Phase 5.3 does
+  // (getMe + setUser, never fetchUser). The save has already succeeded, so a
+  // failed re-read is a stale sidebar until the next load and nothing more.
+  const handleDetailsSaved = (updated: Character) => {
+    const renamed = character !== null && updated.name !== character.name;
+    setCharacter(updated);
+    if (renamed) {
+      apiClient.getMe()
+        .then((me) => { if (mountedRef.current) setUser(me); })
+        .catch(() => { /* stale sidebar until next load */ });
+    }
   };
 
   const closeDeleteModal = () => {
@@ -625,6 +644,10 @@ export default function CharacterDetail() {
         {/* Manage — owner only. The character's backstage. */}
         {activeTab === 'manage' && isOwner && (
           <div className="space-y-6 max-w-3xl">
+            {/* Profile details + visibility (Polish Phase 5.4). Owner-only by
+                the same is_owner gate as the rest of this tab. */}
+            <CharacterEditDetails character={character} onSaved={handleDetailsSaved} />
+
             <div className="rounded-2xl p-5 bg-surface border border-edge space-y-3">
               <h3 className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3">Character Tools</h3>
               <div className="flex flex-wrap gap-2">
