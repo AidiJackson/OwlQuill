@@ -91,7 +91,7 @@ describe('CharacterDetail ownership comes from is_owner', () => {
     await screen.findByRole('button', { name: 'Message' });
     expect(ownerOnly().manageTab).toBeNull();
     expect(ownerOnly().addCover).toBeNull();
-    expect(screen.queryByText('Danger Zone')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Delete character' })).toBeNull();
   });
 
   it('treats a response without is_owner as a visitor', async () => {

@@ -6,7 +6,7 @@ import type { CharacterImageRead } from '@/features/characterCreation/shared/typ
 import type { Character } from '@/lib/types';
 import type { SelectedReference } from '@/features/images/referenceKinds';
 import { useAuthStore } from '@/lib/store';
-import { isFounder as accountIsFounder } from '@/lib/entitlements';
+import { isAdmin as accountIsAdmin, isFounder as accountIsFounder } from '@/lib/entitlements';
 import { isAdultAdjacent } from '@/features/images/adultContent';
 import { computeGeneratorGuards } from '@/features/images/generatorReadiness';
 import ReferencePicker from '@/features/images/components/ReferencePicker';
@@ -68,9 +68,16 @@ export default function SceneGeneratorPanel({
   const [showAdultNudge, setShowAdultNudge] = useState(false);
 
   const user = useAuthStore((s) => s.user);
-  const isAdmin = !!user?.is_admin;
+  const isAdmin = accountIsAdmin(user);
   const isFounder = accountIsFounder(user);
   const navigate = useNavigate();
+  // The 18+ Studio router is admin-only server-side (adult_studio.py:
+  // ``APIRouter(dependencies=[Depends(require_admin)])``) — the same rule the
+  // Image Library's studio card uses. The adult-adjacent nudge exists only to
+  // point at that door, so an account that cannot open it is not shown the
+  // nudge at all (Polish Phase 5.6): it used to interrupt every creator with
+  // a CTA to a page whose every request 403s.
+  const canOpenAdultStudio = isAdmin;
 
   // ── Founder workflow state ────────────────────────────────────────
   // Hand-picked references, and a token bumped after an upload so the picker
@@ -190,7 +197,8 @@ export default function SceneGeneratorPanel({
     if (!canGenerate) return;
     // Adult-adjacent soft nudge: surface the 18+ Studio entry once before generating.
     // Advisory only — "Continue here" re-invokes with skipAdultCheck=true.
-    if (!skipAdultCheck && isAdultAdjacent(prompt)) {
+    // Only for accounts the Studio admits; everyone else generates as normal.
+    if (canOpenAdultStudio && !skipAdultCheck && isAdultAdjacent(prompt)) {
       setShowAdultNudge(true);
       return;
     }

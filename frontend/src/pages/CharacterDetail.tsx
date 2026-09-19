@@ -10,7 +10,6 @@ import {
   Image as ImageIcon,
   Camera,
   Crop,
-  BookOpen,
   MessageCircle,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
@@ -31,7 +30,12 @@ import { hasActingCharacter, isFounder } from '@/lib/entitlements';
 import { avatarTransformStyle, coverObjectPosition } from '@/lib/media';
 import { useAuthStore } from '@/lib/store';
 
-type Tab = 'timeline' | 'stories' | 'media' | 'mentions' | 'manage';
+// Stories is deliberately absent (Polish Phase 5.6, PD-7): the tab was a
+// static empty-state placeholder with no character-scoped Stories behind
+// it. It returns when that product exists — not wired to Story Spaces to give
+// the tab something to do.
+type Tab = 'timeline' | 'media' | 'mentions' | 'manage';
+const DEFAULT_TAB: Tab = 'timeline';
 
 /** The public character profile — the character IS the public identity.
  *  Nothing on this page may expose the owning account. Owner tooling lives
@@ -50,7 +54,7 @@ export default function CharacterDetail() {
 
   const justCreated = searchParams.get('created') === '1';
 
-  const [activeTab, setActiveTab] = useState<Tab>('timeline');
+  const [activeTab, setActiveTab] = useState<Tab>(DEFAULT_TAB);
 
   // Manage Character Canon modal — hosts the CanonManager (single source of identity truth)
   const [showCanonModal, setShowCanonModal] = useState(false);
@@ -251,6 +255,17 @@ export default function CharacterDetail() {
   useEffect(() => {
     if (!id) return;
     const charId = Number(id);
+    // A new :id on the same page element (Polish Phase 5.6). Nothing loaded
+    // or opened for the previous character may survive into this one: the
+    // mentions feed would otherwise keep showing the old character's posts,
+    // and an owner-only overlay (canon modal, picker, remove/delete dialog)
+    // would stay open over a character the viewer may not own.
+    setMentions([]);
+    setMentionsLoaded(false);
+    setShowCanonModal(false);
+    setPicker(null);
+    setRemoveTarget(null);
+    setShowDeleteModal(false);
     Promise.all([
       apiClient.getCharacter(charId),
       apiClient.getMe().catch(() => null),
@@ -272,19 +287,24 @@ export default function CharacterDetail() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Lazy-load mentions when the tab is first opened
+  // Lazy-load mentions when the tab is first opened. Mentions is always a
+  // visible tab, so the raw selection is the right trigger here. The cleanup
+  // drops a fetch the :id has moved on from, so it cannot land on the next
+  // character's page.
   useEffect(() => {
     if (activeTab !== 'mentions' || !id || mentionsLoaded) return;
+    let current = true;
     setMentionsLoading(true);
     apiClient.getCharacterMentions(Number(id))
-      .then((items) => { if (mountedRef.current) setMentions(items); })
-      .catch(() => { if (mountedRef.current) setMentions([]); })
+      .then((items) => { if (current && mountedRef.current) setMentions(items); })
+      .catch(() => { if (current && mountedRef.current) setMentions([]); })
       .finally(() => {
-        if (mountedRef.current) {
+        if (current && mountedRef.current) {
           setMentionsLoaded(true);
           setMentionsLoading(false);
         }
       });
+    return () => { current = false; };
   }, [activeTab, id, mentionsLoaded]);
 
   const dismissBanner = () => {
@@ -330,11 +350,16 @@ export default function CharacterDetail() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'timeline', label: 'Timeline' },
-    { id: 'stories', label: 'Stories' },
     { id: 'media', label: 'Media' },
     { id: 'mentions', label: 'Mentions' },
     ...(isOwner ? [{ id: 'manage' as Tab, label: 'Manage' }] : []),
   ];
+  // The rendered tab is derived from the tabs this viewer can see, never
+  // trusted from state alone (the same rule CanonManager applies). A stale
+  // selection — Manage held in state while the :id changed to a character
+  // the viewer does not own, or any id no longer in the list — falls back to
+  // the default tab instead of rendering a blank page or hidden content.
+  const tab: Tab = tabs.some((t) => t.id === activeTab) ? activeTab : DEFAULT_TAB;
 
   return (
     <div className="min-h-screen bg-app">
@@ -553,17 +578,17 @@ export default function CharacterDetail() {
 
           {/* Tabs — the hero's lower boundary */}
           <div className="flex items-center gap-1 mt-6 sm:mt-8 border-b border-edge overflow-x-auto hide-scrollbar">
-            {tabs.map((tab) => (
+            {tabs.map((t) => (
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
                 className={`px-3 sm:px-4 py-2.5 -mb-px text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-colors duration-200 ${
-                  activeTab === tab.id
+                  tab === t.id
                     ? 'border-gem text-ink'
                     : 'border-transparent text-ink-3 hover:text-ink-2'
                 }`}
               >
-                {tab.label}
+                {t.label}
               </button>
             ))}
           </div>
@@ -574,7 +599,7 @@ export default function CharacterDetail() {
       <div className="max-w-[1000px] mx-auto px-4 sm:px-8 py-8 pb-16">
 
         {/* Bio — the character's own introduction, shown above every public tab */}
-        {activeTab !== 'manage' && (character.short_bio || character.long_bio || character.tags) && (
+        {tab !== 'manage' && (character.short_bio || character.long_bio || character.tags) && (
           <div className="mb-10 max-w-3xl space-y-5">
             {character.short_bio && (
               <p className="font-serif text-lg sm:text-xl leading-[1.6] text-ink">{character.short_bio}</p>
@@ -595,7 +620,7 @@ export default function CharacterDetail() {
         )}
 
         {/* Timeline */}
-        {activeTab === 'timeline' && (
+        {tab === 'timeline' && (
           <div className="max-w-3xl">
             {timelineLoading ? (
               <p className="text-sm text-ink-3">Loading posts…</p>
@@ -613,19 +638,8 @@ export default function CharacterDetail() {
           </div>
         )}
 
-        {/* Stories — placeholder until character-scoped stories ship */}
-        {activeTab === 'stories' && (
-          <div className="py-16 text-center max-w-3xl">
-            <BookOpen className="w-10 h-10 text-ink-3/50 mx-auto mb-4" />
-            <h3 className="font-serif text-xl text-ink mb-1">No Stories Yet</h3>
-            <p className="text-ink-3 text-sm">
-              Stories featuring {character.name} will appear here.
-            </p>
-          </div>
-        )}
-
         {/* Media */}
-        {activeTab === 'media' && (
+        {tab === 'media' && (
           galleryImages.length === 0 ? (
             <div className="py-16 text-center max-w-3xl">
               <Camera className="w-10 h-10 text-ink-3/50 mx-auto mb-4" />
@@ -647,7 +661,7 @@ export default function CharacterDetail() {
         )}
 
         {/* Mentions */}
-        {activeTab === 'mentions' && (
+        {tab === 'mentions' && (
           <div className="max-w-3xl">
             {mentionsLoading && (
               <div className="flex justify-center py-12">
@@ -670,7 +684,7 @@ export default function CharacterDetail() {
         )}
 
         {/* Manage — owner only. The character's backstage. */}
-        {activeTab === 'manage' && isOwner && (
+        {tab === 'manage' && isOwner && (
           <div className="space-y-6 max-w-3xl">
             {/* Profile details + visibility (Polish Phase 5.4). Owner-only by
                 the same is_owner gate as the rest of this tab. */}
@@ -771,56 +785,96 @@ export default function CharacterDetail() {
               </div>
             </section>
 
-            <div className="rounded-2xl p-5 bg-surface border border-edge space-y-3">
-              <h3 className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3">Character Tools</h3>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => navigate(`/images?characterId=${character.id}`)}
-                  className="text-sm flex items-center gap-2 px-3.5 py-2 rounded-lg bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  Generate Images
-                </button>
-                {/* Polish Phase 0 (M3): always offered to the owner. This was
-                    gated on visual_locked, which left a draft character —
-                    the state every new character spends its first days in —
-                    with no way to reach its own body canon, marks or face
-                    description. The server never required a lock. */}
-                <button
-                  onClick={() => setShowCanonModal(true)}
-                  className="text-sm flex items-center gap-2 px-3.5 py-2 rounded-lg bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Manage Character Canon
-                  <span className={`ml-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+            {/* Character images (Polish Phase 5.6). One door to the Image
+                Library, opened on this character. This card was "Character
+                Tools" — a development-era grab-bag holding this button, the
+                canon launcher and a note about avatar-setting that the card
+                above has since made redundant. */}
+            <section
+              aria-labelledby="manage-images-heading"
+              className="rounded-2xl p-5 bg-surface border border-edge space-y-3"
+            >
+              <h3 id="manage-images-heading" className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3">
+                Character images
+              </h3>
+              <p className="text-xs text-ink-3">
+                Generate new images of {character.name} and curate the ones you already have.
+                Images of {character.name} appear on the Media tab.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate(`/images?characterId=${character.id}`)}
+                className="btn btn-secondary text-xs flex items-center gap-2"
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                Generate images
+              </button>
+            </section>
+
+            {/* Identity Canon (Polish Phase 5.6): the launcher and the
+                read-only canon cards were two unrelated blocks; they are one
+                subject, so they share one card. Polish Phase 0 (M3): the
+                launcher is always offered to the owner. It was gated on
+                visual_locked, which left a draft character — the state every
+                new character spends its first days in — with no way to reach
+                its own body canon, marks or face description. The server
+                never required a lock. The Canon Manager's own contents are
+                Phase 5.7's. */}
+            <section
+              aria-labelledby="manage-canon-heading"
+              className="rounded-2xl p-5 bg-surface border border-edge space-y-4"
+            >
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <h3 id="manage-canon-heading" className="font-mono text-[11px] uppercase tracking-[0.1em] text-ink-3">
+                    Identity Canon
+                  </h3>
+                  <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
                     character.visual_locked ? 'bg-gem-soft text-gem' : 'bg-surface-overlay text-ink-3'
                   }`}>
                     {character.visual_locked ? 'Locked' : 'Draft'}
                   </span>
+                </div>
+                <p className="text-xs text-ink-3">
+                  The reference set that keeps {character.name} looking like themselves from one
+                  image to the next.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowCanonModal(true)}
+                  className="btn btn-secondary text-xs flex items-center gap-2"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Manage Character Canon
                 </button>
               </div>
+              {/* v2 canon pack cards (stored in canon JSON, not the CharacterImage
+                  library). Renders nothing until something has been generated. */}
+              <ErrorBoundary>
+                <IdentityCanonSection characterId={character.id} embedded />
+              </ErrorBoundary>
+            </section>
+
+            {/* Delete — last, and visibly apart from everything above. The
+                heading was "Danger Zone": a hosting-dashboard phrase, not what
+                the section does. */}
+            <section
+              aria-labelledby="manage-delete-heading"
+              className="rounded-2xl p-5 bg-red-950/20 border border-red-900/30 space-y-2"
+            >
+              <h3 id="manage-delete-heading" className="text-sm font-semibold text-red-400">Delete character</h3>
               <p className="text-xs text-ink-3">
-                Set the avatar from any gallery image (open it from the Media tab), and set a
-                cover with the “Set as cover” action on a gallery image.
+                Permanently removes {character.name}. There is no undo.
               </p>
-            </div>
-
-            {/* Identity Canon — v2 canon pack cards (stored in canon JSON, not the
-                CharacterImage library), shown separately from scene/library images. */}
-            <ErrorBoundary>
-              <IdentityCanonSection characterId={character.id} />
-            </ErrorBoundary>
-
-            <div className="rounded-2xl p-5 bg-red-950/20 border border-red-900/30 space-y-2">
-              <h3 className="text-sm font-semibold text-red-400">Danger Zone</h3>
               <button
+                type="button"
                 className="text-xs text-red-500 hover:text-red-400 transition-colors flex items-center gap-1"
                 onClick={openDeleteModal}
               >
                 <Trash2 className="w-3 h-3" />
                 Delete character
               </button>
-            </div>
+            </section>
           </div>
         )}
       </div>
@@ -887,8 +941,10 @@ export default function CharacterDetail() {
       )}
       </ErrorBoundary>
 
-      {/* Manage Character Canon modal — single source of identity truth (CanonManager) */}
-      {showCanonModal && (
+      {/* Manage Character Canon modal — single source of identity truth
+          (CanonManager). Gated on isOwner like the picker: the shell must
+          not outlive ownership either. */}
+      {showCanonModal && isOwner && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-surface-overlay border border-edge-md rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
 

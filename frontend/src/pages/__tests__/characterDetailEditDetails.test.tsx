@@ -119,7 +119,7 @@ describe('Edit Details — who sees it', () => {
     expect(screen.queryByRole('button', { name: 'Manage' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Edit details' })).toBeNull();
     expect(queryName()).toBeNull();
-    expect(screen.queryByText('Danger Zone')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Delete character' })).toBeNull();
   });
 
   it('ownership is never decided by comparing owner_id (source-level pin)', () => {
@@ -153,11 +153,13 @@ describe('Edit Details — the form', () => {
     for (const label of ['Name', 'Alias', 'Role', 'Era', 'Short bio', 'Long bio', 'Tags']) {
       expect(field(label), label).toBeTruthy();
     }
+    // Scoped to the form: the Manage tab around it now carries a labelled
+    // "Identity Canon" section (Phase 5.6), which is a region, not a field.
+    const form = field('Name').closest('form') as HTMLFormElement;
     for (const label of [/^age$/i, /species/i, /gender/i, /personality/i, /dna/i, /canon/i, /eye/i, /nose/i, /lips/i, /hair/i, /skin/i, /geometry/i]) {
-      expect(screen.queryByLabelText(label), String(label)).toBeNull();
+      expect(within(form).queryByLabelText(label), String(label)).toBeNull();
     }
     // Nothing in the form even mentions the identity values it must not touch.
-    const form = field('Name').closest('form') as HTMLFormElement;
     expect(within(form).queryByDisplayValue('human')).toBeNull();
     expect(within(form).queryByDisplayValue('34')).toBeNull();
   });

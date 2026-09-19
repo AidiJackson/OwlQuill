@@ -17,6 +17,10 @@ import type { CharacterCanonRead } from '../shared/types';
 
 interface Props {
   characterId: number;
+  /** Rendered inside a card that already carries the "Identity Canon" heading
+   *  (CharacterDetail's Manage tab, Polish Phase 5.6): drop this component's
+   *  own header and top rule so the subject is named once. */
+  embedded?: boolean;
 }
 
 interface CanonTile {
@@ -35,7 +39,7 @@ function slotUrl(
   return typeof value === 'string' && value.trim() !== '' ? value : null;
 }
 
-export default function IdentityCanonSection({ characterId }: Props) {
+export default function IdentityCanonSection({ characterId, embedded = false }: Props) {
   const [canon, setCanon] = useState<CharacterCanonRead | null>(null);
   const [enlarged, setEnlarged] = useState<string | null>(null);
 
@@ -105,13 +109,15 @@ export default function IdentityCanonSection({ characterId }: Props) {
     );
 
   return (
-    <div className="border-t border-edge pt-6 space-y-4">
-      <div>
-        <h2 className="text-sm font-medium text-ink-2">Identity Canon</h2>
-        <p className="text-xs text-ink-3 mt-0.5">
-          The character's locked visual reference set.
-        </p>
-      </div>
+    <div className={embedded ? 'border-t border-edge pt-4 space-y-4' : 'border-t border-edge pt-6 space-y-4'}>
+      {!embedded && (
+        <div>
+          <h2 className="text-sm font-medium text-ink-2">Identity Canon</h2>
+          <p className="text-xs text-ink-3 mt-0.5">
+            The character's locked visual reference set.
+          </p>
+        </div>
+      )}
 
       {renderGroup('Face', faceTiles)}
       {renderGroup('Body', bodyTiles)}

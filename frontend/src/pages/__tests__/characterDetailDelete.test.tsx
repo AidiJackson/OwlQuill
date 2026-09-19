@@ -62,7 +62,7 @@ const renderPage = () =>
     </MemoryRouter>,
   );
 
-/** Render, open Manage → Danger Zone → the dialog. Returns the dialog element. */
+/** Render, open Manage → Delete character → the dialog. Returns the dialog element. */
 async function openDeleteDialog() {
   renderPage();
   await screen.findByRole('heading', { name: 'Taylor' });
