@@ -11,7 +11,7 @@ import { useObjectPositionDrag } from '@/features/images/useObjectPositionDrag';
 import CoverFramingPreview from '@/features/images/components/CoverFramingPreview';
 import AvatarCropEditor from '@/features/images/components/AvatarCropEditor';
 import { DEFAULT_AVATAR_CROP } from '@/features/images/avatarCropEditor';
-import { GALLERY_KINDS, GALLERY_KIND_LABELS, isGalleryKind } from '@/features/images/galleryKinds';
+import { GALLERY_KINDS, GALLERY_KIND_LABELS, imageKindLabel, isGalleryKind } from '@/features/images/galleryKinds';
 
 type LbMode = 'view' | 'coverEdit' | 'avatarEdit';
 
@@ -376,7 +376,7 @@ export default function Images() {
         {/* Role badge — real stored kind, not inferred */}
         {img.kind !== 'generated' && (
           <span className="text-[10px] font-medium uppercase tracking-wide text-gem/80 shrink-0">
-            {isGalleryKind(img.kind) ? GALLERY_KIND_LABELS[img.kind] : img.kind}
+            {imageKindLabel(img.kind)}
           </span>
         )}
         {img.prompt_summary && (

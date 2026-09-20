@@ -19,6 +19,7 @@ import MentionText from '@/components/MentionText';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { CharacterGalleryImage } from '@/lib/types';
 import ImageGrid from '@/features/images/components/ImageGrid';
+import { imageKindLabel } from '@/features/images/galleryKinds';
 import IdentityCanonSection from '@/features/characterCreation/components/IdentityCanonSection';
 import PostComposer from '@/features/posts/components/PostComposer';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -955,12 +956,12 @@ export default function CharacterDetail() {
             </button>
             <img
               src={resolveImageUrl(galleryImages[lightboxIdx].url)}
-              alt={galleryImages[lightboxIdx].kind?.replace(/_/g, ' ') ?? ''}
+              alt={imageKindLabel(galleryImages[lightboxIdx].kind)}
               className="w-full rounded-xl"
             />
             <div className="flex items-center justify-between mt-2">
-              <p className="font-mono text-xs text-white/60 capitalize">
-                {galleryImages[lightboxIdx].kind?.replace(/_/g, ' ')}
+              <p className="font-mono text-xs text-white/60">
+                {imageKindLabel(galleryImages[lightboxIdx].kind)}
               </p>
               {isOwner && (
                 <button

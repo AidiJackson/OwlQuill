@@ -357,7 +357,7 @@ describe('Dialogs on the page (Phase 5.8 accessibility)', () => {
     renderPage();
     await screen.findByRole('heading', { name: 'Taylor' });
     fireEvent.click(screen.getByRole('button', { name: 'Media' }));
-    const thumb = await screen.findByRole('img', { name: /scene only/ });
+    const thumb = await screen.findByRole('img', { name: 'Scene' });
     fireEvent.click(thumb.closest('button') ?? thumb);
     const preview = await screen.findByRole('dialog', { name: 'Image preview' });
     expect(within(preview).getByRole('button', { name: 'Close preview' })).toBeTruthy();
@@ -365,7 +365,7 @@ describe('Dialogs on the page (Phase 5.8 accessibility)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Image preview' })).toBeNull());
 
     // Re-open, then change character: the overlay must not survive.
-    fireEvent.click(await screen.findByRole('img', { name: /scene only/ }));
+    fireEvent.click(await screen.findByRole('img', { name: 'Scene' }));
     await screen.findByRole('dialog', { name: 'Image preview' });
     fireEvent.click(screen.getByText('go to 43'));
     await screen.findByRole('heading', { name: 'Morgan' });

@@ -3,6 +3,7 @@ import { X, Check, Camera, Loader2 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { LibraryImage } from '@/lib/types';
+import { imageKindLabel } from '@/features/images/galleryKinds';
 import { useObjectPositionDrag } from '../useObjectPositionDrag';
 import CoverFramingPreview from './CoverFramingPreview';
 import AvatarCropEditor from './AvatarCropEditor';
@@ -236,7 +237,7 @@ export default function CharacterImagePicker({
                       type="button"
                       onClick={() => handleSelect(img)}
                       aria-pressed={selected?.id === img.id}
-                      aria-label={`${(img.kind ?? 'image').replace(/_/g, ' ')}${img.prompt_summary ? ` — ${img.prompt_summary}` : ''}`}
+                      aria-label={`${imageKindLabel(img.kind)}${img.prompt_summary ? ` — ${img.prompt_summary}` : ''}`}
                       data-testid={`picker-image-${img.id}`}
                       className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
                         selected?.id === img.id ? 'border-gem' : 'border-transparent hover:border-edge-md'

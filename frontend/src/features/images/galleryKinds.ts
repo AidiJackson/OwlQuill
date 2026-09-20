@@ -26,3 +26,23 @@ export const GALLERY_KIND_LABELS: Record<GalleryKind, string> = {
 export function isGalleryKind(kind: string): kind is GalleryKind {
   return (GALLERY_KINDS as readonly string[]).includes(kind);
 }
+
+/**
+ * The label an ordinary surface shows for an image's kind — caption, alt
+ * text, badge. The one place a stored kind becomes product language, so
+ * "scene_only" reads as "Scene" everywhere rather than wherever someone
+ * remembered to map it.
+ *
+ * Gallery kinds use GALLERY_KIND_LABELS. Anything else — the working
+ * references an owner can see in their own gallery, or a kind the backend
+ * grows later — falls back to a readable phrase ("Identity face ref") rather
+ * than the raw enum, and never throws. Filtering must keep using the
+ * canonical values; this is presentation only.
+ */
+export function imageKindLabel(kind: string | null | undefined): string {
+  if (!kind) return 'Image';
+  if (isGalleryKind(kind)) return GALLERY_KIND_LABELS[kind];
+  const words = kind.replace(/_/g, ' ').trim();
+  if (!words) return 'Image';
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}

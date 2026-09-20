@@ -87,12 +87,13 @@ export default function EditorStudio() {
       .then((chars) => {
         setCharacters(chars);
         if (chars.length === 0) return;
-        // Default to Summer for admin/test mode, else the first character.
-        const summer = isAdmin ? chars.find((c) => c.name.toLowerCase().startsWith('summer')) : undefined;
-        setCharacterId((summer ?? chars[0]).id);
+        // First character in roster order, for every audience. The select
+        // below is the only way to change it — no account gets a preferred
+        // character picked for it behind the scenes.
+        setCharacterId(chars[0].id);
       })
       .catch(() => setError('Could not load your characters.'));
-  }, [isAdmin]);
+  }, []);
 
   // Object-URL previews for the selected source files.
   useEffect(() => {
@@ -259,7 +260,7 @@ export default function EditorStudio() {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={3}
-          placeholder="e.g. Summer in a different scene on the beach wearing a blue bikini."
+          placeholder="e.g. The same character in a different scene, on the beach wearing a blue bikini."
           className="w-full mb-6 bg-surface border border-edge rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:border-violet-600"
         />
 

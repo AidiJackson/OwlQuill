@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { CharacterGalleryImage } from '@/lib/types';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
+import { imageKindLabel } from '@/features/images/galleryKinds';
 
 export interface BodyAnchorOption {
   value: string;
@@ -77,7 +78,7 @@ export default function ImageCard({
       >
         <img
           src={resolveImageUrl(image.url)}
-          alt={image.kind.replace(/_/g, ' ')}
+          alt={imageKindLabel(image.kind)}
           className="w-full aspect-[2/3] object-cover"
         />
       </button>
