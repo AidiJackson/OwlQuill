@@ -13,6 +13,7 @@ import {
   EDITOR_PROVIDERS,
   EDITOR_PROVIDER_HINTS,
   EDITOR_PROVIDER_LABELS,
+  SELF_HOSTED_UNAVAILABLE_HINT,
   type EditorGenerateResult,
   type EditorJob,
   acceptSourceFiles,
@@ -21,7 +22,9 @@ import {
   isEditorJobActive,
   loadEditorProvider,
   resolveEditorImageUrl,
+  resolveProviderForCharacter,
   saveEditorProvider,
+  selfHostedEditorSupportsCharacter,
   validateEditorForm,
 } from '@/features/editorStudio/editorGenerate';
 import { safeStorage } from '@/lib/safeStorage';
@@ -94,6 +97,17 @@ export default function EditorStudio() {
       })
       .catch(() => setError('Could not load your characters.'));
   }, []);
+
+  // Self Hosted Premium serves exactly one character. When the selection
+  // moves to any other, a held self_hosted choice falls back to the default
+  // provider rather than travelling to a server that will refuse it. The
+  // stored preference is left alone: it is the admin's choice, and the same
+  // rule re-applies on every load.
+  const selfHostedAvailable = selfHostedEditorSupportsCharacter(characterId);
+  useEffect(() => {
+    if (characterId == null) return;
+    setProvider((current) => resolveProviderForCharacter(current, characterId));
+  }, [characterId]);
 
   // Object-URL previews for the selected source files.
   useEffect(() => {
@@ -299,16 +313,20 @@ export default function EditorStudio() {
               className="w-full mb-6 bg-surface border border-edge rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-600"
             >
               {EDITOR_PROVIDERS.map((p) => (
-                <option key={p} value={p}>
+                <option key={p} value={p} disabled={p === 'self_hosted' && !selfHostedAvailable}>
                   {EDITOR_PROVIDER_LABELS[p]}
                 </option>
               ))}
             </select>
-            {EDITOR_PROVIDER_HINTS[provider as keyof typeof EDITOR_PROVIDER_HINTS] && (
+            {!selfHostedAvailable ? (
+              <p className="-mt-4 mb-6 text-xs text-ink-3">
+                Self Hosted Premium: {SELF_HOSTED_UNAVAILABLE_HINT}
+              </p>
+            ) : EDITOR_PROVIDER_HINTS[provider as keyof typeof EDITOR_PROVIDER_HINTS] ? (
               <p className="-mt-4 mb-6 text-xs text-violet-300/80">
                 {EDITOR_PROVIDER_HINTS[provider as keyof typeof EDITOR_PROVIDER_HINTS]}
               </p>
-            )}
+            ) : null}
           </>
         )}
 

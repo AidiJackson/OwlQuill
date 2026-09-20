@@ -323,6 +323,28 @@ def _self_hosted_editor():
 
 SUPPORTED_EDITOR_PROVIDERS = ("gpt-image", "grok", "self_hosted")
 
+#: The ONE character the self_hosted editor can currently transform.
+#:
+#: Self Hosted Premium is an internal admin experiment, not a character-aware
+#: provider. Everything about its pipeline is specific to this character: the
+#: LoRA ``_default_lora_url`` fetches, the trigger token and subject phrase in
+#: the pod prompt, and the segmentation heuristics the E4/E5/E7 work was tuned
+#: against. Another character acquiring a trained model does NOT make the
+#: pipeline compatible with it, which is why this is an id and not a lookup —
+#: the truth is "one character", and it should read that way.
+#:
+#: Named here, in the provider registry, rather than in editor_self_hosted.py:
+#: the route and the UI need the fact without loading the RunPod/R2 supervisor
+#: module, and editor_self_hosted.py imports it back for its own LoRA lookup so
+#: the number exists exactly once. Mirrored by SELF_HOSTED_EDITOR_CHARACTER_ID
+#: in frontend/src/features/editorStudio/editorGenerate.ts — change both.
+SELF_HOSTED_EDITOR_CHARACTER_ID = 60
+
+
+def self_hosted_editor_supports_character(character_id: int) -> bool:
+    """May the self_hosted editor run for *character_id*? One answer today."""
+    return character_id == SELF_HOSTED_EDITOR_CHARACTER_ID
+
 _EDITOR_CLASSES = {
     "gpt-image": GptImageEditor,
     "grok": GrokImageEditor,

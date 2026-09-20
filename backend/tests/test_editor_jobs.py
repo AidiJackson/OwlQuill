@@ -21,6 +21,7 @@ from tests.conftest import auth_headers, get_auth_token
 
 import app.core.config as cfg_module
 import app.services.editor_job_service as job_svc
+import app.services.editor_studio as editor_studio_svc
 from app.services.editor_job_service import (
     evaluate_quality,
 )
@@ -69,6 +70,20 @@ def _create_character(client, token, name="Editor Jobs Char") -> int:
     return resp.json()["id"]
 
 
+def _compatible_character(client, token, monkeypatch, name="Editor Jobs Char") -> int:
+    """A character the self_hosted editor accepts.
+
+    Phase 6.3B: the provider refuses every character but
+    ``SELF_HOSTED_EDITOR_CHARACTER_ID`` before the job row exists. Test
+    characters get whatever id the sequence hands out, so the tests that need
+    to get PAST that gate point the constant at the character they made. The
+    real value is pinned separately in test_editor_self_hosted_gate.py.
+    """
+    cid = _create_character(client, token, name=name)
+    monkeypatch.setattr(editor_studio_svc, "SELF_HOSTED_EDITOR_CHARACTER_ID", cid)
+    return cid
+
+
 def _png_file(name="src.png"):
     return ("images", (name, io.BytesIO(_PNG_64), "image/png"))
 
@@ -89,7 +104,7 @@ def _form(character_id: int, **overrides):
 
 def test_job_creation_returns_202(client, monkeypatch):
     token = _admin_token(client, monkeypatch)
-    cid = _create_character(client, token)
+    cid = _compatible_character(client, token, monkeypatch)
     resp = client.post("/editor/jobs", data=_form(cid), files=[_png_file()],
                        headers=auth_headers(token))
     assert resp.status_code == 202, resp.text
@@ -119,7 +134,7 @@ def test_job_provider_restricted(client, monkeypatch):
 
 def test_job_requires_exactly_one_source(client, monkeypatch):
     token = _admin_token(client, monkeypatch)
-    cid = _create_character(client, token)
+    cid = _compatible_character(client, token, monkeypatch)
     resp = client.post("/editor/jobs", data=_form(cid),
                        files=[_png_file("a.png"), _png_file("b.png")],
                        headers=auth_headers(token))
@@ -129,7 +144,7 @@ def test_job_requires_exactly_one_source(client, monkeypatch):
 
 def test_job_singleton_409(client, monkeypatch):
     token = _admin_token(client, monkeypatch)
-    cid = _create_character(client, token)
+    cid = _compatible_character(client, token, monkeypatch)
     first = client.post("/editor/jobs", data=_form(cid), files=[_png_file()],
                         headers=auth_headers(token))
     assert first.status_code == 202
@@ -143,7 +158,7 @@ def test_job_singleton_409(client, monkeypatch):
 
 def _start_service_job(db_session, client, monkeypatch):
     token = _admin_token(client, monkeypatch)
-    cid = _create_character(client, token)
+    cid = _compatible_character(client, token, monkeypatch)
     resp = client.post("/editor/jobs", data=_form(cid), files=[_png_file()],
                        headers=auth_headers(token))
     assert resp.status_code == 202, resp.text
@@ -211,7 +226,7 @@ def test_poll_running_no_report_stays_running(client, db_session, monkeypatch):
 
 def test_latest_envelope(client, db_session, monkeypatch):
     token = _admin_token(client, monkeypatch)
-    cid = _create_character(client, token, name="Latest Env Char")
+    cid = _compatible_character(client, token, monkeypatch, name="Latest Env Char")
     empty = client.get(f"/editor/jobs/latest?character_id={cid}",
                        headers=auth_headers(token))
     assert empty.status_code == 200

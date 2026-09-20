@@ -30,6 +30,8 @@ from pathlib import Path
 
 import requests
 
+from app.services.editor_studio import SELF_HOSTED_EDITOR_CHARACTER_ID
+
 logger = logging.getLogger(__name__)
 
 _GQL = "https://api.runpod.io/graphql"
@@ -106,7 +108,9 @@ def _r2_status(run_id: str) -> dict:
 
 
 def _default_lora_url() -> str:
-    """Active Summer LoRA artifact (read-only plan lookup), overridable by env."""
+    """Active LoRA artifact for the one supported character (read-only plan
+    lookup), overridable by env. The route has already refused any other
+    character by the time this runs — see SELF_HOSTED_EDITOR_CHARACTER_ID."""
     override = os.environ.get("EDITOR_SELF_HOSTED_LORA_URL")
     if override:
         return override
@@ -115,8 +119,9 @@ def _default_lora_url() -> str:
     db = SessionLocal()
     try:
         plan = build_enforcement_plan(
-            60, db, route_expectations={"sleeve": "ip_adapter",
-                                        "ballerina": "controlnet_canny"})
+            SELF_HOSTED_EDITOR_CHARACTER_ID, db,
+            route_expectations={"sleeve": "ip_adapter",
+                                "ballerina": "controlnet_canny"})
         if not plan["ready_for_executor"]:
             logger.warning("SELF_HOSTED_EDITOR lora plan not ready — running without LoRA")
             return ""

@@ -7,6 +7,10 @@ no Canon Studio generation, no Adult Studio pipeline, no LoRA/RunPod.
 Closed-beta boundary: the ``source_image_ids`` path (existing Ficshon-produced
 ``CharacterImage`` rows) is open to every creator; the multipart ``images``
 upload path is founder/seeder-only. See app.core.image_ingress.
+
+The ``self_hosted`` provider is the exception to "every creator": it is
+admin-only on both the sync and async paths, and refuses every character but
+the one its pipeline was built for. See ``_require_self_hosted_editor_access``.
 """
 import logging
 from typing import Optional
@@ -42,6 +46,7 @@ from app.services.editor_studio import (
     SUPPORTED_EDITOR_PROVIDERS,
     clamp_strength,
     get_editor,
+    self_hosted_editor_supports_character,
     strength_to_input_fidelity,
 )
 from app.services.image_quota import check_weekly_quota
@@ -65,6 +70,44 @@ class EditorGenerateResponse(BaseModel):
     strength: float
     image: Optional[CharacterImageRead] = None
     error: Optional[str] = None
+
+
+SELF_HOSTED_INCOMPATIBLE_CHARACTER_DETAIL = (
+    "Self Hosted Premium is currently available only for its configured test "
+    "character."
+)
+
+
+def _require_self_hosted_editor_access(current_user: User, character_id: int) -> None:
+    """The self_hosted provider's two gates, in order: admin, then character.
+
+    Called by BOTH routes that can reach ``SelfHostedImageEditor`` — the sync
+    ``/generate`` path and the async ``/jobs`` path — before anything with a
+    cost: before the upload-ingress check, the character lookup, the weekly
+    quota, the EditorJob row, the R2 snapshot and the pod launch. A refusal
+    here has spent nothing and written nothing.
+
+    Admin first because that gate has existed on ``/jobs`` since E5 and the
+    sync route simply never had it: the provider is a RunPod pod with a real
+    per-run cost, and hiding the option in the UI was never authorization.
+
+    Character second because the pipeline is not character-aware. It loads one
+    character's LoRA and prompts with that character's trigger token, so any
+    other selected character would be conditioned on the wrong identity while
+    the output was filed under their name. The detail says "test character"
+    rather than naming which one: that is the product truth an admin needs,
+    and the identity, the model and its storage are internals.
+    """
+    _require_admin(current_user)
+    if not self_hosted_editor_supports_character(character_id):
+        logger.info(
+            "EDITOR_SELF_HOSTED_INCOMPATIBLE_CHARACTER user_id=%s character_id=%s",
+            current_user.id, character_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=SELF_HOSTED_INCOMPATIBLE_CHARACTER_DETAIL,
+        )
 
 
 def _parse_source_image_ids(raw: Optional[str]) -> list[int]:
@@ -128,6 +171,12 @@ async def editor_generate(
             ),
         )
     strength = clamp_strength(strength)
+
+    # ── self_hosted: admin-only and one-character-only, before any cost ──
+    # The other two providers keep their creator-level access exactly as
+    # before; this gate exists for the RunPod path alone.
+    if provider == "self_hosted":
+        _require_self_hosted_editor_access(current_user, character_id)
 
     # ── Closed-beta image ingress: uploaded bytes are founder-only ────
     # BEFORE the character lookup, the quota, the byte reads and — the point of
@@ -492,6 +541,7 @@ async def editor_job_start(
             detail="Async editor jobs support only the self_hosted provider; "
                    "use POST /editor/generate for gpt-image and grok.",
         )
+    _require_self_hosted_editor_access(current_user, character_id)
     _require_admin_and_existing_character(db, current_user, character_id)
 
     quota_error = check_weekly_quota(current_user, db)

@@ -17,7 +17,11 @@ import {
   isEditorProvider,
   loadEditorProvider,
   resolveEditorImageUrl,
+  SELF_HOSTED_EDITOR_CHARACTER_ID,
+  SELF_HOSTED_UNAVAILABLE_HINT,
+  resolveProviderForCharacter,
   saveEditorProvider,
+  selfHostedEditorSupportsCharacter,
   validateEditorForm,
 } from '../editorGenerate';
 
@@ -134,6 +138,40 @@ describe('self_hosted provider (E4)', () => {
     expect(
       validateEditorForm({ characterId: 60, prompt: 'x', fileCount: 2, provider: 'grok' }),
     ).toBeNull();
+  });
+});
+
+describe('self_hosted character compatibility (Phase 6.3B)', () => {
+  it('pins the one supported character — widening this is a deliberate act', () => {
+    // Mirror of SELF_HOSTED_EDITOR_CHARACTER_ID in
+    // backend/app/services/editor_studio.py; the server refuses every other
+    // character, so a drift here would only make the UI lie.
+    expect(SELF_HOSTED_EDITOR_CHARACTER_ID).toBe(60);
+    expect(selfHostedEditorSupportsCharacter(60)).toBe(true);
+    for (const other of [1, 59, 61, 0, null]) {
+      expect(selfHostedEditorSupportsCharacter(other)).toBe(false);
+    }
+  });
+  it('refuses self_hosted for any other character before the request is built', () => {
+    const base = { prompt: 'Blue bikini at a beach resort', provider: 'self_hosted', fileCount: 1 };
+    expect(validateEditorForm({ ...base, characterId: 60 })).toBeNull();
+    const err = validateEditorForm({ ...base, characterId: 61 });
+    expect(err).toMatch(/not available for this character/);
+    expect(err).toContain(SELF_HOSTED_UNAVAILABLE_HINT);
+    // Truthful and non-internal: no character name, id, model or token.
+    expect(err).not.toMatch(/summer|60|lora|tok\b/i);
+  });
+  it('is self_hosted\'s rule alone', () => {
+    for (const provider of ['gpt-image', 'grok']) {
+      expect(validateEditorForm({ characterId: 61, prompt: 'x', fileCount: 1, provider })).toBeNull();
+    }
+  });
+  it('falls a held self_hosted choice back to the default for an incompatible character', () => {
+    expect(resolveProviderForCharacter('self_hosted', 60)).toBe('self_hosted');
+    expect(resolveProviderForCharacter('self_hosted', 61)).toBe(EDITOR_DEFAULT_PROVIDER);
+    expect(resolveProviderForCharacter('self_hosted', null)).toBe(EDITOR_DEFAULT_PROVIDER);
+    expect(resolveProviderForCharacter('grok', 61)).toBe('grok');
+    expect(resolveProviderForCharacter('gpt-image', 61)).toBe('gpt-image');
   });
 });
 

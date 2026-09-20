@@ -32,6 +32,41 @@ export const EDITOR_PROVIDER_HINTS: Partial<Record<EditorProvider, string>> = {
 /** self_hosted runs a full RunPod transform on exactly one source image. */
 export const SELF_HOSTED_MAX_SOURCE_IMAGES = 1;
 
+/**
+ * The ONE character Self Hosted Premium can currently transform.
+ *
+ * The provider is an internal admin experiment, not a character-aware editor:
+ * its pipeline is built around a single character's model and prompt. Mirror
+ * of SELF_HOSTED_EDITOR_CHARACTER_ID in backend/app/services/editor_studio.py
+ * — the server refuses every other character on both editor routes, and this
+ * copy exists only so the UI can say so before the request is made. Change
+ * both together.
+ */
+export const SELF_HOSTED_EDITOR_CHARACTER_ID = 60;
+
+/** What the selector says when the selected character is not that one. */
+export const SELF_HOSTED_UNAVAILABLE_HINT =
+  'Currently configured for the self-hosted test character only.';
+
+export function selfHostedEditorSupportsCharacter(characterId: number | null): boolean {
+  return characterId === SELF_HOSTED_EDITOR_CHARACTER_ID;
+}
+
+/**
+ * The provider a form should fall back to when the one it holds is not
+ * available for the selected character. Only self_hosted has a compatibility
+ * rule; every other provider is returned unchanged.
+ */
+export function resolveProviderForCharacter(
+  provider: EditorProvider,
+  characterId: number | null,
+): EditorProvider {
+  if (provider === 'self_hosted' && !selfHostedEditorSupportsCharacter(characterId)) {
+    return EDITOR_DEFAULT_PROVIDER;
+  }
+  return provider;
+}
+
 const PROVIDER_STORAGE_KEY = 'ficshon.editor_studio.provider';
 
 /** Minimal storage interface so persistence is testable without a DOM. */
@@ -162,6 +197,9 @@ export function validateEditorForm(opts: {
   if (opts.fileCount < 1) return 'Add at least one source image.';
   if (opts.fileCount > EDITOR_MAX_SOURCE_IMAGES) {
     return `At most ${EDITOR_MAX_SOURCE_IMAGES} source images are allowed.`;
+  }
+  if (opts.provider === 'self_hosted' && !selfHostedEditorSupportsCharacter(opts.characterId)) {
+    return `Self Hosted Premium is not available for this character. ${SELF_HOSTED_UNAVAILABLE_HINT}`;
   }
   if (opts.provider === 'self_hosted' && opts.fileCount !== SELF_HOSTED_MAX_SOURCE_IMAGES) {
     return 'Self Hosted Premium transforms exactly 1 source image.';

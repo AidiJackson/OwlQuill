@@ -353,10 +353,28 @@ def test_grok_provider_accepted(client, db_session):
     assert meta["strength"] == pytest.approx(0.25)
 
 
-def test_self_hosted_provider_accepted(client, db_session):
-    """provider=self_hosted dispatches and persists transform-mode e4 metadata."""
-    token = _founder_token(client)
+def _self_hosted_admin_and_character(client, monkeypatch) -> tuple[str, int]:
+    """An admin plus a character the self_hosted provider accepts.
+
+    Phase 6.3B: self_hosted is admin-only on this route too, and refuses every
+    character but SELF_HOSTED_EDITOR_CHARACTER_ID. Tests of the provider's
+    mechanics point the constant at the character they made; the gate itself
+    and the real value are tested in test_editor_self_hosted_gate.py.
+    """
+    from tests.conftest import make_admin
+
+    import app.services.editor_studio as editor_studio_svc
+
+    token = get_auth_token(client, email="sh-admin@test.com", username="shadmin")
+    make_admin("sh-admin@test.com")
     cid = _create_character(client, token)
+    monkeypatch.setattr(editor_studio_svc, "SELF_HOSTED_EDITOR_CHARACTER_ID", cid)
+    return token, cid
+
+
+def test_self_hosted_provider_accepted(client, db_session, monkeypatch):
+    """provider=self_hosted dispatches and persists transform-mode e4 metadata."""
+    token, cid = _self_hosted_admin_and_character(client, monkeypatch)
     sh_editor = _mock_editor()
     sh_editor.provider_name = "self_hosted"
     sh_editor.editor_version = "e4"
@@ -378,10 +396,9 @@ def test_self_hosted_provider_accepted(client, db_session):
     assert meta["input_fidelity"] is None
 
 
-def test_self_hosted_requires_exactly_one_source(client):
+def test_self_hosted_requires_exactly_one_source(client, monkeypatch):
     """self_hosted is a single-image transform — 2 sources is a 422, no editor call."""
-    token = _founder_token(client)
-    cid = _create_character(client, token)
+    token, cid = _self_hosted_admin_and_character(client, monkeypatch)
     with patch("app.api.routes.editor_studio.get_editor") as mock_get:
         resp = client.post(
             ENDPOINT,
