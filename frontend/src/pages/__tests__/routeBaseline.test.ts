@@ -55,7 +55,7 @@ describe('App route table (Phase 6 classification)', () => {
 
   it('authenticated product lives inside the ProtectedRoute + Layout shell', () => {
     const shell = appSource.slice(appSource.indexOf('<ProtectedRoute>\n              <Layout />'), appSource.indexOf('</Route>\n\n        <Route\n          path="/characters/new"'));
-    for (const path of ['/', '/realms', '/realms/:realmId', '/notifications', '/spaces', '/characters', '/characters/:id', '/scenes/:sceneId', '/profile', '/become-a-writer']) {
+    for (const path of ['/', '/realms', '/realms/:realmId', '/notifications', '/posts/:postId', '/spaces', '/characters', '/characters/:id', '/scenes/:sceneId', '/profile', '/become-a-writer']) {
       expect(shell).toContain(`path="${path}"`);
     }
   });

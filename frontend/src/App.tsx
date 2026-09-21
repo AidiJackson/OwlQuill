@@ -30,6 +30,7 @@ import StorySpaceDetail from '@/pages/StorySpaceDetail';
 import StorySpacePublish from '@/pages/StorySpacePublish';
 import PublishedStoryReader from '@/pages/PublishedStoryReader';
 import Notifications from '@/pages/Notifications';
+import PostDetail from '@/pages/PostDetail';
 import Studio18Plus from '@/pages/Studio18Plus';
 import EditorStudio from '@/pages/EditorStudio';
 import AdminCreator from '@/pages/AdminCreator';
@@ -86,6 +87,10 @@ function App() {
           <Route path="/realms" element={<Realms />} />
           <Route path="/realms/:realmId" element={<RealmDetail />} />
           <Route path="/notifications" element={<Notifications />} />
+          {/* A single post at its own address (Polish Phase 7.1) — where a
+              notification lands. Ordinary product route: signed-in only, and
+              the server's realm-visibility rule decides what it shows. */}
+          <Route path="/posts/:postId" element={<PostDetail />} />
           <Route path="/spaces" element={<StorySpaces />} />
           <Route path="/spaces/:spaceId" element={<StorySpaceDetail />} />
           <Route path="/spaces/:spaceId/publish" element={<StorySpacePublish />} />

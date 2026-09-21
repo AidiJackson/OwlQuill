@@ -171,11 +171,14 @@ def create_post_in_realm(
     db.commit()
     db.refresh(db_post)
 
-    # Parse + store mentions, fire notifications
+    # Parse + store mentions, then notify the owners of the characters that
+    # were addressed. Notification rows are written through
+    # services/notifications so every producer shares one payload contract
+    # (Polish Phase 7.1); the transaction shape is unchanged — one commit after
+    # the mention rows and the notification rows are all staged.
     from app.services.mentions import parse_mention_texts, resolve_mentions
     from app.models.post_mention import PostMention as PostMentionModel
-    from app.models.notification import Notification
-    import json as _json
+    from app.services.notifications import notify_character_mentioned
 
     mention_texts = parse_mention_texts(post_data.content)
     if mention_texts:
@@ -190,32 +193,46 @@ def create_post_in_realm(
             db.add(pm)
         db.flush()
 
-        # Fire notifications (skip self-mentions)
+        # The realm decides whether the recipient may see the post's text (a
+        # public character can be mentioned from a private realm it is not
+        # in). Loaded once, only when there is someone to notify.
+        realm = None
+        # A block closes the notification channel too. ``blocked_user_ids`` is
+        # the product's one definition of "in a block relationship" — the same
+        # set the feed, comments and messaging consult, and like them it holds
+        # BOTH directions — so an author a recipient has blocked (or who has
+        # blocked the recipient) can still post and still @mention, exactly as
+        # today, but the mention writes no row for that recipient. Resolved
+        # once from the author's side: the relationship is symmetric, so this
+        # is the recipient-side question with one query instead of one per
+        # mention.
+        blocked_with_author = blocked_user_ids(db, current_user.id)
         for r in resolved:
-            notif_user_id = None
-            if r["target_type"] == "user" and r["target_id"] != current_user.id:
-                notif_user_id = r["target_id"]
-            elif r["target_type"] == "character":
-                char = db.query(CharacterModel).filter(
-                    CharacterModel.id == r["target_id"]
-                ).first()
-                if char and char.owner_id != current_user.id:
-                    notif_user_id = char.owner_id
-            if notif_user_id:
-                db.add(Notification(
-                    user_id=notif_user_id,
-                    type="mention",
-                    # Character-first: notifications identify the authoring
-                    # CHARACTER, never the account username.
-                    payload=_json.dumps({
-                        "post_id": db_post.id,
-                        "author_character_id": author_char.id,
-                        "author_character_name": author_char.name,
-                        "mention_text": r["mention_text"],
-                        "post_preview": post_data.content[:120],
-                        "target_type": r["target_type"],
-                    }),
-                ))
+            # resolve_mentions addresses PUBLIC CHARACTERS only — accounts are
+            # never mention targets — so a character is the only kind of
+            # resolution that can name a recipient. The character is taken by
+            # the id the mention system already resolved, never by name again.
+            if r["target_type"] != "character":
+                continue
+            mentioned = db.query(CharacterModel).filter(
+                CharacterModel.id == r["target_id"]
+            ).first()
+            if mentioned is None or mentioned.owner_id == current_user.id:
+                continue  # gone between resolution and here, or a self-mention
+            if mentioned.owner_id in blocked_with_author:
+                continue  # blocked: no notification side-channel
+            if realm is None:
+                realm = db.query(RealmModel).filter(RealmModel.id == realm_id).first()
+            notify_character_mentioned(
+                db,
+                recipient_user_id=mentioned.owner_id,
+                post=db_post,
+                realm=realm,
+                author_character=author_char,
+                mentioned_character=mentioned,
+                mention_text=r["mention_text"],
+                content=post_data.content,
+            )
         db.commit()
         db.refresh(db_post)
 

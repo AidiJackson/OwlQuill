@@ -24,7 +24,7 @@ vi.mock('@/lib/apiClient', () => ({
     {
       get: (_t, prop) => {
         if (prop === 'hasToken') return () => true;
-        if (prop === 'getUnreadCount') return () => Promise.resolve({ unread_count: 0 });
+        if (prop === 'getUnreadCount') return () => Promise.resolve({ count: 0 });
         return () => Promise.resolve([]);
       },
     },
