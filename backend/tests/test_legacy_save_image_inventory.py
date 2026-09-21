@@ -250,7 +250,6 @@ MIGRATED_IN_4D2: dict[str, set[str]] = {
     "api/routes/characters.py": {"persist_derived_image_asset"},
     "api/routes/users.py": {"persist_derived_image_asset"},
     "api/routes/editor_studio.py": {"persist_image_asset"},
-    "api/routes/images.py": {"persist_image_asset"},
     "api/routes/adult_studio_admin.py": {"persist_image_asset"},
     "services/candidate_slot.py": {"persist_derived_image_asset"},
     "services/image_generation_pipeline.py": {"persist_image_asset"},
