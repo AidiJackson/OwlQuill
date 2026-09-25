@@ -106,7 +106,7 @@ function PostSocial({ social }: { social?: CharacterHomePostSocial }) {
   if (totals.length === 0 && count <= 0) return null;
 
   return (
-    <div className="mt-4 pt-3 border-t border-edge/60" data-testid="post-social">
+    <div className="mt-4 pt-3 border-t border-edge" data-testid="post-social">
       <p className="flex items-center gap-3 flex-wrap text-xs text-ink-3 tabular-nums">
         {totals.map((t) => (
           <span key={t.type} aria-label={plural(t.n, t.one, t.many)} className="inline-flex items-center gap-1">

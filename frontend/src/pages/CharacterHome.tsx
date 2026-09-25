@@ -12,6 +12,14 @@ import CharacterHomeHero from '@/features/characterHome/components/CharacterHome
 import PublicPostCard from '@/features/characterHome/components/PublicPostCard';
 import GalleryLightbox from '@/features/characterHome/components/GalleryLightbox';
 import HomeFooter from '@/features/characterHome/components/HomeFooter';
+import {
+  ClosedBetaMarker,
+  OrientationCard,
+} from '@/features/characterHome/components/ClosedBetaOrientation';
+import {
+  isOrientationDismissed,
+  persistOrientationDismissed,
+} from '@/features/characterHome/orientation';
 
 /** How many posts a Home shows. Enough to read as a character's history rather
  *  than a marketing profile, and bounded because there is no pagination yet. */
@@ -45,6 +53,15 @@ const IMAGE_LIMIT = 24;
  * look new, not unfinished — the opposite of the authenticated page, whose
  * "No Posts Yet" placeholders are correct guidance for an owner and quite
  * wrong for a stranger.
+ *
+ * ORIENTATION is two pieces with two jobs. A quiet "Ficshon · Closed beta"
+ * marker sits over the top of every Home — persistent status. A one-time
+ * welcome sits in flow beneath the hero on a visitor's first Home — the
+ * first-arrival explanation. Its dismissal is Ficshon-wide (one versioned
+ * key; see `features/characterHome/orientation.ts`), and is read ONCE, when
+ * this component mounts: following a commenter to another Home keeps this
+ * same component, so a dismissed welcome stays dismissed even when storage
+ * refused to remember it, and a shown one never flickers between Homes.
  */
 export default function CharacterHome() {
   const { id } = useParams<{ id: string }>();
@@ -56,6 +73,13 @@ export default function CharacterHome() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [orientationOpen, setOrientationOpen] = useState(() => !isOrientationDismissed());
+
+  const dismissOrientation = () => {
+    // Hide first: a storage failure must never keep the welcome on screen.
+    setOrientationOpen(false);
+    persistOrientationDismissed();
+  };
 
   useEffect(() => {
     if (!Number.isFinite(characterId) || characterId <= 0) {
@@ -148,9 +172,14 @@ export default function CharacterHome() {
 
   return (
     <div className="min-h-screen bg-app">
-      <CharacterHomeHero character={character} />
+      <div className="relative">
+        <CharacterHomeHero character={character} />
+        <ClosedBetaMarker />
+      </div>
 
       <div className="max-w-[1000px] mx-auto px-4 sm:px-8 py-10 sm:py-12 space-y-12 sm:space-y-16">
+        {orientationOpen && <OrientationCard onDismiss={dismissOrientation} />}
+
         {hasAbout && (
           <section className="max-w-3xl space-y-5">
             {character.short_bio && (

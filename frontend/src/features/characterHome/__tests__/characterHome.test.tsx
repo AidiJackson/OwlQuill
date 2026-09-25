@@ -18,7 +18,7 @@
  *    on a stranger's first impression. A young Home must read as new, never as
  *    unfinished.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -40,6 +40,7 @@ vi.mock('@/lib/apiClient', () => ({
 }));
 
 import CharacterHome from '@/pages/CharacterHome';
+import { ORIENTATION_KEY } from '@/features/characterHome/orientation';
 
 const FULL_HOME: CharacterHomePublic = {
   id: 59,
@@ -133,6 +134,8 @@ function renderHome(id = '59') {
 afterEach(cleanup);
 
 beforeEach(() => {
+  vi.restoreAllMocks();
+  localStorage.clear();
   vi.clearAllMocks();
   getPublicCharacterHome.mockResolvedValue(FULL_HOME);
   getPublicCharacterHomePosts.mockResolvedValue([]);
@@ -183,7 +186,7 @@ describe('populated Home', () => {
   it('renders the closed-beta footer with the character name', async () => {
     renderHome();
     expect(await screen.findByText('Pan has a home on Ficshon.')).toBeTruthy();
-    expect(screen.getByText(/closed beta/i)).toBeTruthy();
+    expect(within(screen.getByRole('contentinfo')).getByText(/closed beta/i)).toBeTruthy();
   });
 
   it('has no links at all when no commenter has a published Home', async () => {
@@ -258,7 +261,9 @@ describe('post social context', () => {
     expect(social.querySelectorAll('button, [role="button"], [tabindex]').length).toBe(0);
     // The only focusable element in the whole block is the published link.
     expect(Array.from(social.querySelectorAll('a, button, input, [tabindex]')).length).toBe(1);
-    expect(container.querySelectorAll('button').length).toBe(0);
+    // Page-wide, the only button is the welcome's own dismiss control.
+    expect(Array.from(container.querySelectorAll('button')).map((b) => b.getAttribute('aria-label')))
+      .toEqual(['Dismiss welcome']);
   });
 
   it('omits zero reaction types', async () => {
@@ -479,7 +484,9 @@ describe('public surface has no app chrome', () => {
     for (const forbidden of [
       /manage/i, /message/i, /mentions/i, /change cover/i, /add cover/i,
       /reposition/i, /set as avatar/i, /choose image/i, /notifications/i,
-      /stories/i, /^posts$/i, /follow/i, /sign in/i, /log in/i, /register/i,
+      // Anchored: a "Stories" tab is forbidden; the welcome's sentence about
+      // "characters, stories and roleplay" is not a tab.
+      /^stories$/i, /^posts$/i, /follow/i, /sign in/i, /log in/i, /register/i,
     ]) {
       expect(screen.queryByText(forbidden)).toBeNull();
     }
@@ -730,5 +737,169 @@ describe('lightbox scroll lock', () => {
     await open();
     expect(document.body.style.overflow).toBe('hidden');
     expect(document.body.style.paddingRight).toBe('');
+  });
+});
+
+// ── F. Closed-beta marker and one-time orientation ──────────────────────────
+
+describe('closed-beta orientation', () => {
+  const WELCOME = 'Welcome to Ficshon';
+
+  async function ready(view = renderHome()) {
+    await screen.findByRole('heading', { level: 1, name: 'Pan' });
+    return view;
+  }
+
+  it('always shows the CLOSED BETA marker on a loaded Home, secondary to the name', async () => {
+    localStorage.setItem(ORIENTATION_KEY, 'dismissed');
+    await ready();
+    const marker = screen.getAllByText(/^closed beta$/i);
+    expect(marker.length).toBe(1);
+    expect(marker[0].closest('a, button')).toBeNull();
+    expect(marker[0].closest('h1')).toBeNull();
+  });
+
+  it('shows the welcome on a first visit, with the approved copy', async () => {
+    await ready();
+    const card = screen.getByRole('complementary', { name: WELCOME });
+    expect(card.textContent).toContain(
+      'You\u2019ve stepped into a world of characters, stories and roleplay.',
+    );
+    expect(card.textContent).toContain(
+      'Ficshon is currently in closed beta \u2014 and you\u2019re meeting one of its characters.',
+    );
+  });
+
+  it('is not a modal: nothing is hidden, no dialog, focus is not taken', async () => {
+    await ready();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+    expect(screen.getByRole('heading', { level: 1, name: 'Pan' })).toBeTruthy();
+  });
+
+  it('dismisses immediately and writes the Ficshon-wide versioned key', async () => {
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss welcome' }));
+    expect(screen.queryByRole('complementary', { name: WELCOME })).toBeNull();
+    expect(ORIENTATION_KEY).toBe('ficshon.publicHomeOrientation.v1');
+    expect(localStorage.getItem(ORIENTATION_KEY)).toBe('dismissed');
+    // One key, not one per character.
+    expect(Object.keys(localStorage).filter((k) => /orientation/i.test(k))).toEqual([ORIENTATION_KEY]);
+  });
+
+  it('is dismissable from the keyboard with a native button', async () => {
+    await ready();
+    const button = screen.getByRole('button', { name: 'Dismiss welcome' });
+    expect(button.tagName).toBe('BUTTON');
+    expect(button.getAttribute('type')).toBe('button');
+    button.focus();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('stays dismissed when returning to the same Home', async () => {
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss welcome' }));
+    cleanup();
+    await ready(renderHome());
+    expect(screen.queryByText(WELCOME)).toBeNull();
+  });
+
+  it('stays dismissed on another character\'s Home', async () => {
+    localStorage.setItem(ORIENTATION_KEY, 'dismissed');
+    getPublicCharacterHome.mockResolvedValue({ ...FULL_HOME, id: 12, name: 'Grace' });
+    renderHome('12');
+    await screen.findByRole('heading', { level: 1, name: 'Grace' });
+    expect(screen.queryByText(WELCOME)).toBeNull();
+  });
+
+  it('stays dismissed when following a commenter to their Home', async () => {
+    getPublicCharacterHomePosts.mockResolvedValue([SOCIAL_POST]);
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss welcome' }));
+    getPublicCharacterHome.mockResolvedValue({ ...FULL_HOME, id: 12, name: 'Grace' });
+    getPublicCharacterHomePosts.mockResolvedValue([]);
+    fireEvent.click(await screen.findByRole('link', { name: /Grace/ }));
+    await screen.findByRole('heading', { level: 1, name: 'Grace' });
+    expect(screen.queryByText(WELCOME)).toBeNull();
+    expect(screen.getByText(/^closed beta$/i)).toBeTruthy();
+  });
+
+  it('keeps showing an undismissed welcome across Homes without flicker', async () => {
+    getPublicCharacterHomePosts.mockResolvedValue([SOCIAL_POST]);
+    await ready();
+    getPublicCharacterHome.mockResolvedValue({ ...FULL_HOME, id: 12, name: 'Grace' });
+    getPublicCharacterHomePosts.mockResolvedValue([]);
+    fireEvent.click(await screen.findByRole('link', { name: /Grace/ }));
+    await screen.findByRole('heading', { level: 1, name: 'Grace' });
+    expect(screen.getByText(WELCOME)).toBeTruthy();
+  });
+
+  it('renders the Home when reading storage throws, and shows the welcome', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    await ready();
+    expect(screen.getByText(WELCOME)).toBeTruthy();
+  });
+
+  it('renders the Home when localStorage itself is unreachable', async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() { throw new Error('denied'); },
+    });
+    try {
+      await ready();
+      fireEvent.click(screen.getByRole('button', { name: 'Dismiss welcome' }));
+      expect(screen.queryByText(WELCOME)).toBeNull();
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    }
+  });
+
+  it('still dismisses immediately when writing storage throws', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss welcome' }));
+    expect(screen.queryByText(WELCOME)).toBeNull();
+    expect(screen.getByRole('heading', { level: 1, name: 'Pan' })).toBeTruthy();
+  });
+
+  it.each(['true', '1', '{"dismissed":true}', '', 'DISMISSED'])(
+    'treats an unexpected stored value (%j) as not dismissed, without crashing',
+    async (value) => {
+      localStorage.setItem(ORIENTATION_KEY, value);
+      await ready();
+      expect(screen.getByText(WELCOME)).toBeTruthy();
+    },
+  );
+
+  it('introduces no call to action and no link into the product', async () => {
+    const { container } = await ready();
+    for (const cta of [
+      /join/i, /sign ?up/i, /register/i, /log ?in/i, /sign in/i, /become a writer/i,
+      /explore/i, /browse/i, /learn more/i, /get started/i, /request (an )?invite/i,
+    ]) {
+      expect(screen.queryByText(cta)).toBeNull();
+    }
+    expect(container.querySelectorAll('a').length).toBe(0);
+  });
+
+  it('shows nothing on the 404 state — no marker, no welcome', async () => {
+    getPublicCharacterHome.mockRejectedValue(new Error('404 Not Found'));
+    renderHome();
+    await screen.findByText(/doesn.t have a public home/i);
+    expect(screen.queryByText(WELCOME)).toBeNull();
+    expect(screen.queryByText(/^closed beta$/i)).toBeNull();
+  });
+
+  it('leaves the Social Pan block intact beneath the welcome', async () => {
+    getPublicCharacterHomePosts.mockResolvedValue([SOCIAL_POST]);
+    await ready();
+    expect(await screen.findByTestId('post-social')).toBeTruthy();
+    expect(screen.getByText(WELCOME)).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Grace/ }).getAttribute('href')).toBe('/c/12');
   });
 });
