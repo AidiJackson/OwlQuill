@@ -399,7 +399,12 @@ def test_a_builtin_sigil_is_never_touched_by_the_lifecycle_rule(
 def test_an_archived_account_avatar_is_withdrawn_from_anonymous_comments(
     client, db_session, home
 ):
-    """(C) The end-to-end surface: a comment list served with no token."""
+    """(C) The end-to-end surface: the comment list.
+
+    Read by a signed-in third party. An anonymous reader receives no account
+    identity at all — sigil or avatar — so for it the answer is ``None``
+    before AND after withdrawal (tests/test_post_social_privacy.py).
+    """
     owner_id = home["owner_id"]
     realm = Realm(owner_id=owner_id, name="Withdrawal Square",
                   slug=f"wd-square-{uuid4().hex[:8]}", is_public=True)
@@ -424,16 +429,21 @@ def test_an_archived_account_avatar_is_withdrawn_from_anonymous_comments(
     owner.avatar_url = account_url
     db_session.commit()
 
-    anon = client.get(f"/comments/posts/{post.id}/comments")
-    assert anon.status_code == 200, anon.text
-    assert anon.json()[0]["author_avatar_url"] == account_url
-
-    image.status = "archived"
-    db_session.commit()
+    viewer = auth_headers(home["viewer_token"])
+    seen = client.get(f"/comments/posts/{post.id}/comments", headers=viewer)
+    assert seen.status_code == 200, seen.text
+    assert seen.json()[0]["author_avatar_url"] == account_url
 
     anon = client.get(f"/comments/posts/{post.id}/comments")
     assert anon.status_code == 200, anon.text
     assert anon.json()[0]["author_avatar_url"] is None
+
+    image.status = "archived"
+    db_session.commit()
+
+    seen = client.get(f"/comments/posts/{post.id}/comments", headers=viewer)
+    assert seen.status_code == 200, seen.text
+    assert seen.json()[0]["author_avatar_url"] is None
 
 
 # ══════════════════════════════════════════════════════════════════════════════

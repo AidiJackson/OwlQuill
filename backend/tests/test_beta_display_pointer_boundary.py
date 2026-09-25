@@ -668,11 +668,18 @@ def test_a_legitimate_sigil_still_reaches_comment_readers(client):
     ).status_code == 200
     _wanderer_comment(client, token, post_id)
 
-    anon = client.get(f"/comments/posts/{post_id}/comments")
-    assert anon.status_code == 200, anon.text
-    wanderer_comments = [c for c in anon.json() if c.get("author_username")]
+    # Read by a SIGNED-IN third party: an anonymous reader receives no account
+    # identity at all, sigil included (tests/test_post_social_privacy.py).
+    viewer = _wanderer(client, "bdp_cmt_sig_viewer@test.com", "bdpcmtsigviewer")
+    resp = client.get(f"/comments/posts/{post_id}/comments", headers=auth_headers(viewer))
+    assert resp.status_code == 200, resp.text
+    wanderer_comments = [c for c in resp.json() if c.get("author_username")]
     assert wanderer_comments, "the Wanderer comment should be attributed"
     assert any(c.get("author_avatar_url") == sigil for c in wanderer_comments)
+
+    anon = client.get(f"/comments/posts/{post_id}/comments")
+    assert anon.status_code == 200, anon.text
+    assert all(c.get("author_avatar_url") is None for c in anon.json())
 
 
 def test_a_governed_account_avatar_still_reaches_comment_readers(client):
@@ -726,8 +733,9 @@ def test_a_governed_account_avatar_still_reaches_comment_readers(client):
 
     _wanderer_comment(client, token, post_id, "governed avatar comment")
 
-    anon = client.get(f"/comments/posts/{post_id}/comments")
-    mine = [c for c in anon.json() if c.get("content") == "governed avatar comment"]
+    viewer = _wanderer(client, "bdp_cmt_real_viewer@test.com", "bdpcmtrealviewer")
+    resp = client.get(f"/comments/posts/{post_id}/comments", headers=auth_headers(viewer))
+    mine = [c for c in resp.json() if c.get("content") == "governed avatar comment"]
     assert mine, "the comment must be served"
     assert mine[0]["author_avatar_url"] == stored
 

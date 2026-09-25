@@ -113,7 +113,7 @@ def test_post_comments_and_reactions_private_realm_gated(client, db_session):
             headers=auth_headers(owner),
         ).status_code == 201
         assert client.post(
-            f"/reactions/posts/{pid}/reactions", json={"type": "like"},
+            f"/reactions/posts/{pid}/reactions", json={"type": "heart"},
             headers=auth_headers(owner),
         ).status_code == 201
 

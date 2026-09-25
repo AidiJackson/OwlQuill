@@ -14,7 +14,7 @@ class Reaction(Base):
     id = Column(Integer, primary_key=True, index=True)
     post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    type = Column(String, nullable=False)  # like, heart, star, etc.
+    type = Column(String, nullable=False)  # heart, star or eyes: app.schemas.reaction.REACTION_TYPES
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships

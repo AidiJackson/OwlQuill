@@ -369,7 +369,9 @@ export interface Comment {
 export interface Reaction {
   id: number;
   post_id: number;
-  user_id: number;
+  /** Set only on the viewer's OWN reactions; null on everyone else's (and on
+   *  every reaction for an anonymous reader). Reactions are account-owned. */
+  user_id: number | null;
   type: string;
   created_at: string;
 }

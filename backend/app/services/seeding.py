@@ -266,7 +266,26 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User], db, *, resolve
     product. Anything that is not a sigil falls through to the ordinary media
     rule, which is what a governed account image (``POST /users/me/avatar``,
     a real ``UserImage`` row) needs and what an arbitrary url fails.
+
+    ANONYMOUS READERS get a stricter, fail-closed projection, because the row
+    alone cannot say which kind of comment it is. ``comments.character_id`` is
+    ``ON DELETE SET NULL``: a Writer's comment whose character is later deleted
+    becomes indistinguishable from a Wanderer's, and the Wanderer branch above
+    would then publish the Writer's private account username and id. So an
+    anonymous reader receives:
+
+    * no account identity at all — ``author_user_id``, ``author_username`` and
+      the account sigil are withheld on every comment, Wanderer or not;
+    * a character identity (id, name, resolved avatar) only when the character
+      still exists and is PUBLIC. A PRIVATE or FRIENDS character is not
+      published by having commented, and its id is withheld with its name so
+      its comments cannot be clustered either.
+
+    What remains is the text, the timestamps and provenance — the comment is
+    still served; only who wrote it is withheld. Signed-in readers keep the
+    policy above unchanged.
     """
+    from app.models.character import VisibilityEnum
     from app.schemas.comment import Comment as CommentSchema
 
     schema = CommentSchema.model_validate(comment)
@@ -276,6 +295,16 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User], db, *, resolve
         schema.author_username = None
         schema.author_user_id = None
         schema.author_avatar_url = None
+
+    if viewer is None:
+        schema.author_username = None
+        schema.author_user_id = None
+        schema.author_avatar_url = None
+        character = getattr(comment, "character", None)
+        if character is None or character.visibility != VisibilityEnum.PUBLIC:
+            schema.character_id = None
+            schema.character_name = None
+            schema.character_avatar_url = None
 
     # Applied for EVERY viewer including the author, unlike the character avatar
     # below. The author seeing their own unresolvable account avatar would be a

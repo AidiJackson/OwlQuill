@@ -37,9 +37,10 @@ def create_comment(
     short identity-less comment; accounts WITH characters must comment as one,
     and only as their own (closes the arbitrary-attribution hole).
     """
-    # Check if post exists
+    # Commenting requires the same access as reading: a private realm's post is
+    # 404 to a non-member here too, so knowing its id is not enough to write to it.
     post = db.query(PostModel).filter(PostModel.id == post_id).first()
-    if not post:
+    if not user_can_access_post(db, current_user.id, post):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Post not found"
@@ -103,13 +104,17 @@ def list_post_comments(
     S24F: comments inherit the post's realm visibility. Public-realm comments remain
     readable (including unauthenticated, preserving existing behaviour); a post in a
     PRIVATE realm the caller cannot access returns 404, so its comments are not
-    leaked to non-members.
+    leaked to non-members. A realm-less post is not public, so it is 404 to an
+    anonymous caller; a missing post is 404 to everyone.
+
+    Anonymous readers receive the fail-closed projection described on
+    :func:`app.services.seeding.serialize_comment_for_viewer` — no account
+    identity at all, and a character only when that character is PUBLIC.
     """
     post = db.query(PostModel).filter(PostModel.id == post_id).first()
-    if post is not None:
-        user_id = current_user.id if current_user is not None else None
-        if not user_can_access_post(db, user_id, post):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    user_id = current_user.id if current_user is not None else None
+    if not user_can_access_post(db, user_id, post):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
     comments_q = db.query(CommentModel).filter(CommentModel.post_id == post_id)
 
