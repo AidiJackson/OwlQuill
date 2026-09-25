@@ -12,9 +12,11 @@ Everything omitted is omitted structurally, not merely left unset, so no route
 bug or ORM refresh can put it on the wire.
 """
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.reaction import ReactionType
 
 
 class CharacterHomePublic(BaseModel):
@@ -92,7 +94,9 @@ class CharacterHomePostPublic(BaseModel):
     * ``mentions`` — a mention row can resolve to a USER, and its ``target_id``
       is then an account id. The identity-first display rules make the rendered
       text safe, but the ids underneath are not, and V1 does not need them.
-    * ``comment_count``, reactions — no comment or reaction data in Step 5.
+    * raw comments and reactions — the post's social context travels ONLY as
+      :class:`CharacterHomePostSocial`, a projection of its own; see
+      ``app.services.character_home_social``.
     * ``updated_at`` — edit history. The Home is a chronology of what was
       published, keyed on ``created_at``.
     * ``provenance_evidence``, ``provenance_rule_version``,
@@ -128,3 +132,58 @@ class CharacterHomePostPublic(BaseModel):
     image_url: Optional[str] = None
     realm_id: Optional[int] = None
     realm_name: Optional[str] = None
+    social: "CharacterHomePostSocial"
+
+
+class CharacterHomeCommentAuthor(BaseModel):
+    """Who wrote a previewed comment, as far as an anonymous reader may know.
+
+    ``kind`` is one of:
+
+    * ``character`` — a PUBLIC character. ``name`` and a publicly resolved
+      ``avatar_url`` (``None`` when unresolvable) are set. ``linkable`` is True
+      only when that character's own Home is published, and ``character_id`` is
+      sent ONLY then — its one purpose is the ``/c/<id>`` link.
+    * ``hidden_character`` — a PRIVATE or FRIENDS character. Nothing else.
+    * ``wanderer`` — no character on the comment: a Wanderer, or a character
+      since deleted (the two are indistinguishable once ``character_id`` is
+      nulled). Nothing else — never the account.
+
+    There is no field that could carry an account: no user id, username,
+    sigil or account avatar.
+    """
+
+    kind: Literal["character", "hidden_character", "wanderer"]
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    character_id: Optional[int] = None
+    linkable: bool = False
+
+
+class CharacterHomeCommentPreview(BaseModel):
+    """One of the latest comments on a Home post."""
+
+    id: int
+    content: str
+    provenance: str
+    created_at: datetime
+    author: CharacterHomeCommentAuthor
+
+
+class CharacterHomePostSocial(BaseModel):
+    """The social evidence already present on a Home post.
+
+    ``reactions`` holds aggregate totals keyed by the canonical reaction types
+    only, with zero totals omitted. Reactions are account-owned, so totals are
+    all that is published: no reactor list, no ids, no character names.
+
+    ``comment_count`` is the exact total; ``comments`` is at most the latest
+    three, in reading (oldest-first) order.
+    """
+
+    comment_count: int = 0
+    reactions: dict[ReactionType, int] = Field(default_factory=dict)
+    comments: list[CharacterHomeCommentPreview] = Field(default_factory=list)
+
+
+CharacterHomePostPublic.model_rebuild()

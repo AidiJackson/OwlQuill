@@ -100,10 +100,15 @@ describe('production links (every non-test source file)', () => {
     }
   });
 
-  it('nothing links to the dormant Character Home', () => {
-    for (const [path, src] of files) {
-      expect(src, path).not.toMatch(/(to=|navigate\(|href=)\s*['"`{]*\/c\//);
-    }
+  it('only a Character Home links to another Character Home', () => {
+    // The Home is still dormant to the rest of the product: nothing inside
+    // the authenticated app links into /c/. The one linker is the public
+    // post card, where a commenter whose own Home is published links to it
+    // (Social Pan) — public page to public page, never out of the guard.
+    const linkers = files
+      .filter(([, src]) => /(to=|navigate\(|href=)\s*['"`{]*\/c\//.test(src))
+      .map(([p]) => p);
+    expect(linkers).toEqual(['features/characterHome/components/PublicPostCard.tsx']);
   });
 
   it('Quick Create and FakeAI are gone from product code', () => {

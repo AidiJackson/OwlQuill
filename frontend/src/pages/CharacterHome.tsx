@@ -39,7 +39,9 @@ const IMAGE_LIMIT = 24;
  * never meet a broken panel on someone's front door.
  *
  * EMPTINESS is omitted, never announced. Every section disappears when it has
- * nothing to show, and no counts are rendered anywhere. A young Home should
+ * nothing to show, and no post or image counts are rendered. The only numbers
+ * on the page are a post's own social totals, and those only when non-zero
+ * (see PublicPostCard). A young Home should
  * look new, not unfinished — the opposite of the authenticated page, whose
  * "No Posts Yet" placeholders are correct guidance for an owner and quite
  * wrong for a stranger.
@@ -63,6 +65,15 @@ export default function CharacterHome() {
 
     let cancelled = false;
     setStatus('loading');
+    // A commenter's name links to their own Home, which is this same route
+    // with a new id. Drop the previous Home's content so none of it can
+    // render under the next character's hero, and start at the top.
+    setCharacter(null);
+    setPosts([]);
+    setImages([]);
+    setLightboxIdx(null);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
 
     // The profile is the page. Posts and images settle independently so one
     // failing endpoint cannot take down a Home that otherwise renders.

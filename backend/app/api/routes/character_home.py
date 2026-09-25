@@ -44,8 +44,9 @@ from app.schemas.character_home import CharacterHomePostPublic, CharacterHomePub
 from app.schemas.character_image import CharacterImagePublic, is_public_gallery_visible
 from app.services.character_home_media import (
     resolve_public_media_url,
-    resolve_public_post_image_url,
+    resolve_public_post_image_urls,
 )
+from app.services.character_home_social import social_for_posts
 from app.services.character_publication import character_home_is_publishable
 
 router = APIRouter()
@@ -241,6 +242,12 @@ def get_public_character_home_posts(
     :func:`resolve_public_post_image_url`: an unsafe, withdrawn or
     unestablished image becomes ``None`` and the post's text still publishes.
     A post is never dropped because of its image.
+
+    SOCIAL CONTEXT rides on each entry as ``social`` — reaction totals, the
+    exact comment count and the latest comments with safe attribution — built
+    by :func:`social_for_posts` for exactly the ids this query admitted. It is
+    never a route of its own and never consults the generic post visibility
+    rule, so a post that is not on this timeline cannot contribute any.
     """
     _publishable_or_404(db, character_id)
 
@@ -256,6 +263,9 @@ def get_public_character_home_posts(
         .all()
     )
 
+    images = resolve_public_post_image_urls(db, [post.image_url for post, _ in rows])
+    social = social_for_posts(db, [post.id for post, _ in rows])
+
     return [
         CharacterHomePostPublic(
             id=post.id,
@@ -265,9 +275,10 @@ def get_public_character_home_posts(
             post_kind=post.post_kind,
             provenance=post.provenance,
             created_at=post.created_at,
-            image_url=resolve_public_post_image_url(db, post.image_url),
+            image_url=images.get(post.image_url) if post.image_url else None,
             realm_id=post.realm_id,
             realm_name=realm_name,
+            social=social[post.id],
         )
         for post, realm_name in rows
     ]

@@ -518,6 +518,35 @@ export interface CharacterHomePostPublic {
   image_url: string | null;
   realm_id: number;
   realm_name: string;
+  social: CharacterHomePostSocial;
+}
+
+/** Mirrors backend CharacterHomeCommentAuthor. `character_id` is present only
+ *  when `linkable` — its one purpose is the `/c/<id>` link. There is no field
+ *  that could carry an account. */
+export interface CharacterHomeCommentAuthor {
+  kind: 'character' | 'hidden_character' | 'wanderer';
+  name: string | null;
+  avatar_url: string | null;
+  character_id: number | null;
+  linkable: boolean;
+}
+
+export interface CharacterHomeCommentPreview {
+  id: number;
+  content: string;
+  provenance: string;
+  created_at: string;
+  author: CharacterHomeCommentAuthor;
+}
+
+/** Mirrors backend CharacterHomePostSocial: aggregate reaction totals for the
+ *  canonical types only (zero totals omitted), the exact comment count, and at
+ *  most the latest three comments, oldest-first. */
+export interface CharacterHomePostSocial {
+  comment_count: number;
+  reactions: Partial<Record<'heart' | 'star' | 'eyes', number>>;
+  comments: CharacterHomeCommentPreview[];
 }
 
 // Mirrors backend CharacterImagePublic: no prompt, provider, seed, metadata,

@@ -42,7 +42,7 @@ from tests.conftest import auth_headers, get_auth_token
 #: Every field one anonymous timeline entry may contain.
 PUBLIC_POST_FIELDS = {
     "id", "title", "content", "content_type", "post_kind", "provenance",
-    "created_at", "image_url", "realm_id", "realm_name",
+    "created_at", "image_url", "realm_id", "realm_name", "social",
 }
 
 

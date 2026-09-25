@@ -79,6 +79,37 @@ const POST: CharacterHomePostPublic = {
   image_url: null,
   realm_id: 1,
   realm_name: 'The Commons',
+  social: { comment_count: 0, reactions: {}, comments: [] },
+};
+
+type Author = CharacterHomePostPublic['social']['comments'][number]['author'];
+const PUBLISHED = (id: number, name: string): Author => ({
+  kind: 'character', name, avatar_url: null, character_id: id, linkable: true,
+});
+const UNPUBLISHED = (name: string): Author => ({
+  kind: 'character', name, avatar_url: null, character_id: null, linkable: false,
+});
+const HIDDEN: Author = {
+  kind: 'hidden_character', name: null, avatar_url: null, character_id: null, linkable: false,
+};
+const WANDERER: Author = {
+  kind: 'wanderer', name: null, avatar_url: null, character_id: null, linkable: false,
+};
+function comment(id: number, content: string, author: Author) {
+  return { id, content, provenance: 'user_written', created_at: '2026-07-20T10:00:00Z', author };
+}
+
+const SOCIAL_POST: CharacterHomePostPublic = {
+  ...POST,
+  social: {
+    comment_count: 7,
+    reactions: { heart: 3, eyes: 2 },
+    comments: [
+      comment(101, 'Morning, Pan.', PUBLISHED(12, 'Grace')),
+      comment(102, 'Watching from the rafters.', UNPUBLISHED('Shadow')),
+      comment(103, 'Quietly agreeing.', HIDDEN),
+    ],
+  },
 };
 
 const IMAGE: CharacterImagePublic = {
@@ -155,13 +186,170 @@ describe('populated Home', () => {
     expect(screen.getByText(/closed beta/i)).toBeTruthy();
   });
 
-  it('has no links at all — every route but this one is behind a guard', async () => {
-    getPublicCharacterHomePosts.mockResolvedValue([POST]);
+  it('has no links at all when no commenter has a published Home', async () => {
+    getPublicCharacterHomePosts.mockResolvedValue([
+      POST,
+      {
+        ...POST,
+        id: 8,
+        social: {
+          comment_count: 3,
+          reactions: { star: 1 },
+          comments: [
+            comment(1, 'a', UNPUBLISHED('Shadow')),
+            comment(2, 'b', HIDDEN),
+            comment(3, 'c', WANDERER),
+          ],
+        },
+      },
+    ]);
     getPublicCharacterHomeImages.mockResolvedValue([IMAGE]);
     const { container } = renderHome();
-    await screen.findByRole('heading', { level: 1, name: 'Pan' });
+    await screen.findByText('Shadow');
 
     expect(container.querySelectorAll('a').length).toBe(0);
+  });
+});
+
+// ── B2. Social context beneath each post ────────────────────────────────────
+
+describe('post social context', () => {
+  async function renderSocial(post: CharacterHomePostPublic = SOCIAL_POST) {
+    getPublicCharacterHomePosts.mockResolvedValue([post]);
+    const view = renderHome();
+    await screen.findByRole('heading', { level: 1, name: 'Pan' });
+    await screen.findByText(post.content);
+    return view;
+  }
+
+  it('links ONLY published commenters, and only to their public Home', async () => {
+    const { container } = await renderSocial();
+    const links = Array.from(container.querySelectorAll('a'));
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/c/12']);
+    expect(links[0].textContent).toContain('Grace');
+    expect(container.querySelector('a[href^="/characters"]')).toBeNull();
+  });
+
+  it('names an unpublished PUBLIC commenter without linking them', async () => {
+    await renderSocial();
+    const shadow = screen.getByText('Shadow');
+    expect(shadow.closest('a')).toBeNull();
+  });
+
+  it('attributes hidden and Wanderer commenters neutrally, never linked', async () => {
+    await renderSocial({
+      ...SOCIAL_POST,
+      social: {
+        comment_count: 2,
+        reactions: {},
+        comments: [comment(1, 'hidden says', HIDDEN), comment(2, 'wanderer says', WANDERER)],
+      },
+    });
+    expect(screen.getByText('A character').closest('a')).toBeNull();
+    expect(screen.getByText('Wanderer').closest('a')).toBeNull();
+  });
+
+  it('renders reaction totals as non-interactive, labelled text', async () => {
+    const { container } = await renderSocial();
+    const social = screen.getByTestId('post-social');
+
+    expect(screen.getByLabelText('3 hearts')).toBeTruthy();
+    expect(screen.getByLabelText('2 eyes reactions')).toBeTruthy();
+    expect(social.querySelectorAll('button, [role="button"], [tabindex]').length).toBe(0);
+    // The only focusable element in the whole block is the published link.
+    expect(Array.from(social.querySelectorAll('a, button, input, [tabindex]')).length).toBe(1);
+    expect(container.querySelectorAll('button').length).toBe(0);
+  });
+
+  it('omits zero reaction types', async () => {
+    await renderSocial();
+    expect(screen.queryByLabelText(/star/)).toBeNull();
+  });
+
+  it('states the comment count truthfully when more exist than are shown', async () => {
+    await renderSocial();
+    expect(screen.getByText('7 comments')).toBeTruthy();
+    expect(screen.getByText('Latest 3 of 7 comments shown')).toBeTruthy();
+    expect(screen.queryByText(/show all|view all|load more/i)).toBeNull();
+  });
+
+  it('renders the latest comments in the order the server sent them', async () => {
+    const { container } = await renderSocial();
+    const texts = Array.from(container.querySelectorAll('[data-testid="post-social"] li'))
+      .map((li) => li.querySelector('p')?.textContent);
+    expect(texts).toEqual(['Morning, Pan.', 'Watching from the rafters.', 'Quietly agreeing.']);
+  });
+
+  it('does not add a "shown" line when every comment is shown', async () => {
+    await renderSocial({
+      ...SOCIAL_POST,
+      social: { comment_count: 1, reactions: {}, comments: [comment(1, 'only', WANDERER)] },
+    });
+    expect(screen.getByText('1 comment')).toBeTruthy();
+    expect(screen.queryByText(/comments shown/)).toBeNull();
+  });
+
+  it('shows totals alone when there are reactions but no comments', async () => {
+    await renderSocial({
+      ...SOCIAL_POST,
+      social: { comment_count: 0, reactions: { star: 1 }, comments: [] },
+    });
+    expect(screen.getByLabelText('1 star')).toBeTruthy();
+    expect(screen.queryByText(/comment/)).toBeNull();
+  });
+
+  it('renders nothing for an empty social block — no zeros, no placeholder', async () => {
+    await renderSocial(POST);
+    expect(screen.queryByTestId('post-social')).toBeNull();
+    for (const announced of [/0 comments/, /no comments/i, /0 reactions/, /no interactions/i, /be the first/i]) {
+      expect(screen.queryByText(announced)).toBeNull();
+    }
+  });
+
+  it('keeps the full post body', async () => {
+    const long = 'A very long post. '.repeat(80).trim();
+    await renderSocial({ ...SOCIAL_POST, content: long });
+    expect(screen.getByText(long)).toBeTruthy();
+  });
+
+  it('renders no account identity even if a stray field arrived', async () => {
+    const rogue = {
+      ...SOCIAL_POST,
+      social: {
+        ...SOCIAL_POST.social,
+        comments: [{
+          ...comment(9, 'rogue', WANDERER),
+          author: { ...WANDERER, author_username: 'secret_account', user_id: 44 },
+          author_username: 'secret_account',
+        }],
+      },
+    } as unknown as CharacterHomePostPublic;
+    const { container } = await renderSocial(rogue);
+    expect(container.textContent).not.toContain('secret_account');
+  });
+
+  it("shows a published commenter's avatar through the image resolver", async () => {
+    const { container } = await renderSocial({
+      ...SOCIAL_POST,
+      social: {
+        comment_count: 1,
+        reactions: {},
+        comments: [comment(1, 'hi', { ...PUBLISHED(12, 'Grace'), avatar_url: '/static/generated/g.png' })],
+      },
+    });
+    const img = container.querySelector('[data-testid="post-social"] img');
+    expect(img?.getAttribute('src')).toContain('/static/generated/g.png');
+  });
+
+  it("navigates to the commenter's Home and replaces the previous Home's content", async () => {
+    await renderSocial();
+    getPublicCharacterHome.mockResolvedValue({ ...FULL_HOME, id: 12, name: 'Grace' });
+    getPublicCharacterHomePosts.mockResolvedValue([]);
+    fireEvent.click(screen.getByRole('link', { name: /Grace/ }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Grace' })).toBeTruthy();
+    expect(getPublicCharacterHome).toHaveBeenLastCalledWith(12);
+    expect(screen.queryByText(SOCIAL_POST.content)).toBeNull();
   });
 });
 
