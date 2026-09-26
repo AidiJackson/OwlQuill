@@ -282,6 +282,10 @@ class ApiClient {
     });
   }
 
+  async deleteComment(commentId: number): Promise<void> {
+    return this.request<void>(`/comments/${commentId}`, { method: 'DELETE' });
+  }
+
   // Reactions
   async getPostReactions(postId: number): Promise<Reaction[]> {
     return this.request<Reaction[]>(`/reactions/posts/${postId}/reactions`);

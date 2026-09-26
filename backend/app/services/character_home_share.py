@@ -75,6 +75,9 @@ OG_TYPE = "profile"
 
 SITE_NAME = "Ficshon"
 
+#: Robots directive for a published Home during the closed beta.
+ROBOTS = "noindex"
+
 _TITLE_RE = re.compile(r"<title\b[^>]*>.*?</title>", re.IGNORECASE | re.DOTALL)
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -221,6 +224,9 @@ def build_head_tags(home: CharacterHomePublic, base_url: Optional[str]) -> str:
 
     lines = [
         f"<title>{_esc(title)}</title>",
+        # Closed beta: shareable, not indexed. Paired with the X-Robots-Tag
+        # header the shell route sends; neither affects link-preview cards.
+        f'<meta name="robots" content="{_esc(ROBOTS)}" />',
         f'<meta name="description" content="{_esc(description)}" />',
         f'<meta property="og:site_name" content="{_esc(SITE_NAME)}" />',
         f'<meta property="og:type" content="{_esc(OG_TYPE)}" />',

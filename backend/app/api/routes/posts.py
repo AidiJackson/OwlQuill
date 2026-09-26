@@ -322,5 +322,12 @@ def delete_post(
             detail="Not authorized to delete this post"
         )
 
+    # Comments, reactions and post_mentions cascade with the row. Mention
+    # notifications are not FK-linked (their payload is a JSON snapshot that
+    # carries a preview of the post body), so they are removed explicitly, in
+    # the same transaction, or the deleted text would outlive the post.
+    from app.services.notifications import delete_mention_notifications_for_post
+
+    delete_mention_notifications_for_post(db, post.id)
     db.delete(post)
     db.commit()

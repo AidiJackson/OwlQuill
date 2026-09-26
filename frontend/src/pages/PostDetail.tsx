@@ -9,6 +9,8 @@ import { PostKindBadge, PostTypeBadge } from '@/components/PostBadges';
 import ProvenanceBadge from '@/components/ProvenanceBadge';
 import ReactionBar from '@/components/ReactionBar';
 import CommentSection from '@/components/CommentSection';
+import PostMenu from '@/components/PostMenu';
+import { useAuthStore } from '@/lib/store';
 
 /**
  * One post, at its own address — Polish Phase 7.1.
@@ -24,10 +26,11 @@ import CommentSection from '@/components/CommentSection';
  *
  * Deliberately a compact single-post card, not a copy of the feed: the same
  * identity header, body, reactions and comments the feed renders, built from
- * the same components, minus feed-only affordances (composer, delete menu,
- * request-to-join). Comments are open by default because that is what a
- * reader who followed a notification came to do — and it is the surface 7.2
- * comment notifications will land on.
+ * the same components, minus feed-only affordances (composer,
+ * request-to-join). The author's delete menu IS here (W-07A): a post reached
+ * from a notification must be removable where it was found. Comments are open
+ * by default because that is what a reader who followed a notification came
+ * to do — and it is the surface 7.2 comment notifications will land on.
  */
 export default function PostDetail() {
   const { postId } = useParams<{ postId: string }>();
@@ -39,6 +42,8 @@ export default function PostDetail() {
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState(false);
+  const user = useAuthStore((s) => s.user);
 
   useEffect(() => {
     if (!Number.isInteger(id) || id <= 0) {
@@ -50,6 +55,7 @@ export default function PostDetail() {
     setLoading(true);
     setUnavailable(false);
     setLoadError(null);
+    setDeleted(false);
 
     apiClient
       .getPost(id)
@@ -82,6 +88,22 @@ export default function PostDetail() {
     return (
       <div className="flex justify-center py-16" role="status" aria-label="Loading post">
         <div className="w-8 h-8 border-4 border-gem/25 border-t-gem rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (deleted) {
+    return (
+      <div className="max-w-2xl mx-auto px-5 sm:px-8 py-10">
+        <InlineNotice tone="info">
+          <p className="font-medium">Post deleted.</p>
+        </InlineNotice>
+        <div className="mt-6 flex flex-wrap gap-4 text-sm">
+          {realm && (
+            <Link to={`/realms/${realm.id}`} className="text-gem hover:opacity-80">Back to {realm.name}</Link>
+          )}
+          <Link to="/" className="text-gem hover:opacity-80">Go to the Commons</Link>
+        </div>
       </div>
     );
   }
@@ -171,12 +193,17 @@ export default function PostDetail() {
               )}
             </div>
           </div>
-          <time
-            dateTime={post.created_at}
-            className="text-[11px] font-mono text-ink-3 flex-shrink-0 mt-0.5"
-          >
-            {new Date(post.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-          </time>
+          <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+            <time
+              dateTime={post.created_at}
+              className="text-[11px] font-mono text-ink-3"
+            >
+              {new Date(post.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            </time>
+            {user && (post.author_user_id === user.id || user.is_admin) && (
+              <PostMenu postId={post.id} commentCount={post.comment_count} onDeleted={() => setDeleted(true)} />
+            )}
+          </div>
         </header>
 
         {post.title && <h1 className="fic-title text-[21px] font-medium mb-2">{post.title}</h1>}
@@ -199,7 +226,13 @@ export default function PostDetail() {
         )}
 
         <ReactionBar postId={post.id} />
-        <CommentSection postId={post.id} characters={characters} defaultExpanded commentCount={post.comment_count} />
+        <CommentSection
+          postId={post.id}
+          characters={characters}
+          defaultExpanded
+          commentCount={post.comment_count}
+          onCommentCountChange={(d) => setPost((p) => (p ? { ...p, comment_count: Math.max(0, (p.comment_count ?? 0) + d) } : p))}
+        />
       </article>
     </div>
   );

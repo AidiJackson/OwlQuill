@@ -128,3 +128,38 @@ def list_post_comments(
         selectinload(CommentModel.character),
     ).order_by(CommentModel.created_at.asc()).all()
     return serialize_comments_for_viewer(comments, current_user, db)
+
+
+@router.delete("/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_comment(
+    comment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Delete a comment. Hard delete; nothing references a comment row.
+
+    ``author_user_id`` is the only thing that grants this. It is checked FIRST,
+    so an author can always remove what they published — including a comment
+    written as a character they have since deleted, or on a post in a realm
+    they have since left. Membership of the realm, ownership of the realm, and
+    authorship of the post grant nothing.
+
+    Everyone else is answered as the read path would answer them: 404 when
+    they cannot see the post (so a private realm's comment ids are not
+    confirmable by probing), 403 when they can see it but did not write it.
+    """
+    comment = db.query(CommentModel).filter(CommentModel.id == comment_id).first()
+    if comment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+
+    if comment.author_user_id != current_user.id:
+        post = db.query(PostModel).filter(PostModel.id == comment.post_id).first()
+        if not user_can_access_post(db, current_user.id, post):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this comment",
+        )
+
+    db.delete(comment)
+    db.commit()

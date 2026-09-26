@@ -129,3 +129,37 @@ def notify_character_mentioned(
     return create_notification(
         db, user_id=recipient_user_id, type=NOTIFICATION_TYPE_MENTION, payload=payload
     )
+
+
+def delete_mention_notifications_for_post(db: Session, post_id: int) -> int:
+    """Delete every mention notification that points at ``post_id``. Does NOT commit.
+
+    Called when a post is deleted. A mention row snapshots up to
+    ``MENTION_PREVIEW_CHARS`` of the post body, so leaving it behind would keep
+    the deleted text readable in the recipient's notification list.
+
+    Matched by PARSING each payload and comparing ``post_id`` as an integer —
+    never by a text match on the JSON, where ``"post_id":1`` is a prefix of
+    ``"post_id":12``. Only ``mention`` rows are considered; a malformed payload
+    is left alone rather than guessed at. Scans the mention rows in Python,
+    which is fine at closed-beta volume and keeps notification storage as it is.
+
+    Returns the number of rows deleted.
+    """
+    deleted = 0
+    rows = db.query(Notification).filter(
+        Notification.type == NOTIFICATION_TYPE_MENTION
+    ).all()
+    for row in rows:
+        try:
+            payload = json.loads(row.payload or "")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        target = payload.get("post_id")
+        # bool is an int subclass; True must not match post 1.
+        if type(target) is int and target == post_id:
+            db.delete(row)
+            deleted += 1
+    return deleted

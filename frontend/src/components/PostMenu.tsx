@@ -1,13 +1,32 @@
 import { useState, useRef, useEffect } from 'react';
 import { MoreVertical } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface PostMenuProps {
   postId: number;
   onDeleted: (postId: number) => void;
+  /** The post's server-sent `comment_count`, when the caller already has it.
+   *  Only used to state the consequence exactly; omitted, the copy is generic. */
+  commentCount?: number;
 }
 
-export default function PostMenu({ postId, onDeleted }: PostMenuProps) {
+/** What deleting a post takes with it. DELETE /posts/{id} is a hard delete
+ *  and its comments and reactions cascade, so the copy says so — with the
+ *  real number when one was handed to us, never a guessed one. */
+export function postDeleteConsequence(commentCount?: number): string {
+  let removes: string;
+  if (commentCount === undefined || commentCount === null || !Number.isFinite(commentCount)) {
+    removes = 'the post, its reactions and comments';
+  } else if (commentCount <= 0) {
+    removes = 'the post and its reactions';
+  } else {
+    removes = `the post, its reactions and ${commentCount} ${commentCount === 1 ? 'comment' : 'comments'}`;
+  }
+  return `This permanently removes ${removes}. This can't be undone.`;
+}
+
+export default function PostMenu({ postId, onDeleted, commentCount }: PostMenuProps) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -31,9 +50,11 @@ export default function PostMenu({ postId, onDeleted }: PostMenuProps) {
     setError('');
     try {
       await apiClient.deletePost(postId);
+      setConfirming(false);
       onDeleted(postId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete post');
+    } finally {
       setDeleting(false);
     }
   };
@@ -52,7 +73,7 @@ export default function PostMenu({ postId, onDeleted }: PostMenuProps) {
         {open && (
           <div className="absolute right-0 top-full mt-1 w-36 bg-surface-overlay border border-edge-md rounded-lg shadow-lg z-10">
             <button
-              onClick={() => { setOpen(false); setConfirming(true); }}
+              onClick={() => { setOpen(false); setError(''); setConfirming(true); }}
               className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-surface-elevated rounded-lg transition-colors"
             >
               Delete
@@ -61,36 +82,18 @@ export default function PostMenu({ postId, onDeleted }: PostMenuProps) {
         )}
       </div>
 
-      {/* Confirm modal */}
-      {confirming && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface-overlay border border-edge-md rounded-xl max-w-sm w-full p-6">
-            <h3 className="text-lg font-semibold text-ink mb-2">Delete post?</h3>
-            <p className="text-ink-2 text-sm mb-5">This can't be undone.</p>
-
-            {error && (
-              <p className="text-red-400 text-sm mb-3">{error}</p>
-            )}
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => { setConfirming(false); setError(''); }}
-                className="btn btn-secondary text-sm"
-                disabled={deleting}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
-              >
-                {deleting ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirming}
+        title="Delete post?"
+        confirmLabel="Delete"
+        danger
+        busy={deleting}
+        error={error || null}
+        onConfirm={handleDelete}
+        onCancel={() => { setConfirming(false); setError(''); }}
+      >
+        <p>{postDeleteConsequence(commentCount)}</p>
+      </ConfirmDialog>
     </>
   );
 }

@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
+import { Trash2 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
 import { authorLink } from '@/lib/authorLink';
 import type { Comment, Character } from '@/lib/types';
 import { CompositionTracker } from '@/lib/composition';
 import { PostTypeBadge } from '@/components/PostBadges';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface CommentSectionProps {
   postId: number;
@@ -13,6 +15,11 @@ interface CommentSectionProps {
   /** Server-sent count from the parent post, used for the collapsed label so
    *  an existing comment is announced before the comments are fetched. */
   commentCount?: number;
+  /** Told +1 / -1 when the viewer adds or deletes a comment here, so a parent
+   *  holding the post's `comment_count` can keep it true (e.g. for PostMenu's
+   *  delete copy). A delta, not a length: the fetched list omits blocked
+   *  users' comments, which still exist and still count. */
+  onCommentCountChange?: (delta: number) => void;
 }
 
 export default function CommentSection({
@@ -20,6 +27,7 @@ export default function CommentSection({
   characters = [],
   defaultExpanded = false,
   commentCount,
+  onCommentCountChange,
 }: CommentSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -36,6 +44,13 @@ export default function CommentSection({
 
   const activeCharacterId = useAuthStore((s) => s.user?.active_character?.id);
   const wandererName = useAuthStore((s) => s.user?.username);
+  const viewerId = useAuthStore((s) => s.user?.id);
+
+  // Author-only delete. `author_user_id` reaches the client for the author's
+  // own comments (and for Wanderer comments); the server re-checks it anyway.
+  const [pendingDelete, setPendingDelete] = useState<Comment | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Default the replying identity to the ACTIVE character; single-character
   // accounts resolve automatically. Multi-character with no selection picks explicitly.
@@ -82,12 +97,30 @@ export default function CommentSection({
       });
       composition.reset();
       setContent('');
+      onCommentCountChange?.(1);
       const updated = await apiClient.getPostComments(postId);
       setComments(updated);
     } catch (error) {
       console.error('Failed to create comment:', error);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!pendingDelete || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await apiClient.deleteComment(pendingDelete.id);
+      const goneId = pendingDelete.id;
+      setComments((prev) => prev.filter((c) => c.id !== goneId));
+      onCommentCountChange?.(-1);
+      setPendingDelete(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete comment');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -157,6 +190,17 @@ export default function CommentSection({
                     <span className="text-xs font-mono text-ink-3">
                       {new Date(comment.created_at).toLocaleDateString()}
                     </span>
+                    {viewerId !== undefined && comment.author_user_id === viewerId && (
+                      <button
+                        type="button"
+                        onClick={() => { setDeleteError(null); setPendingDelete(comment); }}
+                        className="ml-auto p-1 rounded text-ink-3 hover:text-red-400 hover:bg-surface-elevated transition-colors"
+                        aria-label="Delete comment"
+                        title="Delete comment"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                   <p className="fic-read-sm fic-ooc whitespace-pre-wrap">{comment.content}</p>
                 </div>
@@ -243,6 +287,19 @@ export default function CommentSection({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete comment?"
+        confirmLabel="Delete"
+        danger
+        busy={deleting}
+        error={deleteError}
+        onConfirm={handleDelete}
+        onCancel={() => { setPendingDelete(null); setDeleteError(null); }}
+      >
+        <p>This permanently removes your comment. This can't be undone.</p>
+      </ConfirmDialog>
     </div>
   );
 }

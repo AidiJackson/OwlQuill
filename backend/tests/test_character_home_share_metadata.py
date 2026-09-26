@@ -36,6 +36,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes.character_home_shell import (
     CACHE_CONTROL,
+    X_ROBOTS_TAG,
     create_character_home_shell_router,
 )
 from app.core.config import DEFAULT_FRONTEND_URL, settings
@@ -174,6 +175,20 @@ class TestPublishedMetadata:
         h = parse(inject_head_metadata(SHELL, build_head_tags(home(), None)))
         assert h.meta["twitter:card"] == "summary"
         assert "twitter:image" not in h.meta
+
+    def test_closed_beta_head_is_noindex_and_keeps_every_share_tag(self):
+        h = render(short_bio="A king.", cover_url=f"{BASE}/x.png")
+
+        assert h.meta["robots"] == "noindex"
+        # noindex must not cost the share card anything.
+        assert h.canonical == "https://ficshon.com/c/59"
+        assert h.meta["og:url"] == "https://ficshon.com/c/59"
+        assert h.meta["og:title"] == h.meta["twitter:title"] == "Pan | Ficshon"
+        assert h.meta["og:description"] == h.meta["twitter:description"] == "A king."
+        assert h.meta["og:image"] == h.meta["twitter:image"] == f"{BASE}/x.png"
+        assert h.meta["og:image:alt"] == "Pan"
+        assert h.meta["twitter:card"] == "summary_large_image"
+        assert "nofollow" not in h.meta["robots"]
 
     def test_exactly_one_title_survives_injection(self):
         h = render()
@@ -539,6 +554,31 @@ class TestRoute:
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("text/html")
         assert parse(r.text).meta["og:title"] == "Pan | Ficshon"
+
+    def test_every_home_response_carries_x_robots_tag_noindex(self, shell_app, client, db_session):
+        published = _character(db_session, client, short_bio="A king.")
+        withheld = _character(db_session, client, public_home_enabled=False)
+
+        responses = [
+            shell_app.get(f"/c/{published}"),
+            shell_app.get(f"/c/{withheld}"),
+            shell_app.get("/c/999999"),
+            shell_app.get("/c/not-a-number"),
+        ]
+        etag = responses[0].headers["etag"]
+        responses.append(shell_app.get(f"/c/{published}", headers={"If-None-Match": etag}))
+
+        assert X_ROBOTS_TAG == "noindex"
+        for r in responses:
+            assert r.headers["x-robots-tag"] == "noindex"
+        assert responses[-1].status_code == 304
+        # The header is the same for all, so it says nothing about which exist.
+        assert parse(responses[0].text).meta["robots"] == "noindex"
+        assert responses[1].text == responses[2].text == SHELL
+
+    def test_other_spa_routes_are_not_given_the_noindex_header(self, shell_app):
+        # Site-wide noindex is deliberately out of scope for this change.
+        assert "x-robots-tag" not in shell_app.get("/login").headers
 
     def test_a_query_string_never_reaches_the_canonical(self, shell_app, client, db_session):
         cid = _character(db_session, client)

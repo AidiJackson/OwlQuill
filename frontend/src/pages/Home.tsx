@@ -608,7 +608,7 @@ export default function Home() {
                           {new Date(post.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                         </span>
                         {(post.author_user_id === user?.id || user?.is_admin) && (
-                          <PostMenu postId={post.id} onDeleted={(id) => setPosts(prev => prev.filter(p => p.id !== id))} />
+                          <PostMenu postId={post.id} commentCount={post.comment_count} onDeleted={(id) => setPosts(prev => prev.filter(p => p.id !== id))} />
                         )}
                       </div>
                     </div>
@@ -664,7 +664,13 @@ export default function Home() {
                     )}
 
                     <ReactionBar postId={post.id} />
-                    <CommentSection postId={post.id} characters={characters} defaultExpanded={joinSent[post.id]} commentCount={post.comment_count} />
+                    <CommentSection
+                      postId={post.id}
+                      characters={characters}
+                      defaultExpanded={joinSent[post.id]}
+                      commentCount={post.comment_count}
+                      onCommentCountChange={(d) => setPosts(prev => prev.map(p => p.id === post.id ? { ...p, comment_count: Math.max(0, (p.comment_count ?? 0) + d) } : p))}
+                    />
                   </article>
                 );
               })}

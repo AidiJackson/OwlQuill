@@ -16,6 +16,7 @@ import { apiClient } from '@/lib/apiClient';
 import type { Character, ProfileTimelineItem, User } from '@/lib/types';
 import CanonManager, { type OwnerStatus } from '@/components/CanonManager';
 import MentionText from '@/components/MentionText';
+import PostMenu from '@/components/PostMenu';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { CharacterGalleryImage } from '@/lib/types';
 import ImageGrid from '@/features/images/components/ImageGrid';
@@ -660,7 +661,16 @@ export default function CharacterDetail() {
               </div>
             ) : (
               timeline.map((item, idx) => (
-                <PostCard key={idx} item={item} character={character} />
+                <PostCard
+                  key={timelineKey(item, idx)}
+                  item={item}
+                  character={character}
+                  viewer={currentUser}
+                  onDeleted={(postId) => {
+                    setTimeline((prev) => prev.filter((i) => timelinePostId(i) !== postId));
+                    setMentions((prev) => prev.filter((i) => timelinePostId(i) !== postId));
+                  }}
+                />
               ))
             )}
           </div>
@@ -706,7 +716,16 @@ export default function CharacterDetail() {
               </div>
             )}
             {!mentionsLoading && mentions.map((item, idx) => (
-              <PostCard key={idx} item={item} character={null} />
+              <PostCard
+                key={timelineKey(item, idx)}
+                item={item}
+                character={null}
+                viewer={currentUser}
+                onDeleted={(postId) => {
+                  setMentions((prev) => prev.filter((i) => timelinePostId(i) !== postId));
+                  setTimeline((prev) => prev.filter((i) => timelinePostId(i) !== postId));
+                }}
+              />
             ))}
           </div>
         )}
@@ -1146,6 +1165,19 @@ export default function CharacterDetail() {
   );
 }
 
+/** The post id a timeline item carries, when it is a post. */
+function timelinePostId(item: ProfileTimelineItem): number | undefined {
+  const id = (item.payload as { id?: unknown }).id;
+  return item.type === 'post' && typeof id === 'number' ? id : undefined;
+}
+
+/** A stable React key: the post id, so removing one entry cannot leave its
+ *  neighbours rendering each other's state. Index only as a last resort. */
+function timelineKey(item: ProfileTimelineItem, idx: number): string {
+  const id = timelinePostId(item);
+  return id !== undefined ? `post-${id}` : `${item.type}-idx-${idx}`;
+}
+
 /** Timeline/mention post card. Attribution is always the authoring CHARACTER
  *  (from the post payload) — never an account. `character` is the profile
  *  being viewed; when the payload has no character of its own (legacy), the
@@ -1153,9 +1185,13 @@ export default function CharacterDetail() {
 function PostCard({
   item,
   character,
+  viewer,
+  onDeleted,
 }: {
   item: ProfileTimelineItem;
   character: Character | null;
+  viewer: User | null;
+  onDeleted: (postId: number) => void;
 }) {
   const post = item.payload as {
     id?: number;
@@ -1165,7 +1201,16 @@ function PostCard({
     character_name?: string;
     character_avatar_url?: string;
     mentions?: import('@/lib/types').PostMention[];
+    author_user_id?: number | null;
+    comment_count?: number;
   };
+  const postId = timelinePostId(item);
+  // The serializer keeps `author_user_id` for the author alone, so a match is
+  // authorship; admins mirror the Commons/Realm rule. The server re-checks.
+  const canDelete =
+    postId !== undefined &&
+    viewer !== null &&
+    ((post.author_user_id != null && post.author_user_id === viewer.id) || !!viewer.is_admin);
 
   const authorName = post.character_name || character?.name || 'Wanderer';
   const authorAvatar = post.character_avatar_url ?? (post.character_name ? null : character?.avatar_url) ?? null;
@@ -1187,6 +1232,9 @@ function PostCard({
         <span className="font-mono text-[11px] text-ink-3 ml-auto">
           {new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
         </span>
+        {canDelete && postId !== undefined && (
+          <PostMenu postId={postId} commentCount={post.comment_count} onDeleted={onDeleted} />
+        )}
       </div>
       {post.title && (
         <h3 className="fic-title text-lg font-medium mb-1.5">{post.title}</h3>

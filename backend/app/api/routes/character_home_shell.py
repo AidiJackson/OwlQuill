@@ -40,6 +40,16 @@ logger = logging.getLogger(__name__)
 #: how an unpublished Home stays visible after it is withdrawn.
 CACHE_CONTROL = "private, max-age=0, must-revalidate"
 
+#: Closed beta: a Home is directly reachable and shareable, but not meant to be
+#: in search results. Sent on EVERY ``/c/{id}`` response — published, withheld,
+#: missing and 304 alike — so the header itself says nothing about which Homes
+#: exist. The published head carries the matching robots meta as well.
+#:
+#: Deliberately not a ``Disallow`` in robots.txt: a crawler barred from fetching
+#: the page never sees the noindex, and link-preview scrapers may honour the
+#: block and lose the share card.
+X_ROBOTS_TAG = "noindex"
+
 
 def _parse_character_id(raw: str) -> Optional[int]:
     """The id as an int, or None when the path segment is not one.
@@ -88,7 +98,11 @@ def create_character_home_shell_router(dist_dir: Path) -> APIRouter:
         )
 
         etag = '"%s"' % hashlib.sha256(body.encode("utf-8")).hexdigest()
-        headers = {"ETag": etag, "Cache-Control": CACHE_CONTROL}
+        headers = {
+            "ETag": etag,
+            "Cache-Control": CACHE_CONTROL,
+            "X-Robots-Tag": X_ROBOTS_TAG,
+        }
 
         # A content ETag with nothing checking it is decoration. This is the
         # half that turns "revalidate every time" into "revalidate cheaply".
