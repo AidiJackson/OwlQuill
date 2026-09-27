@@ -600,3 +600,67 @@ def test_a_resumed_draft_whose_parent_never_typed_earns_nothing(client):
     post = _post(client, token, realm, content, composition_session_id=child)
 
     assert post["provenance"] == Provenance.EXTERNAL.value
+
+
+# ── WriteSpace direct publish ─────────────────────────────────────────────────
+#
+# WriteSpace publishes through the ordinary post endpoint with its own
+# ``workspace`` session. These pin that the surface earns nothing by itself:
+# the same rules decide it as any composer.
+
+def test_mostly_pasted_writespace_text_is_still_written_elsewhere(client):
+    """Passing through WriteSpace does not launder a paste."""
+    token = get_auth_token(client, email="wspaste@test.com", username="wspasteuser")
+    realm = _commons_realm(client, token)
+    content = "q" * 2000
+
+    session = _open_session(client, token, surface="workspace")
+    _report_metrics(
+        client, token, session,
+        typed_chars=20, inserted_chars=1980, insertion_count=1, largest_insertion=1980,
+    )
+
+    post = _post(client, token, realm, content, composition_session_id=session)
+
+    assert post["provenance"] == Provenance.EXTERNAL.value
+
+
+def test_a_rolled_back_post_does_not_spend_its_session(client, monkeypatch):
+    """WriteSpace keeps the session on failure so Retry carries the same evidence.
+
+    The session is claimed inside the post's own transaction. A fault after the
+    claim must roll both back, leaving the session open for the retry.
+    """
+    from app.api.routes import posts as posts_routes
+
+    token = get_auth_token(client, email="wsretry@test.com", username="wsretryuser")
+    realm = _commons_realm(client, token)
+    content = "Typed in WriteSpace, published on the second try."
+
+    session = _open_session(client, token, surface="workspace")
+    _report_metrics(client, token, session, typed_chars=len(content))
+
+    def _fail_after_claim(*_a, **_kw):
+        raise RuntimeError("simulated fault after the session was claimed")
+
+    with monkeypatch.context() as m:
+        m.setattr(posts_routes, "link_commit", _fail_after_claim)
+        try:
+            resp = client.post(
+                f"/posts/realms/{realm}/posts",
+                json={
+                    "content": content,
+                    "character_id": _character_for(client, token),
+                    "composition_session_id": session,
+                },
+                headers=auth_headers(token),
+            )
+            assert resp.status_code == 500
+        except RuntimeError:
+            pass  # TestClient re-raised the server fault; the request still failed.
+
+    still_open = client.get(f"/composition/sessions/{session}", headers=auth_headers(token))
+    assert still_open.json()["status"] == "open"
+
+    post = _post(client, token, realm, content, composition_session_id=session)
+    assert post["provenance"] == Provenance.USER_WRITTEN.value

@@ -28,6 +28,31 @@ const TOOLBTN      = 'h-9 px-3 text-sm rounded-lg bg-surface-elevated border bor
 
 const OOC_OPTION = { id: 0, name: 'Yourself (OOC)' };
 
+/** Shown beside every Publish control while "Yourself (OOC)" is selected. The
+ *  post endpoint requires a character author, so publishing as yourself can
+ *  only fail; the control is disabled and says why instead. */
+const OOC_PUBLISH_HINT = 'Posts are authored by characters — choose a character to publish.';
+
+const PUBLISH_FALLBACK_ERROR = 'Post failed. Try again.';
+
+/**
+ * The message to show for a failed publish.
+ *
+ * apiClient throws `Error(detail)` with the server's own `detail`, which for
+ * the post endpoint is written for the user (membership, character ownership,
+ * image scope) and for an unhandled fault is a fixed public message. Anything
+ * else — a network TypeError, a validation array stringified to
+ * "[object Object]", a bare "HTTP 4xx" — gets the generic fallback.
+ */
+function publishErrorMessage(err: unknown): string {
+  if (!(err instanceof Error) || err instanceof TypeError) return PUBLISH_FALLBACK_ERROR;
+  const msg = err.message.trim();
+  if (!msg || msg.length > 300 || msg.startsWith('[object') || /^HTTP \d+$/.test(msg)) {
+    return PUBLISH_FALLBACK_ERROR;
+  }
+  return msg;
+}
+
 async function copyToClipboard(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText) {
     try {
@@ -405,6 +430,11 @@ export default function Workspace() {
   const [publishError, setPublishError] = useState('');
   const [publishSuccess, setPublishSuccess] = useState(false);
   const [publishDestination, setPublishDestination] = useState('');
+  const [publishedPostId, setPublishedPostId] = useState<number | null>(null);
+  // Every Publish control calls the one handler below, and this ref is its
+  // re-entry guard. `publishing` state alone is not enough: two clicks can land
+  // before React re-renders the button as disabled.
+  const publishInFlightRef = useRef(false);
   const [realms, setRealms] = useState<Realm[]>([]);
   const [characters, setCharacters] = useState<{ id: number; name: string }[]>([]);
   const [selectedRealmId, setSelectedRealmId] = useState<number | null>(() => {
@@ -524,7 +554,11 @@ export default function Workspace() {
 
 
   const handlePublishToCommons = async () => {
-    if (!body.trim()) return;
+    // characterId === 0 is "Yourself (OOC)", which the post endpoint rejects —
+    // every control is disabled for it, and this is the backstop.
+    if (!body.trim() || characterId === 0) return;
+    if (publishInFlightRef.current) return;
+    publishInFlightRef.current = true;
     setPublishing(true);
     setPublishError('');
     try {
@@ -536,7 +570,7 @@ export default function Workspace() {
         const all = await apiClient.getRealms();
         const commons = all.find((r) => r.is_commons);
         if (!commons) {
-          setPublishError('Post failed. Try again.');
+          setPublishError(PUBLISH_FALLBACK_ERROR);
           return;
         }
         realmId = commons.id;
@@ -551,7 +585,7 @@ export default function Workspace() {
       const isOOC = characterId === 0;
       composition.options.targetRef = String(realmId);
       const sessionId = await composition.commit();
-      await apiClient.createPost(realmId, {
+      const created = await apiClient.createPost(realmId, {
         content: body.trim(),
         content_type: isOOC ? 'ooc' : 'ic',
         ...(isOOC ? {} : { character_id: characterId }),
@@ -568,10 +602,15 @@ export default function Workspace() {
       // the next draft try to resume a session the server has already closed.
       safeRemove(SESSION_KEY);
       setPublishDestination(destination);
+      setPublishedPostId(created.id);
       setPublishSuccess(true);
-    } catch {
-      setPublishError('Post failed. Try again.');
+    } catch (err) {
+      // The draft, its saved session id and the tracker are all left intact: a
+      // failed post rolls back server-side without spending the session, so
+      // Retry publishes with the same evidence.
+      setPublishError(publishErrorMessage(err));
     } finally {
+      publishInFlightRef.current = false;
       setPublishing(false);
     }
   };
@@ -1254,15 +1293,13 @@ export default function Workspace() {
               <p className="text-sm font-semibold text-gem">Published</p>
               <p className="text-xs text-ink-2 leading-relaxed">
                 Your post is live on{' '}
-                <span className="text-ink-2">
-                  {publishDestination === '/' ? 'Commons' : selectedRealmName ?? 'the realm'}
-                </span>.
+                <span className="text-ink-2">{publishedToLabel}</span>.
               </p>
             </div>
             <div className="flex flex-col gap-2">
               <button
                 type="button"
-                onClick={() => navigate(publishDestination)}
+                onClick={viewPublishedPost}
                 className="w-full py-2 px-3 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink text-xs font-semibold transition"
               >
                 View post
@@ -1312,7 +1349,7 @@ export default function Workspace() {
             <button
               type="button"
               onClick={handlePublishToCommons}
-              disabled={publishing || !body.trim()}
+              disabled={!canPublish}
               className="w-full py-2.5 px-4 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold text-sm tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {publishing
@@ -1321,6 +1358,9 @@ export default function Workspace() {
                   ? 'Publish to Commons'
                   : `Publish to ${selectedRealmName ?? 'Realm'}`}
             </button>
+            {publishAsOOC && (
+              <p className="text-xs text-ink-3 leading-relaxed">{OOC_PUBLISH_HINT}</p>
+            )}
 
             {/* Error state */}
             {publishError && (
@@ -1329,6 +1369,7 @@ export default function Workspace() {
                 <button
                   type="button"
                   onClick={handlePublishToCommons}
+                  disabled={!canPublish}
                   className="shrink-0 text-[11px] text-red-500 hover:text-red-300 transition font-medium"
                 >
                   Retry
@@ -1443,6 +1484,14 @@ export default function Workspace() {
     : null;
 
   const hasText = body.trim().length > 0;
+
+  // Shared by every Publish control so they can never disagree.
+  const publishAsOOC = characterId === 0;
+  const canPublish = hasText && !publishing && !publishAsOOC;
+  const publishedToLabel = publishDestination === '/' ? 'Commons' : selectedRealmName ?? 'the realm';
+  const viewPublishedPost = () => {
+    navigate(publishedPostId !== null ? `/posts/${publishedPostId}` : publishDestination);
+  };
 
   const visibleGrammarMatches = useMemo(
     () => grammar.matches.filter(
@@ -1614,13 +1663,25 @@ export default function Workspace() {
               }
               className="bg-surface-elevated border border-edge rounded-lg px-2.5 py-1.5 text-sm text-ink-2 cursor-pointer focus:outline-none"
             >
-              <option value="">Publish to Commons</option>
+              <option value="">Commons</option>
               {realms.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
                 </option>
               ))}
             </select>
+            {/* The one desktop Publish control that is visible in every mode.
+                The sidebar's is replaced in Review and hidden in Focus. */}
+            <button
+              type="button"
+              data-testid="ws-header-publish"
+              onClick={handlePublishToCommons}
+              disabled={!canPublish}
+              title={publishAsOOC ? OOC_PUBLISH_HINT : undefined}
+              className="px-3.5 py-1.5 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {publishing ? 'Publishing…' : 'Publish'}
+            </button>
           </div>
           <p className="text-xs text-ink-3">
             {getSaveLabel()}
@@ -1660,6 +1721,30 @@ export default function Workspace() {
             Options
           </button>
         </div>
+        {/* Publish status for the controls that have no panel of their own:
+            the header button in Review/Focus, and the mobile bottom bar. On
+            desktop Write/Preview the sidebar already shows all of this. */}
+        {(publishAsOOC || publishError || publishSuccess) && (
+          <div
+            data-testid="ws-publish-status"
+            className={`mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${
+              mode !== 'review' && !focusMode ? 'lg:hidden' : ''
+            }`}
+          >
+            {publishSuccess ? (
+              <>
+                <span className="text-gem font-semibold">Published to {publishedToLabel}.</span>
+                <button type="button" onClick={viewPublishedPost} className="text-gem underline">
+                  View post
+                </button>
+              </>
+            ) : publishError ? (
+              <span className="text-red-400">{publishError}</span>
+            ) : (
+              <span className="text-ink-3">{OOC_PUBLISH_HINT}</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* B) Main content */}
@@ -1946,7 +2031,7 @@ export default function Workspace() {
       <div className="lg:hidden sticky bottom-0 border-t border-edge bg-app px-4 py-3 flex gap-2">
         <button
           onClick={handlePublishToCommons}
-          disabled={publishing || !body.trim()}
+          disabled={!canPublish}
           className="flex-1 text-sm h-11 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Publish
