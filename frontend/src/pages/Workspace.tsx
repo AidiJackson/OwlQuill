@@ -2,21 +2,21 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import type { Realm } from '@/lib/types';
-import { CompositionTracker, markInternalHandoff } from '@/lib/composition';
+import { CompositionTracker } from '@/lib/composition';
 import { safeGet, safeRemove, safeSet } from '@/lib/safeStorage';
+import {
+  WRITESPACE_BODY_KEY as BODY_KEY,
+  WRITESPACE_SESSION_KEY as SESSION_KEY,
+  WRITESPACE_TITLE_KEY as TITLE_KEY,
+  clearFinalisation,
+  writeFinalisation,
+} from '@/lib/writespaceFinalise';
 
-const TITLE_KEY      = 'ficshon.workspace.title';
-const BODY_KEY       = 'ficshon.workspace.body';
 const PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
 const MODE_KEY       = 'ficshon.writespace.mode';
 const REALM_KEY      = 'ficshon.writespace.selected_realm_id';
 const CHARACTER_KEY  = 'ficshon.writespace.selected_character_id';
 const SURFACE_KEY    = 'fic_surface_mode';
-/** The composition session the autosaved draft belongs to. Stored beside the
- *  draft so a reopened tab resumes the same session instead of starting its
- *  authorship evidence from zero — see CompositionTracker.resume(). Holds an
- *  opaque id and nothing else. */
-const SESSION_KEY    = 'ficshon.writespace.composition_session_id';
 
 const EDITOR_TEXT    = 'text-[16px] md:text-[17px] lg:text-[18px]';
 const EDITOR_LEADING = 'leading-[1.75]';
@@ -28,53 +28,17 @@ const TOOLBTN      = 'h-9 px-3 text-sm rounded-lg bg-surface-elevated border bor
 
 const OOC_OPTION = { id: 0, name: 'Yourself (OOC)' };
 
-/** Shown beside every Publish control while "Yourself (OOC)" is selected. The
- *  post endpoint requires a character author, so publishing as yourself can
- *  only fail; the control is disabled and says why instead. */
+/** Shown beside every Continue to publish control while "Yourself (OOC)" is
+ *  selected. The post endpoint requires a character author, so the destination
+ *  composer could only ask again; the control is disabled and says why. */
 const OOC_PUBLISH_HINT = 'Posts are authored by characters — choose a character to publish.';
 
-const PUBLISH_FALLBACK_ERROR = 'Post failed. Try again.';
-
-/**
- * The message to show for a failed publish.
- *
- * apiClient throws `Error(detail)` with the server's own `detail`, which for
- * the post endpoint is written for the user (membership, character ownership,
- * image scope) and for an unhandled fault is a fixed public message. Anything
- * else — a network TypeError, a validation array stringified to
- * "[object Object]", a bare "HTTP 4xx" — gets the generic fallback.
- */
-function publishErrorMessage(err: unknown): string {
-  if (!(err instanceof Error) || err instanceof TypeError) return PUBLISH_FALLBACK_ERROR;
-  const msg = err.message.trim();
-  if (!msg || msg.length > 300 || msg.startsWith('[object') || /^HTTP \d+$/.test(msg)) {
-    return PUBLISH_FALLBACK_ERROR;
-  }
-  return msg;
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // fall through to execCommand fallback
-    }
-  }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;opacity:0;';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
+/** The session's counters could not be reported. Handing off anyway would give
+ *  the destination composer a server record that is behind the draft. */
+const HANDOFF_FLUSH_ERROR = 'Couldn\u2019t prepare the post. Check your connection and try again.';
+/** sessionStorage refused the record (private mode, blocked site data). */
+const HANDOFF_STORAGE_ERROR =
+  'This browser blocked preparing the post. Use Download text to keep a copy.';
 
 // ── Local analysis helpers (pure, no React) ──────────────────────────────────
 
@@ -404,8 +368,8 @@ type GrammarState = {
 export default function Workspace() {
   const navigate = useNavigate();
   // WriteSpace is a first-class writing surface, so it carries a session of
-  // its own — both for its direct publish path and so a copy-for-posting
-  // handoff can vouch for the paste that lands in another composer.
+  // its own. Continue to publish hands that session to the destination
+  // composer, which adopts it.
   const composition = useRef(new CompositionTracker('workspace', { targetKind: 'post' })).current;
   const [title, setTitle] = useState(() => safeGet(TITLE_KEY) ?? '');
   const [body, setBody]   = useState(() => safeGet(BODY_KEY)  ?? '');
@@ -425,16 +389,12 @@ export default function Workspace() {
     const v = safeGet(MODE_KEY);
     return v === 'preview' || v === 'review' || v === 'write' ? v : 'write';
   });
-  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
-  const [publishing, setPublishing] = useState(false);
-  const [publishError, setPublishError] = useState('');
-  const [publishSuccess, setPublishSuccess] = useState(false);
-  const [publishDestination, setPublishDestination] = useState('');
-  const [publishedPostId, setPublishedPostId] = useState<number | null>(null);
-  // Every Publish control calls the one handler below, and this ref is its
-  // re-entry guard. `publishing` state alone is not enough: two clicks can land
-  // before React re-renders the button as disabled.
-  const publishInFlightRef = useRef(false);
+  const [preparing, setPreparing] = useState(false);
+  const [handoffError, setHandoffError] = useState('');
+  // Every Continue to publish control calls the one handler below, and this
+  // ref is its re-entry guard. `preparing` state alone is not enough: two
+  // clicks can land before React re-renders the button as disabled.
+  const handoffInFlightRef = useRef(false);
   const [realms, setRealms] = useState<Realm[]>([]);
   const [characters, setCharacters] = useState<{ id: number; name: string }[]>([]);
   const [selectedRealmId, setSelectedRealmId] = useState<number | null>(() => {
@@ -462,6 +422,12 @@ export default function Workspace() {
   const grammarAbortRef = useRef<AbortController | null>(null);
   const pendingCaretRef = useRef<number | null>(null);
 
+
+  // Reopening WriteSpace makes the draft here the one being worked on again.
+  // A finalisation left behind by an earlier Continue to publish would
+  // otherwise reappear in the destination composer later, carrying an older
+  // version of this text.
+  useEffect(() => { clearFinalisation(); }, []);
 
   // Resume the session the restored draft belongs to. A draft outlives the
   // component that wrote it; without this, reopening WriteSpace lost every
@@ -553,65 +519,58 @@ export default function Workspace() {
   }, []);
 
 
-  const handlePublishToCommons = async () => {
-    // characterId === 0 is "Yourself (OOC)", which the post endpoint rejects —
-    // every control is disabled for it, and this is the backstop.
+  /**
+   * Continue to publish: hand the draft to the composer that will post it.
+   *
+   * No post is created here. The destination composer — Commons on Home, or
+   * the chosen Realm's New Post form — prefills itself from the finalisation
+   * record, adopts this draft's composition session, and lets the writer pick
+   * the final details (voice, post kind, image) before Post. Provenance is
+   * then decided by the server from that session's counters.
+   *
+   * The draft, its session id and the tracker are left exactly as they are:
+   * Back to WriteSpace returns to them, and they are cleared only once the
+   * post succeeds.
+   */
+  const handleContinueToPublish = async () => {
+    // characterId === 0 is "Yourself (OOC)"; posts are authored by characters,
+    // so every control is disabled for it and this is the backstop.
     if (!body.trim() || characterId === 0) return;
-    if (publishInFlightRef.current) return;
-    publishInFlightRef.current = true;
-    setPublishing(true);
-    setPublishError('');
+    if (handoffInFlightRef.current) return;
+    handoffInFlightRef.current = true;
+    setPreparing(true);
+    setHandoffError('');
     try {
-      let realmId: number;
+      // Saved now rather than by the debounced autosave, which unmounting
+      // would cancel: Back to WriteSpace must find exactly this text.
+      safeSet(TITLE_KEY, title);
+      safeSet(BODY_KEY, body);
 
-      if (selectedRealmId !== null) {
-        realmId = selectedRealmId;
-      } else {
-        const all = await apiClient.getRealms();
-        const commons = all.find((r) => r.is_commons);
-        if (!commons) {
-          setPublishError(PUBLISH_FALLBACK_ERROR);
-          return;
-        }
-        realmId = commons.id;
+      let sessionId: string | null;
+      try {
+        sessionId = await composition.flush();
+      } catch {
+        setHandoffError(HANDOFF_FLUSH_ERROR);
+        return;
       }
+      if (sessionId) safeSet(SESSION_KEY, sessionId);
 
-      // Capture destination before any state mutations
-      const destination = selectedRealmId !== null
-        ? `/realms/${selectedRealmId}`
-        : '/';
-
-      // characterId === 0 is the "Yourself (OOC)" sentinel; a real character → IC + attribution.
-      const isOOC = characterId === 0;
-      composition.options.targetRef = String(realmId);
-      const sessionId = await composition.commit();
-      const created = await apiClient.createPost(realmId, {
-        content: body.trim(),
-        content_type: isOOC ? 'ooc' : 'ic',
-        ...(isOOC ? {} : { character_id: characterId }),
-        ...(title.trim() ? { title: title.trim() } : {}),
-        ...(sessionId ? { composition_session_id: sessionId } : {}),
+      const stored = writeFinalisation({
+        sessionId,
+        characterId,
+        contentType: 'ic',
+        title,
+        body,
+        realmId: selectedRealmId,
       });
-      composition.reset();
-
-      setTitle('');
-      setBody('');
-      safeRemove(TITLE_KEY);
-      safeRemove(BODY_KEY);
-      // The session was spent on that post. Leaving its id behind would make
-      // the next draft try to resume a session the server has already closed.
-      safeRemove(SESSION_KEY);
-      setPublishDestination(destination);
-      setPublishedPostId(created.id);
-      setPublishSuccess(true);
-    } catch (err) {
-      // The draft, its saved session id and the tracker are all left intact: a
-      // failed post rolls back server-side without spending the session, so
-      // Retry publishes with the same evidence.
-      setPublishError(publishErrorMessage(err));
+      if (!stored) {
+        setHandoffError(HANDOFF_STORAGE_ERROR);
+        return;
+      }
+      navigate(selectedRealmId !== null ? `/realms/${selectedRealmId}` : '/');
     } finally {
-      publishInFlightRef.current = false;
-      setPublishing(false);
+      handoffInFlightRef.current = false;
+      setPreparing(false);
     }
   };
 
@@ -1286,150 +1245,72 @@ export default function Workspace() {
       {drawerSelectors}
       <div className="space-y-3">
 
-        {publishSuccess ? (
-          /* ── Post success panel ─────────────────────────────────── */
-          <div className="rounded-xl border border-gem/25 bg-gem/[0.06] p-4 space-y-3">
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-gem">Published</p>
-              <p className="text-xs text-ink-2 leading-relaxed">
-                Your post is live on{' '}
-                <span className="text-ink-2">{publishedToLabel}</span>.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={viewPublishedPost}
-                className="w-full py-2 px-3 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink text-xs font-semibold transition"
-              >
-                View post
-              </button>
-              <button
-                type="button"
-                onClick={() => setPublishSuccess(false)}
-                className="w-full py-1.5 px-3 rounded-lg text-ink-3 hover:text-ink-2 text-xs transition"
-              >
-                Write another
-              </button>
-            </div>
+        {/* ── Publish controls ───────────────────────────────────── */}
+        {/* Identity summary */}
+        <div className="rounded-lg bg-surface border border-edge px-3 py-2.5 space-y-1.5">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">To</span>
+            <span className="text-xs text-ink-2 text-right">{selectedRealmName ?? 'Commons'}</span>
           </div>
-        ) : (
-          /* ── Publish controls ───────────────────────────────────── */
-          <>
-            {/* Identity summary */}
-            <div className="rounded-lg bg-surface border border-edge px-3 py-2.5 space-y-1.5">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">To</span>
-                <span className="text-xs text-ink-2 text-right">{selectedRealmName ?? 'Commons'}</span>
-              </div>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">As</span>
-                <span className="text-xs text-right">
-                  {selectedCharName ? (
-                    <>
-                      <span className="text-ink-2">{selectedCharName}</span>
-                      <span className="text-gem/80 font-semibold"> · IC</span>
-                    </>
-                  ) : (
-                    <span className="text-ink-3">You · OOC</span>
-                  )}
-                </span>
-              </div>
-              {hasText && (
-                <div className="flex items-baseline justify-between gap-2 pt-0.5 border-t border-edge">
-                  <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">Words</span>
-                  <span className="text-[11px] text-ink-3">
-                    {body.trim().split(/\s+/).filter(Boolean).length}
-                  </span>
-                </div>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">As</span>
+            <span className="text-xs text-right">
+              {selectedCharName ? (
+                <>
+                  <span className="text-ink-2">{selectedCharName}</span>
+                  <span className="text-gem/80 font-semibold"> · IC</span>
+                </>
+              ) : (
+                <span className="text-ink-3">You · OOC</span>
               )}
+            </span>
+          </div>
+          {hasText && (
+            <div className="flex items-baseline justify-between gap-2 pt-0.5 border-t border-edge">
+              <span className="text-[10px] font-medium text-ink-3 uppercase tracking-wider">Words</span>
+              <span className="text-[11px] text-ink-3">
+                {body.trim().split(/\s+/).filter(Boolean).length}
+              </span>
             </div>
-
-            {/* Publish button */}
-            <button
-              type="button"
-              onClick={handlePublishToCommons}
-              disabled={!canPublish}
-              className="w-full py-2.5 px-4 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold text-sm tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {publishing
-                ? 'Publishing\u2026'
-                : selectedRealmId === null
-                  ? 'Publish to Commons'
-                  : `Publish to ${selectedRealmName ?? 'Realm'}`}
-            </button>
-            {publishAsOOC && (
-              <p className="text-xs text-ink-3 leading-relaxed">{OOC_PUBLISH_HINT}</p>
-            )}
-
-            {/* Error state */}
-            {publishError && (
-              <div className="flex items-start gap-2 rounded-lg border border-red-800/40 bg-red-950/20 px-3 py-2">
-                <p className="text-xs text-red-400 flex-1 leading-relaxed">{publishError}</p>
-                <button
-                  type="button"
-                  onClick={handlePublishToCommons}
-                  disabled={!canPublish}
-                  className="shrink-0 text-[11px] text-red-500 hover:text-red-300 transition font-medium"
-                >
-                  Retry
-                </button>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={downloadDraft}
-              disabled={!body.trim()}
-              className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Download text
-            </button>
-          </>
-        )}
-
-        <div className="border-t border-edge pt-3 space-y-2">
-          <button
-            type="button"
-            onClick={async () => {
-              if (!body.trim()) {
-                setCopyStatus('failed');
-                return;
-              }
-              const ok = await copyToClipboard(body);
-              if (ok) {
-                // Flush counters, then leave the session id for whichever
-                // composer receives the paste. The draft itself travels by
-                // clipboard as it always has — the server never sees it.
-                markInternalHandoff((await composition.commit()) ?? null);
-              }
-              setCopyStatus(ok ? 'copied' : 'failed');
-            }}
-            className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
-          >
-            Copy for posting
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              safeSet(PASTE_HINT_KEY, 'true');
-              navigate('/');
-            }}
-            className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors"
-          >
-            Go to Home &amp; paste
-          </button>
-          {copyStatus === 'copied' && (
-            <p className="text-xs text-ink-2">Copied.</p>
-          )}
-          {copyStatus === 'failed' && (
-            <p className="text-xs text-ink-3">
-              {body.trim()
-                ? 'Copy failed \u2014 select text and copy manually.'
-                : 'Nothing to copy yet.'}
-            </p>
           )}
         </div>
+
+        {/* Continue to publish — the destination composer finishes the post */}
+        <button
+          type="button"
+          onClick={handleContinueToPublish}
+          disabled={!canContinue}
+          className="w-full py-2.5 px-4 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold text-sm tracking-wide transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {preparing ? 'Preparing\u2026' : 'Continue to publish'}
+        </button>
+        {publishAsOOC && (
+          <p className="text-xs text-ink-3 leading-relaxed">{OOC_PUBLISH_HINT}</p>
+        )}
+
+        {/* Error state */}
+        {handoffError && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-800/40 bg-red-950/20 px-3 py-2">
+            <p className="text-xs text-red-400 flex-1 leading-relaxed">{handoffError}</p>
+            <button
+              type="button"
+              onClick={handleContinueToPublish}
+              disabled={!canContinue}
+              className="shrink-0 text-[11px] text-red-500 hover:text-red-300 transition font-medium"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={downloadDraft}
+          disabled={!body.trim()}
+          className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-surface-elevated text-ink-2 hover:text-ink transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Download text
+        </button>
 
         <div className="border-t border-edge pt-3">
           <button
@@ -1485,13 +1366,9 @@ export default function Workspace() {
 
   const hasText = body.trim().length > 0;
 
-  // Shared by every Publish control so they can never disagree.
+  // Shared by every Continue to publish control so they can never disagree.
   const publishAsOOC = characterId === 0;
-  const canPublish = hasText && !publishing && !publishAsOOC;
-  const publishedToLabel = publishDestination === '/' ? 'Commons' : selectedRealmName ?? 'the realm';
-  const viewPublishedPost = () => {
-    navigate(publishedPostId !== null ? `/posts/${publishedPostId}` : publishDestination);
-  };
+  const canContinue = hasText && !preparing && !publishAsOOC;
 
   const visibleGrammarMatches = useMemo(
     () => grammar.matches.filter(
@@ -1670,17 +1547,17 @@ export default function Workspace() {
                 </option>
               ))}
             </select>
-            {/* The one desktop Publish control that is visible in every mode.
-                The sidebar's is replaced in Review and hidden in Focus. */}
+            {/* The one desktop Continue to publish control that is visible in
+                every mode. The sidebar's is replaced in Review and hidden in Focus. */}
             <button
               type="button"
               data-testid="ws-header-publish"
-              onClick={handlePublishToCommons}
-              disabled={!canPublish}
+              onClick={handleContinueToPublish}
+              disabled={!canContinue}
               title={publishAsOOC ? OOC_PUBLISH_HINT : undefined}
               className="px-3.5 py-1.5 rounded-lg bg-gem hover:bg-gem/90 text-gem-ink text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {publishing ? 'Publishing…' : 'Publish'}
+              {preparing ? 'Preparing…' : 'Continue to publish'}
             </button>
           </div>
           <p className="text-xs text-ink-3">
@@ -1721,25 +1598,18 @@ export default function Workspace() {
             Options
           </button>
         </div>
-        {/* Publish status for the controls that have no panel of their own:
-            the header button in Review/Focus, and the mobile bottom bar. On
+        {/* Status for the controls that have no panel of their own: the
+            header button in Review/Focus, and the mobile bottom bar. On
             desktop Write/Preview the sidebar already shows all of this. */}
-        {(publishAsOOC || publishError || publishSuccess) && (
+        {(publishAsOOC || handoffError) && (
           <div
             data-testid="ws-publish-status"
             className={`mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${
               mode !== 'review' && !focusMode ? 'lg:hidden' : ''
             }`}
           >
-            {publishSuccess ? (
-              <>
-                <span className="text-gem font-semibold">Published to {publishedToLabel}.</span>
-                <button type="button" onClick={viewPublishedPost} className="text-gem underline">
-                  View post
-                </button>
-              </>
-            ) : publishError ? (
-              <span className="text-red-400">{publishError}</span>
+            {handoffError ? (
+              <span className="text-red-400">{handoffError}</span>
             ) : (
               <span className="text-ink-3">{OOC_PUBLISH_HINT}</span>
             )}
@@ -2030,11 +1900,11 @@ export default function Workspace() {
       {/* E) Mobile sticky bottom bar */}
       <div className="lg:hidden sticky bottom-0 border-t border-edge bg-app px-4 py-3 flex gap-2">
         <button
-          onClick={handlePublishToCommons}
-          disabled={!canPublish}
-          className="flex-1 text-sm h-11 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={handleContinueToPublish}
+          disabled={!canContinue}
+          className="flex-1 text-sm leading-tight px-2 h-11 rounded-xl bg-gem hover:bg-gem/90 text-gem-ink font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Publish
+          {preparing ? 'Preparing\u2026' : 'Continue to publish'}
         </button>
         <button
           className="flex-1 text-sm h-11 rounded-xl bg-surface-elevated text-ink-2 hover:text-ink font-medium transition-colors"

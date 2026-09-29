@@ -17,6 +17,13 @@ import ProvenanceBadge from '@/components/ProvenanceBadge';
 import { PostTypeBadge, PostKindBadge } from '@/components/PostBadges';
 import { CompositionTracker } from '@/lib/composition';
 import { safeGet, safeRemove } from '@/lib/safeStorage';
+import {
+  clearFinalisation,
+  clearWriteSpaceDraft,
+  readFinalisation,
+  type WriteSpaceFinalisation,
+} from '@/lib/writespaceFinalise';
+import WriteSpaceFinaliseBanner from '@/components/WriteSpaceFinaliseBanner';
 
 const WORKSPACE_PASTE_HINT_KEY = 'ficshon.workspace_paste_hint';
 
@@ -31,15 +38,33 @@ export default function Home() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // A draft carried here by WriteSpace's Continue to publish. Read once, on
+  // mount, so a reload restores it; cleared by a successful post or Discard.
+  // Prefill only — the server trusts none of it (see lib/writespaceFinalise).
+  const [finalise, setFinalise] = useState<WriteSpaceFinalisation | null>(
+    () => readFinalisation({ commons: true }),
+  );
+  const [finaliseTitle, setFinaliseTitle] = useState(() => finalise?.title ?? '');
+  // True until the WriteSpace session is adopted. The textarea stays disabled
+  // meanwhile, so no edit lands before the session's counters are the baseline.
+  const [resumingSession, setResumingSession] = useState(() => Boolean(finalise?.sessionId));
+  const [lastFinalisedPostId, setLastFinalisedPostId] = useState<number | null>(null);
+
   // Quick-post composer state
-  const [quickContent, setQuickContent] = useState('');
+  const [quickContent, setQuickContent] = useState(() => finalise?.body ?? '');
   // One tracker for the life of the composer; reset() starts a fresh session
   // after each post, which is what keeps a session single-use.
   const composition = useRef(new CompositionTracker('commons_composer', { targetKind: 'post' })).current;
-  const [quickContentType, setQuickContentType] = useState<'ooc' | 'ic' | 'narration'>('ooc');
+  // Posts are authored by characters, so the composer opens in their voice.
+  // OOC stays one click away; a WriteSpace handoff states its voice explicitly.
+  const [quickContentType, setQuickContentType] = useState<'ooc' | 'ic' | 'narration'>(
+    () => finalise?.contentType ?? 'ic',
+  );
   const [quickPostKind, setQuickPostKind] = useState<'general' | 'open_starter' | 'finished_piece'>('general');
   const [composerCharId, setComposerCharId] = useState<number | null>(null);
   const [posting, setPosting] = useState(false);
+  // `posting` alone cannot stop two clicks that land before the re-render.
+  const postInFlightRef = useRef(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [showPostSuccessNudge, setShowPostSuccessNudge] = useState(false);
 
@@ -87,6 +112,12 @@ export default function Home() {
   // founders with no active selection still pick explicitly.
   useEffect(() => {
     if (composerCharId !== null) return;
+    // A WriteSpace handoff names who it was written as. Honoured only while
+    // that character is still one of yours; otherwise the usual default.
+    if (finalise && characters.some((c) => c.id === finalise.characterId)) {
+      setComposerCharId(finalise.characterId);
+      return;
+    }
     const activeId = user?.active_character?.id;
     if (activeId && characters.some((c) => c.id === activeId)) {
       setComposerCharId(activeId);
@@ -95,6 +126,37 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [characters, user?.active_character?.id]);
+
+  // Adopt the WriteSpace session before anything can be typed on top of the
+  // prefilled draft. resume() takes the server's counters as the baseline — or,
+  // for a session too old to be claimed, continues it into a child credited
+  // only up to what it was seen to type. Nothing here is a claim of its own.
+  useEffect(() => {
+    if (!finalise?.sessionId) return;
+    void composition
+      .resume(finalise.sessionId, finalise.body.length)
+      .finally(() => setResumingSession(false));
+    // Mount-only: the record is read once, above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const discardFinalisation = () => {
+    clearFinalisation();
+    setFinalise(null);
+    setFinaliseTitle('');
+    setQuickContent('');
+    setQuickContentType('ic');
+    // The adopted session belongs to the WriteSpace draft, which lives on.
+    // Whatever is written here next starts its own.
+    composition.reset();
+  };
+
+  const backToWriteSpace = () => {
+    // WriteSpace also clears it on mount; clearing here keeps a stale copy
+    // from reappearing if that navigation never completes.
+    clearFinalisation();
+    navigate('/workspace');
+  };
 
   // Dev diagnostics: mount/unmount tracking.
   useEffect(() => {
@@ -148,6 +210,8 @@ export default function Home() {
       setPostError('Select a character to post as.');
       return;
     }
+    if (postInFlightRef.current) return;
+    postInFlightRef.current = true;
     setPosting(true);
     setPostError(null);
     try {
@@ -158,13 +222,25 @@ export default function Home() {
         content_type: quickContentType,
         post_kind: quickPostKind,
         ...(composerCharId ? { character_id: composerCharId } : {}),
+        ...(finalise && finaliseTitle.trim() ? { title: finaliseTitle.trim() } : {}),
         ...(attachedImage ? { image_url: attachedImage.url } : {}),
         ...(sessionId ? { composition_session_id: sessionId } : {}),
       });
       composition.reset();
+      if (finalise) {
+        // Published: the WriteSpace draft and its now-spent session go too, so
+        // neither WriteSpace nor a reload can offer this piece a second time.
+        clearFinalisation();
+        clearWriteSpaceDraft();
+        setFinalise(null);
+        setFinaliseTitle('');
+        setLastFinalisedPostId(created.id);
+      } else {
+        setLastFinalisedPostId(null);
+      }
       setPosts(prev => [created, ...prev]);
       setQuickContent('');
-      setQuickContentType('ooc');
+      setQuickContentType('ic');
       setQuickPostKind('general');
       setAttachedImage(null);
       // Show the post-success nudge and auto-hide after 10 s.
@@ -172,8 +248,12 @@ export default function Home() {
       setShowPostSuccessNudge(true);
       postSuccessTimerRef.current = setTimeout(() => setShowPostSuccessNudge(false), 10_000);
     } catch (err) {
+      // Everything is kept — the composer, the finalisation record and the
+      // WriteSpace draft. A failed post rolls back without spending its
+      // session, so Post again carries the same evidence.
       setPostError(err instanceof Error ? err.message : 'Failed to create post');
     } finally {
+      postInFlightRef.current = false;
       setPosting(false);
     }
   };
@@ -294,7 +374,14 @@ export default function Home() {
                   chosen, it named the first one while the selector still read
                   "select character", so the composer claimed an identity the
                   post would not have carried. */}
-              {showWorkspacePasteHint && (
+              {finalise && (
+                <WriteSpaceFinaliseBanner
+                  onBack={backToWriteSpace}
+                  onDiscard={discardFinalisation}
+                  disabled={posting || resumingSession}
+                />
+              )}
+              {showWorkspacePasteHint && !finalise && (
                 <div className="flex items-center justify-between text-xs text-ink-3 mb-3">
                   <span>From Workspace: paste your draft into the composer.</span>
                   <button
@@ -344,6 +431,19 @@ export default function Home() {
                 </div>
               )}
 
+              {finalise && (
+                // Only for a WriteSpace piece: the quick composer has no title,
+                // and dropping the one written there would lose it silently.
+                <input
+                  type="text"
+                  value={finaliseTitle}
+                  onChange={(e) => setFinaliseTitle(e.target.value)}
+                  disabled={posting}
+                  aria-label="Post title"
+                  placeholder="Title (optional)"
+                  className="w-full mb-2 bg-transparent border-none font-serif text-lg font-medium text-ink placeholder:text-ink-3 focus:outline-none"
+                />
+              )}
               <textarea
                 ref={(el) => {
                   composerRef.current = el;
@@ -352,15 +452,21 @@ export default function Home() {
                 }}
                 value={quickContent}
                 onChange={(e) => setQuickContent(e.target.value)}
-                disabled={posting}
+                disabled={posting || resumingSession}
                 aria-label="Write a post"
                 onFocus={() => {
                   safeRemove(WORKSPACE_PASTE_HINT_KEY);
                   setShowWorkspacePasteHint(false);
                 }}
-                className="fic-compose w-full mb-3 bg-transparent border-none resize-none text-ink placeholder:text-ink-3 focus:outline-none min-h-[80px]"
+                className={`fic-compose w-full mb-3 bg-transparent border-none text-ink placeholder:text-ink-3 focus:outline-none ${
+                  // A finished WriteSpace piece is read through before posting,
+                  // so it gets room — bounded, scrolling past that.
+                  finalise
+                    ? 'resize-y min-h-[16rem] max-h-[60vh] overflow-y-auto'
+                    : 'resize-none min-h-[80px]'
+                }`}
                 placeholder="Share an intro, plot idea, or just say hello..."
-                rows={3}
+                rows={finalise ? 12 : 3}
               />
               {attachedImage && (
                 <div className="flex items-center gap-3 mb-3 p-2 rounded-lg bg-surface-elevated border border-edge">
@@ -423,7 +529,7 @@ export default function Home() {
                   // Deliberately still clickable without a character: pressing
                   // Post and being told what is missing beats a dead button
                   // that explains nothing.
-                  disabled={posting || !quickContent.trim()}
+                  disabled={posting || resumingSession || !quickContent.trim()}
                   className="ml-auto px-5 py-1.5 rounded-lg text-sm font-semibold bg-gem text-gem-ink hover:bg-gem/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {posting ? 'Posting…' : 'Post'}
@@ -439,6 +545,15 @@ export default function Home() {
                 <div className="flex items-center justify-between gap-3 mt-2">
                   <span className="text-xs text-ink-3">Posted to Commons.</span>
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    {lastFinalisedPostId !== null && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/posts/${lastFinalisedPostId}`)}
+                        className="text-xs text-gem hover:opacity-80 transition-opacity"
+                      >
+                        View post
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => navigate('/realms')}

@@ -23,7 +23,7 @@ vi.mock('../apiClient', () => ({
   },
 }));
 
-const { CompositionTracker } = await import('../composition');
+const { CompositionTracker, RESUME_MAX_AGE_MS, sessionAgeMs } = await import('../composition');
 
 /** The counters handed to the server by the most recent commit. */
 async function committedMetrics(tracker: InstanceType<typeof CompositionTracker>) {
@@ -173,5 +173,114 @@ describe('CompositionTracker.noteEditorEdit', () => {
 
     expect(createCompositionSession).not.toHaveBeenCalled();
     expect(tracker.id).toBeNull();
+  });
+});
+
+/** A server timestamp `hours` ago, naive UTC as the backend writes it. */
+const hoursAgo = (hours: number) =>
+  new Date(Date.now() - hours * 3600_000).toISOString().replace('Z', '');
+
+describe('CompositionTracker.resume across the server claim cap', () => {
+  it('continues an open session too old to be claimed, keeping the claim bounded', async () => {
+    // Written over two days. The session is still open, but the server will
+    // refuse to claim it at Post; adopting it would lose all of this evidence.
+    getCompositionSession.mockResolvedValue({
+      id: 'yesterday',
+      status: 'open',
+      created_at: hoursAgo(23.5),
+      metrics: { typed_chars: 4000, inserted_chars: 0 },
+    });
+    createCompositionSession.mockResolvedValue({ id: 'today', status: 'open' });
+
+    const tracker = new CompositionTracker('workspace');
+    const id = await tracker.resume('yesterday', 4000);
+
+    expect(id).toBe('today');
+    expect(createCompositionSession).toHaveBeenCalledWith(
+      expect.objectContaining({ continues_session_id: 'yesterday' }),
+    );
+    // Yesterday's typing is not re-reported as today's: it travels only as a
+    // claim, which the server credits up to what 'yesterday' was seen to type.
+    expect(await committedMetrics(tracker)).toMatchObject({
+      typed_chars: 0,
+      inserted_chars: 4000,
+      internal_insert_chars: 4000,
+    });
+  });
+
+  it('still adopts a session comfortably inside the cap', async () => {
+    getCompositionSession.mockResolvedValue({
+      id: 'this-morning',
+      status: 'open',
+      created_at: hoursAgo(5),
+      metrics: { typed_chars: 900 },
+    });
+    const tracker = new CompositionTracker('workspace');
+    expect(await tracker.resume('this-morning', 900)).toBe('this-morning');
+    expect(createCompositionSession).not.toHaveBeenCalled();
+  });
+
+  it('an old session’s pasted text is not turned into typing', async () => {
+    getCompositionSession.mockResolvedValue({
+      id: 'old-paste',
+      status: 'open',
+      created_at: hoursAgo(40),
+      metrics: { typed_chars: 30, inserted_chars: 2970 },
+    });
+    createCompositionSession.mockResolvedValue({ id: 'child', status: 'open' });
+    const tracker = new CompositionTracker('workspace');
+    await tracker.resume('old-paste', 3000);
+    // Claimed as internal; the server credits at most the parent's 30 typed.
+    expect(await committedMetrics(tracker)).toMatchObject({
+      typed_chars: 0,
+      internal_insert_chars: 3000,
+    });
+  });
+});
+
+describe('sessionAgeMs', () => {
+  it('reads the server’s naive timestamps as UTC', () => {
+    const now = Date.parse('2026-09-29T12:00:00Z');
+    expect(sessionAgeMs('2026-09-29T11:00:00', now)).toBe(3600_000);
+    expect(sessionAgeMs('2026-09-29T11:00:00Z', now)).toBe(3600_000);
+    expect(sessionAgeMs('2026-09-29T13:00:00+02:00', now)).toBe(3600_000);
+  });
+
+  it('is unknown rather than zero when there is nothing to read', () => {
+    expect(sessionAgeMs(undefined)).toBeNull();
+    expect(sessionAgeMs('not a date')).toBeNull();
+  });
+
+  it('keeps an hour of margin under the server’s 24-hour cap', () => {
+    expect(RESUME_MAX_AGE_MS).toBe(23 * 3600_000);
+  });
+});
+
+describe('CompositionTracker.flush', () => {
+  it('reports the held session’s counters without opening or claiming anything', async () => {
+    getCompositionSession.mockResolvedValue({ id: 'held', status: 'open', metrics: { typed_chars: 12 } });
+    const tracker = new CompositionTracker('workspace');
+    await tracker.resume('held', 12);
+
+    expect(await tracker.flush()).toBe('held');
+    expect(updateCompositionSession).toHaveBeenCalledWith('held', expect.objectContaining({ typed_chars: 12 }));
+    expect(createCompositionSession).not.toHaveBeenCalled();
+    // Still held, still open: nothing about the session was spent.
+    expect(tracker.id).toBe('held');
+  });
+
+  it('opens nothing when there is no session', async () => {
+    const tracker = new CompositionTracker('workspace');
+    expect(await tracker.flush()).toBeNull();
+    expect(createCompositionSession).not.toHaveBeenCalled();
+    expect(updateCompositionSession).not.toHaveBeenCalled();
+  });
+
+  it('throws when the counters could not be reported', async () => {
+    getCompositionSession.mockResolvedValue({ id: 'held', status: 'open', metrics: {} });
+    updateCompositionSession.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const tracker = new CompositionTracker('workspace');
+    await tracker.resume('held', 5);
+    await expect(tracker.flush()).rejects.toThrow('Failed to fetch');
   });
 });

@@ -16,6 +16,13 @@ import { hasActingCharacter } from '@/lib/entitlements';
 import ProvenanceBadge from '@/components/ProvenanceBadge';
 import { PostTypeBadge, PostKindBadge } from '@/components/PostBadges';
 import { CompositionTracker } from '@/lib/composition';
+import {
+  clearFinalisation,
+  clearWriteSpaceDraft,
+  readFinalisation,
+  type WriteSpaceFinalisation,
+} from '@/lib/writespaceFinalise';
+import WriteSpaceFinaliseBanner from '@/components/WriteSpaceFinaliseBanner';
 
 export default function RealmDetail() {
   const { realmId } = useParams<{ realmId: string }>();
@@ -58,6 +65,37 @@ export default function RealmDetail() {
     character_id: undefined as number | undefined,
   });
   const [postCreateError, setPostCreateError] = useState<string | null>(null);
+  const [posting, setPosting] = useState(false);
+  const postInFlightRef = useRef(false);
+  // A draft carried here by WriteSpace's Continue to publish, addressed to
+  // this realm and no other. Prefill only — see lib/writespaceFinalise.
+  const [finalise, setFinalise] = useState<WriteSpaceFinalisation | null>(null);
+  // The textarea stays disabled until the WriteSpace session is adopted, so no
+  // edit lands before its counters are the baseline.
+  const [resumingSession, setResumingSession] = useState(false);
+
+  useEffect(() => {
+    const record = realmId ? readFinalisation({ realmId: Number(realmId) }) : null;
+    setFinalise(record);
+    if (!record) return;
+    setNewPost((prev) => ({
+      ...prev,
+      title: record.title,
+      content: record.body,
+      content_type: record.contentType,
+      post_kind: 'general',
+    }));
+    setShowPostForm(true);
+    if (record.sessionId) {
+      setResumingSession(true);
+      // Same bounded path as Home: adopt the session's server counters, or
+      // continue a too-old one into a child credited only up to its typing.
+      void composition
+        .resume(record.sessionId, record.body.length)
+        .finally(() => setResumingSession(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realmId]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -84,12 +122,35 @@ export default function RealmDetail() {
     loadData();
   }, [realmId]);
 
-  // Auto-select posting character when exactly one exists; leave undefined for multi-char.
+  // Auto-select posting character when exactly one exists; leave undefined for
+  // multi-char — unless WriteSpace named one that is still yours.
   useEffect(() => {
-    if (characters.length === 1) {
+    if (finalise && characters.some((c) => c.id === finalise.characterId)) {
+      setNewPost(prev => ({ ...prev, character_id: finalise.characterId }));
+    } else if (characters.length === 1) {
       setNewPost(prev => ({ ...prev, character_id: characters[0].id }));
     }
-  }, [characters]);
+  }, [characters, finalise]);
+
+  const blankPost = () => ({
+    title: '',
+    content: '',
+    content_type: 'ic' as const,
+    post_kind: 'general' as const,
+    character_id: characters.length === 1 ? characters[0].id : undefined,
+  });
+
+  /** Drop the prepared WriteSpace post. The WriteSpace draft itself survives. */
+  const discardFinalisation = () => {
+    clearFinalisation();
+    setFinalise(null);
+    setNewPost(blankPost());
+    setAttachedImage(null);
+    setPostCreateError(null);
+    // The adopted session belongs to the WriteSpace draft; whatever is written
+    // here next starts its own.
+    composition.reset();
+  };
 
   // Join feedback — Polish Phase 0 (X6): inline, where the button is, instead
   // of a browser alert. Membership isn't re-read here (the page derives it
@@ -126,6 +187,9 @@ export default function RealmDetail() {
       setPostCreateError('Select a character to post as.');
       return;
     }
+    if (postInFlightRef.current) return;
+    postInFlightRef.current = true;
+    setPosting(true);
     setPostCreateError(null);
 
     try {
@@ -137,19 +201,24 @@ export default function RealmDetail() {
         ...(sessionId ? { composition_session_id: sessionId } : {}),
       });
       composition.reset();
+      if (finalise) {
+        // Published: the WriteSpace draft and its now-spent session go too.
+        clearFinalisation();
+        clearWriteSpaceDraft();
+        setFinalise(null);
+      }
       setPosts([createdPost, ...posts]);
-      setNewPost({
-        title: '',
-        content: '',
-        content_type: 'ic',
-        post_kind: 'general',
-        character_id: characters.length === 1 ? characters[0].id : undefined,
-      });
+      setNewPost(blankPost());
       setAttachedImage(null);
       setShowPostForm(false);
     } catch (error) {
+      // The form, the finalisation record and the WriteSpace draft are all
+      // kept; a failed post does not spend its session.
       console.error('Failed to create post:', error);
       setPostCreateError('Failed to create post. Make sure you are a member of this realm.');
+    } finally {
+      postInFlightRef.current = false;
+      setPosting(false);
     }
   };
 
@@ -438,12 +507,9 @@ export default function RealmDetail() {
       <div ref={composerRef} className="mb-6">
         {!showPostForm ? (
           <button
-            onClick={() => {
-              if (realm.is_commons) {
-                setNewPost((prev) => ({ ...prev, content_type: 'ooc' }));
-              }
-              setShowPostForm(true);
-            }}
+            // Opens in the character's voice everywhere, the Commons included;
+            // OOC is one choice away in the form.
+            onClick={() => setShowPostForm(true)}
             className="btn btn-primary w-full"
           >
             + New Post
@@ -451,6 +517,16 @@ export default function RealmDetail() {
         ) : (
           <div className="card">
             <h3 className="text-xl font-semibold mb-4">Create Post</h3>
+            {finalise && (
+              <WriteSpaceFinaliseBanner
+                onBack={() => {
+                  clearFinalisation();
+                  navigate('/workspace');
+                }}
+                onDiscard={discardFinalisation}
+                disabled={posting || resumingSession}
+              />
+            )}
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Title (optional)</label>
@@ -469,9 +545,12 @@ export default function RealmDetail() {
                   ref={composition.attach}
                   value={newPost.content}
                   onChange={(e) => setNewPost({ ...newPost, content: e.target.value })}
-                  className="textarea fic-compose"
+                  disabled={posting || resumingSession}
+                  aria-label="Post content"
+                  className={`textarea fic-compose ${finalise ? 'max-h-[60vh]' : ''}`}
                   placeholder="Write your post..."
-                  rows={6}
+                  // A finished WriteSpace piece gets room to be read through.
+                  rows={finalise ? 14 : 6}
                 />
               </div>
 
@@ -580,8 +659,12 @@ export default function RealmDetail() {
               )}
 
               <div className="flex gap-4">
-                <button onClick={handleCreatePost} className="btn btn-primary">
-                  Post
+                <button
+                  onClick={handleCreatePost}
+                  disabled={posting || resumingSession}
+                  className="btn btn-primary disabled:opacity-50"
+                >
+                  {posting ? 'Posting…' : 'Post'}
                 </button>
                 <button
                   type="button"
@@ -597,16 +680,12 @@ export default function RealmDetail() {
                 </button>
                 <button
                   onClick={() => {
+                    // Cancelling a prepared WriteSpace post is discarding it.
+                    if (finalise) discardFinalisation();
                     setShowPostForm(false);
                     setAttachedImage(null);
                     setPostCreateError(null);
-                    setNewPost({
-                      title: '',
-                      content: '',
-                      content_type: 'ic',
-                      post_kind: 'general',
-                      character_id: characters.length === 1 ? characters[0].id : undefined,
-                    });
+                    setNewPost(blankPost());
                   }}
                   className="btn btn-secondary"
                 >

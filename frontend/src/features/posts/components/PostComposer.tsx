@@ -28,7 +28,8 @@ export default function PostComposer({
   characterName,
 }: Props) {
   const [content, setContent] = useState('');
-  const [contentType, setContentType] = useState<'ooc' | 'ic' | 'narration'>('ooc');
+  // Posting as a character opens in their voice; OOC is one click away.
+  const [contentType, setContentType] = useState<'ooc' | 'ic' | 'narration'>('ic');
   const [commonsRealm, setCommonsRealm] = useState<Realm | null>(null);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState('');
@@ -42,7 +43,7 @@ export default function PostComposer({
   useEffect(() => {
     if (!open) return;
     setContent('');
-    setContentType('ooc');
+    setContentType('ic');
     setError('');
     setDone(false);
     apiClient

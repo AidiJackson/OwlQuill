@@ -664,3 +664,127 @@ def test_a_rolled_back_post_does_not_spend_its_session(client, monkeypatch):
 
     post = _post(client, token, realm, content, composition_session_id=session)
     assert post["provenance"] == Provenance.USER_WRITTEN.value
+
+
+# ── committed parents and multi-day continuation ──────────────────────────────
+#
+# WriteSpace finalisation hands the draft's own session to the destination
+# composer, which adopts it — or, once it is too old to be claimed, continues it
+# into a fresh child. These pin that continuation stays a bounded claim: it
+# keeps a legitimate multi-day draft's evidence, and nothing more.
+
+def _age_session(db_session, session_id, hours):
+    from app.models.composition import CompositionSession
+
+    db_session.expire_all()
+    row = db_session.query(CompositionSession).filter(CompositionSession.id == session_id).first()
+    row.created_at = datetime.utcnow() - timedelta(hours=hours)
+    db_session.commit()
+
+
+def test_a_committed_parent_grants_no_internal_credit(client):
+    """A spent session cannot back a second post through a fresh child."""
+    token = get_auth_token(client, email="spent@test.com", username="spentuser")
+    realm = _commons_realm(client, token)
+    content = "s" * 1500
+
+    parent = _open_session(client, token, surface="workspace")
+    _report_metrics(client, token, parent, typed_chars=1500)
+    first = _post(client, token, realm, content, composition_session_id=parent)
+    assert first["provenance"] == Provenance.USER_WRITTEN.value
+
+    child = _open_session(client, token, surface="workspace", continues_session_id=parent)
+    _report_metrics(
+        client, token, child,
+        typed_chars=0, inserted_chars=1500, internal_insert_chars=1500, insertion_count=1,
+    )
+    second = _post(client, token, realm, content, composition_session_id=child)
+
+    assert second["provenance"] == Provenance.EXTERNAL.value
+
+
+def test_a_multi_day_writespace_draft_keeps_its_bounded_evidence(client, db_session):
+    """The original session is past MAX_SESSION_AGE and can no longer be
+    claimed, but a child continuing it is credited up to what it typed."""
+    token = get_auth_token(client, email="multiday@test.com", username="multidayuser")
+    realm = _commons_realm(client, token)
+    content = "m" * 3000
+
+    parent = _open_session(client, token, surface="workspace")
+    _report_metrics(client, token, parent, typed_chars=2800)
+    _age_session(db_session, parent, hours=30)
+
+    # Resumed the next day: the restored 2,800 are claimed as internal and 200
+    # more are typed into the child.
+    child = _open_session(client, token, surface="commons_composer", continues_session_id=parent)
+    _report_metrics(
+        client, token, child,
+        typed_chars=200, inserted_chars=2800, internal_insert_chars=2800, insertion_count=1,
+    )
+    post = _post(client, token, realm, content, composition_session_id=child)
+
+    assert post["provenance"] == Provenance.USER_WRITTEN.value
+
+
+def test_a_multi_day_continuation_cannot_claim_more_than_the_parent_typed(client, db_session):
+    token = get_auth_token(client, email="multiover@test.com", username="multioveruser")
+    realm = _commons_realm(client, token)
+    content = "o" * 3000
+
+    parent = _open_session(client, token, surface="workspace")
+    _report_metrics(client, token, parent, typed_chars=600)
+    _age_session(db_session, parent, hours=30)
+
+    child = _open_session(client, token, surface="workspace", continues_session_id=parent)
+    _report_metrics(
+        client, token, child,
+        typed_chars=0, inserted_chars=3000, internal_insert_chars=3000, insertion_count=1,
+    )
+    post = _post(client, token, realm, content, composition_session_id=child)
+
+    assert post["provenance"] == Provenance.EXTERNAL.value
+
+
+def test_a_multi_day_pasted_draft_stays_external(client, db_session):
+    """Continuation does not turn yesterday's paste into typing."""
+    token = get_auth_token(client, email="multipaste@test.com", username="multipasteuser")
+    realm = _commons_realm(client, token)
+    content = "p" * 2000
+
+    parent = _open_session(client, token, surface="workspace")
+    _report_metrics(
+        client, token, parent,
+        typed_chars=40, inserted_chars=1960, insertion_count=1, largest_insertion=1960,
+    )
+    _age_session(db_session, parent, hours=30)
+
+    child = _open_session(client, token, surface="workspace", continues_session_id=parent)
+    _report_metrics(
+        client, token, child,
+        typed_chars=0, inserted_chars=2000, internal_insert_chars=2000, insertion_count=1,
+    )
+    post = _post(client, token, realm, content, composition_session_id=child)
+
+    assert post["provenance"] == Provenance.EXTERNAL.value
+
+
+def test_a_foreign_parent_grants_no_continuation_credit(client):
+    """Continuing someone else's session is silently unlinked; the claim earns nothing."""
+    token_a = get_auth_token(client, email="parent_a@test.com", username="parentauser")
+    token_b = get_auth_token(client, email="child_b@test.com", username="childbuser")
+    realm = _commons_realm(client, token_b)
+    content = "f" * 1500
+
+    parent = _open_session(client, token_a, surface="workspace")
+    _report_metrics(client, token_a, parent, typed_chars=1500)
+
+    child = _open_session(client, token_b, surface="commons_composer", continues_session_id=parent)
+    read = client.get(f"/composition/sessions/{child}", headers=auth_headers(token_b))
+    assert read.json()["parent_session_id"] is None
+    _report_metrics(
+        client, token_b, child,
+        typed_chars=0, inserted_chars=1500, internal_insert_chars=1500, insertion_count=1,
+    )
+    post = _post(client, token_b, realm, content, composition_session_id=child)
+
+    assert post["provenance"] == Provenance.EXTERNAL.value

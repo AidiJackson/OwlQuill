@@ -129,6 +129,27 @@ const PASTE_ATTRIBUTION_MS = 60;
  *  or after the end event. */
 const COMPOSITION_ATTRIBUTION_MS = 60;
 
+/**
+ * An open session older than this is continued rather than adopted.
+ *
+ * The server refuses to claim a session more than 24 hours old
+ * (`MAX_SESSION_AGE`), so adopting one that is nearly that old hands the post a
+ * session that will be refused at Post — and the writing, all of it typed
+ * here, publishes as "Created elsewhere". An hour short of the cap leaves room
+ * for the last stretch of writing and clock skew.
+ */
+export const RESUME_MAX_AGE_MS = 23 * 60 * 60 * 1000;
+
+/** Age of a session from the server's `created_at`, or null if unknown.
+ *  The server writes naive UTC timestamps; without a zone suffix `Date.parse`
+ *  would read them as local time. */
+export function sessionAgeMs(createdAt: string | undefined, now: number = Date.now()): number | null {
+  if (!createdAt) return null;
+  const zoned = /(Z|[+-]\d{2}:?\d{2})$/.test(createdAt) ? createdAt : `${createdAt}Z`;
+  const t = Date.parse(zoned);
+  return Number.isFinite(t) ? now - t : null;
+}
+
 const HANDOFF_KEY = 'ficshon.composition.handoff';
 
 /**
@@ -384,8 +405,14 @@ export class CompositionTracker {
    *    *continues* the old one and declare the restored text an internal
    *    transfer. That claim is not granted: the server credits it only up to
    *    what the parent session was independently observed to have typed
-   *    (`credited_internal_chars`). With no parent, the credit is zero and the
-   *    draft honestly reads as created elsewhere.
+   *    (`credited_internal_chars`). With no parent, or a parent that has
+   *    already committed, the credit is zero and the draft honestly reads as
+   *    created elsewhere.
+   *
+   * "Too old" includes a session that is still open but within an hour of the
+   * server's claim cap (`RESUME_MAX_AGE_MS`). Adopting it would carry the
+   * evidence right up to Post and then lose all of it; continuing it keeps what
+   * the parent typed, bounded exactly as above.
    *
    * Only the id and a character count travel. The draft text stays in the
    * browser, exactly as before.
@@ -410,7 +437,11 @@ export class CompositionTracker {
   }
 
   private async doResume(sessionId: string, restoredChars: number): Promise<string | null> {
-    let existing: { status: string; metrics?: Partial<CompositionMetrics> } | null = null;
+    let existing: {
+      status: string;
+      created_at?: string;
+      metrics?: Partial<CompositionMetrics>;
+    } | null = null;
     try {
       existing = await apiClient.getCompositionSession(sessionId);
     } catch {
@@ -419,7 +450,10 @@ export class CompositionTracker {
       existing = null;
     }
 
-    if (existing && existing.status === 'open') {
+    const age = sessionAgeMs(existing?.created_at);
+    const claimable = age === null || age < RESUME_MAX_AGE_MS;
+
+    if (existing && existing.status === 'open' && claimable) {
       this.sessionId = sessionId;
       // Anything typed during the lookup is already in `this.metrics`; the
       // server's totals are the baseline it sits on top of.
@@ -485,6 +519,27 @@ export class CompositionTracker {
     } catch {
       /* the server still has whatever the last heartbeat carried */
     }
+    return id;
+  }
+
+  /**
+   * Report the counters for the session already held, without opening one.
+   *
+   * For handing a draft to another composer that will adopt this session:
+   * the counters must be on the server before the receiver reads them. Unlike
+   * `commit()` this never opens a session — an empty one would vouch for
+   * nothing, and opening it would take the copy-for-posting handoff that
+   * belongs to some other composer. Nothing is claimed; the session stays open.
+   *
+   * @returns the session id, or null when there is none
+   * @throws when the counters could not be reported, so the caller does not
+   *         hand off a session whose server record is behind the draft
+   */
+  async flush(): Promise<string | null> {
+    if (this.opening) await this.opening;
+    const id = this.sessionId;
+    if (!id) return null;
+    await apiClient.updateCompositionSession(id, this.metrics);
     return id;
   }
 

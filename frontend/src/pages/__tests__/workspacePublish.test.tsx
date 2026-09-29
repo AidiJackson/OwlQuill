@@ -1,21 +1,19 @@
 // @vitest-environment jsdom
 /**
- * WriteSpace publishing is reachable, honest about who it posts as, and posts
- * exactly once through the canonical endpoint.
+ * WriteSpace hands a finished draft to the composer that publishes it.
  *
- * WriteSpace already had the right publish path — `createPost` with its own
- * `workspace` composition session, so provenance is decided server-side from
- * what was typed here. What was broken was reaching it: on desktop the only
- * Publish button lived in the sidebar, which Review replaces and Focus hides,
- * while the header offered a destination option labelled "Publish to Commons"
- * that did nothing when chosen.
+ * "Continue to publish" creates no post. It flushes the draft's composition
+ * counters (without claiming the session), writes the finalisation record and
+ * navigates to the Commons or the chosen Realm, whose composer prepares and
+ * creates the post. The control is reachable in every mode, disabled for
+ * "Yourself (OOC)", and makes one handoff however often it is clicked.
  *
  * The real CompositionTracker runs throughout. The draft and its session id are
  * seeded under the keys WriteSpace autosaves to, and the session is adopted
  * through the tracker's own resume path, so every mode is exercised with the
  * same evidence a returning writer would carry.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -92,6 +90,10 @@ async function mount() {
 }
 
 const headerPublish = () => screen.getByTestId('ws-header-publish');
+const FINALISE_KEY = 'ficshon.writespace.finalise';
+const COPY_HANDOFF_KEY = 'ficshon.composition.handoff';
+const finaliseRecord = () => JSON.parse(sessionStorage.getItem(FINALISE_KEY) ?? 'null');
+const location = () => screen.getByTestId('location').textContent;
 
 beforeEach(() => {
   localStorage.clear();
@@ -106,21 +108,24 @@ beforeEach(() => {
   updateCompositionSession.mockReset().mockResolvedValue({ id: SESSION_ID, status: 'open' });
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
-describe('desktop header Publish is reachable in every mode', () => {
+describe('Continue to publish is reachable in every mode', () => {
   it.each(['write', 'preview', 'review'])('is present and enabled in %s mode', async (mode) => {
     seedDraft({ mode });
     await mount();
     expect(headerPublish()).toHaveProperty('disabled', false);
-    expect(headerPublish().textContent).toBe('Publish');
+    expect(headerPublish().textContent).toBe('Continue to publish');
   });
 
-  it('publishes from Review mode, where the sidebar carries no publish control', async () => {
+  it('hands off from Review mode, where the sidebar carries no control', async () => {
     seedDraft({ mode: 'review' });
     await mount();
     fireEvent.click(headerPublish());
-    await waitFor(() => expect(createPost).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(location()).toBe('/'));
   });
 
   it('stays reachable in Focus mode, outside the hidden sidebar', async () => {
@@ -132,7 +137,28 @@ describe('desktop header Publish is reachable in every mode', () => {
     // header control must not live inside it.
     expect(headerPublish().closest('aside')).toBeNull();
     fireEvent.click(headerPublish());
-    await waitFor(() => expect(createPost).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(location()).toBe('/'));
+  });
+
+  it('every entry point says what it does — none claims to publish', async () => {
+    seedDraft();
+    await mount();
+    const entryPoints = screen.getAllByRole('button', { name: 'Continue to publish' });
+    // Header, sidebar, mobile bar.
+    expect(entryPoints.length).toBe(3);
+    expect(screen.queryByRole('button', { name: /^Publish/ })).toBeNull();
+  });
+
+  it('no longer offers the legacy copy-and-paste route', async () => {
+    seedDraft();
+    await mount();
+    expect(screen.queryByRole('button', { name: 'Copy for posting' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Go to Home/ })).toBeNull();
+    expect(screen.queryByText(/paste/i)).toBeNull();
+    // What stays.
+    expect(screen.getByRole('button', { name: 'Download text' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Clear draft' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Open StoryLab' })).toBeTruthy();
   });
 });
 
@@ -142,41 +168,66 @@ describe('destination wording', () => {
     await mount();
     expect(screen.queryByRole('option', { name: 'Publish to Commons' })).toBeNull();
     expect(screen.getAllByRole('option', { name: 'Commons' }).length).toBeGreaterThan(0);
-    // Realm destinations are unchanged.
     expect(screen.getAllByRole('option', { name: 'Harbour' }).length).toBeGreaterThan(0);
   });
 });
 
-describe('the canonical create payload', () => {
-  it('posts to Commons as the selected character, IC, with the workspace session', async () => {
+describe('the handoff', () => {
+  it('creates no post, flushes the session, writes the record and opens the Commons', async () => {
     seedDraft();
     await mount();
     fireEvent.click(headerPublish());
-    await waitFor(() => expect(createPost).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(location()).toBe('/'));
 
-    const [realmId, payload] = createPost.mock.calls[0];
-    expect(realmId).toBe(COMMONS.id);
-    expect(payload).toEqual({
-      content: DRAFT,
-      content_type: 'ic',
-      character_id: PAN.id,
+    expect(createPost).not.toHaveBeenCalled();
+    expect(finaliseRecord()).toMatchObject({
+      v: 1,
+      sessionId: SESSION_ID,
+      characterId: PAN.id,
+      contentType: 'ic',
       title: 'Lanterns',
-      composition_session_id: SESSION_ID,
+      body: DRAFT,
+      realmId: null,
     });
-    // Counters are flushed to that same session before the post is created.
+    expect(typeof finaliseRecord().createdAt).toBe('number');
+    // Counters reach the server before the destination reads them — a flush,
+    // not a claim: nothing about the session is spent here.
     expect(updateCompositionSession).toHaveBeenCalledWith(SESSION_ID, expect.any(Object));
-    expect(updateCompositionSession.mock.invocationCallOrder[0]).toBeLessThan(
-      createPost.mock.invocationCallOrder[0],
-    );
   });
 
-  it('posts to the selected realm id when a realm is the destination', async () => {
+  it('flushes the counters before navigating', async () => {
+    seedDraft();
+    let release!: (v: unknown) => void;
+    updateCompositionSession.mockImplementation(() => new Promise((r) => { release = r; }));
+    await mount();
+    fireEvent.click(headerPublish());
+    await waitFor(() => expect(updateCompositionSession).toHaveBeenCalledTimes(1));
+    // Still waiting on the flush: no record, no navigation, and it says so.
+    expect(finaliseRecord()).toBeNull();
+    expect(location()).toBe('/workspace');
+    expect(headerPublish().textContent).toBe('Preparing…');
+    await act(async () => { release({ id: SESSION_ID, status: 'open' }); });
+    await waitFor(() => expect(location()).toBe('/'));
+  });
+
+  it('opens the chosen realm when a realm is the destination', async () => {
     seedDraft({ realm: String(HARBOUR.id) });
     await mount();
     await screen.findAllByRole('option', { name: 'Harbour' });
     fireEvent.click(headerPublish());
-    await waitFor(() => expect(createPost).toHaveBeenCalledTimes(1));
-    expect(createPost.mock.calls[0][0]).toBe(HARBOUR.id);
+    await waitFor(() => expect(location()).toBe(`/realms/${HARBOUR.id}`));
+    expect(finaliseRecord()).toMatchObject({ realmId: HARBOUR.id, sessionId: SESSION_ID });
+    expect(createPost).not.toHaveBeenCalled();
+  });
+
+  it('keeps the WriteSpace draft and its session for Back to WriteSpace', async () => {
+    seedDraft();
+    await mount();
+    fireEvent.click(headerPublish());
+    await waitFor(() => expect(location()).toBe('/'));
+    expect(localStorage.getItem(BODY_KEY)).toBe(DRAFT);
+    expect(localStorage.getItem(TITLE_KEY)).toBe('Lanterns');
+    expect(localStorage.getItem(SESSION_KEY)).toBe(SESSION_ID);
   });
 
   it('carries a session opened by typing in the editor', async () => {
@@ -186,11 +237,36 @@ describe('the canonical create payload', () => {
     await waitFor(() => expect(createCompositionSession).toHaveBeenCalled());
     expect(createCompositionSession.mock.calls[0][0]).toMatchObject({ surface: 'workspace' });
     fireEvent.click(headerPublish());
-    await waitFor(() => expect(createPost).toHaveBeenCalledTimes(1));
-    expect(createPost.mock.calls[0][1]).toMatchObject({
-      content: 'Typed here.',
-      composition_session_id: 'fresh-session',
-    });
+    await waitFor(() => expect(location()).toBe('/'));
+    expect(finaliseRecord()).toMatchObject({ body: 'Typed here.', sessionId: 'fresh-session' });
+    expect(updateCompositionSession).toHaveBeenCalledWith('fresh-session', expect.any(Object));
+  });
+
+  it('never writes or takes the copy-for-posting handoff', async () => {
+    seedDraft();
+    sessionStorage.setItem(COPY_HANDOFF_KEY, 'left-by-copy');
+    await mount();
+    fireEvent.click(headerPublish());
+    await waitFor(() => expect(location()).toBe('/'));
+    expect(sessionStorage.getItem(COPY_HANDOFF_KEY)).toBe('left-by-copy');
+    expect(createCompositionSession).not.toHaveBeenCalled();
+  });
+
+  it('does not hand off when the counters cannot be reported', async () => {
+    seedDraft({ mode: 'review' });
+    updateCompositionSession.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await mount();
+    fireEvent.click(headerPublish());
+    expect(
+      await screen.findByText('Couldn\u2019t prepare the post. Check your connection and try again.'),
+    ).toBeTruthy();
+    expect(finaliseRecord()).toBeNull();
+    expect(location()).toBe('/workspace');
+    expect(localStorage.getItem(SESSION_KEY)).toBe(SESSION_ID);
+
+    // Retry goes through.
+    fireEvent.click(headerPublish());
+    await waitFor(() => expect(location()).toBe('/'));
   });
 });
 
@@ -208,97 +284,53 @@ async function mount0() {
 }
 
 describe('Yourself (OOC)', () => {
-  it('disables every Publish control and says why', async () => {
+  it('disables every Continue to publish control and says why', async () => {
     seedDraft({ character: '0' });
     await mount();
-    expect(headerPublish()).toHaveProperty('disabled', true);
-    expect(screen.getByRole('button', { name: 'Publish to Commons' })).toHaveProperty('disabled', true);
+    const entryPoints = screen.getAllByRole('button', { name: 'Continue to publish' });
+    expect(entryPoints.length).toBe(3);
+    entryPoints.forEach((b) => expect(b).toHaveProperty('disabled', true));
     expect(screen.getAllByText(OOC_HINT).length).toBeGreaterThan(0);
     fireEvent.click(headerPublish());
-    expect(createPost).not.toHaveBeenCalled();
+    expect(finaliseRecord()).toBeNull();
+    expect(location()).toBe('/workspace');
   });
 });
 
-describe('duplicate submission', () => {
-  it('a rapid double click produces exactly one createPost', async () => {
+describe('duplicate activation', () => {
+  it('a rapid double click across entry points makes one handoff and one navigation', async () => {
     seedDraft();
     let release!: (v: unknown) => void;
-    createPost.mockImplementation(() => new Promise((r) => { release = r; }));
+    updateCompositionSession.mockImplementation(() => new Promise((r) => { release = r; }));
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
     await mount();
 
     // Every click lands in one act(), before React can re-render any button as
     // disabled: a double click on the header, then the sidebar and mobile-bar
     // controls, which share the same guard.
-    const entryPoints = screen.getAllByRole('button', { name: /^Publish/ }) as HTMLButtonElement[];
-    expect(entryPoints.length).toBe(3);
+    const entryPoints = screen.getAllByRole('button', { name: 'Continue to publish' }) as HTMLButtonElement[];
     act(() => {
       headerPublish().click();
       headerPublish().click();
       entryPoints.forEach((b) => b.click());
     });
-    await waitFor(() => expect(createPost).toHaveBeenCalledTimes(1));
-    await act(async () => { release({ id: 777 }); });
-    expect(createPost).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(updateCompositionSession).toHaveBeenCalledTimes(1));
+    await act(async () => { release({ id: SESSION_ID, status: 'open' }); });
+    await waitFor(() => expect(location()).toBe('/'));
+
+    expect(updateCompositionSession).toHaveBeenCalledTimes(1);
+    expect(setItem.mock.calls.filter(([k]) => k === FINALISE_KEY)).toHaveLength(1);
+    expect(createPost).not.toHaveBeenCalled();
   });
 });
 
-describe('failure', () => {
-  it('keeps the draft and its session, shows the server message, and retries with the same session', async () => {
-    seedDraft({ mode: 'review' });
-    createPost.mockRejectedValueOnce(new Error('You must be a member of this realm to post'));
-    await mount();
-    fireEvent.click(headerPublish());
-
-    expect(await screen.findByText('You must be a member of this realm to post')).toBeTruthy();
-    expect(localStorage.getItem(BODY_KEY)).toBe(DRAFT);
-    expect(localStorage.getItem(SESSION_KEY)).toBe(SESSION_ID);
-
-    fireEvent.click(headerPublish());
-    await waitFor(() => expect(createPost).toHaveBeenCalledTimes(2));
-    expect(createPost.mock.calls[1][1].composition_session_id).toBe(SESSION_ID);
-  });
-
-  it('falls back to a generic message for errors that are not user-facing', async () => {
-    seedDraft({ mode: 'review' });
-    createPost.mockRejectedValueOnce(new TypeError('Failed to fetch'));
-    await mount();
-    fireEvent.click(headerPublish());
-    expect(await screen.findByText('Post failed. Try again.')).toBeTruthy();
-    expect(screen.queryByText(/Failed to fetch/)).toBeNull();
-  });
-});
-
-describe('success', () => {
-  it('clears the draft, spends the session, resets the tracker and links to the new post', async () => {
-    seedDraft({ mode: 'review' });
-    await mount();
-    fireEvent.click(headerPublish());
-
-    expect(await screen.findByText('Published to Commons.')).toBeTruthy();
-    expect(localStorage.getItem(BODY_KEY)).toBeNull();
-    expect(localStorage.getItem(TITLE_KEY)).toBeNull();
-    expect(localStorage.getItem(SESSION_KEY)).toBeNull();
-    // The success state is shown in place — no automatic redirect.
-    expect(screen.getByTestId('location').textContent).toBe('/workspace');
-
-    // Tracker reset: the next piece opens a fresh session rather than reusing
-    // the one the server has already spent.
-    fireEvent.click(screen.getByRole('button', { name: 'Write' }));
-    const editor = screen.getByLabelText('WriteSpace editor');
-    fireEvent.input(editor, { target: { value: 'Next.' } });
-    await waitFor(() => expect(createCompositionSession).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(within(screen.getByTestId('ws-publish-status')).getByRole('button', { name: 'View post' }));
-    expect(screen.getByTestId('location').textContent).toBe('/posts/777');
-  });
-
-  it('the sidebar View post also targets the created post', async () => {
+describe('stale finalisation', () => {
+  it('reopening WriteSpace clears a finalisation left behind', async () => {
+    sessionStorage.setItem(FINALISE_KEY, JSON.stringify({ v: 1, body: 'older version' }));
     seedDraft();
     await mount();
-    fireEvent.click(headerPublish());
-    await screen.findByText('Published');
-    const buttons = screen.getAllByRole('button', { name: 'View post' });
-    fireEvent.click(buttons[buttons.length - 1]);
-    expect(screen.getByTestId('location').textContent).toBe('/posts/777');
+    expect(sessionStorage.getItem(FINALISE_KEY)).toBeNull();
+    // The draft itself is untouched.
+    expect(localStorage.getItem(BODY_KEY)).toBe(DRAFT);
   });
 });

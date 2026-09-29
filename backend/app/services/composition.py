@@ -185,6 +185,14 @@ def credited_internal_chars(
     clipboard. The client may claim those characters as internal, but the claim
     is only honoured up to what the *parent* session was independently observed
     to have typed. No content moves between the two sessions — only this bound.
+
+    A parent that has already committed vouches for nothing further. Its typing
+    was spent on the row it produced; letting a fresh child continue it would
+    let one sitting's evidence back a second post (a stale draft whose session
+    was spent, reopened and continued). No legitimate flow needs this: a
+    successful post clears the draft and its session id, and every live
+    continuation — WriteSpace resume, WriteSpace finalisation, copy-for-posting
+    — continues a session that is still open.
     """
     if claimed <= 0 or not session.parent_session_id:
         return 0
@@ -196,7 +204,7 @@ def credited_internal_chars(
         )
         .first()
     )
-    if parent is None:
+    if parent is None or parent.status == SessionStatus.COMMITTED:
         return 0
     parent_typed = int((parent.metrics_json or {}).get("typed_chars", 0) or 0)
     return min(claimed, parent_typed)

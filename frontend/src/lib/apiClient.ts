@@ -800,7 +800,12 @@ class ApiClient {
    *  starting its evidence over from zero. 404s for anyone else's session. */
   async getCompositionSession(
     sessionId: string,
-  ): Promise<{ id: string; status: string; metrics?: Partial<CompositionMetrics> }> {
+  ): Promise<{
+    id: string;
+    status: string;
+    created_at?: string;
+    metrics?: Partial<CompositionMetrics>;
+  }> {
     return this.request(`/composition/sessions/${sessionId}`);
   }
 
