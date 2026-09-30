@@ -67,7 +67,10 @@ from app.models.image_generation_job import (
     IMAGE_GENERATION_JOB_ACTIVE_STATES,
     ImageGenerationJob,
 )
-from app.services.image_generation_pipeline import GenerationParams
+from app.services.image_generation_pipeline import (
+    INTERNAL_GOOGLE_AUDIT_KEY,
+    GenerationParams,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from sqlalchemy.orm import Session
@@ -447,6 +450,13 @@ def run_image_generation_job(
         job = db.query(ImageGenerationJob).filter(ImageGenerationJob.id == job_id).first()
         if job is None:  # pragma: no cover - defensive
             return
+        # The pipeline hands its internal Google input audit back inside the
+        # summary; it belongs in diag_json (never serialised), not result_json.
+        google_audit = (
+            summary.pop(INTERNAL_GOOGLE_AUDIT_KEY, None) if isinstance(summary, dict) else None
+        )
+        if google_audit is not None:
+            job.diag_json = {**(job.diag_json or {}), "google_audit": google_audit}
         job.status = "completed"
         job.stage = "completed"
         job.progress_message = "Image ready"

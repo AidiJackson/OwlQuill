@@ -441,6 +441,31 @@ def _ref_audit(
     input. ``ref_bytes`` holds ONLY the successfully loaded references, so it is
     walked positionally against ``load_flags`` rather than indexed directly.
     """
+    tokens: list[str] = []
+    for e in _ref_audit_entries(db, urls, slots, load_flags, ref_bytes):
+        tokens.append(
+            f"{e['pos']}:slot={e['slot']}"
+            f":id={e['image_id'] if e['image_id'] is not None else '-'}"
+            f":h={e['h']}:b={e['b'] or '-'}"
+            f":bytes={e['bytes'] if e['bytes'] is not None else '-'}"
+            f":mime={e['mime'] or '-'}:loaded={int(e['loaded'])}"
+        )
+    return tokens
+
+
+def _ref_audit_entries(
+    db: "Session",
+    urls: list[str],
+    slots: list[str],
+    load_flags: list[bool],
+    ref_bytes: list[bytes] | None = None,
+) -> list[dict[str, Any]]:
+    """Structured form of :func:`_ref_audit` — one dict per requested position.
+
+    The same fields and the same digests as the log tokens, so a persisted
+    ``google_audit`` and an ``IMAGE_GEN_GOOGLE_BLOCKED`` line can never
+    disagree. ``None`` stands where the token prints ``-``. No URL, no bytes.
+    """
     ids_by_path: dict[str, int] = {}
     try:
         rows = (
@@ -455,29 +480,91 @@ def _ref_audit(
 
     loaded_bytes = list(ref_bytes or [])
     cursor = 0
-    tokens: list[str] = []
+    entries: list[dict[str, Any]] = []
     for i, url in enumerate(urls):
         slot = slots[i] if i < len(slots) else "unknown"
         loaded = load_flags[i] if i < len(load_flags) else False
-        image_id = ids_by_path.get(url)
-        content = "-"
-        size = "-"
-        mime = "-"
+        content: str | None = None
+        size: int | None = None
+        mime: str | None = None
         if loaded and cursor < len(loaded_bytes):
             raw = loaded_bytes[cursor]
             cursor += 1
             content = hashlib.sha256(raw).hexdigest()[:8]
-            size = str(len(raw))
+            size = len(raw)
             try:
                 _, mime = detect_image_format(raw)
             except Exception:
                 mime = "?"
-        tokens.append(
-            f"{i}:slot={slot}:id={image_id if image_id is not None else '-'}"
-            f":h={_ref_digest(url)}:b={content}:bytes={size}:mime={mime}"
-            f":loaded={int(loaded)}"
-        )
-    return tokens
+        entries.append({
+            "pos": i,
+            "slot": slot,
+            "image_id": ids_by_path.get(url),
+            "h": _ref_digest(url),
+            "b": content,
+            "bytes": size,
+            "mime": mime,
+            "loaded": bool(loaded),
+        })
+    return entries
+
+
+#: Summary key carrying the internal audit from the pipeline to the job layer,
+#: which moves it into ``diag_json`` before ``result_json`` is written. Never
+#: user-facing: the sync route discards the summary, the job runner pops it.
+INTERNAL_GOOGLE_AUDIT_KEY = "_google_audit"
+
+_FINISH_REASON_RE = re.compile(r'"finishReason":\s*"([A-Z_]{1,40})"')
+
+
+def _finish_reason(reason: str | None, kind: str) -> str | None:
+    """The Gemini finishReason for a failed call, when the error carries one.
+
+    Only an enum-shaped token is extracted — never free text.
+    """
+    if kind == "image_recitation":
+        return "IMAGE_RECITATION"
+    m = _FINISH_REASON_RE.search(reason or "")
+    return m.group(1) if m else None
+
+
+def _build_google_audit(
+    db: "Session",
+    *,
+    provider,
+    provider_name: str,
+    compiled_prompt: str,
+    requested_refs: list[str],
+    ref_load_flags: list[bool],
+    ref_bytes: list[bytes],
+    refs_deduped: int,
+    slots: list[str],
+    scene_meta,
+) -> dict[str, Any]:
+    """What this runtime sent to Google, as hashes and counts only.
+
+    Persisted in ``image_generation_jobs.diag_json`` for success AND failure so
+    a DEV run and a LIVE run of the same request can be diffed field by field.
+    The same values the ``IMAGE_GEN_GOOGLE_BLOCKED`` line logs — that line is
+    built from this dict. Carries no URL, no bytes, no prompt text and no
+    credential. Callers wrap this: a diagnostics error must never replace the
+    generation's real outcome.
+    """
+    return {
+        "provider": provider_name,
+        "model": _provider_model_slug(provider),
+        "cred_fp": google_credential_fingerprint(),
+        "refs_requested": len(requested_refs),
+        "refs_loaded": len(ref_bytes),
+        "refs_deduped": refs_deduped,
+        "prompt_len": len(compiled_prompt),
+        "prompt_sha": hashlib.sha256(compiled_prompt.encode()).hexdigest()[:8],
+        "slots": list(slots),
+        "refs": _ref_audit_entries(db, requested_refs, slots, ref_load_flags, ref_bytes),
+        "camera": str(scene_meta.camera) if scene_meta is not None else "n/a",
+        "routed": bool(scene_meta.routed) if scene_meta is not None else False,
+        "exposure": [str(x) for x in scene_meta.exposure] if scene_meta is not None else [],
+    }
 
 
 def _generate_scene_png(
@@ -1128,6 +1215,45 @@ def run_image_generation(
             logger.info("IMAGE_GEN_GROUNDED_FAILED character_id=%s fallback=text reason=%r",
                         character_id, str(exc)[:200])
 
+    # ── Google input audit (diagnostic only) ──────────────────────────
+    # Built AFTER the reference-bearing call, from values that call already used,
+    # so it cannot influence the request. The job layer persists it for success
+    # and failure alike: the comparable record of what this runtime sent. Any
+    # error here is logged and dropped — it must never change the outcome.
+    def _audit_slots() -> list[str]:
+        if using_canon and canon is not None:
+            canon_slots = list(scene_meta.route_slots) or slot_names_for_urls(
+                canon, canon_urls[:canon_sent_count]
+            )
+        else:
+            canon_slots = []
+        return canon_slots[:canon_sent_count] + [
+            f"manual:{r.role.value}" for r in manual_sent
+        ]
+
+    def _google_audit() -> dict[str, Any]:
+        return _build_google_audit(
+            db,
+            provider=provider,
+            provider_name=resolved_provider_name,
+            compiled_prompt=compiled_prompt,
+            requested_refs=requested_refs,
+            ref_load_flags=ref_load_flags,
+            ref_bytes=ref_bytes,
+            refs_deduped=refs_deduped,
+            slots=_audit_slots(),
+            scene_meta=scene_meta,
+        )
+
+    google_audit: dict[str, Any] | None = None
+    if provider is not None and resolved_provider_name == "google":
+        try:
+            google_audit = _google_audit()
+        except Exception:
+            logger.warning(
+                "IMAGE_GEN_GOOGLE_AUDIT_FAILED character_id=%s", character_id, exc_info=True,
+            )
+
     # ── S24AD: block the ref-less fallback for reference-bearing runs ──
     # When references were loaded and a real provider's reference-bearing calls
     # (multi-image AND grounded) have all failed or been REFUSED (e.g. Gemini
@@ -1171,32 +1297,23 @@ def run_image_generation(
         # production reference set can only be read from production's own logs.
         if block_reason:
             try:
-                if using_canon and canon is not None:
-                    canon_slots = list(scene_meta.route_slots) or slot_names_for_urls(
-                        canon, canon_urls[:canon_sent_count]
-                    )
-                else:
-                    canon_slots = []
-                slots = canon_slots[:canon_sent_count] + [
-                    f"manual:{r.role.value}" for r in manual_sent
-                ]
+                audit = google_audit if google_audit is not None else _google_audit()
                 logger.warning(
                     "IMAGE_GEN_GOOGLE_BLOCKED character_id=%s provider=%s model=%s "
                     "cred_fp=%s block_reason=%s safety_categories=%s refs_requested=%d "
                     "refs_loaded=%d camera=%s routed=%s exposure=%s "
                     "prompt_len=%d prompt_sha=%s slots=%s refs=[%s]",
                     character_id, resolved_provider_name, model_slug,
-                    google_credential_fingerprint(),
+                    audit["cred_fp"],
                     block_reason, safety_categories or [],
-                    len(requested_refs), len(ref_bytes),
-                    scene_meta.camera if scene_meta is not None else "n/a",
-                    scene_meta.routed if scene_meta is not None else False,
-                    scene_meta.exposure if scene_meta is not None else [],
-                    len(compiled_prompt),
-                    hashlib.sha256(compiled_prompt.encode()).hexdigest()[:8],
-                    slots,
+                    audit["refs_requested"], audit["refs_loaded"],
+                    audit["camera"], audit["routed"], audit["exposure"],
+                    audit["prompt_len"], audit["prompt_sha"],
+                    audit["slots"],
                     ", ".join(
-                        _ref_audit(db, requested_refs, slots, ref_load_flags, ref_bytes)
+                        _ref_audit(
+                            db, requested_refs, audit["slots"], ref_load_flags, ref_bytes
+                        )
                     ),
                 )
             except Exception:  # never let diagnostics replace the real failure
@@ -1220,19 +1337,25 @@ def run_image_generation(
             detail = _DETAIL_PROVIDER_RATE_LIMITED.format(provider=display)
         else:
             detail = _DETAIL_GENERIC_FAILURE
+        diag: dict[str, Any] = {
+            "failure_kind": kind,
+            "provider": resolved_provider_name,
+            "provider_profile": (
+                ADMIN_CREATOR_OPENAI_PROVIDER if admin_creator_openai else None
+            ),
+            "model": model_slug,
+            "block_reason": block_reason,
+            "provider_reason": _safe_diag_reason(ref_failure_reason),
+        }
+        if resolved_provider_name == "google":
+            diag["safety_categories"] = list(safety_categories or [])
+            diag["finish_reason"] = _finish_reason(ref_failure_reason, kind)
+            if google_audit is not None:
+                diag["google_audit"] = google_audit
         raise GenerationFailure(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=detail,
-            diag={
-                "failure_kind": kind,
-                "provider": resolved_provider_name,
-                "provider_profile": (
-                    ADMIN_CREATOR_OPENAI_PROVIDER if admin_creator_openai else None
-                ),
-                "model": model_slug,
-                "block_reason": block_reason,
-                "provider_reason": _safe_diag_reason(ref_failure_reason),
-            },
+            diag=diag,
         )
 
     if png_bytes is None and provider is not None:
@@ -1589,6 +1712,8 @@ def run_image_generation(
         canon_dropped=canon_dropped_count,
         canon_bypassed=deliberate,
     )
+    if google_audit is not None:
+        summary[INTERNAL_GOOGLE_AUDIT_KEY] = google_audit
     return img, summary
 
 
