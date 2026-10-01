@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { ImageIcon, RefreshCw } from 'lucide-react';
 import { generateImage } from '@/features/characterCreation/shared/api';
 import type { CharacterImageRead } from '@/features/characterCreation/shared/types';
@@ -7,7 +6,6 @@ import type { Character } from '@/lib/types';
 import type { SelectedReference } from '@/features/images/referenceKinds';
 import { useAuthStore } from '@/lib/store';
 import { isAdmin as accountIsAdmin, isFounder as accountIsFounder } from '@/lib/entitlements';
-import { isAdultAdjacent } from '@/features/images/adultContent';
 import { computeGeneratorGuards } from '@/features/images/generatorReadiness';
 import ReferencePicker from '@/features/images/components/ReferencePicker';
 import UploadImageButton from '@/features/images/components/UploadImageButton';
@@ -15,14 +13,13 @@ import { useGenerationJob } from '@/features/images/useGenerationJob';
 
 const MAX_PROMPT_LENGTH = 800;
 
-// Beta: Google (option2) is the primary "Canon" provider for everyone.
-// OpenAI (option1) is admin-only, internal testing.
-// The experimental FLUX/Together providers (option3/4/5) remain on the backend
-// but are intentionally hidden from this selector — they did not solve canon
-// consistency and only cluttered the UI. Do not re-expose without a decision.
-const SHOW_PROVIDER_TOGGLE = true;
-
-type ProviderOption = 'option1' | 'option2' | 'option3' | 'option4' | 'option5' | 'option6';
+// Google (option2, "Canon") is the provider for everyone and is always sent
+// explicitly. OpenAI (option1) is the founder/seeder alternative, so only those
+// accounts see a provider selector at all (W-02): an ordinary creator has one
+// option, and a one-option selector is provider UI with nothing to choose.
+// The experimental providers (FLUX/Together option3/4/5, Grok option6) remain
+// on the backend but are not offered here. Do not re-expose without a decision.
+type ProviderOption = 'option1' | 'option2';
 
 interface Props {
   characters: Character[];
@@ -60,24 +57,16 @@ export default function SceneGeneratorPanel({
   // null = "No character"; number = character id
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const initialCharacterIdRef = useRef(initialCharacterId);
-  // Beta default: Google ("Canon"). OpenAI (option1) is admin-only.
+  // Default: Google ("Canon"). OpenAI (option1) is founder/seeder-only.
   const [providerOption, setProviderOption] = useState<ProviderOption>('option2');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // Adult-adjacent soft nudge — advisory only, does not block generation.
-  const [showAdultNudge, setShowAdultNudge] = useState(false);
 
   const user = useAuthStore((s) => s.user);
   const isAdmin = accountIsAdmin(user);
   const isFounder = accountIsFounder(user);
-  const navigate = useNavigate();
-  // The 18+ Studio router is admin-only server-side (adult_studio.py:
-  // ``APIRouter(dependencies=[Depends(require_admin)])``) — the same rule the
-  // Image Library's studio card uses. The adult-adjacent nudge exists only to
-  // point at that door, so an account that cannot open it is not shown the
-  // nudge at all (Polish Phase 5.6): it used to interrupt every creator with
-  // a CTA to a page whose every request 403s.
-  const canOpenAdultStudio = isAdmin;
+  // Only accounts with a real choice (Canon or OpenAI) see the selector.
+  const showProviderSelector = isFounder;
 
   // ── Founder workflow state ────────────────────────────────────────
   // Hand-picked references, and a token bumped after an upload so the picker
@@ -115,14 +104,11 @@ export default function SceneGeneratorPanel({
 
   // Guard: if an account ends up on an option it may not use, snap back to Canon.
   // OpenAI (option1) is available to admins AND to the founder/seeder tier —
-  // "OpenAI or Google" is the founder workflow. The experimental providers
-  // (FLUX Pro/Max, Together, Grok) stay admin-only. Mirrors the server rule in
+  // "OpenAI or Google" is the founder workflow. Mirrors the server rule in
   // image_provider.resolve_canon_provider_option, which is what actually decides.
   useEffect(() => {
-    const experimental: ProviderOption[] = ['option3', 'option4', 'option5', 'option6'];
-    if (!isAdmin && experimental.includes(providerOption)) setProviderOption('option2');
-    if (!isAdmin && !isFounder && providerOption === 'option1') setProviderOption('option2');
-  }, [isAdmin, isFounder, providerOption]);
+    if (!isFounder && providerOption === 'option1') setProviderOption('option2');
+  }, [isFounder, providerOption]);
 
   // Set default selection once when characters first load
   const didInitRef = useRef(false);
@@ -193,15 +179,8 @@ export default function SceneGeneratorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useJobs, job.busy]);
 
-  const handleGenerate = async (skipAdultCheck = false) => {
+  const handleGenerate = async () => {
     if (!canGenerate) return;
-    // Adult-adjacent soft nudge: surface the 18+ Studio entry once before generating.
-    // Advisory only — "Continue here" re-invokes with skipAdultCheck=true.
-    // Only for accounts the Studio admits; everyone else generates as normal.
-    if (canOpenAdultStudio && !skipAdultCheck && isAdultAdjacent(prompt)) {
-      setShowAdultNudge(true);
-      return;
-    }
     // For "No character", route through the first character (ownership only; include_character=false)
     const routeCharacterId = selectedCharacterId ?? characters[0]?.id;
     if (!routeCharacterId) return;
@@ -304,10 +283,9 @@ export default function SceneGeneratorPanel({
           </select>
         </div>
 
-        {/* Provider selector. Beta: Google = "Canon" (primary, everyone).
-            OpenAI (option1) is admin-only, internal testing.
-            The experimental FLUX/Together providers are hidden — see header note. */}
-        {SHOW_PROVIDER_TOGGLE && (
+        {/* Provider selector — founder/seeder/admin only (W-02). Ordinary
+            creators get no selector and always send Canon (option2). */}
+        {showProviderSelector && (
           <div className="flex items-center gap-1 rounded-md border border-edge-md overflow-hidden text-xs">
             <button
               type="button"
@@ -322,36 +300,19 @@ export default function SceneGeneratorPanel({
             >
               Canon · Recommended
             </button>
-            {(isAdmin || isFounder) && (
-              <button
-                type="button"
-                onClick={() => setProviderOption('option1')}
-                disabled={busy}
-                title="OpenAI — available to founder accounts"
-                className={`px-3 py-1 transition-colors ${
-                  providerOption === 'option1'
-                    ? 'bg-amber-700 text-white'
-                    : 'bg-surface-elevated text-ink-2 hover:bg-amber-900/40 hover:text-amber-300'
-                }`}
-              >
-                {isAdmin ? 'OpenAI · Admin' : 'OpenAI'}
-              </button>
-            )}
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setProviderOption('option6')}
-                disabled={busy}
-                title="Grok Imagine (via OpenRouter) — experimental, admin-only"
-                className={`px-3 py-1 transition-colors ${
-                  providerOption === 'option6'
-                    ? 'bg-sky-700 text-white'
-                    : 'bg-surface-elevated text-ink-2 hover:bg-sky-900/40 hover:text-sky-300'
-                }`}
-              >
-                Grok · Admin
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setProviderOption('option1')}
+              disabled={busy}
+              title="OpenAI — available to founder accounts"
+              className={`px-3 py-1 transition-colors ${
+                providerOption === 'option1'
+                  ? 'bg-amber-700 text-white'
+                  : 'bg-surface-elevated text-ink-2 hover:bg-amber-900/40 hover:text-amber-300'
+              }`}
+            >
+              {isAdmin ? 'OpenAI · Admin' : 'OpenAI'}
+            </button>
           </div>
         )}
       </div>
@@ -469,50 +430,6 @@ export default function SceneGeneratorPanel({
         </p>
       )}
 
-      {/* Adult-adjacent soft nudge — advisory, does not block generation. */}
-      {showAdultNudge && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        >
-          <div
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => setShowAdultNudge(false)}
-          />
-          <div className="relative z-10 w-full max-w-md bg-app border border-edge rounded-2xl shadow-2xl p-6 space-y-4">
-            <h2 className="text-base font-semibold text-ink">
-              Looks like adult-adjacent content
-            </h2>
-            <p className="text-sm leading-relaxed text-ink-2">
-              This looks like adult-adjacent content. For stronger identity consistency in
-              swimwear, lingerie, underwear, and mature scenes, try our upcoming 18+ Studio.
-            </p>
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                className="btn btn-secondary text-sm"
-                onClick={() => {
-                  setShowAdultNudge(false);
-                  handleGenerate(true);
-                }}
-              >
-                Continue here
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary text-sm"
-                onClick={() => {
-                  setShowAdultNudge(false);
-                  navigate('/studio/18-plus');
-                }}
-              >
-                Open 18+ Studio
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

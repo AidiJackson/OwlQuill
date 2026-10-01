@@ -6,14 +6,18 @@
  * most likely to leak one. Every card, control and link on the page is
  * classified here and pinned to the audience it was decided for:
  *
- *   ordinary/creator product  back link · generator (Canon provider) ·
- *                             weekly allowance · empty-state Create character
+ *   ordinary/creator product  back link · generator (no provider selector —
+ *                             it always sends Canon) · weekly allowance ·
+ *                             empty-state Create character
  *   founder capability        Admin Creator card (FounderRoute's audience) ·
- *                             OpenAI provider · upload + reference picker ·
- *                             All Characters filter
- *   admin capability          18+ Studio card (AdminRoute's audience) ·
- *                             Grok provider · adult-adjacent nudge (pinned
- *                             separately in sceneGeneratorAdultNudge)
+ *                             Canon/OpenAI provider selector · upload +
+ *                             reference picker · All Characters filter
+ *   admin capability          "· Admin" label on OpenAI
+ *
+ * W-02: the 18+ Studio card and the Grok provider are no longer offered on
+ * /images to anyone (admins included); the generator's adult-adjacent nudge is
+ * gone too (pinned in sceneGeneratorAdultNudge). The Studio itself is still
+ * reached by its AdminRoute deep link — pinned in privilegedRoutes.
  *
  * The user here is what GET /users/me returns — the page reads it from the
  * API, not from the store — so the fixtures are handed to getMe.
@@ -99,10 +103,11 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('ordinary creator', () => {
-  it('sees the product: generator on Canon, allowance, no internal doors, no founder tools', async () => {
+  it('sees the product: generator without provider UI, allowance, no internal doors, no founder tools', async () => {
     await renderLibrary(CREATOR);
     expect(screen.getByText('Image Library')).toBeTruthy();
-    expect(provider(/Canon · Recommended/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Generate Image/ })).toBeTruthy();
+    expect(provider(/Canon · Recommended/)).toBeNull();
     expect(screen.getByText(/9 of 10 images remaining/)).toBeTruthy();
 
     expect(adminCreatorCard()).toBeNull();
@@ -128,7 +133,7 @@ describe('ordinary creator', () => {
     await renderLibrary(CREATOR_NO_CHARS, []);
     expect(screen.getByRole('button', { name: 'Create character' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Go to Characters' })).toBeTruthy();
-    expect(provider(/Canon · Recommended/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Generate Image/ })).toBeNull();
     expect(adminCreatorCard()).toBeNull();
     expect(studioCard()).toBeNull();
   });
@@ -139,6 +144,7 @@ describe('Seeder (founder-capable, not admin)', () => {
     await renderLibrary(SEEDER);
     expect(adminCreatorCard()!.getAttribute('href')).toBe('/admin-creator');
     expect(screen.getByText(/Internal testing only/)).toBeTruthy();
+    expect(provider(/Canon · Recommended/)).toBeTruthy();
     expect(provider(/^OpenAI$/)).toBeTruthy();       // founder label, no "· Admin"
     expect(screen.getByText('UPLOAD BUTTON')).toBeTruthy();
     expect(screen.getByText('REFERENCE PICKER')).toBeTruthy();
@@ -152,28 +158,25 @@ describe('Seeder (founder-capable, not admin)', () => {
 
 describe('Admin', () => {
   it.each([['Admin', ADMIN], ['Admin+Seeder', ADMIN_SEEDER]] as [string, User][])(
-    '%s gets every internal door: Admin Creator, 18+ Studio, OpenAI · Admin, Grok · Admin, founder tools',
+    '%s gets Admin Creator, Canon + OpenAI · Admin and founder tools — but no 18+ Studio card and no Grok',
     async (_who, user) => {
       await renderLibrary(user);
       expect(adminCreatorCard()!.getAttribute('href')).toBe('/admin-creator');
-      expect(studioCard()).toBeTruthy();
+      expect(provider(/Canon · Recommended/)).toBeTruthy();
       expect(provider(/OpenAI · Admin/)).toBeTruthy();
-      expect(provider(/Grok · Admin/)).toBeTruthy();
+      expect(provider(/Grok/)).toBeNull();
+      expect(studioCard()).toBeNull();
+      expect(screen.queryByText('18+ Studio')).toBeNull();
+      expect(document.querySelector('a[href^="/studio/18-plus"]')).toBeNull();
       expect(screen.getByText('UPLOAD BUTTON')).toBeTruthy();
       expect(screen.getByText('REFERENCE PICKER')).toBeTruthy();
       expect(screen.getByRole('option', { name: 'All Characters' })).toBeTruthy();
     },
   );
-
-  it('the 18+ Studio door carries the character into the studio', async () => {
-    await renderLibrary(ADMIN);
-    studioCard()!.click();
-    expect(await screen.findByText('STUDIO PAGE')).toBeTruthy();
-  });
 });
 
 describe('the doors agree with their routes (one predicate each)', () => {
-  it('Admin Creator card ⇔ isFounder (admin OR seeder); 18+ Studio card ⇔ isAdmin', async () => {
+  it('Admin Creator card ⇔ isFounder (admin OR seeder); 18+ Studio card ⇔ nobody (W-02)', async () => {
     const seen: Record<string, [boolean, boolean]> = {};
     for (const [who, user] of [['creator', CREATOR], ['seeder', SEEDER], ['admin', ADMIN], ['admin+seeder', ADMIN_SEEDER]] as [string, User][]) {
       const r = await renderLibrary(user);
@@ -183,8 +186,8 @@ describe('the doors agree with their routes (one predicate each)', () => {
     expect(seen).toEqual({
       creator: [false, false],
       seeder: [true, false],
-      admin: [true, true],
-      'admin+seeder': [true, true],
+      admin: [true, false],
+      'admin+seeder': [true, false],
     });
   });
 });

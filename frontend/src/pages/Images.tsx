@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Image, X, Check, Trash2, Flag, Sparkles } from 'lucide-react';
+import { ArrowLeft, Image, X, Check, Trash2, Flag } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import { isAdmin, isFounder as isFounderAccount } from '@/lib/entitlements';
+import { isFounder as isFounderAccount } from '@/lib/entitlements';
 import type { LibraryImage, Character, User } from '@/lib/types';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SceneGeneratorPanel from '@/features/images/components/SceneGeneratorPanel';
@@ -40,10 +40,6 @@ export default function Images() {
   // Founders / multi-character owners may deliberately choose All Characters.
   const isFounder = isFounderAccount(currentUser);
   const canSeeAllCharacters = isFounder || myCharacters.length > 1;
-  // The 18+ Studio router is admin-only server-side (adult_studio.py:
-  // ``APIRouter(dependencies=[Depends(require_admin)])``); a seeder is refused
-  // there too, so the door is offered to admins alone.
-  const canOpenAdultStudio = isAdmin(currentUser);
 
   type QuotaStatus = {
     used: number;
@@ -455,32 +451,9 @@ export default function Images() {
           />
         )}
 
-        {/* 18+ Studio entry point — admin only. Polish Phase 0 (X1): this card
-            was shown to every creator while the studio's router refuses every
-            non-admin, so an ordinary creator was sold a door that 403'd. */}
-        {canOpenAdultStudio && (
-        <div className="border border-fuchsia-800/40 bg-fuchsia-900/10 rounded-lg px-4 py-3 flex items-start gap-3">
-          <div className="rounded-lg bg-fuchsia-900/30 border border-fuchsia-800/40 p-2 shrink-0">
-            <Sparkles className="w-4 h-4 text-fuchsia-300" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-fuchsia-200">18+ Studio</p>
-            <p className="text-xs text-ink-2 mt-0.5">
-              Use stronger identity-locking for swimwear, lingerie, underwear, and mature character scenes.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              const studioCharId = onboardingCharId ?? myCharacters[0]?.id;
-              navigate(studioCharId != null ? `/studio/18-plus?characterId=${studioCharId}` : '/studio/18-plus');
-            }}
-            className="btn btn-secondary text-sm shrink-0 self-center"
-          >
-            Open 18+ Studio
-          </button>
-        </div>
-        )}
+        {/* No 18+ Studio entry point here (W-02). The Studio is an internal
+            admin tool reached by its own AdminRoute-guarded deep link; the
+            ordinary Image Library does not advertise it. */}
 
         {/* Weekly allowance */}
         {quota && !quota.unlimited && (

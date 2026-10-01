@@ -121,7 +121,9 @@ describe('production links (every non-test source file)', () => {
   it('privileged tools are linked only from their gated doors', () => {
     const studioLinkers = files.filter(([, s]) => /\/studio\/18-plus/.test(s)).map(([p]) => p);
     const adminCreatorLinkers = files.filter(([, s]) => /\/admin-creator/.test(s)).map(([p]) => p);
-    expect(studioLinkers.sort()).toEqual(['features/images/components/SceneGeneratorPanel.tsx', 'pages/Images.tsx']);
+    // W-02: nothing in the product links to the 18+ Studio — it is reached only
+    // by its AdminRoute-guarded deep link (the route itself is pinned above).
+    expect(studioLinkers.sort()).toEqual([]);
     expect(adminCreatorLinkers.sort()).toEqual(['pages/Images.tsx']);
   });
 
