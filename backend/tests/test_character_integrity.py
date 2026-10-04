@@ -3,13 +3,11 @@
 Pins, in one place:
 
   A. Deletion privacy — what a character's posts and comments reveal about the
-     owning ACCOUNT, before and after the character is deleted, per viewer.
-     Two cases are ``xfail(strict=True)``: they state the required invariant,
-     which the current schema cannot satisfy (a deleted character's orphaned
-     rows are indistinguishable from legacy account-authored posts and from
-     Wanderer comments — both supported, both ``character_id IS NULL``). When
-     the schema fix lands they XPASS, strict turns that into a failure, and
-     whoever lands it removes the marker.
+     owning ACCOUNT, before and after the character is deleted, per viewer,
+     decided by the durable ``author_kind`` provenance (app.models.authorship):
+     a deleted character's rows, and unclassified historical rows (NULL), never
+     surface account identity; explicit ``account_legacy`` posts and
+     ``wanderer`` comments keep their intended attribution.
   B. The name/alias policy (``app.services.character_names``) — unit-level and
      through both write routes, including the temporary duplicate rule and the
      PATCH null refusals.
@@ -19,7 +17,14 @@ Pins, in one place:
 """
 import pytest
 
+from app.models.authorship import (
+    AUTHOR_KIND_CHARACTER,
+    COMMENT_AUTHOR_KIND_WANDERER,
+    POST_AUTHOR_KIND_ACCOUNT_LEGACY,
+)
 from app.models.character import Character, VisibilityEnum
+from app.models.comment import Comment
+from app.models.post import Post
 from app.models.user import User
 from app.services.character_home_share import render_character_home_shell
 from app.services.character_names import (
@@ -175,21 +180,6 @@ def test_after_deletion_the_owner_still_sees_their_own_rows(client, authored):
     assert p["author_username"] == "ci_owner"
 
 
-_ORPHAN_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BLOCKER (Character Integrity A), unresolved by design: posts/comments "
-        "carry no authorship provenance. Character deletion sets character_id to "
-        "NULL (ON DELETE SET NULL), after which a modern character-authored row is "
-        "indistinguishable from a genuine legacy account-authored post or a "
-        "Wanderer comment, which legitimately carry the account username. Fixing "
-        "it without guessing needs a write-time authorship-kind column on posts "
-        "and comments. Do not weaken this test; remove the marker when it XPASSes."
-    ),
-)
-
-
-@_ORPHAN_XFAIL
 def test_after_deletion_signed_in_non_author_sees_no_username_on_the_post(client, authored):
     _delete_character(client, authored)
     p = client.get(f"/posts/{authored['post_id']}", headers=auth_headers(authored["viewer"])).json()
@@ -197,12 +187,167 @@ def test_after_deletion_signed_in_non_author_sees_no_username_on_the_post(client
     assert p["author_user_id"] is None
 
 
-@_ORPHAN_XFAIL
 def test_after_deletion_signed_in_non_author_sees_no_username_on_the_comment(client, authored):
     _delete_character(client, authored)
     c = _the_comment(_comments(client, authored["post_id"], authored["viewer"]), authored["comment_id"])
     assert c["author_username"] is None
+    assert c["author_user_id"] is None
     assert c["author_avatar_url"] is None
+
+
+# ── A. Durable authorship provenance (author_kind) ──────────────────────────
+
+def test_character_post_and_comment_store_character_provenance(db_session, authored):
+    assert db_session.get(Post, authored["post_id"]).author_kind == AUTHOR_KIND_CHARACTER
+    assert db_session.get(Comment, authored["comment_id"]).author_kind == AUTHOR_KIND_CHARACTER
+
+
+def test_deletion_nulls_the_character_but_keeps_the_provenance(client, db_session, authored):
+    _delete_character(client, authored)
+    db_session.expire_all()
+    post = db_session.get(Post, authored["post_id"])
+    comment = db_session.get(Comment, authored["comment_id"])
+    assert post.character_id is None and post.author_kind == AUTHOR_KIND_CHARACTER
+    assert comment.character_id is None and comment.author_kind == AUTHOR_KIND_CHARACTER
+
+
+def test_after_deletion_owner_still_sees_own_comment_attribution(client, authored):
+    _delete_character(client, authored)
+    c = _the_comment(_comments(client, authored["post_id"], authored["owner"]), authored["comment_id"])
+    assert c["author_username"] == "ci_owner"
+
+
+@pytest.fixture()
+def wanderer_setup(client, db_session):
+    """A Writer's post, a third-party signed-in reader, and a genuine Wanderer
+    (an account with no characters) who comments through the real API."""
+    writer = _login(client, "ci_w_writer@example.com")
+    reader = _login(client, "ci_w_reader@example.com")
+    wanderer = _login(client, "ci_w_wanderer@example.com")
+    realm = _realm(client, writer, "ci-wanderer")
+    _join(client, reader, realm)
+    _join(client, wanderer, realm)
+    cid = _create_id(client, writer, "Quillon")
+    post_id = _post(client, writer, realm, cid, "a post")
+    return {"writer": writer, "reader": reader, "wanderer": wanderer,
+            "realm": realm, "post_id": post_id}
+
+
+def test_wanderer_comment_stores_wanderer_provenance_and_keeps_its_attribution(
+    client, db_session, wanderer_setup
+):
+    w = wanderer_setup
+    comment_id = _comment(client, w["wanderer"], w["post_id"], None, "passing through")
+    assert db_session.get(Comment, comment_id).author_kind == COMMENT_AUTHOR_KIND_WANDERER
+
+    signed_in = _the_comment(_comments(client, w["post_id"], w["reader"]), comment_id)
+    assert signed_in["author_username"] == "ci_w_wanderer"   # the Wanderer's public identity
+    assert signed_in["character_id"] is None
+    # The stricter anonymous projection is unchanged: no account identity at all.
+    anon = _the_comment(_comments(client, w["post_id"]), comment_id)
+    assert anon["author_username"] is None
+    assert anon["author_user_id"] is None
+    assert anon["author_avatar_url"] is None
+
+
+def _user_id(db_session, email):
+    return db_session.query(User).filter(User.email == email).one().id
+
+
+@pytest.mark.parametrize("author_kind", [None, AUTHOR_KIND_CHARACTER])
+def test_characterless_comment_without_wanderer_provenance_never_shows_the_account(
+    client, db_session, wanderer_setup, author_kind
+):
+    """NULL = unknown historical row; ``character`` = an orphan. Both withhold."""
+    w = wanderer_setup
+    row = Comment(post_id=w["post_id"], author_user_id=_user_id(db_session, "ci_w_wanderer@example.com"),
+                  character_id=None, content="historical", author_kind=author_kind)
+    db_session.add(row)
+    db_session.commit()
+
+    for token in (w["reader"], w["writer"], None):
+        c = _the_comment(_comments(client, w["post_id"], token), row.id)
+        assert c["author_username"] is None
+        assert c["author_user_id"] is None
+        assert c["author_avatar_url"] is None
+    own = _the_comment(_comments(client, w["post_id"], w["wanderer"]), row.id)
+    assert own["author_username"] == "ci_w_wanderer"         # self-view unchanged
+
+
+def test_explicit_wanderer_fixture_keeps_only_the_intended_attribution(
+    client, db_session, wanderer_setup
+):
+    w = wanderer_setup
+    row = Comment(post_id=w["post_id"], author_user_id=_user_id(db_session, "ci_w_wanderer@example.com"),
+                  character_id=None, content="classified", author_kind=COMMENT_AUTHOR_KIND_WANDERER)
+    db_session.add(row)
+    db_session.commit()
+    assert _the_comment(_comments(client, w["post_id"], w["reader"]), row.id)["author_username"] == "ci_w_wanderer"
+    assert _the_comment(_comments(client, w["post_id"]), row.id)["author_username"] is None
+
+
+def _raw_post(db_session, realm_id, email, author_kind):
+    row = Post(realm_id=realm_id, author_user_id=_user_id(db_session, email),
+               character_id=None, content=f"raw {author_kind}", author_kind=author_kind)
+    db_session.add(row)
+    db_session.commit()
+    return row.id
+
+
+@pytest.mark.parametrize("author_kind", [None, AUTHOR_KIND_CHARACTER])
+def test_characterless_post_without_legacy_provenance_never_shows_the_account(
+    client, db_session, wanderer_setup, author_kind
+):
+    w = wanderer_setup
+    post_id = _raw_post(db_session, w["realm"], "ci_w_writer@example.com", author_kind)
+    for surface in (f"/posts/{post_id}", f"/posts/realms/{w['realm']}/posts", "/posts/feed"):
+        body = client.get(surface, headers=auth_headers(w["reader"])).json()
+        rows = body if isinstance(body, list) else [body]
+        [p] = [r for r in rows if r["id"] == post_id]
+        assert p["author_username"] is None, surface
+        assert p["author_user_id"] is None, surface
+    own = client.get(f"/posts/{post_id}", headers=auth_headers(w["writer"])).json()
+    assert own["author_username"] == "ci_w_writer"            # self-view unchanged
+
+
+def test_explicit_account_legacy_post_keeps_only_the_intended_attribution(
+    client, db_session, wanderer_setup
+):
+    w = wanderer_setup
+    post_id = _raw_post(db_session, w["realm"], "ci_w_writer@example.com", POST_AUTHOR_KIND_ACCOUNT_LEGACY)
+    p = client.get(f"/posts/{post_id}", headers=auth_headers(w["reader"])).json()
+    assert p["author_username"] == "ci_w_writer"
+    assert p["character_id"] is None
+    # Not a backdoor for character posts: provenance on a character post is
+    # always "character", so a live character post still hides the account.
+    char_post = client.get(f"/posts/{w['post_id']}", headers=auth_headers(w["reader"])).json()
+    assert char_post["author_username"] is None
+
+
+def test_account_profile_timeline_does_not_reattribute_an_orphaned_post(client, authored):
+    """``/users/{username}/timeline`` lists an account's posts through the same
+    serializer; an orphaned character post there carries no account identity."""
+    _delete_character(client, authored)
+    items = client.get("/users/ci_owner/timeline", headers=auth_headers(authored["viewer"])).json()
+    payloads = [i["payload"] for i in items if i["type"] == "post"]
+    for p in payloads:
+        assert p["author_username"] is None
+        assert p["author_user_id"] is None
+
+
+def test_starter_seed_writes_account_legacy_provenance(db_session, monkeypatch):
+    from app.core import starter_seed
+    from tests.conftest import TestingSessionLocal
+
+    db_session.add(User(email="seed_author@example.com", username="seed_author", hashed_password="x"))
+    db_session.commit()
+    monkeypatch.setenv("ADMIN_EMAIL", "seed_author@example.com")
+    monkeypatch.setattr(starter_seed, "SessionLocal", TestingSessionLocal)
+    starter_seed.ensure_starter_realms_and_posts()
+    db_session.expire_all()
+    seeded = db_session.query(Post).filter(Post.character_id.is_(None)).all()
+    assert seeded, "the starter seed wrote no posts"
+    assert {p.author_kind for p in seeded} == {POST_AUTHOR_KIND_ACCOUNT_LEGACY}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

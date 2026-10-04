@@ -1071,10 +1071,9 @@ export default function CharacterDetail() {
             stays in the account library (Character.images has no delete
             cascade); the old copy said the opposite. Conversations cascade for
             both characters. Posts and comments keep the account's authorship
-            with the character detached — and, until orphaned content can be
-            told apart from a Wanderer's, the server attributes it to the
-            account username for other signed-in readers, so the copy says so
-            rather than implying the content becomes anonymous. */}
+            with the character detached; their durable author_kind keeps them
+            character content, so the server never shows the account to anyone
+            else on them (ak01). */}
         <p>
           This <strong>permanently deletes</strong> <strong>{character.name}</strong>. There is no
           undo.
@@ -1091,7 +1090,7 @@ export default function CharacterDetail() {
           </li>
           <li>
             Posts and comments {character.name} wrote stay up, but no longer carry their name.
-            Other signed-in readers may see your account username on them instead.
+            Your account is not shown on them either.
           </li>
         </ul>
         <CharacterDeleteCooldownNote user={currentUser} />

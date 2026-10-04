@@ -3,6 +3,8 @@ import atexit
 import os
 import shutil
 import tempfile
+import uuid
+from typing import Optional
 from pathlib import Path
 
 # Set test environment variables BEFORE any app imports
@@ -322,7 +324,7 @@ def auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def ensure_character(client, token: str, name: str = "Fixture Character") -> int:
+def ensure_character(client, token: str, name: Optional[str] = None) -> int:
     """Give this account an owned character, idempotently. Returns its id.
 
     Creator mutations — StoryLab stories, Story Spaces, RP threads, image
@@ -337,13 +339,19 @@ def ensure_character(client, token: str, name: str = "Fixture Character") -> int
 
     Idempotent: returns the existing character when the account already owns
     one, so repeat calls don't trip the one-character-per-account limit.
+
+    The default name is UNIQUE per call ("Fixture Character <hex>"). During the
+    closed beta character names must be unique case-insensitively
+    (``app.services.character_names``), so a shared literal default made the
+    second fixture account in a test fail with 409. Pass ``name`` explicitly
+    when a test needs a particular one.
     """
     existing = client.get("/characters/", headers=auth_headers(token))
     if existing.status_code == 200 and existing.json():
         return existing.json()[0]["id"]
     resp = client.post(
         "/characters/",
-        json={"name": name, "species": "human"},
+        json={"name": name or f"Fixture Character {uuid.uuid4().hex[:8]}", "species": "human"},
         headers=auth_headers(token),
     )
     assert resp.status_code == 201, f"Fixture character creation failed: {resp.text}"

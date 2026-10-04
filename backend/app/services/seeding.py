@@ -132,13 +132,15 @@ def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_medi
 
     Two policies, both about what a NON-AUTHOR may see.
 
-    **Identity.** For a character-attributed post (``character_id`` set) viewed
-    by anyone other than its author, the author's identity
-    (``author_username`` and ``author_user_id``) is omitted so the post is
-    attributed to the CHARACTER only and cannot be traced back to (or clustered
-    by) the owning account. Characterless (legacy account-authored) posts keep
-    normal ``@username`` attribution so they can link to the creator's profile.
-    This is a permanent policy and is NOT gated by seeding mode.
+    **Identity.** Decided by the post's durable ``author_kind``, never by
+    whether ``character_id`` happens to be set. For anyone other than the
+    author, the account identity (``author_username`` and ``author_user_id``)
+    is omitted unless ``author_kind`` is ``account_legacy`` — legacy/editorial
+    account-attributed content, which keeps ``@username`` attribution so it can
+    link to the creator's profile. A character post is attributed to the
+    CHARACTER only, and stays account-anonymous after its character is deleted;
+    an unclassified historical row (NULL) is treated the same way. This is a
+    permanent policy and is NOT gated by seeding mode.
 
     **Media.** A post carries TWO images, and both are resolved through the
     predicates the anonymous Character Home uses, so neither reaches a viewer
@@ -171,10 +173,18 @@ def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_medi
     # Imported here to avoid importing the schema layer at module load time.
     from app.schemas.post import Post as PostSchema
 
+    from app.models.authorship import POST_ACCOUNT_ATTRIBUTED_KINDS
+
     schema = PostSchema.model_validate(post)
     is_author = viewer is not None and getattr(post, "author_user_id", None) == viewer.id
-    is_character_post = getattr(post, "character_id", None) is not None
-    if is_character_post and not is_author:
+    # Account identity is shown to a non-author ONLY when the row's durable
+    # authorship provenance says it is account-attributed. Deliberately NOT
+    # ``character_id is None``: that is also what a character post looks like
+    # once its character is deleted (ON DELETE SET NULL), and it is what an
+    # unclassified historical row looks like (author_kind NULL = unknown).
+    # Both withhold. See app.models.authorship.
+    account_attributed = getattr(post, "author_kind", None) in POST_ACCOUNT_ATTRIBUTED_KINDS
+    if not is_author and not account_attributed:
         schema.author_username = None
         schema.author_user_id = None
 
@@ -226,11 +236,11 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User], db, *, resolve
 
     Two public identities, one per account type:
 
-    * **Writer** (character-attributed comment) — the character only. The
+    * **Writer** (``author_kind == "character"``, or NULL/unknown) — the character only. The
       account username *and* the account sigil are stripped for every viewer
       but the author, so a Writer's public output never carries the private
       account identity.
-    * **Wanderer** (characterless comment) — the public Wanderer username and
+    * **Wanderer** (``author_kind == "wanderer"``) — the public Wanderer username and
       the account sigil are kept, because for a Wanderer that *is* the public
       identity, not a leak of a private one.
 
@@ -267,12 +277,16 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User], db, *, resolve
     rule, which is what a governed account image (``POST /users/me/avatar``,
     a real ``UserImage`` row) needs and what an arbitrary url fails.
 
-    ANONYMOUS READERS get a stricter, fail-closed projection, because the row
-    alone cannot say which kind of comment it is. ``comments.character_id`` is
-    ``ON DELETE SET NULL``: a Writer's comment whose character is later deleted
-    becomes indistinguishable from a Wanderer's, and the Wanderer branch above
-    would then publish the Writer's private account username and id. So an
-    anonymous reader receives:
+    WHICH KIND OF COMMENT IT IS comes from the durable ``author_kind``
+    (``app.models.authorship``), not from ``character_id``:
+    ``comments.character_id`` is ``ON DELETE SET NULL``, so a Writer's comment
+    whose character is later deleted looks characterless, and an unclassified
+    historical row (author_kind NULL) may be either. Only ``wanderer`` keeps
+    the Wanderer branch above; ``character`` and NULL withhold account identity
+    from every non-author.
+
+    ANONYMOUS READERS still get a stricter, fail-closed projection on top of
+    that, unchanged. An anonymous reader receives:
 
     * no account identity at all — ``author_user_id``, ``author_username`` and
       the account sigil are withheld on every comment, Wanderer or not;
@@ -288,10 +302,18 @@ def serialize_comment_for_viewer(comment, viewer: Optional[User], db, *, resolve
     from app.models.character import VisibilityEnum
     from app.schemas.comment import Comment as CommentSchema
 
+    from app.models.authorship import COMMENT_ACCOUNT_ATTRIBUTED_KINDS
+
     schema = CommentSchema.model_validate(comment)
     is_author = viewer is not None and getattr(comment, "author_user_id", None) == viewer.id
-    is_character_comment = getattr(comment, "character_id", None) is not None
-    if is_character_comment and not is_author:
+    # Signed-in non-authors see account identity ONLY on a comment whose
+    # durable provenance says it is a Wanderer's. A character comment keeps
+    # withholding it after its character is deleted, and an unclassified
+    # historical row (author_kind NULL) withholds it too — ``character_id is
+    # None`` alone can no longer tell those apart from a Wanderer, and is not
+    # consulted. See app.models.authorship.
+    account_attributed = getattr(comment, "author_kind", None) in COMMENT_ACCOUNT_ATTRIBUTED_KINDS
+    if not is_author and not account_attributed:
         schema.author_username = None
         schema.author_user_id = None
         schema.author_avatar_url = None

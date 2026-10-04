@@ -132,13 +132,13 @@ describe('CharacterDetail delete confirmation copy (PD-8)', () => {
     expect(text).toMatch(/Posts and comments Taylor wrote stay up, but no longer carry their name/);
   });
 
-  it('warns truthfully that orphaned posts may show the account username to signed-in readers', async () => {
-    // Pins current server behaviour (characterless rows are indistinguishable
-    // from Wanderer content). Remove with the schema fix that closes it.
+  it('says truthfully that the account is not shown on the orphaned posts and comments', async () => {
+    // Server behaviour since ak01: a deleted character's rows keep
+    // author_kind "character", so no other viewer receives the account.
     const dialog = await openDeleteDialog();
-    expect(dialog.textContent ?? '').toMatch(
-      /Other signed-in readers may see your account username on them instead/,
-    );
+    const text = dialog.textContent ?? '';
+    expect(text).toMatch(/Your account is not shown on them either/);
+    expect(text).not.toMatch(/may see your account username/);
   });
 
   it('does not expose database terminology', async () => {

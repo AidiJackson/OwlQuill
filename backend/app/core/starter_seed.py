@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.user import User
 from app.models.realm import Realm as RealmModel, RealmMembership as RealmMembershipModel
+from app.models.authorship import POST_AUTHOR_KIND_ACCOUNT_LEGACY
 from app.models.post import Post as PostModel, ContentTypeEnum
 from app.services.provenance import not_composed_here
 
@@ -275,6 +276,9 @@ def ensure_starter_realms_and_posts() -> None:
                     content=post_def["content"] + marker,
                     content_type=post_def["content_type"],
                     post_kind=post_def["post_kind"],
+                    # Editorial, account-attributed by design: recorded at
+                    # write time rather than left for a reader to infer.
+                    author_kind=POST_AUTHOR_KIND_ACCOUNT_LEGACY,
                 )
                 # Editorial seed content, not a user's writing. It used to
                 # take the model default and render "User Written" — the badge

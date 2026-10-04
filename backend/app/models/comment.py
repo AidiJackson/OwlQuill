@@ -1,6 +1,6 @@
 """Comment model."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -17,6 +17,11 @@ class Comment(ProvenanceMixin, Base):
     author_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     character_id = Column(Integer, ForeignKey("characters.id", ondelete="SET NULL"), nullable=True)
     content = Column(Text, nullable=False)
+    # Authorship provenance, written once at creation and never cleared, so it
+    # survives ``character_id`` being SET NULL by a character deletion.
+    # "character" | "wanderer" | NULL (unknown → never shows account
+    # identity). See app.models.authorship.
+    author_kind = Column(String(16), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

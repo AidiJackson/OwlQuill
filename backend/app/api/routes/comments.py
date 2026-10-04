@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
+from app.models.authorship import AUTHOR_KIND_CHARACTER, COMMENT_AUTHOR_KIND_WANDERER
 from app.models.character import Character as CharacterModel
 from app.models.comment import Comment as CommentModel
 from app.models.post import Post as PostModel
@@ -83,6 +84,15 @@ def create_comment(
         author_user_id=current_user.id,
         character_id=comment_data.character_id,
         content=comment_data.content,
+        # Recorded durably so a character comment stays character content
+        # after its character is deleted — see app.models.authorship. The
+        # characterless branch is only reachable for an account with no
+        # characters (checked above): the legitimate Wanderer path.
+        author_kind=(
+            AUTHOR_KIND_CHARACTER
+            if comment_data.character_id is not None
+            else COMMENT_AUTHOR_KIND_WANDERER
+        ),
     )
     db_comment.apply_provenance(decision)
     db.add(db_comment)

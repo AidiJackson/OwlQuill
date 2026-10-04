@@ -419,8 +419,11 @@ def test_an_archived_account_avatar_is_withdrawn_from_anonymous_comments(
     db_session.add(post)
     db_session.commit()
     db_session.refresh(post)
+    # A Wanderer comment, and SAID so: since ak01 a characterless comment is
+    # account-attributed only when its durable author_kind is "wanderer"
+    # (an unclassified NULL row withholds account identity).
     db_session.add(Comment(post_id=post.id, author_user_id=owner_id,
-                           content="And a reply."))
+                           content="And a reply.", author_kind="wanderer"))
 
     account_url = "/static/generated/wanderer-face.png"
     image = _user_image(db_session, user_id=owner_id,

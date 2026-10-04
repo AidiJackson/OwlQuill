@@ -22,6 +22,7 @@ from app.services.composition import link_commit
 from app.services.provenance import decide_provenance
 from app.services.safety import blocked_user_ids
 from app.services.visibility import user_can_access_realm
+from app.models.authorship import AUTHOR_KIND_CHARACTER
 from app.services.seeding import serialize_post_for_viewer, serialize_posts_for_viewer
 
 router = APIRouter()
@@ -163,6 +164,10 @@ def create_post_in_realm(
         content_type=post_data.content_type,
         post_kind=post_data.post_kind,
         image_url=post_data.image_url,
+        # Every post on this path is character-authored (enforced above).
+        # Recorded durably so it outlives the character — see
+        # app.models.authorship.
+        author_kind=AUTHOR_KIND_CHARACTER,
     )
     db_post.apply_provenance(decision)
     db.add(db_post)

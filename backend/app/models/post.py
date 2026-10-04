@@ -52,6 +52,11 @@ class Post(ProvenanceMixin, Base):
     # is rolling back across the provenance migration.
     source_type = Column(String(20), nullable=True)
     image_url = Column(String(512), nullable=True)
+    # Authorship provenance, written once at creation and never cleared, so it
+    # survives ``character_id`` being SET NULL by a character deletion.
+    # "character" | "account_legacy" | NULL (unknown → never shows account
+    # identity). See app.models.authorship.
+    author_kind = Column(String(16), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

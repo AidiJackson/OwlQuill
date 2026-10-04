@@ -49,6 +49,10 @@ def _insert_legacy_post(db_session, author_user_id, realm_id, content):
         author_user_id=author_user_id,
         character_id=None,
         content=content,
+        # A legacy row is account-attributed only when its provenance SAYS so
+        # (ak01): an unclassified characterless row (NULL) withholds the
+        # username, because it may be an orphaned character post.
+        author_kind="account_legacy",
     )
     db_session.add(post)
     db_session.commit()
