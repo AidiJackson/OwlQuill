@@ -123,12 +123,22 @@ describe('CharacterDetail delete confirmation copy (PD-8)', () => {
     const text = dialog.textContent ?? '';
     expect(text).toMatch(/conversation .* is removed, with all its messages/);
     expect(text).toMatch(/for the other character too/);
+    expect(text).toMatch(/The other writer loses that conversation as well/);
   });
 
   it('says posts and comments stay up without the name — not that they are deleted', async () => {
     const dialog = await openDeleteDialog();
     const text = dialog.textContent ?? '';
     expect(text).toMatch(/Posts and comments Taylor wrote stay up, but no longer carry their name/);
+  });
+
+  it('warns truthfully that orphaned posts may show the account username to signed-in readers', async () => {
+    // Pins current server behaviour (characterless rows are indistinguishable
+    // from Wanderer content). Remove with the schema fix that closes it.
+    const dialog = await openDeleteDialog();
+    expect(dialog.textContent ?? '').toMatch(
+      /Other signed-in readers may see your account username on them instead/,
+    );
   });
 
   it('does not expose database terminology', async () => {

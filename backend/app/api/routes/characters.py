@@ -30,6 +30,13 @@ from app.schemas.character_image import (
     is_public_surface_safe,
 )
 from app.services.asset_persistence import OwnedBy, persist_derived_image_asset
+from app.services.character_names import (
+    DUPLICATE_NAME_MESSAGE,
+    CharacterNameError,
+    find_name_conflict,
+    normalize_character_alias,
+    normalize_character_name,
+)
 from app.services.character_projection import (
     project_character,
     project_search_results,
@@ -129,6 +136,34 @@ class SetCharacterCoverResponse(BaseModel):
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+def _apply_name_policy(
+    db: Session, fields: dict, *, character_id: Optional[int] = None
+) -> None:
+    """Normalise ``name``/``alias`` in ``fields`` in place, or raise 422/409.
+
+    Only keys PRESENT in ``fields`` are touched, so a PATCH that omits a field
+    still leaves it alone. The policy itself lives in
+    ``app.services.character_names``; this is the HTTP mapping: a refused value
+    is a 422 with one readable sentence (Edit Details shows ``detail``
+    verbatim), and a taken name is a 409. ``character_id`` is the character
+    being renamed, excluded from the duplicate check.
+    """
+    try:
+        if "name" in fields:
+            fields["name"] = normalize_character_name(fields["name"])
+        if "alias" in fields:
+            fields["alias"] = normalize_character_alias(fields["alias"])
+    except CharacterNameError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    if "name" in fields and find_name_conflict(
+        db, fields["name"], exclude_character_id=character_id
+    ) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=DUPLICATE_NAME_MESSAGE)
+
+
 _COOLDOWN_HOURS = 24
 # One character per (normal) account. Seeder/admin accounts are exempt via
 # is_seeder_account() so founder/seeding accounts can hold multiple characters.
@@ -200,10 +235,9 @@ def create_character(
             current_user.email,
         )
 
-    db_character = CharacterModel(
-        **character_data.model_dump(),
-        owner_id=current_user.id
-    )
+    fields = character_data.model_dump()
+    _apply_name_policy(db, fields)
+    db_character = CharacterModel(**fields, owner_id=current_user.id)
     db.add(db_character)
     db.commit()
     db.refresh(db_character)
@@ -548,7 +582,17 @@ def update_character(
             detail="Not authorized to update this character"
         )
 
-    for field, value in character_update.model_dump(exclude_unset=True).items():
+    fields = character_update.model_dump(exclude_unset=True)
+    # Omitted means "leave it alone"; an explicit null on a NOT NULL column is
+    # a client error, not something to hand to the database (it used to 500).
+    if "visibility" in fields and fields["visibility"] is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Visibility cannot be empty.",
+        )
+    _apply_name_policy(db, fields, character_id=character.id)
+
+    for field, value in fields.items():
         setattr(character, field, value)
 
     db.commit()

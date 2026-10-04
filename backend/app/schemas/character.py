@@ -54,8 +54,14 @@ class CharacterCreate(CharacterBase):
 
     Carries no image pointer at all. A character is created from words and
     receives its visual identity from Ficshon — see ``CharacterBase``.
+
+    ``name`` is re-declared WITHOUT length constraints: the authoritative
+    name/alias policy, length included, runs in the route through
+    ``app.services.character_names`` after normalisation (so "  Pan  " is
+    measured as "Pan"), and answers with one readable sentence. The
+    constraints stay on ``CharacterBase`` because that is also the read schema.
     """
-    pass
+    name: str
 
 
 class CharacterUpdate(BaseModel):
@@ -64,8 +70,13 @@ class CharacterUpdate(BaseModel):
     Same omission as :class:`CharacterBase`, for the same reason, and written
     out as its own field list rather than derived from it so that adding a field
     to one does not silently add it to the other.
+
+    ``name`` carries no length constraint here for the same reason as
+    :class:`CharacterCreate`. An explicit ``null`` for ``name`` or
+    ``visibility`` is refused by the route (both columns are NOT NULL);
+    omitting a field still means "leave it alone".
     """
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    name: Optional[str] = None
     alias: Optional[str] = None
     age: Optional[str] = None
     species: Optional[str] = None

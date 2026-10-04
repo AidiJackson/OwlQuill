@@ -7,6 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.models.character import Character, VisibilityEnum
 
+#: KNOWN LIMITATION (legacy textual mentions). A handle is ASCII letters,
+#: digits and underscore only, so a character named "Leo Vance" is reachable
+#: as "@Leo" at best and one named "Zoë" or "林" not at all. This parser is the
+#: legacy path; proper character tagging (W-10) replaces it rather than this
+#: regex being widened. Pinned by ``tests/test_character_integrity.py``.
 _MENTION_RE = re.compile(r"@([A-Za-z0-9_]+)")
 _MAX_MENTIONS = 20
 
@@ -43,13 +48,21 @@ def resolve_mentions(mention_texts: list[str], db: Session) -> list[dict[str, An
     for mention_text in mention_texts:
         handle = mention_text.lstrip("@")
 
-        # Public character only — accounts are never mention targets
+        # Public character only — accounts are never mention targets.
+        #
+        # ``order_by(id)`` makes the result deterministic: the OLDEST matching
+        # character wins. New and renamed characters can no longer share a
+        # name case-insensitively (services/character_names), but rows that
+        # predate that rule can, and without an ORDER BY the database was free
+        # to return either one — the same text could link to different
+        # characters on different days.
         char = (
             db.query(Character)
             .filter(
                 func.lower(Character.name) == handle.lower(),
                 Character.visibility == VisibilityEnum.PUBLIC,
             )
+            .order_by(Character.id)
             .first()
         )
         if char:

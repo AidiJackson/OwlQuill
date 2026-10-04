@@ -278,6 +278,22 @@ describe('Edit Details — saving', () => {
     expect(screen.getByRole('heading', { name: 'Taylor' })).toBeTruthy(); // page unchanged
   });
 
+  it.each([
+    // The server's name policy answers with one sentence in `detail` (422/409).
+    'Another character already has this name. During the closed beta, character names must be unique — please choose another.',
+    'Name contains an invisible or text-direction character.',
+    '"Admin" is reserved. Please choose another name.',
+  ])('a refused rename shows the server policy message: %s', async (message) => {
+    updateCharacter.mockRejectedValue(new Error(message));
+    renderPage();
+    await openForm();
+    fireEvent.change(field('Name'), { target: { value: 'Leo' } });
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(message));
+    expect(field('Name').value).toBe('Leo');
+  });
+
   it('client validation mirrors the server: an empty name is refused before any request', async () => {
     renderPage();
     await openForm();

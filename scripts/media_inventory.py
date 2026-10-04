@@ -252,8 +252,13 @@ def statement_is_read_only(sql: str) -> bool:
     return _FORBIDDEN_RE.search(body) is None
 
 
-def build_engine(url: str):
-    """A connection the SERVER will refuse to let us write through."""
+def build_engine(url: str, application_name: str | None = None):
+    """A connection the SERVER will refuse to let us write through.
+
+    ``application_name`` lets a sibling read-only tool
+    (``scripts/character_inventory.py``) reuse this exact boundary while still
+    being identifiable as itself in ``pg_stat_activity``.
+    """
     engine = create_engine(
         url,
         pool_pre_ping=True,
@@ -263,7 +268,7 @@ def build_engine(url: str):
                 "-c statement_timeout=120000 "
                 "-c idle_in_transaction_session_timeout=120000"
             ),
-            "application_name": APPLICATION_NAME,
+            "application_name": application_name or APPLICATION_NAME,
         },
     )
 
@@ -348,7 +353,9 @@ PRIVILEGE_CHECK_TABLES = (
 )
 
 
-def assert_no_write_privileges(conn, report: dict) -> None:
+def assert_no_write_privileges(
+    conn, report: dict, tables: tuple[str, ...] | None = None
+) -> None:
     """Refuse unless the server says ``current_user`` cannot write. HARD.
 
     The role is the write boundary (layer 1), so this is the check that
@@ -365,12 +372,15 @@ def assert_no_write_privileges(conn, report: dict) -> None:
     treated as safe: absence is a schema fact worth printing, and
     ``has_table_privilege`` raises on an unknown relation, which would otherwise
     abort the handshake for an unrelated reason.
+
+    ``tables`` defaults to :data:`PRIVILEGE_CHECK_TABLES`; a sibling tool passes
+    the tables IT reads, so the same refusal covers its query set.
     """
     held: list[str] = []
     absent: list[str] = []
     checked: list[str] = []
 
-    for table in PRIVILEGE_CHECK_TABLES:
+    for table in (PRIVILEGE_CHECK_TABLES if tables is None else tables):
         if not table_exists(conn, table):
             absent.append(table)
             continue

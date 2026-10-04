@@ -25,9 +25,14 @@ import type { Character, CharacterProfilePatch } from '@/lib/types';
 // ── Field contract (mirrors the server, never contradicts it) ──────────
 //
 // Server: name 1–100 chars, required; every other field optional and
-// nullable; tags an opaque comma-separated string; nothing is trimmed on the
-// server, so trimming happens here. An optional field the owner empties is
-// sent as null (which clears it) rather than "" (which would store "").
+// nullable; tags an opaque comma-separated string. Name and alias are
+// normalised and policed on the server (services/character_names: NFC,
+// whitespace, invisible/control characters, links, reserved names, and —
+// during the closed beta — case-insensitive name uniqueness); its refusal
+// arrives as one sentence in `detail` and is shown verbatim below. The other
+// fields are not trimmed on the server, so trimming happens here. An optional
+// field the owner empties is sent as null (which clears it) rather than ""
+// (which would store "").
 
 export const NAME_MAX = 100;
 

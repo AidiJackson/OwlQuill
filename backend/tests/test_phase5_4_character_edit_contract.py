@@ -19,8 +19,9 @@ framing fields and the pointer refusal).
   7. the owner PATCH response is the same projection as the owner GET
   8. editing profile fields leaves identity DNA / canon / anchor untouched
   9. the validation the client mirrors: empty name 422, >100 chars 422,
-     whitespace is NOT trimmed by the server (so the client must), and tags
-     are an opaque comma-separated string
+     name and alias ARE normalised by the server (Character Integrity, see
+     ``test_character_integrity``), other text fields are NOT trimmed (so the
+     client must), and tags are an opaque comma-separated string
 """
 import json
 
@@ -274,13 +275,16 @@ def test_name_validation_the_client_mirrors(client):
 
 
 def test_server_does_not_trim_whitespace_so_the_client_must(client):
-    """Documented, not endorsed: the server stores what it is sent. The form
-    trims before sending; this pins the fact the form is compensating for."""
+    """Documented, not endorsed: outside name and alias, the server stores what
+    it is sent. The form trims before sending; this pins the fact the form is
+    compensating for. Name and alias are the exception — the server's
+    authoritative policy normalises them (``services/character_names``)."""
     owner = _login(client, "p54_ws@example.com")
     cid = _create(client, owner)
-    resp = _patch(client, owner, cid, {"alias": "  padded  ", "tags": " a ,b,, c "})
+    resp = _patch(client, owner, cid, {"alias": "  padded  ", "role": "  padded  ", "tags": " a ,b,, c "})
     assert resp.status_code == 200
-    assert resp.json()["alias"] == "  padded  "
+    assert resp.json()["alias"] == "padded"
+    assert resp.json()["role"] == "  padded  "
     assert resp.json()["tags"] == " a ,b,, c "
 
 
