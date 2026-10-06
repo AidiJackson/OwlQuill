@@ -197,13 +197,22 @@ def test_the_migration_leaves_exactly_one_head():
     merge points) or None, and a hand-rolled parser that mishandles one of those
     reports a phantom head — which is a test failing for a reason that has
     nothing to do with the migration.
+
+    Pinned by SHAPE, not by the name of the current head: later revisions
+    (``ak01_author_kind``, ``w10a_post_character_tags``) legitimately build on
+    top of 4D3, and the current head's name is pinned by the test that owns
+    that revision. What this test owns is that 4D3 is still applied: there is
+    exactly one head, and both 4D3 revisions lie on the chain that leads to it.
     """
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
     ini = pathlib.Path(__file__).resolve().parent.parent / "alembic.ini"
     script = ScriptDirectory.from_config(Config(str(ini)))
-    assert script.get_heads() == ["p4d3_02_v2_face_card_kinds"]
+    heads = script.get_heads()
+    assert len(heads) == 1, heads
+    ancestry = {rev.revision for rev in script.walk_revisions(base="base", head=heads[0])}
+    assert {"p4d3_01_canon_image_kinds", "p4d3_02_v2_face_card_kinds"} <= ancestry
 
 
 def test_the_migration_is_idempotent_and_postgres_only():
