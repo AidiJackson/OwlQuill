@@ -5,6 +5,7 @@ import type { Character, Post, Realm } from '@/lib/types';
 import { authorLink } from '@/lib/authorLink';
 import InlineNotice from '@/components/InlineNotice';
 import MentionText from '@/components/MentionText';
+import TaggedCharacters from '@/features/posts/components/TaggedCharacters';
 import { PostKindBadge, PostTypeBadge } from '@/components/PostBadges';
 import ProvenanceBadge from '@/components/ProvenanceBadge';
 import ReactionBar from '@/components/ReactionBar';
@@ -214,6 +215,8 @@ export default function PostDetail() {
         >
           <MentionText text={post.content} mentions={post.mentions} />
         </p>
+
+        <TaggedCharacters postId={post.id} tags={post.tagged_characters} className="mt-3" />
 
         {post.image_url && (
           <img

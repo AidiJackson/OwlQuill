@@ -1,4 +1,4 @@
-"""Tests for @mentions + notifications feature."""
+"""Tests for legacy @mentions + notifications (mentions no longer notify as of W-10A)."""
 
 from tests.conftest import get_auth_token, auth_headers
 from app.services.mentions import parse_mention_texts
@@ -169,8 +169,10 @@ def test_self_mention_no_notification(client, db_session):
         assert count == 0
 
 
-def test_character_mention_notifies_owner(client, db_session):
-    """Mentioning a public character notifies its owner."""
+def test_character_mention_no_longer_notifies_owner(client, db_session):
+    """W-10A: a typed @mention still resolves, is stored and links — but it no
+    longer notifies. The ASCII prefix parser can address the wrong character
+    ("@Leo Vance" -> "Leo"), so explicit tagging is the only notifying path."""
     from app.models.notification import Notification
     from app.models.user import User
 
@@ -179,20 +181,28 @@ def test_character_mention_notifies_owner(client, db_session):
     hdrs_owner = auth_headers(token_owner)
     hdrs_author = auth_headers(token_author)
 
-    _create_character(client, hdrs_owner, name="Elara")
+    elara = _create_character(client, hdrs_owner, name="Elara")
     author_char = _create_character(client, hdrs_author)
     realm_id = _create_realm(client, hdrs_author)
     client.post(f"/realms/{realm_id}/join", headers=hdrs_author)
 
-    _create_post(client, hdrs_author, realm_id, "I see @Elara walking by!", author_char)
+    data = _create_post(client, hdrs_author, realm_id, "I see @Elara walking by!", author_char)
+    assert data["mentions"][0]["target_id"] == elara
 
     owner = db_session.query(User).filter(User.username == "charowner").first()
     assert owner is not None
-    notif = db_session.query(Notification).filter(
-        Notification.user_id == owner.id,
-        Notification.type == "mention",
-    ).first()
-    assert notif is not None
+    assert db_session.query(Notification).filter(Notification.user_id == owner.id).count() == 0
+
+
+def _create_tagging_post(client, headers, realm_id, content, character_id, tagged_id):
+    resp = client.post(
+        f"/posts/realms/{realm_id}/posts",
+        json={"content": content, "content_type": "ic", "character_id": character_id,
+              "tagged_character_ids": [tagged_id]},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
 
 
 def test_unread_count_endpoint(client, db_session):
@@ -202,12 +212,12 @@ def test_unread_count_endpoint(client, db_session):
     hdrs_a = auth_headers(token_a)
     hdrs_b = auth_headers(token_b)
 
-    _create_character(client, hdrs_b, name="Recva")
+    recva = _create_character(client, hdrs_b, name="Recva")
     author_char = _create_character(client, hdrs_a)
     realm_id = _create_realm(client, hdrs_a)
     client.post(f"/realms/{realm_id}/join", headers=hdrs_a)
 
-    _create_post(client, hdrs_a, realm_id, "Hey @Recva!", author_char)
+    _create_tagging_post(client, hdrs_a, realm_id, "Hey Recva!", author_char, recva)
 
     count_resp = client.get("/notifications/unread-count", headers=hdrs_b)
     assert count_resp.status_code == 200, count_resp.text
@@ -221,12 +231,12 @@ def test_mark_notification_read(client, db_session):
     hdrs_a = auth_headers(token_a)
     hdrs_b = auth_headers(token_b)
 
-    _create_character(client, hdrs_b, name="Markrecva")
+    markrecva = _create_character(client, hdrs_b, name="Markrecva")
     author_char = _create_character(client, hdrs_a)
     realm_id = _create_realm(client, hdrs_a)
     client.post(f"/realms/{realm_id}/join", headers=hdrs_a)
 
-    _create_post(client, hdrs_a, realm_id, "Hello @Markrecva!", author_char)
+    _create_tagging_post(client, hdrs_a, realm_id, "Hello Markrecva!", author_char, markrecva)
 
     notif_resp = client.get("/notifications", headers=hdrs_b)
     assert notif_resp.status_code == 200, notif_resp.text

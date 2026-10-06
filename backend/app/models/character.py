@@ -57,6 +57,15 @@ class Character(Base):
     owner = relationship("User", back_populates="characters", foreign_keys=[owner_id])
     posts = relationship("Post", back_populates="character")
     comments = relationship("Comment", back_populates="character")
+    #: W-10A: posts this character is TAGGED on (never authored). Deleting the
+    #: character deletes its tags — a tag with no character carries nothing.
+    #: ``delete-orphan`` is the ORM half of the FK's ON DELETE CASCADE, needed
+    #: because the SQLite test fixture does not enforce foreign keys.
+    post_tags = relationship(
+        "PostCharacterTag",
+        back_populates="character",
+        cascade="all, delete-orphan",
+    )
     dna = relationship("CharacterDNA", back_populates="character", uselist=False, cascade="all, delete-orphan")
     #: Phase 4C: ``delete`` and ``delete-orphan`` are deliberately ABSENT.
     #:

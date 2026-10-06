@@ -108,10 +108,16 @@ def test_downgrade_removes_the_column(pre_migration_engine):
         assert "author_kind" not in {c["name"] for c in inspect(pre_migration_engine).get_columns(table)}
 
 
-def test_ak01_is_the_single_head_on_top_of_the_previous_head():
+def test_ak01_chains_onto_the_previous_head_and_history_has_one_head():
+    """ak01 sits on p4d3_02 and is an ancestor of the single head. Pinned by
+    shape rather than by naming ak01 as the head, which a later additive
+    revision (W-10A's ``w10a_post_character_tags``) legitimately changes."""
     script = ScriptDirectory.from_config(Config(str(_BACKEND / "alembic.ini")))
-    assert script.get_heads() == ["ak01_author_kind"]
+    heads = script.get_heads()
+    assert len(heads) == 1
     assert script.get_revision("ak01_author_kind").down_revision == "p4d3_02_v2_face_card_kinds"
+    ancestry = {rev.revision for rev in script.walk_revisions(base="base", head=heads[0])}
+    assert "ak01_author_kind" in ancestry
 
 
 def test_the_model_columns_match_the_migration():

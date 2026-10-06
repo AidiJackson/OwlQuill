@@ -127,7 +127,7 @@ def character_avatar_resolution(db, rows) -> dict:
     )
 
 
-def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_media=None):
+def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_media=None, resolved_tags=None):
     """Serialize a Post ORM row to its schema, for a viewer who may not be the author.
 
     Two policies, both about what a NON-AUTHOR may see.
@@ -169,6 +169,12 @@ def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_medi
     querying per post. A url missing from either mapping resolves to ``None``,
     which keeps the batch path fail-closed against a caller that builds the
     maps from a different set of posts than it serialises.
+
+    **Tags (W-10A).** ``tagged_characters`` is the viewer-filtered projection
+    from :func:`app.services.character_tags.project_tags_for_posts` — character
+    id and live name only. ``resolved_tags`` is its batched form, keyed by post
+    id; a post missing from it gets no tags, again failing closed. Tags never
+    touch ``character_name``: the byline is the author alone.
     """
     # Imported here to avoid importing the schema layer at module load time.
     from app.schemas.post import Post as PostSchema
@@ -213,6 +219,12 @@ def serialize_post_for_viewer(post, viewer: Optional[User], db, *, resolved_medi
                     schema.character_avatar_url
                 )
 
+    if resolved_tags is None:
+        from app.services.character_tags import project_tags_for_posts
+
+        resolved_tags = project_tags_for_posts(db, [post], viewer)
+    schema.tagged_characters = list(resolved_tags.get(post.id, []))
+
     return schema
 
 
@@ -222,10 +234,13 @@ def serialize_posts_for_viewer(posts, viewer: Optional[User], db):
     Resolves every attachment and every avatar in batches first, so a feed page
     costs a fixed number of queries rather than a number per post.
     """
+    from app.services.character_tags import project_tags_for_posts
+
     posts = list(posts)
     resolved = post_media_resolution(db, posts)
+    tags = project_tags_for_posts(db, posts, viewer)
     return [
-        serialize_post_for_viewer(p, viewer, db, resolved_media=resolved)
+        serialize_post_for_viewer(p, viewer, db, resolved_media=resolved, resolved_tags=tags)
         for p in posts
     ]
 

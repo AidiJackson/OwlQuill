@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import type { Realm } from '@/lib/types';
-import type { CharacterGalleryImage } from '@/lib/types';
+import type { CharacterGalleryImage, TaggedCharacter } from '@/lib/types';
+import CharacterTagPicker from '@/features/posts/components/CharacterTagPicker';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import { CompositionTracker } from '@/lib/composition';
 
@@ -34,6 +35,8 @@ export default function PostComposer({
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  // W-10A: characters explicitly tagged on this post.
+  const [tags, setTags] = useState<TaggedCharacter[]>([]);
   // Same evidence path as every other composer. Without it, a post typed here
   // arrived with nothing to show for it and was labelled "Created elsewhere".
   const composition = useRef(
@@ -44,6 +47,7 @@ export default function PostComposer({
     if (!open) return;
     setContent('');
     setContentType('ic');
+    setTags([]);
     setError('');
     setDone(false);
     apiClient
@@ -71,6 +75,7 @@ export default function PostComposer({
         // check on exactly the image the user just picked.
         ...(preloadedImage ? { image_url: preloadedImage.url } : {}),
         ...(sessionId ? { composition_session_id: sessionId } : {}),
+        ...(tags.length ? { tagged_character_ids: tags.map((t) => t.character_id) } : {}),
       });
       composition.reset();
       setDone(true);
@@ -148,6 +153,13 @@ export default function PostComposer({
               </button>
             ))}
           </div>
+
+          <CharacterTagPicker
+            selected={tags}
+            onChange={setTags}
+            excludeCharacterIds={[characterId]}
+            disabled={posting || done}
+          />
 
           {error && (
             <p className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</p>

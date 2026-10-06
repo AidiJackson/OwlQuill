@@ -122,3 +122,57 @@ describe('notificationDestination', () => {
     expect(notificationDestination(null)).toBeNull();
   });
 });
+
+// ── W-10A: character_tagged ───────────────────────────────────────────────
+
+const tagged = JSON.stringify({
+  post_id: 77,
+  realm_id: 7,
+  realm_name: 'The Glass Market',
+  author_character_id: 3,
+  author_character_name: 'Bram',
+  tagged_character_id: 9,
+  tagged_character_name: 'Elowen',
+  post_preview: 'At the gate, Elowen turned…',
+});
+
+describe('describeNotification — character_tagged', () => {
+  it('says the author character tagged your character in a post, and goes to that exact post', () => {
+    const view = describeNotification({ type: 'character_tagged', payload: tagged });
+    expect(view.kind).toBe('character_tagged');
+    expect(view.actorName).toBe('Bram');
+    expect(view.recipientCharacterName).toBe('Elowen');
+    expect(view.summary).toBe('Bram tagged Elowen in a post in The Glass Market');
+    expect(view.preview).toBe('At the gate, Elowen turned…');
+    expect(view.target).toEqual({ kind: 'post', postId: 77 });
+    expect(notificationDestination(view.target)).toBe('/posts/77');
+  });
+
+  it('preview withheld (private realm): truthful copy, no excerpt, no realm name', () => {
+    const withheld = JSON.stringify({
+      post_id: 77, realm_id: 7,
+      author_character_id: 3, author_character_name: 'Bram',
+      tagged_character_id: 9, tagged_character_name: 'Elowen',
+    });
+    const view = describeNotification({ type: 'character_tagged', payload: withheld });
+    expect(view.summary).toBe('Bram tagged Elowen in a post');
+    expect(view.preview).toBeNull();
+    expect(view.realmName).toBeNull();
+    expect(notificationDestination(view.target)).toBe('/posts/77');
+  });
+
+  it('never borrows mention keys or an account name; falls back neutrally', () => {
+    const odd = JSON.stringify({ post_id: 5, author_username: 'aidan', mentioned_character_name: 'Nope' });
+    const view = describeNotification({ type: 'character_tagged', payload: odd });
+    expect(view.actorName).toBe(UNKNOWN_ACTOR);
+    expect(view.summary).toBe('Someone tagged one of your characters in a post');
+    expect(view.summary).not.toContain('aidan');
+    expect(view.summary).not.toContain('Nope');
+  });
+
+  it('a malformed row has nowhere to go', () => {
+    const view = describeNotification({ type: 'character_tagged', payload: '{bad' });
+    expect(view.target).toBeNull();
+    expect(notificationDestination(view.target)).toBeNull();
+  });
+});

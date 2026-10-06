@@ -7,7 +7,13 @@
  * never renders a raw `type` string or trusts a payload key it has not
  * checked. Pure and DOM-free so it runs in the node vitest environment.
  *
- * Three generations of `mention` payload must render:
+ * `character_tagged` (W-10A) — the live producer: a post's author explicitly
+ * tagged one of the recipient's characters. Ids + name snapshots for the
+ * author and tagged characters, realm id, and realm name + preview only when
+ * the recipient may see the post.
+ *
+ * `mention` is LEGACY — typed @mentions stopped notifying in W-10A — but
+ * historical rows still render. Three generations of its payload:
  *   • 7.1  — author + mentioned character ids/names, realm id (+ name and
  *            preview when the recipient may see them).
  *   • Sprint 33 — author character name, `mention_text`, preview.
@@ -20,10 +26,10 @@ export type NotificationTarget = { kind: 'post'; postId: number };
 
 export interface NotificationView {
   /** The producer's type, or 'unknown' for anything this build cannot read. */
-  kind: 'mention' | 'unknown';
+  kind: 'character_tagged' | 'mention' | 'unknown';
   /** The acting character, or a neutral stand-in — never an account name. */
   actorName: string;
-  /** The character of the recipient's that was addressed, when known. */
+  /** The recipient's character that was tagged (or, legacy, addressed). */
   recipientCharacterName: string | null;
   /** "in <Realm>" context, only when the server chose to include it. */
   realmName: string | null;
@@ -72,6 +78,25 @@ export const UNKNOWN_ACTOR = 'Someone';
  */
 export function describeNotification(notif: Pick<Notification, 'type' | 'payload'>): NotificationView {
   const payload = parseNotificationPayload(notif.payload);
+
+  if (notif.type === 'character_tagged') {
+    const actorName = str(payload, 'author_character_name') ?? UNKNOWN_ACTOR;
+    const recipientCharacterName = str(payload, 'tagged_character_name');
+    const realmName = str(payload, 'realm_name');
+    const postId = int(payload, 'post_id');
+
+    const who = recipientCharacterName ?? 'one of your characters';
+    const where = realmName ? ` in a post in ${realmName}` : ' in a post';
+    return {
+      kind: 'character_tagged',
+      actorName,
+      recipientCharacterName,
+      realmName,
+      summary: `${actorName} tagged ${who}${where}`,
+      preview: str(payload, 'post_preview'),
+      target: postId ? { kind: 'post', postId } : null,
+    };
+  }
 
   if (notif.type === 'mention') {
     const actorName = str(payload, 'author_character_name') ?? UNKNOWN_ACTOR;

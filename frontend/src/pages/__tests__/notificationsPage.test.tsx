@@ -84,6 +84,22 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Notifications page — rendering', () => {
+  it('character_tagged (W-10A) says who tagged which character and goes to the exact post', async () => {
+    const tagged = JSON.stringify({
+      post_id: 77, realm_id: 7, realm_name: 'The Glass Market',
+      author_character_id: 3, author_character_name: 'Bram',
+      tagged_character_id: 9, tagged_character_name: 'Elowen',
+      post_preview: 'Elowen watched the ships.',
+    });
+    api.getNotifications.mockResolvedValue([row({ type: 'character_tagged', payload: tagged })]);
+    renderNotifications();
+    const link = await screen.findByRole('link', { name: /Bram tagged Elowen in a post in The Glass Market/ });
+    expect(link.getAttribute('href')).toBe('/posts/77');
+    fireEvent.click(link);
+    expect(await screen.findByText('POST PAGE')).toBeTruthy();
+    expect(api.markNotificationRead).toHaveBeenCalledWith(1);
+  });
+
   it('mention renders character-first copy with the recipient character and realm', async () => {
     api.getNotifications.mockResolvedValue([row({ payload: V71 })]);
     renderNotifications();

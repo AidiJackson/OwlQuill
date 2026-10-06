@@ -51,6 +51,7 @@ from app.services.canon_references import CANON_REFERENCED_MESSAGE, is_canon_ref
 from app.services.asset_persistence import OwnedBy, persist_derived_image_asset
 from app.services.asset_withdrawal import clear_governed_pointers_for
 from app.services.character_projection import project_search_results
+from app.services.character_tags import project_tags_for_posts
 from app.services.character_home_media import (
     resolve_account_avatar_url,
     resolve_public_media_url,
@@ -816,16 +817,37 @@ def get_user_mentions(
 
     Readable by any authenticated user — creator profiles are public product
     surfaces (post-Sprint-33 correction); the serializer still applies
-    character-first attribution to each post."""
+    character-first attribution to each post.
+
+    LEGACY: only pre-Sprint-33 rows carry ``mentioned_user_id``. W-10A closes
+    the private-realm hole: a post is returned only when the VIEWER may access
+    its realm — the rule of ``app.services.visibility.user_can_access_realm``
+    (public, or owned, or a member; a realm-less post is readable signed in),
+    expressed in the query so the page is filtered before it is limited."""
+    from sqlalchemy import or_
+
     target = db.query(UserModel).filter(UserModel.username == username).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Posts where the user is directly mentioned
+    member_realm_ids = db.query(RealmMembershipModel.realm_id).filter(
+        RealmMembershipModel.user_id == current_user.id
+    )
+
+    # Posts where the user is directly mentioned, in realms the viewer can see
     posts = (
         db.query(PostModel)
         .join(PostMentionModel, PostMentionModel.post_id == PostModel.id)
+        .outerjoin(RealmModel, PostModel.realm_id == RealmModel.id)
         .filter(PostMentionModel.mentioned_user_id == target.id)
+        .filter(
+            or_(
+                PostModel.realm_id.is_(None),
+                RealmModel.is_public.is_(True),
+                RealmModel.owner_id == current_user.id,
+                RealmModel.id.in_(member_realm_ids.scalar_subquery()),
+            )
+        )
         .order_by(PostModel.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -1019,6 +1041,7 @@ def get_user_timeline(
     # One resolution pass for the whole page — the loop below would otherwise
     # issue two queries per post.
     post_media = post_media_resolution(db, [p for p, _ in posts])
+    post_tags = project_tags_for_posts(db, [p for p, _ in posts], current_user)
     for post, realm_name in posts:
         items.append({
             "type": "post",
@@ -1026,7 +1049,7 @@ def get_user_timeline(
             "realm_id": post.realm_id,
             "realm_name": realm_name,
             "payload": serialize_post_for_viewer(
-                post, current_user, db, resolved_media=post_media
+                post, current_user, db, resolved_media=post_media, resolved_tags=post_tags
             ).model_dump(),
         })
 

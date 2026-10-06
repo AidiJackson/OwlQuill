@@ -5,13 +5,15 @@ import { apiClient } from '@/lib/apiClient';
 import InlineNotice from '@/components/InlineNotice';
 import { isFounder } from '@/lib/entitlements';
 import { useAuthStore } from '@/lib/store';
-import type { Realm, Post, Character, Scene, SceneVisibility, LibraryImage } from '@/lib/types';
+import type { Realm, Post, Character, Scene, SceneVisibility, LibraryImage, TaggedCharacter } from '@/lib/types';
 import { authorLink } from '@/lib/authorLink';
 import CommentSection from '@/components/CommentSection';
 import ReactionBar from '@/components/ReactionBar';
 import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
 import MentionText from '@/components/MentionText';
+import CharacterTagPicker from '@/features/posts/components/CharacterTagPicker';
+import TaggedCharacters from '@/features/posts/components/TaggedCharacters';
 import { hasActingCharacter } from '@/lib/entitlements';
 import ProvenanceBadge from '@/components/ProvenanceBadge';
 import { PostTypeBadge, PostKindBadge } from '@/components/PostBadges';
@@ -64,6 +66,8 @@ export default function RealmDetail() {
     post_kind: 'general' as 'general' | 'open_starter' | 'finished_piece',
     character_id: undefined as number | undefined,
   });
+  // W-10A: characters explicitly tagged on the post being composed.
+  const [newPostTags, setNewPostTags] = useState<TaggedCharacter[]>([]);
   const [postCreateError, setPostCreateError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const postInFlightRef = useRef(false);
@@ -145,6 +149,7 @@ export default function RealmDetail() {
     clearFinalisation();
     setFinalise(null);
     setNewPost(blankPost());
+    setNewPostTags([]);
     setAttachedImage(null);
     setPostCreateError(null);
     // The adopted session belongs to the WriteSpace draft; whatever is written
@@ -199,6 +204,7 @@ export default function RealmDetail() {
         ...newPost,
         ...(attachedImage ? { image_url: attachedImage.url } : {}),
         ...(sessionId ? { composition_session_id: sessionId } : {}),
+        ...(newPostTags.length ? { tagged_character_ids: newPostTags.map((t) => t.character_id) } : {}),
       });
       composition.reset();
       if (finalise) {
@@ -209,6 +215,7 @@ export default function RealmDetail() {
       }
       setPosts([createdPost, ...posts]);
       setNewPost(blankPost());
+      setNewPostTags([]);
       setAttachedImage(null);
       setShowPostForm(false);
     } catch (error) {
@@ -654,6 +661,13 @@ export default function RealmDetail() {
                 </div>
               )}
 
+              <CharacterTagPicker
+                selected={newPostTags}
+                onChange={setNewPostTags}
+                excludeCharacterIds={newPost.character_id ? [newPost.character_id] : []}
+                disabled={posting}
+              />
+
               {postCreateError && (
                 <p className="text-red-400 text-sm">{postCreateError}</p>
               )}
@@ -686,6 +700,7 @@ export default function RealmDetail() {
                     setAttachedImage(null);
                     setPostCreateError(null);
                     setNewPost(blankPost());
+                    setNewPostTags([]);
                   }}
                   className="btn btn-secondary"
                 >
@@ -770,6 +785,8 @@ export default function RealmDetail() {
                   >
                     <MentionText text={post.content} mentions={post.mentions} />
                   </p>
+
+                  <TaggedCharacters postId={post.id} tags={post.tagged_characters} className="mt-2" />
 
                   {post.image_url && (
                     <img

@@ -1,11 +1,17 @@
 """Notification creation — the one place a ``Notification`` row is built.
 
-Polish Phase 7.1. Before this module, the only producer (the @mention path in
-``routes/posts.py``) constructed its row inline, so the payload's shape lived
-in a route body and nowhere else. Every future producer (Phase 7.2: comments,
-Story Space invites, direct messages) goes through :func:`create_notification`
-so the account-owned row and its JSON-as-text payload are written the same way
-everywhere.
+Polish Phase 7.1 centralised row creation here. Every producer (W-10A's
+character tags; Phase 7.2: comments, Story Space invites, direct messages) goes
+through :func:`create_notification` so the account-owned row and its
+JSON-as-text payload are written the same way everywhere.
+
+W-10A: typed ``@mentions`` NO LONGER NOTIFY. The legacy parser addresses by
+ASCII name prefix, so ``@Leo Vance`` reached whoever owned "Leo" and ``@Zoë``
+reached "Zo" — a notification, with a preview, to the wrong account. Explicit
+character tagging (:func:`notify_character_tagged`) is now the only way a post
+notifies another character's owner. Historical ``mention`` rows are left
+exactly as they are; the reader still renders them and post deletion still
+removes them.
 
 Two rules the helpers enforce and their callers may rely on:
 
@@ -32,11 +38,20 @@ from app.models.post import Post
 from app.models.realm import Realm
 from app.services.visibility import user_can_access_realm
 
-#: A realm post @mentioned one of the recipient's characters.
+#: LEGACY. A realm post @mentioned one of the recipient's characters. No longer
+#: written (W-10A); kept because historical rows exist, are rendered, and are
+#: removed with their post.
 NOTIFICATION_TYPE_MENTION = "mention"
 
-#: Characters of post body a mention notification may carry as its preview.
-MENTION_PREVIEW_CHARS = 120
+#: W-10A. A post's author explicitly tagged one of the recipient's characters.
+NOTIFICATION_TYPE_CHARACTER_TAGGED = "character_tagged"
+
+#: Every type whose payload points at a post by ``post_id`` and may carry a
+#: preview of its body. Deleting the post deletes these rows.
+POST_NOTIFICATION_TYPES = frozenset({NOTIFICATION_TYPE_MENTION, NOTIFICATION_TYPE_CHARACTER_TAGGED})
+
+#: Characters of post body a post notification may carry as its preview.
+POST_PREVIEW_CHARS = 120
 
 
 def create_notification(
@@ -65,8 +80,8 @@ def create_notification(
     return notif
 
 
-def mention_preview_permitted(db: Session, recipient_user_id: int, realm: Optional[Realm]) -> bool:
-    """May this recipient be shown the mentioning post's text?
+def post_preview_permitted(db: Session, recipient_user_id: int, realm: Optional[Realm]) -> bool:
+    """May this recipient be shown the post's text?
 
     The same question as "may this account open the realm", answered by the
     same helper that gates the realm and post routes — so a notification can
@@ -77,89 +92,97 @@ def mention_preview_permitted(db: Session, recipient_user_id: int, realm: Option
     return user_can_access_realm(db, recipient_user_id, realm)
 
 
-def notify_character_mentioned(
+def notify_character_tagged(
     db: Session,
     *,
     recipient_user_id: int,
     post: Post,
     realm: Optional[Realm],
     author_character: Character,
-    mentioned_character: Character,
-    mention_text: str,
-    content: str,
+    tagged_character: Character,
 ) -> Notification:
-    """Write the ``mention`` row for one resolved @mention. Does NOT commit.
+    """Write the ``character_tagged`` row for one explicit tag. Does NOT commit.
 
-    The caller has already resolved ``mentioned_character`` through the
-    mention system and established that its owner is not the author; this
-    function does no name resolution of its own and never will — the addressing
-    rules (and their non-unique-name debt) belong to ``services/mentions.py``.
+    The caller has validated the tag (``services/character_tags``) and decided
+    that the recipient should hear about it: not the author's own character,
+    not across a block. Called once per (post, tagged character), at post
+    creation only — posts are not editable, so a tag cannot be re-added.
 
     Payload contract (stable keys; the frontend renders from these):
 
       post_id, realm_id             — the target. Ids only; an id is not content.
-      author_character_id/_name     — WHO did it, as a character. Snapshot.
-      mentioned_character_id/_name  — WHICH of the recipient's characters was
-                                      addressed. New in 7.1: an account with
-                                      several characters could not previously
-                                      tell them apart.
-      mention_text                  — the literal ``@Handle`` as written.
+      author_character_id/_name     — WHO tagged, as a character. Snapshot.
+      tagged_character_id/_name     — WHICH of the recipient's characters was
+                                      tagged. Snapshot.
       realm_name, post_preview      — ONLY when the recipient can access the
-                                      realm. A private realm's name is itself
-                                      withheld by ``GET /realms/{id}`` for
-                                      non-members, so it follows the same rule
-                                      as the excerpt.
+                                      realm (:func:`post_preview_permitted`).
 
-    Legacy rows (pre-7.1) carry ``author_character_name``, ``mention_text``,
-    ``post_preview`` and a now-unused ``target_type``; they keep rendering
-    because the reader falls back key by key.
+    No account username or id is ever written.
     """
-    permitted = mention_preview_permitted(db, recipient_user_id, realm)
+    permitted = post_preview_permitted(db, recipient_user_id, realm)
     payload: dict[str, Any] = {
         "post_id": post.id,
         "realm_id": post.realm_id,
         "author_character_id": author_character.id,
         "author_character_name": author_character.name,
-        "mentioned_character_id": mentioned_character.id,
-        "mentioned_character_name": mentioned_character.name,
-        "mention_text": mention_text,
+        "tagged_character_id": tagged_character.id,
+        "tagged_character_name": tagged_character.name,
         "realm_name": realm.name if (permitted and realm is not None) else None,
-        "post_preview": content[:MENTION_PREVIEW_CHARS] if permitted else None,
+        "post_preview": post.content[:POST_PREVIEW_CHARS] if permitted else None,
     }
     return create_notification(
-        db, user_id=recipient_user_id, type=NOTIFICATION_TYPE_MENTION, payload=payload
+        db, user_id=recipient_user_id, type=NOTIFICATION_TYPE_CHARACTER_TAGGED, payload=payload
     )
 
 
-def delete_mention_notifications_for_post(db: Session, post_id: int) -> int:
-    """Delete every mention notification that points at ``post_id``. Does NOT commit.
+def _payload_int(payload: Any, key: str) -> Optional[int]:
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get(key)
+    # bool is an int subclass; True must not match id 1.
+    return value if type(value) is int else None
 
-    Called when a post is deleted. A mention row snapshots up to
-    ``MENTION_PREVIEW_CHARS`` of the post body, so leaving it behind would keep
-    the deleted text readable in the recipient's notification list.
 
-    Matched by PARSING each payload and comparing ``post_id`` as an integer —
-    never by a text match on the JSON, where ``"post_id":1`` is a prefix of
-    ``"post_id":12``. Only ``mention`` rows are considered; a malformed payload
-    is left alone rather than guessed at. Scans the mention rows in Python,
-    which is fine at closed-beta volume and keeps notification storage as it is.
+def delete_post_notifications(
+    db: Session, post_id: int, *, tagged_character_id: Optional[int] = None
+) -> int:
+    """Delete the post-pointing notifications for ``post_id``. Does NOT commit.
+
+    The one cleanup path for every type in :data:`POST_NOTIFICATION_TYPES`.
+
+    * Post deleted — call with ``post_id`` alone: every ``mention`` and
+      ``character_tagged`` row for that post goes, because each may snapshot up
+      to :data:`POST_PREVIEW_CHARS` of the deleted body.
+    * One tag removed — pass ``tagged_character_id``: only the
+      ``character_tagged`` row(s) for that character on that post go.
+
+    Matched by PARSING each payload and comparing ids as integers — never by a
+    text match on the JSON, where ``"post_id":1`` is a prefix of
+    ``"post_id":12``. A malformed payload is left alone rather than guessed at.
+    Scans the candidate rows in Python, which is fine at closed-beta volume and
+    keeps notification storage as it is.
 
     Returns the number of rows deleted.
     """
+    types = (
+        {NOTIFICATION_TYPE_CHARACTER_TAGGED}
+        if tagged_character_id is not None
+        else POST_NOTIFICATION_TYPES
+    )
     deleted = 0
-    rows = db.query(Notification).filter(
-        Notification.type == NOTIFICATION_TYPE_MENTION
-    ).all()
+    rows = db.query(Notification).filter(Notification.type.in_(types)).all()
     for row in rows:
         try:
             payload = json.loads(row.payload or "")
         except (TypeError, ValueError):
             continue
-        if not isinstance(payload, dict):
+        if _payload_int(payload, "post_id") != post_id:
             continue
-        target = payload.get("post_id")
-        # bool is an int subclass; True must not match post 1.
-        if type(target) is int and target == post_id:
-            db.delete(row)
-            deleted += 1
+        if (
+            tagged_character_id is not None
+            and _payload_int(payload, "tagged_character_id") != tagged_character_id
+        ):
+            continue
+        db.delete(row)
+        deleted += 1
     return deleted

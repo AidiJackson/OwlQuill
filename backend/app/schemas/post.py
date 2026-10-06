@@ -1,7 +1,7 @@
 """Post schemas."""
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.post import ContentTypeEnum, PostKindEnum
 
@@ -15,6 +15,21 @@ class PostMentionRead(BaseModel):
     url: str
 
     model_config = {"from_attributes": True}
+
+
+#: W-10A: at most this many characters may be tagged on one post.
+MAX_TAGGED_CHARACTERS = 5
+
+
+class TaggedCharacterRead(BaseModel):
+    """A character the post's author tagged — character-facing fields only.
+
+    Deliberately two fields. No owner id, username, account avatar or any other
+    account field exists on this schema, so none can be serialised by accident.
+    ``name`` is the character's LIVE name, read at projection time.
+    """
+    character_id: int
+    name: str
 
 
 class PostBase(BaseModel):
@@ -37,6 +52,18 @@ class PostCreate(PostBase):
     verify, not a verdict.
     """
     composition_session_id: Optional[str] = Field(None, max_length=36)
+    #: W-10A: characters to tag. De-duplicated (first occurrence wins) and then
+    #: capped at :data:`MAX_TAGGED_CHARACTERS`. Every id is re-validated by the
+    #: server (``app.services.character_tags``); nothing here is trusted.
+    tagged_character_ids: list[int] = Field(default_factory=list)
+
+    @field_validator("tagged_character_ids")
+    @classmethod
+    def _dedupe_and_cap(cls, value: list[int]) -> list[int]:
+        unique = list(dict.fromkeys(value))
+        if len(unique) > MAX_TAGGED_CHARACTERS:
+            raise ValueError(f"You can tag at most {MAX_TAGGED_CHARACTERS} characters.")
+        return unique
 
 
 class PostUpdate(BaseModel):
@@ -64,6 +91,9 @@ class Post(PostBase):
     created_at: datetime
     updated_at: datetime
     mentions: list[PostMentionRead] = []
+    # W-10A: explicit tags, already filtered for THIS viewer by the serializer.
+    # Never authorship — the byline is ``character_name`` above.
+    tagged_characters: list[TaggedCharacterRead] = []
     # Number of comments on the post. Sent with the post so a collapsed comment
     # section can show a truthful count without first fetching the comments —
     # otherwise an existing comment is invisible until someone happens to expand.

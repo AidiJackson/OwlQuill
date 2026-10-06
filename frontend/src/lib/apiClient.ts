@@ -197,6 +197,14 @@ class ApiClient {
     return this.request<CharacterSearchResult[]>(`/characters/search?q=${encodeURIComponent(q)}`);
   }
 
+  /** PUBLIC characters only — the Tag characters picker. Never includes the
+   *  caller's own PRIVATE/FRIENDS characters, which are not taggable. */
+  async searchTaggableCharacters(q: string): Promise<CharacterSearchResult[]> {
+    return this.request<CharacterSearchResult[]>(
+      `/characters/search?q=${encodeURIComponent(q)}&public_only=true`,
+    );
+  }
+
   async createCharacter(data: Partial<Character>): Promise<Character> {
     return this.request<Character>('/characters/', {
       method: 'POST',
@@ -268,6 +276,12 @@ class ApiClient {
 
   async deletePost(id: number): Promise<void> {
     return this.request<void>(`/posts/${id}`, { method: 'DELETE' });
+  }
+
+  /** Remove one character's tag from a post. Allowed for the tagged
+   *  character's owner and the post's author; 404 for everyone else. */
+  async removePostTag(postId: number, characterId: number): Promise<void> {
+    return this.request<void>(`/posts/${postId}/tags/${characterId}`, { method: 'DELETE' });
   }
 
   // Comments

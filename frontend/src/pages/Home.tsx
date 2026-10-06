@@ -4,13 +4,15 @@ import { ficDebug } from '@/lib/ficDebug';
 import { Image, X } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { useAuthStore } from '@/lib/store';
-import type { Post, Realm, Character, LibraryImage, CharacterSearchResult } from '@/lib/types';
+import type { Post, Realm, Character, LibraryImage, CharacterSearchResult, TaggedCharacter } from '@/lib/types';
 import { authorLink } from '@/lib/authorLink';
 import CommentSection from '@/components/CommentSection';
 import ReactionBar from '@/components/ReactionBar';
 import PostMenu from '@/components/PostMenu';
 import AttachImageModal from '@/components/AttachImageModal';
 import MentionText from '@/components/MentionText';
+import CharacterTagPicker from '@/features/posts/components/CharacterTagPicker';
+import TaggedCharacters from '@/features/posts/components/TaggedCharacters';
 import HappeningInFicshon from '@/components/HappeningInFicshon';
 import { hasActingCharacter } from '@/lib/entitlements';
 import ProvenanceBadge from '@/components/ProvenanceBadge';
@@ -74,6 +76,8 @@ export default function Home() {
     else ficDebug.modalClose('Home:attachImageModal');
   }, [showImageModal]);
   const [attachedImage, setAttachedImage] = useState<LibraryImage | null>(null);
+  // W-10A: characters explicitly tagged on the post being composed.
+  const [quickTags, setQuickTags] = useState<TaggedCharacter[]>([]);
 
   // Right-panel character discovery — live directory data (existing endpoint).
   // Purely presentational; failures collapse the section silently.
@@ -225,6 +229,7 @@ export default function Home() {
         ...(finalise && finaliseTitle.trim() ? { title: finaliseTitle.trim() } : {}),
         ...(attachedImage ? { image_url: attachedImage.url } : {}),
         ...(sessionId ? { composition_session_id: sessionId } : {}),
+        ...(quickTags.length ? { tagged_character_ids: quickTags.map((t) => t.character_id) } : {}),
       });
       composition.reset();
       if (finalise) {
@@ -243,6 +248,7 @@ export default function Home() {
       setQuickContentType('ic');
       setQuickPostKind('general');
       setAttachedImage(null);
+      setQuickTags([]);
       // Show the post-success nudge and auto-hide after 10 s.
       if (postSuccessTimerRef.current) clearTimeout(postSuccessTimerRef.current);
       setShowPostSuccessNudge(true);
@@ -487,6 +493,12 @@ export default function Home() {
                   </button>
                 </div>
               )}
+              <CharacterTagPicker
+                selected={quickTags}
+                onChange={setQuickTags}
+                excludeCharacterIds={composerCharId ? [composerCharId] : []}
+                disabled={posting}
+              />
               <div className="flex flex-wrap items-center gap-2.5 pt-3 border-t border-edge">
                 <select
                   value={quickContentType}
@@ -743,6 +755,8 @@ export default function Home() {
                     >
                       <MentionText text={post.content} mentions={post.mentions} />
                     </p>
+
+                    <TaggedCharacters postId={post.id} tags={post.tagged_characters} className="mt-3" />
 
                     {post.image_url && (
                       <img

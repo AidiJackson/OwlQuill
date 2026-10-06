@@ -268,6 +268,22 @@ export type Provenance =
   | 'unknown'
   | (string & {});
 
+/** A character the post's author deliberately TAGGED (W-10A).
+ *
+ *  Not authorship: the byline is `character_name` alone, and a tagged
+ *  character is never rendered in it. Character-facing fields only — the
+ *  server sends no account field here, and the projection is already
+ *  filtered for the viewer (hidden characters and blocked tags are absent). */
+export interface TaggedCharacter {
+  character_id: number;
+  /** The character's live name. */
+  name: string;
+}
+
+/** At most this many characters may be tagged on one post. Mirrors the
+ *  server's MAX_TAGGED_CHARACTERS, which is the authority. */
+export const MAX_TAGGED_CHARACTERS = 5;
+
 export interface Post {
   id: number;
   realm_id?: number;
@@ -285,6 +301,8 @@ export interface Post {
   created_at: string;
   updated_at: string;
   mentions?: PostMention[];
+  /** Explicitly tagged characters, filtered for this viewer. Never authors. */
+  tagged_characters?: TaggedCharacter[];
   /** Comment count, sent with the post so a collapsed comment section can show
    *  a truthful count before the comments themselves are fetched. */
   comment_count?: number;
@@ -316,6 +334,9 @@ export interface PostCreatePayload {
   character_id?: number;
   image_url?: string;
   composition_session_id?: string;
+  /** Characters to tag. The server validates every id (PUBLIC only, not the
+   *  authoring character, at most MAX_TAGGED_CHARACTERS). */
+  tagged_character_ids?: number[];
 }
 
 export interface CommentCreatePayload {

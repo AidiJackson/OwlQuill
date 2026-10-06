@@ -337,18 +337,22 @@ def _surviving(db, ids: list[int]) -> set[int]:
     return {n.id for n in db.query(Notification).filter(Notification.id.in_(ids)).all()}
 
 
-def test_a_real_mention_notification_is_removed_with_its_post(client, db_session, world):
-    """End to end: the mention path writes the preview, the delete removes it."""
+def test_a_real_tag_notification_is_removed_with_its_post(client, db_session, world):
+    """End to end: the tag path writes the preview, the delete removes it.
+
+    W-10A: typed @mentions no longer notify, so the live producer of a
+    preview-carrying post notification is an explicit character tag."""
     resp = client.post(
         f"/posts/realms/{world['pub_realm']}/posts",
         json={"content": "Wrong words for @Mira to read.",
-              "character_id": world["author_char"]},
+              "character_id": world["author_char"],
+              "tagged_character_ids": [world["member_char"]]},
         headers=auth_headers(world["author"]),
     )
     assert resp.status_code == 201, resp.text
     pid = resp.json()["id"]
     rows = db_session.query(Notification).filter(
-        Notification.user_id == world["ids"]["member"], Notification.type == "mention"
+        Notification.user_id == world["ids"]["member"], Notification.type == "character_tagged"
     ).all()
     assert rows and json.loads(rows[0].payload)["post_id"] == pid
     assert "Wrong words" in rows[0].payload
@@ -375,6 +379,8 @@ def test_only_the_exact_post_mention_notifications_are_removed(client, db_sessio
     lookalike = _notify(db_session, uid, "mention", {"post_id": similar, "post_preview": "Hi."})
     as_string = _notify(db_session, uid, "mention", {"post_id": str(pid)})
     as_bool = _notify(db_session, uid, "mention", {"post_id": True})
+    tagged = _notify(db_session, uid, "character_tagged", {"post_id": pid, "post_preview": "Bye."})
+    tagged_lookalike = _notify(db_session, uid, "character_tagged", {"post_id": similar})
     other_type = _notify(db_session, uid, "comment", {"post_id": pid})
     malformed = _notify(db_session, uid, "mention", f'{{"post_id":{pid}')
     empty = _notify(db_session, uid, "mention", None)
@@ -383,7 +389,8 @@ def test_only_the_exact_post_mention_notifications_are_removed(client, db_sessio
 
     assert _surviving(db_session, [
         exact, exact_other_user, lookalike, as_string, as_bool, other_type, malformed, empty,
-    ]) == {lookalike, as_string, as_bool, other_type, malformed, empty}
+        tagged, tagged_lookalike,
+    ]) == {lookalike, as_string, as_bool, other_type, malformed, empty, tagged_lookalike}
 
 
 def test_a_refused_delete_removes_no_notifications(client, db_session, world):

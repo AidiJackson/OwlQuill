@@ -13,9 +13,11 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import type { Character, ProfileTimelineItem, User } from '@/lib/types';
+import type { Character, PostMention, ProfileTimelineItem, TaggedCharacter, User } from '@/lib/types';
 import CanonManager, { type OwnerStatus } from '@/components/CanonManager';
 import MentionText from '@/components/MentionText';
+import TaggedCharacters from '@/features/posts/components/TaggedCharacters';
+import { afterTagRemoved } from '@/features/posts/taggedSurface';
 import PostMenu from '@/components/PostMenu';
 import { resolveImageUrl } from '@/features/characterCreation/shared/api';
 import type { CharacterGalleryImage } from '@/lib/types';
@@ -380,7 +382,9 @@ export default function CharacterDetail() {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'timeline', label: 'Timeline' },
     { id: 'media', label: 'Media' },
-    { id: 'mentions', label: 'Mentions' },
+    // W-10A: the tab id stays 'mentions'; the surface is now Tagged — explicit
+    // tags plus legacy typed @mentions, never the character's own posts.
+    { id: 'mentions', label: 'Tagged' },
     ...(isOwner ? [{ id: 'manage' as Tab, label: 'Manage' }] : []),
   ];
   // The rendered tab is derived from the tabs this viewer can see, never
@@ -698,7 +702,8 @@ export default function CharacterDetail() {
           )
         )}
 
-        {/* Mentions */}
+        {/* Tagged — posts by OTHER characters that tag (or, historically,
+            @mention) this one. Never authored work: that is the Timeline. */}
         {tab === 'mentions' && (
           <div className="max-w-3xl">
             {mentionsLoading && (
@@ -709,9 +714,9 @@ export default function CharacterDetail() {
             {!mentionsLoading && mentions.length === 0 && (
               <div className="py-16 text-center">
                 <MessageCircle className="w-10 h-10 text-ink-3/50 mx-auto mb-4" />
-                <h3 className="font-serif text-xl text-ink mb-1">No Mentions Yet</h3>
+                <h3 className="font-serif text-xl text-ink mb-1">Not Tagged Yet</h3>
                 <p className="text-ink-3 text-sm">
-                  Posts that mention {character.name} will appear here.
+                  Posts where another character tags {character.name} will appear here.
                 </p>
               </div>
             )}
@@ -725,6 +730,12 @@ export default function CharacterDetail() {
                   setMentions((prev) => prev.filter((i) => timelinePostId(i) !== postId));
                   setTimeline((prev) => prev.filter((i) => timelinePostId(i) !== postId));
                 }}
+                // The owner may remove THIS character's tag from someone
+                // else's post. The server re-checks ownership.
+                removableTagCharacterId={isOwner ? character.id : null}
+                onTagRemoved={(postId, characterId) =>
+                  setMentions((prev) => afterTagRemoved(prev, postId, characterId))
+                }
               />
             ))}
           </div>
@@ -1192,11 +1203,16 @@ function PostCard({
   character,
   viewer,
   onDeleted,
+  removableTagCharacterId = null,
+  onTagRemoved,
 }: {
   item: ProfileTimelineItem;
   character: Character | null;
   viewer: User | null;
   onDeleted: (postId: number) => void;
+  /** The tagged character whose tag this viewer may remove (Tagged tab, owner). */
+  removableTagCharacterId?: number | null;
+  onTagRemoved?: (postId: number, characterId: number) => void;
 }) {
   const post = item.payload as {
     id?: number;
@@ -1205,7 +1221,8 @@ function PostCard({
     image_url?: string;
     character_name?: string;
     character_avatar_url?: string;
-    mentions?: import('@/lib/types').PostMention[];
+    mentions?: PostMention[];
+    tagged_characters?: TaggedCharacter[];
     author_user_id?: number | null;
     comment_count?: number;
   };
@@ -1247,6 +1264,15 @@ function PostCard({
       <p className="fic-read whitespace-pre-wrap">
         <MentionText text={post.content ?? ''} mentions={post.mentions} />
       </p>
+      {postId !== undefined && (
+        <TaggedCharacters
+          postId={postId}
+          tags={post.tagged_characters}
+          className="mt-3"
+          removableCharacterId={removableTagCharacterId}
+          onRemoved={onTagRemoved ? (cid) => onTagRemoved(postId, cid) : undefined}
+        />
+      )}
       {post.image_url && (
         <img
           src={post.image_url}

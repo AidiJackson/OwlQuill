@@ -3,7 +3,7 @@
  * W-07A — the author's post delete is reachable wherever they meet their post.
  *
  * Commons (Home) and Realm feeds already had PostMenu and must keep it; the
- * single post page and the Character Timeline / Mentions cards gain it. On
+ * single post page and the Character Timeline / Tagged cards gain it. On
  * every surface a non-author gets no control. The anonymous Public Character
  * Home deliberately has none — it is a live projection and needs no code.
  *
@@ -125,7 +125,7 @@ describe('PostDetail', () => {
   });
 });
 
-// ── Character Timeline and Mentions ───────────────────────────────────────
+// ── Character Timeline and Tagged ─────────────────────────────────────────
 
 const CHARACTER = {
   id: 42, name: 'Taylor', species: 'human', visibility: 'public', is_owner: true,
@@ -170,7 +170,7 @@ describe('CharacterDetail timeline and mentions', () => {
     expect(screen.queryByRole('button', { name: 'Post options' })).toBeNull();
   });
 
-  it('lets the author delete their own post from Mentions, and only their own', async () => {
+  it('lets the author delete their own post from Tagged, and only their own', async () => {
     overrides.getCharacterMentions = () =>
       Promise.resolve([
         item(post({ id: 60, content: 'I mention you.' })),
@@ -178,7 +178,7 @@ describe('CharacterDetail timeline and mentions', () => {
       ]);
     renderAt('/characters/42?tab=mentions', '/characters/:id', <CharacterDetail />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Mentions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Tagged' }));
     const mine = (await screen.findByText('I mention you.')).closest('article') as HTMLElement;
     const theirs = screen.getByText('Someone else mentions you.').closest('article') as HTMLElement;
     expect(within(theirs).queryByRole('button', { name: 'Post options' })).toBeNull();

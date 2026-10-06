@@ -67,6 +67,15 @@ class Post(ProvenanceMixin, Base):
     comments = relationship("Comment", back_populates="post", cascade="all, delete-orphan")
     reactions = relationship("Reaction", back_populates="post", cascade="all, delete-orphan")
     mentions = relationship("PostMention", cascade="all, delete-orphan", lazy="selectin")
+    # W-10A: characters the author deliberately tagged. NOT authorship — see
+    # app.models.post_character_tag. Eager so a page of posts costs one extra
+    # statement for its tags (and one for their characters), not one per post.
+    character_tags = relationship(
+        "PostCharacterTag",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="PostCharacterTag.id",
+    )
 
     @property
     def author_username(self) -> str | None:

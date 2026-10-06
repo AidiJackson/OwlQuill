@@ -298,24 +298,35 @@ def list_my_characters(
 @router.get("/search", response_model=List[CharacterSearchResult])
 def search_characters(
     q: str = Query("", min_length=0, max_length=100),
+    public_only: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[CharacterSearchResult]:
     """Search characters by name or tags.
 
     Returns public characters and the current user's own characters.
+
+    ``public_only=true`` (W-10A, the Tag characters picker) returns PUBLIC
+    characters ONLY — the caller's own PRIVATE/FRIENDS characters are not
+    taggable, so the picker must not offer them. The server still validates
+    every submitted tag id independently.
     """
     if len(q.strip()) < 2:
         return []
 
     pattern = f"%{q.strip()}%"
+    visible = (
+        CharacterModel.visibility == VisibilityEnum.PUBLIC
+        if public_only
+        else or_(
+            CharacterModel.visibility == VisibilityEnum.PUBLIC,
+            CharacterModel.owner_id == current_user.id,
+        )
+    )
     results = (
         db.query(CharacterModel)
         .filter(
-            or_(
-                CharacterModel.visibility == VisibilityEnum.PUBLIC,
-                CharacterModel.owner_id == current_user.id,
-            ),
+            visible,
             or_(
                 CharacterModel.name.ilike(pattern),
                 CharacterModel.tags.ilike(pattern),
@@ -459,6 +470,7 @@ def get_character_posts(
         Realm as RealmModel,
         RealmMembership as RealmMembershipModel,
     )
+    from app.services.character_tags import project_tags_for_posts
     from app.services.seeding import post_media_resolution, serialize_post_for_viewer
 
     _get_visible_character(db, character_id, current_user)
@@ -485,6 +497,7 @@ def get_character_posts(
         .all()
     )
     post_media = post_media_resolution(db, [p for p, _ in rows])
+    post_tags = project_tags_for_posts(db, [p for p, _ in rows], current_user)
     return [
         {
             "type": "post",
@@ -492,7 +505,7 @@ def get_character_posts(
             "realm_id": post.realm_id,
             "realm_name": realm_name,
             "payload": serialize_post_for_viewer(
-                post, current_user, db, resolved_media=post_media
+                post, current_user, db, resolved_media=post_media, resolved_tags=post_tags
             ).model_dump(),
         }
         for post, realm_name in rows
@@ -506,19 +519,42 @@ def get_character_mentions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Posts that @mention this character, restricted to realms the viewer can
-    see. Account identity is stripped by the serializer for non-authors
-    (identity-first policy), mirroring the character timeline."""
+    """The character's TAGGED surface (W-10A; the route keeps its old path).
+
+    Posts associated with this character by another post's author, through
+    either mechanism, each post once:
+
+    * an explicit tag (``post_character_tags``) — the authoritative mechanism;
+    * a resolved legacy typed ``@mention`` (``post_mentions``) — kept for the
+      history written before tagging existed.
+
+    Filters, all in the query:
+
+    * the character itself must be visible to the viewer (PUBLIC, or owned);
+    * the post's realm must be one the viewer belongs to, as on the Timeline;
+    * the post's author must not be in a block relationship with the VIEWER
+      (as the feed) or with the character's OWNER — a blocked tag never
+      appears on the character it names, for anyone.
+
+    Never authored work: a post appears here because it names the character,
+    and the serializer still attributes it to its author alone. Account
+    identity is stripped by the serializer for non-authors.
+    """
     from app.core.admin_seed import auto_join_commons
     from app.models.post import Post as PostModel
+    from app.models.post_character_tag import PostCharacterTag
     from app.models.post_mention import PostMention as PostMentionModel
     from app.models.realm import (
         Realm as RealmModel,
         RealmMembership as RealmMembershipModel,
     )
+    from app.services.character_tags import (
+        project_tags_for_posts,
+        tagged_surface_exclusions,
+    )
     from app.services.seeding import post_media_resolution, serialize_post_for_viewer
 
-    _get_visible_character(db, character_id, current_user)
+    character = _get_visible_character(db, character_id, current_user)
 
     # Ensure viewer is in The Commons (idempotent, same as the timeline)
     auto_join_commons(current_user.id, db)
@@ -530,19 +566,32 @@ def get_character_mentions(
     if not viewer_realm_ids:
         return []
 
-    rows = (
+    # A post reached through both a tag and a mention is selected once: the
+    # union is a set of post ids, and the outer query selects posts by id.
+    associated = (
+        db.query(PostCharacterTag.post_id)
+        .filter(PostCharacterTag.character_id == character_id)
+        .union(
+            db.query(PostMentionModel.post_id).filter(
+                PostMentionModel.mentioned_character_id == character_id
+            )
+        )
+    )
+    q = (
         db.query(PostModel, RealmModel.name)
-        .join(PostMentionModel, PostMentionModel.post_id == PostModel.id)
         .join(RealmModel, PostModel.realm_id == RealmModel.id)
         .filter(
-            PostMentionModel.mentioned_character_id == character_id,
+            PostModel.id.in_(associated.scalar_subquery()),
             PostModel.realm_id.in_(viewer_realm_ids),
         )
-        .order_by(PostModel.created_at.desc())
-        .limit(limit)
-        .all()
     )
+    excluded = tagged_surface_exclusions(db, current_user.id, character.owner_id)
+    if excluded:
+        q = q.filter(PostModel.author_user_id.notin_(excluded))
+    rows = q.order_by(PostModel.created_at.desc(), PostModel.id.desc()).limit(limit).all()
+
     post_media = post_media_resolution(db, [p for p, _ in rows])
+    post_tags = project_tags_for_posts(db, [p for p, _ in rows], current_user)
     return [
         {
             "type": "post",
@@ -550,7 +599,7 @@ def get_character_mentions(
             "realm_id": post.realm_id,
             "realm_name": realm_name,
             "payload": serialize_post_for_viewer(
-                post, current_user, db, resolved_media=post_media
+                post, current_user, db, resolved_media=post_media, resolved_tags=post_tags
             ).model_dump(),
         }
         for post, realm_name in rows

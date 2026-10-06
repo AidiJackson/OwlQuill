@@ -29,6 +29,7 @@ from app.models.password_reset_token import PasswordResetToken
 from app.models.identity_snapshot import IdentitySnapshot
 from app.models.candidate_slot import CandidateSlot
 from app.models.post_mention import PostMention
+from app.models.post_character_tag import PostCharacterTag
 from app.models.style_shop import StylePreset, CharacterStyleElement, ShopTypeEnum, AttachmentModeEnum, PlacementEnum, StyleElementStatusEnum
 from app.models.character_identity_canon import CharacterIdentityCanon
 from app.models.adult_studio import AdultStudioIdentity
@@ -98,6 +99,7 @@ __all__ = [
     "IdentitySnapshot",
     "CandidateSlot",
     "PostMention",
+    "PostCharacterTag",
     "StylePreset",
     "CharacterStyleElement",
     "ShopTypeEnum",

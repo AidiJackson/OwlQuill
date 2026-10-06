@@ -17,8 +17,13 @@ from app.models.character_image import (
     ImageStatusEnum,
 )
 from app.models.user_image import UserImage
+from app.models.post_character_tag import PostCharacterTag
+from app.models.post_mention import PostMention as PostMentionModel
 from app.schemas.post import Post, PostCreate
+from app.services.character_tags import validate_tag_targets
 from app.services.composition import link_commit
+from app.services.mentions import parse_mention_texts, resolve_mentions
+from app.services.notifications import delete_post_notifications, notify_character_tagged
 from app.services.provenance import decide_provenance
 from app.services.safety import blocked_user_ids
 from app.services.visibility import user_can_access_realm
@@ -144,6 +149,12 @@ def create_post_in_realm(
                 detail="You can only attach your own character's images to a post.",
             )
 
+    # W-10A: explicit tags are validated BEFORE anything is written, so a
+    # refused target fails the whole request with no post created. The schema
+    # has already de-duplicated and capped the ids; this is the authority on
+    # whether each one may be tagged.
+    tag_targets = validate_tag_targets(db, post_data.tagged_character_ids, author_char)
+
     # Provenance is decided here, from server-held evidence, and is the only
     # thing that drives the public badge. Nothing in ``post_data`` can influence
     # it — note the explicit field list rather than the ``**model_dump()`` splat
@@ -173,75 +184,54 @@ def create_post_in_realm(
     db.add(db_post)
     db.flush()
     link_commit(db, decision.session, kind="post", obj_id=db_post.id)
+
+    # Everything below is staged in the SAME transaction as the post and
+    # committed once at the end: the post, its tags, the tag notifications and
+    # the legacy mention rows land together or not at all.
+
+    # W-10A: explicit character tags — the only path that notifies another
+    # character's owner. One row and at most one notification per (post,
+    # tagged character); the schema de-duplicated the ids.
+    realm = None
+    # The product's one definition of "in a block relationship", both
+    # directions — the same set the feed, comments and messaging consult.
+    blocked_with_author = blocked_user_ids(db, current_user.id) if tag_targets else set()
+    for target in tag_targets:
+        db.add(PostCharacterTag(post_id=db_post.id, character_id=target.id))
+        if target.owner_id == current_user.id:
+            continue  # the author's own other character: tagged, not notified
+        # A block (either direction) leaves the tag stored but inert — see
+        # app.services.character_tags. Nothing in the response differs.
+        if target.owner_id in blocked_with_author:
+            continue
+        if realm is None:
+            realm = db.query(RealmModel).filter(RealmModel.id == realm_id).first()
+        notify_character_tagged(
+            db,
+            recipient_user_id=target.owner_id,
+            post=db_post,
+            realm=realm,
+            author_character=author_char,
+            tagged_character=target,
+        )
+
+    # LEGACY typed @mentions: still parsed, resolved (PUBLIC characters only)
+    # and stored, so existing prose keeps its links and the Tagged surface keeps
+    # its history. They NO LONGER NOTIFY (W-10A): the ASCII prefix parser can
+    # address the wrong character ("@Leo Vance" -> "Leo", "@Zoë" -> "Zo").
+    for r in resolve_mentions(parse_mention_texts(post_data.content), db):
+        db.add(PostMentionModel(
+            post_id=db_post.id,
+            mention_text=r["mention_text"],
+            mentioned_user_id=r.get("mentioned_user_id"),
+            mentioned_character_id=r.get("mentioned_character_id"),
+        ))
+
     db.commit()
     db.refresh(db_post)
-
-    # Parse + store mentions, then notify the owners of the characters that
-    # were addressed. Notification rows are written through
-    # services/notifications so every producer shares one payload contract
-    # (Polish Phase 7.1); the transaction shape is unchanged — one commit after
-    # the mention rows and the notification rows are all staged.
-    from app.services.mentions import parse_mention_texts, resolve_mentions
-    from app.models.post_mention import PostMention as PostMentionModel
-    from app.services.notifications import notify_character_mentioned
-
-    mention_texts = parse_mention_texts(post_data.content)
-    if mention_texts:
-        resolved = resolve_mentions(mention_texts, db)
-        for r in resolved:
-            pm = PostMentionModel(
-                post_id=db_post.id,
-                mention_text=r["mention_text"],
-                mentioned_user_id=r.get("mentioned_user_id"),
-                mentioned_character_id=r.get("mentioned_character_id"),
-            )
-            db.add(pm)
-        db.flush()
-
-        # The realm decides whether the recipient may see the post's text (a
-        # public character can be mentioned from a private realm it is not
-        # in). Loaded once, only when there is someone to notify.
-        realm = None
-        # A block closes the notification channel too. ``blocked_user_ids`` is
-        # the product's one definition of "in a block relationship" — the same
-        # set the feed, comments and messaging consult, and like them it holds
-        # BOTH directions — so an author a recipient has blocked (or who has
-        # blocked the recipient) can still post and still @mention, exactly as
-        # today, but the mention writes no row for that recipient. Resolved
-        # once from the author's side: the relationship is symmetric, so this
-        # is the recipient-side question with one query instead of one per
-        # mention.
-        blocked_with_author = blocked_user_ids(db, current_user.id)
-        for r in resolved:
-            # resolve_mentions addresses PUBLIC CHARACTERS only — accounts are
-            # never mention targets — so a character is the only kind of
-            # resolution that can name a recipient. The character is taken by
-            # the id the mention system already resolved, never by name again.
-            if r["target_type"] != "character":
-                continue
-            mentioned = db.query(CharacterModel).filter(
-                CharacterModel.id == r["target_id"]
-            ).first()
-            if mentioned is None or mentioned.owner_id == current_user.id:
-                continue  # gone between resolution and here, or a self-mention
-            if mentioned.owner_id in blocked_with_author:
-                continue  # blocked: no notification side-channel
-            if realm is None:
-                realm = db.query(RealmModel).filter(RealmModel.id == realm_id).first()
-            notify_character_mentioned(
-                db,
-                recipient_user_id=mentioned.owner_id,
-                post=db_post,
-                realm=realm,
-                author_character=author_char,
-                mentioned_character=mentioned,
-                mention_text=r["mention_text"],
-                content=post_data.content,
-            )
-        db.commit()
-        db.refresh(db_post)
-
-    return db_post
+    # Serialised like every other read so the author receives the same
+    # tagged_characters projection they will see on reload.
+    return serialize_post_for_viewer(db_post, current_user, db)
 
 
 @router.get("/realms/{realm_id}/posts", response_model=List[Post])
@@ -327,12 +317,55 @@ def delete_post(
             detail="Not authorized to delete this post"
         )
 
-    # Comments, reactions and post_mentions cascade with the row. Mention
-    # notifications are not FK-linked (their payload is a JSON snapshot that
-    # carries a preview of the post body), so they are removed explicitly, in
-    # the same transaction, or the deleted text would outlive the post.
-    from app.services.notifications import delete_mention_notifications_for_post
-
-    delete_mention_notifications_for_post(db, post.id)
+    # Comments, reactions, post_mentions and post_character_tags cascade with
+    # the row. Post notifications (legacy mention, character_tagged) are not
+    # FK-linked (their payload is a JSON snapshot that may carry a preview of
+    # the post body), so they are removed explicitly, in the same transaction,
+    # or the deleted text would outlive the post.
+    delete_post_notifications(db, post.id)
     db.delete(post)
+    db.commit()
+
+
+@router.delete("/{post_id}/tags/{character_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_post_tag(
+    post_id: int,
+    character_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Remove one character's tag from a post (W-10A).
+
+    Allowed for exactly two accounts: the tagged CHARACTER's owner, and the
+    post's author (who added it). Everyone else — and every request naming a
+    tag that does not exist — receives the same 404, so this route confirms
+    neither a post, nor a tag, nor anything about a post the caller cannot
+    read. The tagged owner may remove the tag even from a post in a realm they
+    cannot open: it is their character's association, and the 404/204 answer
+    discloses nothing about the post's content.
+
+    Removes the durable association and the matching ``character_tagged``
+    notification if it still exists. The post's prose and any legacy
+    ``post_mentions`` row are untouched.
+    """
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
+    tag = (
+        db.query(PostCharacterTag)
+        .filter(
+            PostCharacterTag.post_id == post_id,
+            PostCharacterTag.character_id == character_id,
+        )
+        .first()
+    )
+    if tag is None:
+        raise not_found
+    post = db.query(PostModel).filter(PostModel.id == post_id).first()
+    character = tag.character
+    is_tagged_owner = character is not None and character.owner_id == current_user.id
+    is_post_author = post is not None and post.author_user_id == current_user.id
+    if not (is_tagged_owner or is_post_author):
+        raise not_found
+
+    delete_post_notifications(db, post_id, tagged_character_id=character_id)
+    db.delete(tag)
     db.commit()
