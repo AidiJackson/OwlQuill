@@ -382,9 +382,10 @@ export default function CharacterDetail() {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'timeline', label: 'Timeline' },
     { id: 'media', label: 'Media' },
-    // W-10A: the tab id stays 'mentions'; the surface is now Tagged — explicit
-    // tags plus legacy typed @mentions, never the character's own posts.
-    { id: 'mentions', label: 'Tagged' },
+    // W-10A: the tab id stays 'mentions'; the surface is now Featured — posts
+    // where other characters feature this one (explicit tags plus legacy typed
+    // @mentions), never the character's own posts.
+    { id: 'mentions', label: 'Featured' },
     ...(isOwner ? [{ id: 'manage' as Tab, label: 'Manage' }] : []),
   ];
   // The rendered tab is derived from the tabs this viewer can see, never
@@ -702,8 +703,9 @@ export default function CharacterDetail() {
           )
         )}
 
-        {/* Tagged — posts by OTHER characters that tag (or, historically,
-            @mention) this one. Never authored work: that is the Timeline. */}
+        {/* Featured — posts by OTHER characters that feature (tag or,
+            historically, @mention) this one. Never authored work: that is the
+            Timeline. */}
         {tab === 'mentions' && (
           <div className="max-w-3xl">
             {mentionsLoading && (
@@ -714,9 +716,9 @@ export default function CharacterDetail() {
             {!mentionsLoading && mentions.length === 0 && (
               <div className="py-16 text-center">
                 <MessageCircle className="w-10 h-10 text-ink-3/50 mx-auto mb-4" />
-                <h3 className="font-serif text-xl text-ink mb-1">Not Tagged Yet</h3>
+                <h3 className="font-serif text-xl text-ink mb-1">Not Featured Yet</h3>
                 <p className="text-ink-3 text-sm">
-                  Posts where another character tags {character.name} will appear here.
+                  Posts where other characters feature {character.name} will appear here.
                 </p>
               </div>
             )}
@@ -730,8 +732,8 @@ export default function CharacterDetail() {
                   setMentions((prev) => prev.filter((i) => timelinePostId(i) !== postId));
                   setTimeline((prev) => prev.filter((i) => timelinePostId(i) !== postId));
                 }}
-                // The owner may remove THIS character's tag from someone
-                // else's post. The server re-checks ownership.
+                // The owner may remove THIS character from Featured on someone
+                // else's post (deletes the tag). The server re-checks ownership.
                 removableTagCharacterId={isOwner ? character.id : null}
                 onTagRemoved={(postId, characterId) =>
                   setMentions((prev) => afterTagRemoved(prev, postId, characterId))
@@ -1210,7 +1212,7 @@ function PostCard({
   character: Character | null;
   viewer: User | null;
   onDeleted: (postId: number) => void;
-  /** The tagged character whose tag this viewer may remove (Tagged tab, owner). */
+  /** The featured character this viewer may remove from Featured (owner, Featured tab). */
   removableTagCharacterId?: number | null;
   onTagRemoved?: (postId: number, characterId: number) => void;
 }) {
@@ -1239,7 +1241,7 @@ function PostCard({
 
   return (
     <article className="py-6 border-b border-edge">
-      <div className="flex items-center gap-2.5 mb-3 flex-wrap">
+      <div className="flex items-start gap-2.5 mb-3">
         <div className="w-8 h-8 rounded-full overflow-hidden bg-gem-soft flex items-center justify-center flex-shrink-0 border border-edge-md">
           {authorAvatar ? (
             <img src={authorAvatar} alt={authorName} className="w-full h-full object-cover" />
@@ -1247,11 +1249,25 @@ function PostCard({
             <span className="text-sm font-semibold text-gem">{authorName.charAt(0)}</span>
           )}
         </div>
-        <span className="text-sm font-medium text-ink">{authorName}</span>
-        {item.realm_name && (
-          <span className="font-mono text-[11px] text-ink-3">in {item.realm_name}</span>
-        )}
-        <span className="font-mono text-[11px] text-ink-3 ml-auto">
+        <div className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-ink leading-tight truncate">{authorName}</span>
+          {/* Secondary identity: Featuring · context. Never the byline. */}
+          {postId !== undefined && (
+            <TaggedCharacters
+              postId={postId}
+              tags={post.tagged_characters}
+              className="mt-0.5"
+              context={
+                item.realm_name ? (
+                  <span className="font-mono text-[11px] text-ink-3">in {item.realm_name}</span>
+                ) : undefined
+              }
+              removableCharacterId={removableTagCharacterId}
+              onRemoved={onTagRemoved ? (cid) => onTagRemoved(postId, cid) : undefined}
+            />
+          )}
+        </div>
+        <span className="font-mono text-[11px] text-ink-3 flex-shrink-0 mt-0.5">
           {new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
         </span>
         {canDelete && postId !== undefined && (
@@ -1264,15 +1280,6 @@ function PostCard({
       <p className="fic-read whitespace-pre-wrap">
         <MentionText text={post.content ?? ''} mentions={post.mentions} />
       </p>
-      {postId !== undefined && (
-        <TaggedCharacters
-          postId={postId}
-          tags={post.tagged_characters}
-          className="mt-3"
-          removableCharacterId={removableTagCharacterId}
-          onRemoved={onTagRemoved ? (cid) => onTagRemoved(postId, cid) : undefined}
-        />
-      )}
       {post.image_url && (
         <img
           src={post.image_url}

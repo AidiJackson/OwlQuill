@@ -8,7 +8,8 @@
  * checked. Pure and DOM-free so it runs in the node vitest environment.
  *
  * `character_tagged` (W-10A) — the live producer: a post's author explicitly
- * tagged one of the recipient's characters. Ids + name snapshots for the
+ * tagged one of the recipient's characters. User-facing copy says "featured"
+ * (the product word for an explicit tag); the type name is unchanged. Ids + name snapshots for the
  * author and tagged characters, realm id, and realm name + preview only when
  * the recipient may see the post.
  *
@@ -92,7 +93,7 @@ export function describeNotification(notif: Pick<Notification, 'type' | 'payload
       actorName,
       recipientCharacterName,
       realmName,
-      summary: `${actorName} tagged ${who}${where}`,
+      summary: `${actorName} featured ${who}${where}`,
       preview: str(payload, 'post_preview'),
       target: postId ? { kind: 'post', postId } : null,
     };

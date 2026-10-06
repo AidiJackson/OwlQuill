@@ -108,18 +108,18 @@ function canonWith(flags: { face_locked: boolean; body_locked: boolean }) {
 afterEach(cleanup);
 
 describe('Tabs', () => {
-  it('an ordinary owner sees Timeline, Media, Tagged, Manage — and no Stories (PD-7)', async () => {
+  it('an ordinary owner sees Timeline, Media, Featured, Manage — and no Stories (PD-7)', async () => {
     renderPage();
     await screen.findByRole('button', { name: 'Manage' });
-    expect(tabLabels()).toEqual(['Timeline', 'Media', 'Tagged', 'Manage']);
+    expect(tabLabels()).toEqual(['Timeline', 'Media', 'Featured', 'Manage']);
     expect(screen.queryByRole('button', { name: 'Stories' })).toBeNull();
     expect(screen.queryByText(/No Stories Yet/)).toBeNull();
   });
 
-  it('a visitor sees Timeline, Media, Tagged — no Stories, no Manage', async () => {
+  it('a visitor sees Timeline, Media, Featured — no Stories, no Manage', async () => {
     renderPage(43);
     await screen.findByRole('button', { name: 'Message' });
-    expect(tabLabels()).toEqual(['Timeline', 'Media', 'Tagged']);
+    expect(tabLabels()).toEqual(['Timeline', 'Media', 'Featured']);
     expect(screen.queryByRole('button', { name: 'Stories' })).toBeNull();
   });
 
@@ -170,7 +170,7 @@ describe('Tabs', () => {
     expect(screen.queryByRole('heading', { name: 'Manage Character Canon' })).toBeNull();
   });
 
-  it('an :id change drops the previous character’s Tagged posts', async () => {
+  it('an :id change drops the previous character’s Featured posts', async () => {
     getCharacterMentions.mockImplementation((id: number) =>
       Promise.resolve(id === 42
         ? [{ kind: 'post', created_at: '2026-01-02T00:00:00Z', payload: { content: 'about Taylor' } }]
@@ -178,13 +178,13 @@ describe('Tabs', () => {
     );
     renderPage();
     await screen.findByRole('heading', { name: 'Taylor' });
-    fireEvent.click(screen.getByRole('button', { name: 'Tagged' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Featured' }));
     await screen.findByText('about Taylor');
 
     fireEvent.click(screen.getByText('go to 43'));
     await screen.findByRole('heading', { name: 'Morgan' });
     await waitFor(() => expect(screen.queryByText('about Taylor')).toBeNull());
-    await screen.findByText(/Not Tagged Yet/);
+    await screen.findByText(/Not Featured Yet/);
     expect(getCharacterMentions).toHaveBeenLastCalledWith(43);
   });
 });

@@ -137,12 +137,12 @@ const tagged = JSON.stringify({
 });
 
 describe('describeNotification — character_tagged', () => {
-  it('says the author character tagged your character in a post, and goes to that exact post', () => {
+  it('says the author character featured your character in a post, and goes to that exact post', () => {
     const view = describeNotification({ type: 'character_tagged', payload: tagged });
     expect(view.kind).toBe('character_tagged');
     expect(view.actorName).toBe('Bram');
     expect(view.recipientCharacterName).toBe('Elowen');
-    expect(view.summary).toBe('Bram tagged Elowen in a post in The Glass Market');
+    expect(view.summary).toBe('Bram featured Elowen in a post in The Glass Market');
     expect(view.preview).toBe('At the gate, Elowen turned…');
     expect(view.target).toEqual({ kind: 'post', postId: 77 });
     expect(notificationDestination(view.target)).toBe('/posts/77');
@@ -155,7 +155,7 @@ describe('describeNotification — character_tagged', () => {
       tagged_character_id: 9, tagged_character_name: 'Elowen',
     });
     const view = describeNotification({ type: 'character_tagged', payload: withheld });
-    expect(view.summary).toBe('Bram tagged Elowen in a post');
+    expect(view.summary).toBe('Bram featured Elowen in a post');
     expect(view.preview).toBeNull();
     expect(view.realmName).toBeNull();
     expect(notificationDestination(view.target)).toBe('/posts/77');
@@ -165,7 +165,7 @@ describe('describeNotification — character_tagged', () => {
     const odd = JSON.stringify({ post_id: 5, author_username: 'aidan', mentioned_character_name: 'Nope' });
     const view = describeNotification({ type: 'character_tagged', payload: odd });
     expect(view.actorName).toBe(UNKNOWN_ACTOR);
-    expect(view.summary).toBe('Someone tagged one of your characters in a post');
+    expect(view.summary).toBe('Someone featured one of your characters in a post');
     expect(view.summary).not.toContain('aidan');
     expect(view.summary).not.toContain('Nope');
   });

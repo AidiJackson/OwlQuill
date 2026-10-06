@@ -722,11 +722,17 @@ export default function Home() {
                             <PostKindBadge postKind={post.post_kind} />
                             <ProvenanceBadge provenance={post.provenance} />
                           </div>
-                          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                            <span className="text-[11px] font-mono text-ink-3">
-                              in <span className={isCommons ? 'text-ink-3' : 'text-gem/80'}>{realmName}</span>
-                            </span>
-                          </div>
+                          {/* Secondary identity: Featuring · context. Never the byline. */}
+                          <TaggedCharacters
+                            postId={post.id}
+                            tags={post.tagged_characters}
+                            className="mt-0.5"
+                            context={
+                              <span className="text-[11px] font-mono text-ink-3">
+                                in <span className={isCommons ? 'text-ink-3' : 'text-gem/80'}>{realmName}</span>
+                              </span>
+                            }
+                          />
                         </div>
                       </div>
 
@@ -755,8 +761,6 @@ export default function Home() {
                     >
                       <MentionText text={post.content} mentions={post.mentions} />
                     </p>
-
-                    <TaggedCharacters postId={post.id} tags={post.tagged_characters} className="mt-3" />
 
                     {post.image_url && (
                       <img

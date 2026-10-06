@@ -731,45 +731,55 @@ export default function RealmDetail() {
               return (
                 <div key={post.id} className="card">
                   {/* Post header: character-first identity */}
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2 flex-wrap min-w-0">
-                      {post.character_name ? (
-                        <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 min-w-0 max-w-[min(100%,18rem)]">
-                          {post.character_avatar_url ? (
-                            <img
-                              src={post.character_avatar_url}
-                              alt={post.character_name}
-                              className="w-7 h-7 rounded-md object-cover border border-edge-md group-hover:border-gem/50 transition-colors"
-                            />
-                          ) : (
-                            <div className="w-7 h-7 rounded-md bg-gem-soft border border-gem/50 flex items-center justify-center text-[11px] font-semibold text-gem flex-shrink-0">
-                              {post.character_name.charAt(0)}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        {post.character_name ? (
+                          <Link to={profileHref} className="flex items-center gap-1.5 group mr-0.5 min-w-0 max-w-[min(100%,18rem)]">
+                            {post.character_avatar_url ? (
+                              <img
+                                src={post.character_avatar_url}
+                                alt={post.character_name}
+                                className="w-7 h-7 rounded-md object-cover border border-edge-md group-hover:border-gem/50 transition-colors"
+                              />
+                            ) : (
+                              <div className="w-7 h-7 rounded-md bg-gem-soft border border-gem/50 flex items-center justify-center text-[11px] font-semibold text-gem flex-shrink-0">
+                                {post.character_name.charAt(0)}
+                              </div>
+                            )}
+                            <span className="text-sm font-medium text-gem group-hover:text-gem transition-colors truncate">
+                              {post.character_name}
+                            </span>
+                          </Link>
+                        ) : (
+                          <div className="flex items-center gap-1.5 mr-0.5 flex-shrink-0">
+                            <div className="w-7 h-7 rounded-md bg-surface-overlay border border-edge-md flex items-center justify-center text-[11px] font-medium text-ink-3 flex-shrink-0">
+                              ✦
                             </div>
-                          )}
-                          <span className="text-sm font-medium text-gem group-hover:text-gem transition-colors truncate">
-                            {post.character_name}
-                          </span>
-                        </Link>
-                      ) : (
-                        <div className="flex items-center gap-1.5 mr-0.5 flex-shrink-0">
-                          <div className="w-7 h-7 rounded-md bg-surface-overlay border border-edge-md flex items-center justify-center text-[11px] font-medium text-ink-3 flex-shrink-0">
-                            ✦
+                            <span className="text-sm text-ink-2">{author.label}</span>
                           </div>
-                          <span className="text-sm text-ink-2">{author.label}</span>
-                        </div>
-                      )}
-                      <PostTypeBadge contentType={post.content_type} />
-                      <PostKindBadge postKind={post.post_kind} />
-                      <ProvenanceBadge provenance={post.provenance} />
+                        )}
+                        <PostTypeBadge contentType={post.content_type} />
+                        <PostKindBadge postKind={post.post_kind} />
+                        <ProvenanceBadge provenance={post.provenance} />
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-xs text-ink-3">
+                          {new Date(post.created_at).toLocaleDateString()}
+                        </span>
+                        {(post.author_user_id === user?.id || user?.is_admin) && (
+                          <PostMenu postId={post.id} commentCount={post.comment_count} onDeleted={(id) => setPosts(prev => prev.filter(p => p.id !== id))} />
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs text-ink-3">
-                        {new Date(post.created_at).toLocaleDateString()}
-                      </span>
-                      {(post.author_user_id === user?.id || user?.is_admin) && (
-                        <PostMenu postId={post.id} commentCount={post.comment_count} onDeleted={(id) => setPosts(prev => prev.filter(p => p.id !== id))} />
-                      )}
-                    </div>
+                    {/* Secondary identity: Featuring, aligned under the author's
+                        name (avatar 1.75rem + gap). No realm context — this IS the
+                        realm. Renders nothing when nobody is featured. */}
+                    <TaggedCharacters
+                      postId={post.id}
+                      tags={post.tagged_characters}
+                      className="mt-1 pl-[2.125rem]"
+                    />
                   </div>
 
                   {/* Post content */}
@@ -785,8 +795,6 @@ export default function RealmDetail() {
                   >
                     <MentionText text={post.content} mentions={post.mentions} />
                   </p>
-
-                  <TaggedCharacters postId={post.id} tags={post.tagged_characters} className="mt-2" />
 
                   {post.image_url && (
                     <img

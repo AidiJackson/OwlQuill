@@ -1,37 +1,83 @@
 /**
- * TaggedCharacters — the "Tagged: …" line on a post (W-10A).
+ * TaggedCharacters — the post's secondary identity line (W-10A).
  *
- * Shared by every post card so tags render one way everywhere, and always
- * SEPARATELY from the author byline. The wording is deliberately neutral —
- * "Tagged:", never "with" — because a tag is the author's association, not a
- * claim that the tagged character took part.
+ * Renders, beneath the author row of a post header:
+ *
+ *     Featuring Kiera Fielding, Grace Fielding +2 · in The Commons
+ *
+ * "Featuring" is the user-facing word for an explicit tag (internally still
+ * `tagged_characters` / `post_character_tags`). It is deliberately NOT
+ * authorship: it never appears in the byline, never says "with", and sits in
+ * the quieter metadata line so the author stays visually dominant.
+ *
+ * The same line carries the post's existing context (realm, etc.) passed in as
+ * `context`, so a header has ONE secondary line rather than metadata scattered
+ * above and below the body. With no featured characters it renders just the
+ * context, exactly as before; with neither it renders nothing.
+ *
+ * More than three featured characters collapse to the first two plus "+N",
+ * which expands in place. When `removableCharacterId` names one of them (the
+ * viewer owns that character, on its Featured tab) it is always listed first,
+ * and a small "Remove from Featured" action follows, confirmed through
+ * ConfirmDialog.
  *
  * The list is already filtered for the viewer by the server; this component
- * renders what it is given. When `removableCharacterId` names one of the tags
- * (the viewer owns that character, on its Tagged surface), a small "Remove
- * tag" action appears beside it, confirmed through ConfirmDialog.
+ * renders what it is given.
  */
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { apiClient } from '@/lib/apiClient';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import type { TaggedCharacter } from '@/lib/types';
 
+/** Up to this many are always shown in full; beyond it, the line collapses. */
+export const FEATURING_FULL_LIST_MAX = 3;
+/** How many names stay visible when collapsed. */
+export const FEATURING_COLLAPSED_VISIBLE = 2;
+
 interface Props {
   postId: number;
   tags?: TaggedCharacter[] | null;
-  /** The one tagged character whose tag the viewer may remove here. */
+  /** The post's existing context (e.g. "in The Commons"), shown after a dot. */
+  context?: ReactNode;
+  /** The one featured character whose association the viewer may remove here. */
   removableCharacterId?: number | null;
   onRemoved?: (characterId: number) => void;
   className?: string;
 }
 
-export default function TaggedCharacters({ postId, tags, removableCharacterId = null, onRemoved, className = '' }: Props) {
+const nameLinkCls =
+  'font-medium text-ink-2 hover:text-gem transition-colors rounded-sm break-words ' +
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-gem/60';
+
+export default function TaggedCharacters({
+  postId,
+  tags,
+  context,
+  removableCharacterId = null,
+  onRemoved,
+  className = '',
+}: Props) {
+  const [expanded, setExpanded] = useState(false);
   const [confirming, setConfirming] = useState<TaggedCharacter | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!tags || tags.length === 0) return null;
+  const list = tags ?? [];
+  const hasContext = context !== undefined && context !== null && context !== false;
+  if (list.length === 0 && !hasContext) return null;
+
+  // The viewer's own (removable) character leads, so it is never collapsed away.
+  const ordered = removableCharacterId == null
+    ? list
+    : [
+        ...list.filter((t) => t.character_id === removableCharacterId),
+        ...list.filter((t) => t.character_id !== removableCharacterId),
+      ];
+  const collapsible = ordered.length > FEATURING_FULL_LIST_MAX;
+  const visible = collapsible && !expanded ? ordered.slice(0, FEATURING_COLLAPSED_VISIBLE) : ordered;
+  const hidden = ordered.slice(visible.length);
+  const removable = onRemoved ? ordered.find((t) => t.character_id === removableCharacterId) ?? null : null;
 
   const remove = async () => {
     if (!confirming) return;
@@ -43,7 +89,7 @@ export default function TaggedCharacters({ postId, tags, removableCharacterId = 
       setConfirming(null);
       onRemoved?.(removed);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not remove the tag.');
+      setError(err instanceof Error ? err.message : 'Could not remove this character from Featured.');
     } finally {
       setBusy(false);
     }
@@ -51,36 +97,61 @@ export default function TaggedCharacters({ postId, tags, removableCharacterId = 
 
   return (
     <>
-      <p className={`text-xs text-ink-3 ${className}`} data-testid="tagged-characters">
-        <span className="font-medium text-ink-2">Tagged: </span>
-        {tags.map((t, i) => (
-          <Fragment key={t.character_id}>
-            {i > 0 && ', '}
-            <Link
-              to={`/characters/${t.character_id}`}
-              className="text-gem hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {t.name}
-            </Link>
-            {onRemoved && removableCharacterId === t.character_id && (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setError(null); setConfirming(t); }}
-                className="ml-1.5 text-[11px] text-ink-3 underline hover:text-ink transition-colors"
-                aria-label={`Remove tag of ${t.name} from this post`}
-              >
-                Remove tag
-              </button>
+      <div
+        className={`flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-w-0 ${className}`}
+        data-testid="post-context-line"
+      >
+        {ordered.length > 0 && (
+          <span className="text-xs text-ink-3 min-w-0" data-testid="tagged-characters">
+            Featuring{' '}
+            {visible.map((t, i) => (
+              <Fragment key={t.character_id}>
+                {i > 0 && ', '}
+                <Link
+                  to={`/characters/${t.character_id}`}
+                  className={nameLinkCls}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {t.name}
+                </Link>
+              </Fragment>
+            ))}
+            {hidden.length > 0 && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+                  aria-expanded={false}
+                  aria-label={`Show ${hidden.length} more featured: ${hidden.map((t) => t.name).join(', ')}`}
+                  className="font-medium text-ink-2 hover:text-gem transition-colors rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gem/60"
+                >
+                  +{hidden.length}
+                </button>
+              </>
             )}
-          </Fragment>
-        ))}
-      </p>
+          </span>
+        )}
+        {ordered.length > 0 && hasContext && (
+          <span aria-hidden="true" className="text-[11px] text-ink-3/70">·</span>
+        )}
+        {hasContext && context}
+        {removable && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setError(null); setConfirming(removable); }}
+            aria-label={`Remove ${removable.name} from Featured on this post`}
+            className="ml-1 text-[11px] text-ink-3 underline underline-offset-2 hover:text-ink transition-colors rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gem/60"
+          >
+            Remove from Featured
+          </button>
+        )}
+      </div>
 
       <ConfirmDialog
         open={confirming !== null}
-        title="Remove tag?"
-        confirmLabel="Remove tag"
+        title="Remove from Featured?"
+        confirmLabel="Remove from Featured"
         danger
         busy={busy}
         error={error}
@@ -88,8 +159,8 @@ export default function TaggedCharacters({ postId, tags, removableCharacterId = 
         onCancel={() => { setConfirming(null); setError(null); }}
       >
         <p>
-          {confirming?.name} will no longer be tagged on this post. The post itself is not changed,
-          and the tag can't be added back by you.
+          {confirming?.name} will no longer be featured on this post. The post itself is not
+          deleted or changed — only this character's association is removed, and you can't add it back.
         </p>
       </ConfirmDialog>
     </>

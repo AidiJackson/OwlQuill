@@ -2,13 +2,17 @@
 /**
  * W-10A — explicit character tagging, client side.
  *
- * * The "Tag characters" picker searches the PUBLIC-only mode, selects and
- *   removes, excludes the authoring character and stops at five.
+ * * The compact "Featuring" picker ("+ Add characters") searches the
+ *   PUBLIC-only mode, selects and removes chips, excludes the authoring
+ *   character and stops at five.
  * * All three ordinary composers (Commons/WriteSpace on Home, the Realm New
  *   Post form, the character-page PostComposer) send `tagged_character_ids`.
- * * "Tagged: …" renders apart from the author byline and never says "with".
- * * The Tagged tab offers the character's OWNER a confirmed "Remove tag" for
- *   that character only; visitors get no such control.
+ * * "Featuring …" renders in the post HEADER's secondary line (with the
+ *   realm context), before the body, apart from the author byline, never
+ *   "with", and never as a body-level "Tagged:" line. Four or more collapse
+ *   to two names plus an accessible "+N".
+ * * The Featured tab offers the character's OWNER a confirmed "Remove from
+ *   Featured" for that character only; visitors get no such control.
  *
  * The server is the authority on every rule; these pin what the client sends
  * and shows.
@@ -50,6 +54,7 @@ import { afterTagRemoved } from '@/features/posts/taggedSurface';
 import Home from '@/pages/Home';
 import RealmDetail from '@/pages/RealmDetail';
 import CharacterDetail from '@/pages/CharacterDetail';
+import PostDetail from '@/pages/PostDetail';
 import { useAuthStore } from '@/lib/store';
 
 const ME = { id: 7, email: 'me@test.invalid', username: 'me', character_count: 2 } as User;
@@ -59,12 +64,14 @@ const ELOWEN: CharacterSearchResult = { id: 90, name: 'Elowen' };
 const COMMONS = { id: 1, name: 'Commons', slug: 'commons', is_public: true, is_commons: true, owner_id: 1 };
 const HARBOUR = { id: 9, name: 'Harbour', slug: 'harbour', is_public: true, is_commons: false, owner_id: 1, is_member: true };
 
-const pickerInput = () => screen.getByLabelText('Tag characters') as HTMLInputElement;
+const openPicker = () => fireEvent.click(screen.getByRole('button', { name: 'Add featured characters' }));
+const pickerInput = () => screen.getByRole('searchbox', { name: 'Add featured characters' }) as HTMLInputElement;
 
-async function tagElowen() {
+async function featureElowen() {
+  openPicker();
   fireEvent.change(pickerInput(), { target: { value: 'El' } });
-  fireEvent.click(await screen.findByRole('button', { name: 'Tag Elowen' }));
-  expect(screen.getByRole('button', { name: 'Remove Elowen' })).toBeTruthy();
+  fireEvent.click(await screen.findByRole('button', { name: 'Feature Elowen' }));
+  expect(screen.getByRole('button', { name: 'Remove Elowen from Featuring' })).toBeTruthy();
 }
 
 beforeEach(() => {
@@ -100,48 +107,75 @@ function renderPicker(props: { selected?: TaggedCharacter[]; exclude?: number[] 
   return { onChange, rerender: (s: TaggedCharacter[]) => utils.rerender(view(s)) };
 }
 
-describe('CharacterTagPicker', () => {
+describe('CharacterTagPicker (Featuring)', () => {
+  it('is a compact "Featuring  + Add characters" row until opened', () => {
+    renderPicker();
+    const group = screen.getByRole('group', { name: 'Featured characters' });
+    expect(within(group).getByText('Featuring')).toBeTruthy();
+    expect(within(group).getByRole('button', { name: 'Add featured characters' }).textContent).toBe('Add characters');
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    expect(screen.queryByText(/Tag characters/)).toBeNull();
+  });
+
   it('searches the PUBLIC-only mode and never the generic search', async () => {
     renderPicker();
-    expect(screen.getByText('Tag characters')).toBeTruthy();
+    openPicker();
+    expect(document.activeElement).toBe(pickerInput());
     fireEvent.change(pickerInput(), { target: { value: 'El' } });
-    await screen.findByRole('button', { name: 'Tag Elowen' });
+    await screen.findByRole('button', { name: 'Feature Elowen' });
     expect(searchTaggableCharacters).toHaveBeenCalledWith('El');
     expect(searchCharacters).not.toHaveBeenCalled();
   });
 
   it('does not search for fewer than two characters', async () => {
     renderPicker();
+    openPicker();
     fireEvent.change(pickerInput(), { target: { value: 'E' } });
     await new Promise((r) => setTimeout(r, 350));
     expect(searchTaggableCharacters).not.toHaveBeenCalled();
   });
 
-  it('selects a result and lets it be removed before posting', async () => {
+  it('selects a result as a removable chip, then offers a shorter "+ Add"', async () => {
     const { onChange, rerender } = renderPicker();
+    openPicker();
     fireEvent.change(pickerInput(), { target: { value: 'El' } });
-    fireEvent.click(await screen.findByRole('button', { name: 'Tag Elowen' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Feature Elowen' }));
     expect(onChange).toHaveBeenLastCalledWith([{ character_id: 90, name: 'Elowen' }]);
+    // the search closes after a pick
+    expect(screen.queryByRole('searchbox')).toBeNull();
 
     rerender([{ character_id: 90, name: 'Elowen' }]);
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Elowen' }));
+    const group = screen.getByRole('group', { name: 'Featured characters' });
+    expect(within(group).getByText('Elowen')).toBeTruthy();
+    expect(within(group).getByRole('button', { name: 'Add featured characters' }).textContent).toBe('Add');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Elowen from Featuring' }));
     expect(onChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it('Escape closes the search without selecting', async () => {
+    const { onChange } = renderPicker();
+    openPicker();
+    fireEvent.change(pickerInput(), { target: { value: 'El' } });
+    fireEvent.keyDown(pickerInput(), { key: 'Escape' });
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('leaves the authoring character out of results and drops it from the selection', async () => {
     const { onChange } = renderPicker({ exclude: [PAN.id], selected: [{ character_id: PAN.id, name: 'Pan' }] });
     expect(onChange).toHaveBeenCalledWith([]);
+    openPicker();
     fireEvent.change(pickerInput(), { target: { value: 'an' } });
-    await screen.findByRole('button', { name: 'Tag Elowen' });
-    expect(screen.queryByRole('button', { name: 'Tag Pan' })).toBeNull();
+    await screen.findByRole('button', { name: 'Feature Elowen' });
+    expect(screen.queryByRole('button', { name: 'Feature Pan' })).toBeNull();
   });
 
   it('stops at five', () => {
     const five = [1, 2, 3, 4, 5].map((i) => ({ character_id: i, name: `C${i}` }));
     renderPicker({ selected: five });
-    expect(pickerInput().disabled).toBe(true);
-    expect(screen.getByText('You can tag up to 5 characters.')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: /^Remove C/ })).toHaveLength(5);
+    expect(screen.queryByRole('button', { name: 'Add featured characters' })).toBeNull();
+    expect(screen.getByText('Up to 5')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /^Remove C\d from Featuring$/ })).toHaveLength(5);
   });
 });
 
@@ -156,21 +190,21 @@ const renderAt = (path: string, route: string, element: JSX.Element) =>
     </MemoryRouter>,
   );
 
-describe('composers send tagged_character_ids', () => {
+describe('composers send tagged_character_ids (Featuring)', () => {
   it('Commons (Home)', async () => {
     renderAt('/', '/', <Home />);
     await screen.findByLabelText('Write a post');
     fireEvent.change(await screen.findByDisplayValue('— select character —'), { target: { value: String(PAN.id) } });
     fireEvent.change(screen.getByLabelText('Write a post'), { target: { value: 'At the docks.' } });
-    await tagElowen();
+    await featureElowen();
     fireEvent.click(screen.getByRole('button', { name: 'Post' }));
     await waitFor(() => expect(createPost).toHaveBeenCalledTimes(1));
     expect(createPost.mock.calls[0][1]).toMatchObject({ character_id: PAN.id, tagged_character_ids: [ELOWEN.id] });
     // cleared after posting
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove Elowen' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove Elowen from Featuring' })).toBeNull());
   });
 
-  it('Commons (Home) sends no tag field when nothing is tagged', async () => {
+  it('Commons (Home) sends no tag field when nobody is featured', async () => {
     renderAt('/', '/', <Home />);
     await screen.findByLabelText('Write a post');
     fireEvent.change(await screen.findByDisplayValue('— select character —'), { target: { value: String(PAN.id) } });
@@ -185,7 +219,7 @@ describe('composers send tagged_character_ids', () => {
     fireEvent.click(await screen.findByRole('button', { name: '+ New Post' }));
     fireEvent.change(await screen.findByDisplayValue('— select character —'), { target: { value: String(SHADOW.id) } });
     fireEvent.change(screen.getByLabelText('Post content'), { target: { value: 'A realm post.' } });
-    await tagElowen();
+    await featureElowen();
     fireEvent.click(screen.getByRole('button', { name: 'Post' }));
     await waitFor(() => expect(createPost).toHaveBeenCalledTimes(1));
     expect(createPost.mock.calls[0][0]).toBe(HARBOUR.id);
@@ -199,11 +233,12 @@ describe('composers send tagged_character_ids', () => {
       </MemoryRouter>,
     );
     fireEvent.change(screen.getByPlaceholderText("What's on your mind?"), { target: { value: 'From the gallery.' } });
+    openPicker();
     fireEvent.change(pickerInput(), { target: { value: 'an' } });
-    await screen.findByRole('button', { name: 'Tag Elowen' });
+    await screen.findByRole('button', { name: 'Feature Elowen' });
     // The author is never offered to itself.
-    expect(screen.queryByRole('button', { name: 'Tag Pan' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Tag Elowen' }));
+    expect(screen.queryByRole('button', { name: 'Feature Pan' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Feature Elowen' }));
     const post = screen.getByRole('button', { name: 'Post' });
     await waitFor(() => expect(post).toHaveProperty('disabled', false));
     fireEvent.click(post);
@@ -215,40 +250,72 @@ describe('composers send tagged_character_ids', () => {
 
 // ── presentation ─────────────────────────────────────────────────────────────
 
-describe('TaggedCharacters', () => {
-  it('renders "Tagged:" with links, never "with", and nothing when empty', () => {
-    const { container, rerender } = render(
-      <MemoryRouter>
-        <TaggedCharacters postId={5} tags={[{ character_id: 90, name: 'Elowen' }, { character_id: 91, name: 'Leonardo Baptiste' }]} />
-      </MemoryRouter>,
-    );
-    const line = screen.getByTestId('tagged-characters');
-    expect(line.textContent).toBe('Tagged: Elowen, Leonardo Baptiste');
-    expect(line.textContent).not.toMatch(/\bwith\b/i);
-    expect(within(line).getByRole('link', { name: 'Leonardo Baptiste' }).getAttribute('href')).toBe('/characters/91');
-    expect(screen.queryByRole('button', { name: /Remove tag/ })).toBeNull();
+const inRouter = (el: JSX.Element) => <MemoryRouter>{el}</MemoryRouter>;
+const many = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({ character_id: 100 + i, name: `Name ${i + 1}` }));
 
-    rerender(<MemoryRouter><TaggedCharacters postId={5} tags={[]} /></MemoryRouter>);
+describe('TaggedCharacters (Featuring line)', () => {
+  it('renders "Featuring" with links, never "with" or "Tagged", then the context after a dot', () => {
+    render(inRouter(
+      <TaggedCharacters
+        postId={5}
+        tags={[{ character_id: 90, name: 'Elowen' }, { character_id: 91, name: 'Leonardo Baptiste' }]}
+        context={<span>in The Commons</span>}
+      />,
+    ));
+    const featuring = screen.getByTestId('tagged-characters');
+    expect(featuring.textContent).toBe('Featuring Elowen, Leonardo Baptiste');
+    expect(screen.getByTestId('post-context-line').textContent).toBe('Featuring Elowen, Leonardo Baptiste·in The Commons');
+    expect(screen.getByTestId('post-context-line').textContent).not.toMatch(/\bwith\b|Tagged/i);
+    expect(within(featuring).getByRole('link', { name: 'Leonardo Baptiste' }).getAttribute('href')).toBe('/characters/91');
+    expect(screen.queryByRole('button', { name: /Remove/ })).toBeNull();
+  });
+
+  it('with nobody featured renders only the context, and with neither renders nothing', () => {
+    const { container, rerender } = render(inRouter(<TaggedCharacters postId={5} tags={[]} context={<span>in Harbour</span>} />));
+    expect(screen.getByTestId('post-context-line').textContent).toBe('in Harbour');
+    expect(screen.queryByTestId('tagged-characters')).toBeNull();
+    rerender(inRouter(<TaggedCharacters postId={5} tags={[]} />));
     expect(container.textContent).toBe('');
   });
 
-  it('offers a confirmed Remove tag only for the removable character', async () => {
+  it('shows up to three in full', () => {
+    render(inRouter(<TaggedCharacters postId={5} tags={many(3)} />));
+    expect(screen.getByTestId('tagged-characters').textContent).toBe('Featuring Name 1, Name 2, Name 3');
+    expect(screen.queryByRole('button', { name: /more featured/ })).toBeNull();
+  });
+
+  it('collapses four or more to two names and an accessible +N that expands in place', () => {
+    render(inRouter(<TaggedCharacters postId={5} tags={many(4)} />));
+    expect(screen.getByTestId('tagged-characters').textContent).toBe('Featuring Name 1, Name 2 +2');
+    const more = screen.getByRole('button', { name: 'Show 2 more featured: Name 3, Name 4' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(more);
+    expect(screen.getByTestId('tagged-characters').textContent).toBe('Featuring Name 1, Name 2, Name 3, Name 4');
+    expect(screen.getAllByRole('link')).toHaveLength(4);
+  });
+
+  it('offers a confirmed "Remove from Featured" only for the removable character, listed first', async () => {
     const onRemoved = vi.fn();
-    render(
-      <MemoryRouter>
-        <TaggedCharacters
-          postId={5}
-          tags={[{ character_id: 90, name: 'Elowen' }, { character_id: 91, name: 'Leo' }]}
-          removableCharacterId={90}
-          onRemoved={onRemoved}
-        />
-      </MemoryRouter>,
-    );
-    expect(screen.getAllByRole('button', { name: /Remove tag/ })).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Remove tag of Elowen from this post' }));
+    render(inRouter(
+      <TaggedCharacters
+        postId={5}
+        tags={[...many(3), { character_id: 90, name: 'Elowen' }]}
+        removableCharacterId={90}
+        onRemoved={onRemoved}
+      />,
+    ));
+    // Never collapsed away: the viewer's own character leads.
+    expect(screen.getByTestId('tagged-characters').textContent).toBe('Featuring Elowen, Name 1 +2');
+    expect(screen.getAllByRole('button', { name: /Remove/ })).toHaveLength(1);
+    const action = screen.getByRole('button', { name: 'Remove Elowen from Featured on this post' });
+    expect(action.textContent).toBe('Remove from Featured');
+    fireEvent.click(action);
     const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('Remove from Featured?')).toBeTruthy();
+    expect(dialog.textContent).toMatch(/not\s+deleted or changed/);
     expect(removePostTag).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove tag' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove from Featured' }));
     await waitFor(() => expect(removePostTag).toHaveBeenCalledWith(5, 90));
     await waitFor(() => expect(onRemoved).toHaveBeenCalledWith(90));
   });
@@ -264,22 +331,47 @@ const otherPost = (over: Partial<Post> = {}): Post =>
     ...over,
   }) as unknown as Post;
 
-describe('tags never change the author byline', () => {
-  it('Commons feed', async () => {
-    overrides.getFeed = () => Promise.resolve([otherPost()]);
+/** Featuring sits in the header — before the body — and never in the byline. */
+function expectHeaderFeaturing(card: HTMLElement, body: HTMLElement) {
+  const line = within(card).getByTestId('tagged-characters');
+  expect(line.textContent).toBe('Featuring Elowen');
+  // DOM order: the Featuring line precedes the post body.
+  expect(line.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // Elowen appears ONLY in the Featuring line; Bram is still the byline.
+  expect(within(card).getAllByText('Elowen')).toHaveLength(1);
+  expect(within(card).getAllByText('Bram').some((el) => !line.contains(el))).toBe(true);
+  // No old body-level "Tagged:" line anywhere.
+  expect(card.textContent).not.toMatch(/Tagged:/);
+}
+
+describe('Featuring is header metadata on every post surface', () => {
+  it('Commons feed: "Featuring Elowen · in Commons"', async () => {
+    overrides.getFeed = () => Promise.resolve([otherPost({ realm_id: COMMONS.id })]);
     renderAt('/', '/', <Home />);
     const body = await screen.findByText('Bram at the docks.');
-    const card = body.closest('article') ?? (body.parentElement?.parentElement as HTMLElement);
-    const line = within(card).getByTestId('tagged-characters');
-    expect(line.textContent).toBe('Tagged: Elowen');
-    // Elowen appears ONLY in the Tagged line; Bram is the byline.
-    expect(within(card).getAllByText('Elowen')).toHaveLength(1);
-    expect(line.contains(within(card).getByText('Elowen'))).toBe(true);
-    expect(within(card).getAllByText('Bram').some((el) => !line.contains(el))).toBe(true);
+    const card = body.closest('article') as HTMLElement;
+    expectHeaderFeaturing(card, body);
+    expect(within(card).getByTestId('post-context-line').textContent).toBe('Featuring Elowen·in Commons');
+  });
+
+  it('Realm feed', async () => {
+    overrides.getRealmPosts = () => Promise.resolve([otherPost()]);
+    renderAt(`/realms/${HARBOUR.id}`, '/realms/:realmId', <RealmDetail />);
+    const body = await screen.findByText('Bram at the docks.');
+    expectHeaderFeaturing(body.closest('.card') as HTMLElement, body);
+  });
+
+  it('Post detail', async () => {
+    overrides.getPost = () => Promise.resolve(otherPost());
+    renderAt('/posts/60', '/posts/:postId', <PostDetail />);
+    const body = await screen.findByText('Bram at the docks.');
+    const card = body.closest('article') as HTMLElement;
+    expectHeaderFeaturing(card, body);
+    expect(within(card).getByTestId('post-context-line').textContent).toBe('Featuring Elowen·in Harbour');
   });
 });
 
-// ── the Tagged tab ───────────────────────────────────────────────────────────
+// ── the Featured tab ─────────────────────────────────────────────────────────
 
 const ELOWEN_PAGE = {
   id: 90, name: 'Elowen', species: 'human', visibility: 'public', is_owner: true,
@@ -290,42 +382,54 @@ const item = (p: Post) => ({
   payload: p as unknown as Record<string, unknown>,
 });
 
-describe('Tagged tab', () => {
-  it('is labelled Tagged and explains itself when empty', async () => {
+describe('Featured tab', () => {
+  it('is labelled Featured and explains itself when empty', async () => {
     overrides.getCharacter = () => Promise.resolve(ELOWEN_PAGE);
     renderAt('/characters/90', '/characters/:id', <CharacterDetail />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Tagged' }));
-    expect(await screen.findByText('Not Tagged Yet')).toBeTruthy();
-    expect(screen.getByText('Posts where another character tags Elowen will appear here.')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Featured' }));
+    expect(await screen.findByText('Not Featured Yet')).toBeTruthy();
+    expect(screen.getByText('Posts where other characters feature Elowen will appear here.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Tagged' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Mentions' })).toBeNull();
   });
 
-  it('lets the owner remove THIS character’s tag, and the post leaves the list', async () => {
+  it('shows Featuring in the card header with the realm, before the body', async () => {
+    overrides.getCharacter = () => Promise.resolve({ ...ELOWEN_PAGE, is_owner: false });
+    overrides.getCharacterMentions = () => Promise.resolve([item(otherPost())]);
+    renderAt('/characters/90', '/characters/:id', <CharacterDetail />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Featured' }));
+    const body = await screen.findByText('Bram at the docks.');
+    const card = body.closest('article') as HTMLElement;
+    expect(within(card).getByTestId('post-context-line').textContent).toBe('Featuring Elowen·in Harbour');
+    expect(within(card).getByTestId('tagged-characters').compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('lets the owner remove THIS character from Featured, and the post leaves the list', async () => {
     overrides.getCharacter = () => Promise.resolve(ELOWEN_PAGE);
     overrides.getCharacterMentions = () =>
       Promise.resolve([item(otherPost({
-        tagged_characters: [{ character_id: 90, name: 'Elowen' }, { character_id: 91, name: 'Leo' }],
+        tagged_characters: [{ character_id: 91, name: 'Leo' }, { character_id: 90, name: 'Elowen' }],
       }))]);
     renderAt('/characters/90', '/characters/:id', <CharacterDetail />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Tagged' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Featured' }));
     await screen.findByText('Bram at the docks.');
 
-    const removes = screen.getAllByRole('button', { name: /Remove tag/ });
+    const removes = screen.getAllByRole('button', { name: /from Featured on this post/ });
     expect(removes).toHaveLength(1);
     fireEvent.click(removes[0]);
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove tag' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove from Featured' }));
     await waitFor(() => expect(removePostTag).toHaveBeenCalledWith(60, 90));
     await waitFor(() => expect(screen.queryByText('Bram at the docks.')).toBeNull());
   });
 
-  it('gives a visitor no Remove tag control', async () => {
+  it('gives a visitor no Remove from Featured control', async () => {
     overrides.getCharacter = () => Promise.resolve({ ...ELOWEN_PAGE, is_owner: false });
     overrides.getCharacterMentions = () => Promise.resolve([item(otherPost())]);
     renderAt('/characters/90', '/characters/:id', <CharacterDetail />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Tagged' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Featured' }));
     await screen.findByText('Bram at the docks.');
-    expect(screen.getByTestId('tagged-characters').textContent).toBe('Tagged: Elowen');
-    expect(screen.queryByRole('button', { name: /Remove tag/ })).toBeNull();
+    expect(screen.getByTestId('tagged-characters').textContent).toBe('Featuring Elowen');
+    expect(screen.queryByRole('button', { name: /Remove/ })).toBeNull();
   });
 });
 
