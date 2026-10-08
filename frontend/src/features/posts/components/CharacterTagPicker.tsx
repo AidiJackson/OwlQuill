@@ -164,7 +164,7 @@ export default function CharacterTagPicker({ selected, onChange, excludeCharacte
             onClick={() => setSearchOpen(true)}
             disabled={disabled}
             aria-label="Add featured characters"
-            className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs text-ink-3 hover:text-gem hover:bg-surface-elevated transition-colors disabled:opacity-40 ${focusRing}`}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-edge-md text-xs font-medium text-ink-2 hover:text-gem hover:border-gem/60 hover:bg-surface-elevated focus-visible:text-gem focus-visible:border-gem transition-colors disabled:opacity-40 disabled:pointer-events-none ${focusRing}`}
           >
             <Plus className="w-3 h-3" aria-hidden="true" />
             {selected.length === 0 ? 'Add characters' : 'Add'}

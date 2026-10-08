@@ -313,7 +313,8 @@ describe('TaggedCharacters (Featuring line)', () => {
     fireEvent.click(action);
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('Remove from Featured?')).toBeTruthy();
-    expect(dialog.textContent).toMatch(/not\s+deleted or changed/);
+    expect(dialog.textContent).toMatch(/original post is not\s+deleted or edited/);
+    expect(dialog.textContent).not.toMatch(/can't add it back/);
     expect(removePostTag).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove from Featured' }));
     await waitFor(() => expect(removePostTag).toHaveBeenCalledWith(5, 90));

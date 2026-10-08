@@ -141,7 +141,7 @@ export default function TaggedCharacters({
             type="button"
             onClick={(e) => { e.stopPropagation(); setError(null); setConfirming(removable); }}
             aria-label={`Remove ${removable.name} from Featured on this post`}
-            className="ml-1 text-[11px] text-ink-3 underline underline-offset-2 hover:text-ink transition-colors rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gem/60"
+            className="ml-1 px-1.5 py-px rounded-md border border-edge-md text-[11px] font-medium text-ink-2 hover:text-ink hover:border-ink-3 hover:bg-surface-elevated transition-colors focus:outline-none focus-visible:text-ink focus-visible:ring-2 focus-visible:ring-gem/60"
           >
             Remove from Featured
           </button>
@@ -159,8 +159,8 @@ export default function TaggedCharacters({
         onCancel={() => { setConfirming(null); setError(null); }}
       >
         <p>
-          {confirming?.name} will no longer be featured on this post. The post itself is not
-          deleted or changed — only this character's association is removed, and you can't add it back.
+          {confirming?.name} will no longer be featured on this post. The original post is not
+          deleted or edited — only this association is removed.
         </p>
       </ConfirmDialog>
     </>
