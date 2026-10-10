@@ -106,6 +106,7 @@ ON_CHARACTER_DELETE: dict[tuple[str, str], str] = {
     ("conversations", "character_a_id"): "CASCADE",
     ("conversations", "character_b_id"): "CASCADE",
     ("messages", "sender_character_id"): "CASCADE",
+    ("post_character_tags", "character_id"): "CASCADE",
     ("character_dna", "character_id"): "CASCADE",
     ("character_identity_canon", "character_id"): "CASCADE",
     ("character_style_elements", "character_id"): "CASCADE",
@@ -240,6 +241,10 @@ CHECKS: tuple[Check, ...] = (
           "JOIN posts p ON p.id = pm.post_id JOIN characters c ON c.id = :cid "
           "WHERE pm.mentioned_character_id = :cid AND p.author_user_id <> c.owner_id",
           "scalar", ("post_mentions", "posts", "characters")),
+    Check("social", "featuring_tags",
+          "SELECT COUNT(*) AS tags, COUNT(DISTINCT post_id) AS posts "
+          "FROM post_character_tags WHERE character_id = :cid",
+          "row", ("post_character_tags",), "CASCADE (tag removed, post stays)"),
 
     # ── Story Spaces ─────────────────────────────────────────────────────────
     Check("story_spaces", "story_space_posts",
