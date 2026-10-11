@@ -390,6 +390,18 @@ that a retention job has something unambiguous to select on.
 **Scope:** one object per async editor job. **Fix:** a retention sweep over the
 `transient/` prefix, once a lifetime policy exists.
 
+### Tinypool forced to 2.1.2 via npm override
+
+**A temporary build workaround.** Replit's package firewall blocks
+`tinypool@1.x` (critical CVE), but Vitest 3.2.7 depends on `tinypool ^1.1.1`,
+so a clean `npm ci` fails. `frontend/package.json` therefore forces
+`tinypool` to `2.1.2` through `"overrides"`. Verified with a clean `npm ci`
+through the firewall, the full Vitest suite, typecheck, and a production build
+(output byte-identical).
+
+**Fix:** revisit during the next Vitest/Vite toolchain upgrade — once Vitest
+depends on an unblocked Tinypool directly, remove the override.
+
 ## Withdrawn findings
 
 Claims previously recorded here that turned out to be false. Kept so they are not
