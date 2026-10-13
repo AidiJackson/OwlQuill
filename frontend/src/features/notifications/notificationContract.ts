@@ -13,6 +13,11 @@
  * author and tagged characters, realm id, and realm name + preview only when
  * the recipient may see the post.
  *
+ * `post_commented` (7.2A) — another account commented on a post the recipient
+ * wrote. Ids + name snapshots for the commenting character (absent for a
+ * Wanderer, who is never named by account) and the post's character; realm
+ * name + comment preview only when the recipient may see the post.
+ *
  * `mention` is LEGACY — typed @mentions stopped notifying in W-10A — but
  * historical rows still render. Three generations of its payload:
  *   • 7.1  — author + mentioned character ids/names, realm id (+ name and
@@ -27,16 +32,18 @@ export type NotificationTarget = { kind: 'post'; postId: number };
 
 export interface NotificationView {
   /** The producer's type, or 'unknown' for anything this build cannot read. */
-  kind: 'character_tagged' | 'mention' | 'unknown';
+  kind: 'character_tagged' | 'post_commented' | 'mention' | 'unknown';
   /** The acting character, or a neutral stand-in — never an account name. */
   actorName: string;
-  /** The recipient's character that was tagged (or, legacy, addressed). */
+  /** The recipient's character that was tagged, wrote the commented post, or
+   *  (legacy) was addressed. */
   recipientCharacterName: string | null;
   /** "in <Realm>" context, only when the server chose to include it. */
   realmName: string | null;
   /** The sentence shown on the row, fully resolved. */
   summary: string;
-  /** Post excerpt, present only when the recipient may see the post. */
+  /** Post (or, for a comment, comment) excerpt, present only when the
+   *  recipient may see the post. */
   preview: string | null;
   target: NotificationTarget | null;
 }
@@ -70,6 +77,9 @@ export const UNKNOWN_NOTIFICATION_SUMMARY = 'Something new happened around one o
 /** Stand-in for an actor whose character identity the row does not carry. */
 export const UNKNOWN_ACTOR = 'Someone';
 
+/** A characterless commenter. Wanderers are never named by account here. */
+export const WANDERER_ACTOR = 'A Wanderer';
+
 /**
  * Resolve one row into what the page shows and where it goes.
  *
@@ -95,6 +105,27 @@ export function describeNotification(notif: Pick<Notification, 'type' | 'payload
       realmName,
       summary: `${actorName} featured ${who}${where}`,
       preview: str(payload, 'post_preview'),
+      target: postId ? { kind: 'post', postId } : null,
+    };
+  }
+
+  if (notif.type === 'post_commented') {
+    const actorName =
+      str(payload, 'commenter_character_name') ??
+      (payload.commenter_kind === 'wanderer' ? WANDERER_ACTOR : UNKNOWN_ACTOR);
+    const recipientCharacterName = str(payload, 'post_character_name');
+    const realmName = str(payload, 'realm_name');
+    const postId = int(payload, 'post_id');
+
+    const whose = recipientCharacterName ? `${recipientCharacterName}'s post` : 'your post';
+    const where = realmName ? ` in ${realmName}` : '';
+    return {
+      kind: 'post_commented',
+      actorName,
+      recipientCharacterName,
+      realmName,
+      summary: `${actorName} commented on ${whose}${where}`,
+      preview: str(payload, 'comment_preview'),
       target: postId ? { kind: 'post', postId } : null,
     };
   }

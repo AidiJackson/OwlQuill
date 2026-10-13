@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   UNKNOWN_ACTOR,
   UNKNOWN_NOTIFICATION_SUMMARY,
+  WANDERER_ACTOR,
   describeNotification,
   notificationDestination,
   parseNotificationPayload,
@@ -172,6 +173,78 @@ describe('describeNotification — character_tagged', () => {
 
   it('a malformed row has nowhere to go', () => {
     const view = describeNotification({ type: 'character_tagged', payload: '{bad' });
+    expect(view.target).toBeNull();
+    expect(notificationDestination(view.target)).toBeNull();
+  });
+});
+
+// ── 7.2A: post_commented ──────────────────────────────────────────────────
+
+const commented = JSON.stringify({
+  post_id: 88,
+  realm_id: 7,
+  comment_id: 501,
+  commenter_kind: 'character',
+  commenter_character_id: 4,
+  commenter_character_name: 'Mara',
+  post_character_id: 9,
+  post_character_name: 'Angelo',
+  realm_name: 'Ashfall',
+  comment_preview: 'The lanterns were never lit.',
+});
+
+describe('describeNotification — post_commented', () => {
+  it("says which character commented on which of your characters' posts, and goes to that exact post", () => {
+    const view = describeNotification({ type: 'post_commented', payload: commented });
+    expect(view.kind).toBe('post_commented');
+    expect(view.actorName).toBe('Mara');
+    expect(view.recipientCharacterName).toBe('Angelo');
+    expect(view.summary).toBe("Mara commented on Angelo's post in Ashfall");
+    expect(view.preview).toBe('The lanterns were never lit.');
+    expect(view.target).toEqual({ kind: 'post', postId: 88 });
+    expect(notificationDestination(view.target)).toBe('/posts/88');
+  });
+
+  it('preview withheld (realm no longer accessible): truthful copy, no excerpt, no realm name', () => {
+    const withheld = JSON.stringify({
+      post_id: 88, realm_id: 7, comment_id: 501, commenter_kind: 'character',
+      commenter_character_id: 4, commenter_character_name: 'Mara',
+      post_character_id: 9, post_character_name: 'Angelo',
+    });
+    const view = describeNotification({ type: 'post_commented', payload: withheld });
+    expect(view.summary).toBe("Mara commented on Angelo's post");
+    expect(view.preview).toBeNull();
+    expect(view.realmName).toBeNull();
+    expect(notificationDestination(view.target)).toBe('/posts/88');
+  });
+
+  it('a Wanderer commenter is "A Wanderer", never an account name', () => {
+    const wanderer = JSON.stringify({
+      post_id: 88, realm_id: 7, comment_id: 502, commenter_kind: 'wanderer',
+      author_username: 'drifter_99', post_character_name: 'Angelo', comment_preview: 'Passing through.',
+    });
+    const view = describeNotification({ type: 'post_commented', payload: wanderer });
+    expect(view.actorName).toBe(WANDERER_ACTOR);
+    expect(view.summary).toBe("A Wanderer commented on Angelo's post");
+    expect(view.summary).not.toContain('drifter_99');
+  });
+
+  it("without the post's character it says \"your post\"; without an actor, \"Someone\"", () => {
+    const sparse = JSON.stringify({ post_id: 88 });
+    const view = describeNotification({ type: 'post_commented', payload: sparse });
+    expect(view.actorName).toBe(UNKNOWN_ACTOR);
+    expect(view.summary).toBe('Someone commented on your post');
+    expect(notificationDestination(view.target)).toBe('/posts/88');
+  });
+
+  it('never borrows tag or mention keys', () => {
+    const odd = JSON.stringify({ post_id: 5, author_character_name: 'Bram', tagged_character_name: 'Elowen' });
+    const view = describeNotification({ type: 'post_commented', payload: odd });
+    expect(view.summary).toBe('Someone commented on your post');
+  });
+
+  it('a malformed row has nowhere to go', () => {
+    const view = describeNotification({ type: 'post_commented', payload: '{bad' });
     expect(view.target).toBeNull();
     expect(notificationDestination(view.target)).toBeNull();
   });

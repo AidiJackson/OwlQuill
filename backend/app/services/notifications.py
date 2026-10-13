@@ -33,6 +33,7 @@ from typing import Any, Mapping, Optional
 from sqlalchemy.orm import Session
 
 from app.models.character import Character
+from app.models.comment import Comment
 from app.models.notification import Notification
 from app.models.post import Post
 from app.models.realm import Realm
@@ -46,9 +47,17 @@ NOTIFICATION_TYPE_MENTION = "mention"
 #: W-10A. A post's author explicitly tagged one of the recipient's characters.
 NOTIFICATION_TYPE_CHARACTER_TAGGED = "character_tagged"
 
+#: Phase 7.2A. Another account commented on a post the recipient authored.
+NOTIFICATION_TYPE_POST_COMMENTED = "post_commented"
+
 #: Every type whose payload points at a post by ``post_id`` and may carry a
-#: preview of its body. Deleting the post deletes these rows.
-POST_NOTIFICATION_TYPES = frozenset({NOTIFICATION_TYPE_MENTION, NOTIFICATION_TYPE_CHARACTER_TAGGED})
+#: preview of its body (or, for comments, of the comment). Deleting the post
+#: deletes these rows.
+POST_NOTIFICATION_TYPES = frozenset({
+    NOTIFICATION_TYPE_MENTION,
+    NOTIFICATION_TYPE_CHARACTER_TAGGED,
+    NOTIFICATION_TYPE_POST_COMMENTED,
+})
 
 #: Characters of post body a post notification may carry as its preview.
 POST_PREVIEW_CHARS = 120
@@ -135,6 +144,56 @@ def notify_character_tagged(
     )
 
 
+def notify_post_commented(
+    db: Session,
+    *,
+    post: Post,
+    realm: Optional[Realm],
+    comment: Comment,
+    commenter_character: Optional[Character],
+) -> Notification:
+    """Write the ``post_commented`` row for one new comment. Does NOT commit.
+
+    The caller has created the comment and decided that the post's author
+    should hear about it: a different account, not across a block. Called once
+    per created comment, in the comment's own transaction — so a comment that
+    fails to commit leaves no row, and one comment is at most one row.
+
+    Payload contract (stable keys; the frontend renders from these):
+
+      post_id, realm_id, comment_id — the target. Ids only; an id is not content.
+      commenter_kind                — ``"character"`` or ``"wanderer"``.
+      commenter_character_id/_name  — WHO commented, as a character. Snapshot.
+                                      Absent for a Wanderer: the payload never
+                                      carries an account username, even the
+                                      public Wanderer one.
+      post_character_id/_name       — WHICH of the recipient's characters wrote
+                                      the post. Snapshot; absent if gone.
+      realm_name, comment_preview   — ONLY when the recipient can access the
+                                      realm (:func:`post_preview_permitted`).
+
+    No account username or id is ever written.
+    """
+    recipient_user_id = post.author_user_id
+    permitted = post_preview_permitted(db, recipient_user_id, realm)
+    post_character = post.character
+    payload: dict[str, Any] = {
+        "post_id": post.id,
+        "realm_id": post.realm_id,
+        "comment_id": comment.id,
+        "commenter_kind": "character" if commenter_character is not None else "wanderer",
+        "commenter_character_id": commenter_character.id if commenter_character is not None else None,
+        "commenter_character_name": commenter_character.name if commenter_character is not None else None,
+        "post_character_id": post_character.id if post_character is not None else None,
+        "post_character_name": post_character.name if post_character is not None else None,
+        "realm_name": realm.name if (permitted and realm is not None) else None,
+        "comment_preview": comment.content[:POST_PREVIEW_CHARS] if permitted else None,
+    }
+    return create_notification(
+        db, user_id=recipient_user_id, type=NOTIFICATION_TYPE_POST_COMMENTED, payload=payload
+    )
+
+
 def _payload_int(payload: Any, key: str) -> Optional[int]:
     if not isinstance(payload, dict):
         return None
@@ -150,9 +209,10 @@ def delete_post_notifications(
 
     The one cleanup path for every type in :data:`POST_NOTIFICATION_TYPES`.
 
-    * Post deleted — call with ``post_id`` alone: every ``mention`` and
-      ``character_tagged`` row for that post goes, because each may snapshot up
-      to :data:`POST_PREVIEW_CHARS` of the deleted body.
+    * Post deleted — call with ``post_id`` alone: every ``mention``,
+      ``character_tagged`` and ``post_commented`` row for that post goes,
+      because each may snapshot up to :data:`POST_PREVIEW_CHARS` of the deleted
+      body or of one of its (cascade-deleted) comments.
     * One tag removed — pass ``tagged_character_id``: only the
       ``character_tagged`` row(s) for that character on that post go.
 
@@ -182,6 +242,29 @@ def delete_post_notifications(
             tagged_character_id is not None
             and _payload_int(payload, "tagged_character_id") != tagged_character_id
         ):
+            continue
+        db.delete(row)
+        deleted += 1
+    return deleted
+
+
+def delete_comment_notifications(db: Session, comment_id: int) -> int:
+    """Delete the ``post_commented`` row(s) for ``comment_id``. Does NOT commit.
+
+    A comment notification may snapshot up to :data:`POST_PREVIEW_CHARS` of the
+    comment, so it goes with the comment. Matched by parsing the payload and
+    comparing ids as integers, exactly as :func:`delete_post_notifications`.
+
+    Returns the number of rows deleted.
+    """
+    deleted = 0
+    rows = db.query(Notification).filter(Notification.type == NOTIFICATION_TYPE_POST_COMMENTED).all()
+    for row in rows:
+        try:
+            payload = json.loads(row.payload or "")
+        except (TypeError, ValueError):
+            continue
+        if _payload_int(payload, "comment_id") != comment_id:
             continue
         db.delete(row)
         deleted += 1

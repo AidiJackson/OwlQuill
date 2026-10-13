@@ -19,9 +19,10 @@ class Notification(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    # Free string, one value per producer. Written today: "mention"
-    # (services.notifications.NOTIFICATION_TYPE_MENTION). Phase 7.2 adds its
-    # producers here; the frontend renders any type it does not know neutrally.
+    # Free string, one value per producer. Written today: "character_tagged"
+    # (W-10A) and "post_commented" (Phase 7.2A); "mention" is legacy, no longer
+    # written. Constants live in services.notifications; the frontend renders
+    # any type it does not know neutrally.
     type = Column(String, nullable=False)
     # JSON as text. Keys per type are the contract in services/notifications;
     # a snapshot at write time, never a live reference.

@@ -100,6 +100,24 @@ describe('Notifications page — rendering', () => {
     expect(api.markNotificationRead).toHaveBeenCalledWith(1);
   });
 
+  it('post_commented (7.2A) says who commented on which post and goes to the exact post', async () => {
+    const commented = JSON.stringify({
+      post_id: 88, realm_id: 7, comment_id: 501, commenter_kind: 'character',
+      commenter_character_id: 4, commenter_character_name: 'Mara',
+      post_character_id: 9, post_character_name: 'Angelo',
+      realm_name: 'Ashfall', comment_preview: 'The lanterns were never lit.',
+    });
+    api.getNotifications.mockResolvedValue([row({ type: 'post_commented', payload: commented })]);
+    renderNotifications();
+    const link = await screen.findByRole('link', { name: /Mara commented on Angelo's post in Ashfall/ });
+    expect(link.getAttribute('href')).toBe('/posts/88');
+    expect(within(link).getByText('Mara')).toBeTruthy();
+    expect(within(link).getByText('The lanterns were never lit.')).toBeTruthy();
+    fireEvent.click(link);
+    expect(await screen.findByText('POST PAGE')).toBeTruthy();
+    expect(api.markNotificationRead).toHaveBeenCalledWith(1);
+  });
+
   it('mention renders character-first copy with the recipient character and realm', async () => {
     api.getNotifications.mockResolvedValue([row({ payload: V71 })]);
     renderNotifications();

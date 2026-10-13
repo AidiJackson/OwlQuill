@@ -10,8 +10,10 @@ from app.models.authorship import AUTHOR_KIND_CHARACTER, COMMENT_AUTHOR_KIND_WAN
 from app.models.character import Character as CharacterModel
 from app.models.comment import Comment as CommentModel
 from app.models.post import Post as PostModel
+from app.models.realm import Realm as RealmModel
 from app.schemas.comment import Comment, CommentCreate
 from app.services.composition import link_commit
+from app.services.notifications import delete_comment_notifications, notify_post_commented
 from app.services.provenance import decide_provenance
 from app.services.safety import blocked_user_ids
 from app.services.visibility import user_can_access_post
@@ -51,6 +53,7 @@ def create_comment(
         CharacterModel.owner_id == current_user.id
     ).count()
 
+    commenter_character: Optional[CharacterModel] = None
     if comment_data.character_id is not None:
         owned = db.query(CharacterModel).filter(
             CharacterModel.id == comment_data.character_id,
@@ -61,6 +64,7 @@ def create_comment(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You can only comment as your own character.",
             )
+        commenter_character = owned
     elif owned_count > 0:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -98,6 +102,25 @@ def create_comment(
     db.add(db_comment)
     db.flush()
     link_commit(db, decision.session, kind="comment", obj_id=db_comment.id)
+
+    # Phase 7.2A: tell the post's author, in the SAME transaction as the
+    # comment — one comment, at most one row, and none if this commit fails.
+    # Not for the author's own account (any of its characters), and not across
+    # a block in either direction: the product's one definition of "blocked",
+    # the same set the feed, comments, messaging and tags consult.
+    if (
+        post.author_user_id != current_user.id
+        and post.author_user_id not in blocked_user_ids(db, current_user.id)
+    ):
+        realm = db.query(RealmModel).filter(RealmModel.id == post.realm_id).first()
+        notify_post_commented(
+            db,
+            post=post,
+            realm=realm,
+            comment=db_comment,
+            commenter_character=commenter_character,
+        )
+
     db.commit()
     db.refresh(db_comment)
     return db_comment
@@ -171,5 +194,7 @@ def delete_comment(
             detail="Not authorized to delete this comment",
         )
 
+    # Its notification may carry a preview of the comment, so it goes too.
+    delete_comment_notifications(db, comment.id)
     db.delete(comment)
     db.commit()
