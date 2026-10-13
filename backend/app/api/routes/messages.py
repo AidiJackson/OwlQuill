@@ -19,6 +19,7 @@ from app.services.messaging import (
     get_or_create_conversation,
     list_conversations_for_owner,
     list_messages,
+    mark_conversation_read,
     send_message,
 )
 
@@ -131,3 +132,17 @@ def post_message(
         user_id=current_user.id,
         body=body.body,
     )
+
+
+@router.post("/conversations/{conversation_id}/read")
+def mark_read(
+    conversation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Mark the caller's message notifications for this conversation read.
+
+    A POST, not a side effect of reading the messages: opening the thread
+    calls it explicitly. Same access rule as the thread itself.
+    """
+    return {"marked": mark_conversation_read(db, conversation_id, current_user.id)}

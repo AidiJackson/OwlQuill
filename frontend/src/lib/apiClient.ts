@@ -839,8 +839,10 @@ class ApiClient {
     return this.request<Notification[]>(`/notifications?limit=${limit}`);
   }
 
-  async getUnreadCount(): Promise<{ count: number }> {
-    return this.request<{ count: number }>('/notifications/unread-count');
+  /** Unread notifications, optionally narrowed to one `type`. */
+  async getUnreadCount(type?: string): Promise<{ count: number }> {
+    const query = type ? `?type=${encodeURIComponent(type)}` : '';
+    return this.request<{ count: number }>(`/notifications/unread-count${query}`);
   }
 
   async markNotificationRead(id: number): Promise<void> {

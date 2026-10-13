@@ -249,3 +249,65 @@ describe('describeNotification — post_commented', () => {
     expect(notificationDestination(view.target)).toBeNull();
   });
 });
+
+// ── 7.2B: message_received ────────────────────────────────────────────────
+
+const messaged = (count?: number) =>
+  JSON.stringify({
+    conversation_id: 12,
+    sender_character_id: 4,
+    sender_character_name: 'Mara',
+    recipient_character_id: 9,
+    recipient_character_name: 'Angelo',
+    ...(count === undefined ? {} : { message_count: count }),
+  });
+
+describe('describeNotification — message_received', () => {
+  it('one message: says who messaged which character, and goes to that conversation', () => {
+    const view = describeNotification({ type: 'message_received', payload: messaged(1) });
+    expect(view.kind).toBe('message_received');
+    expect(view.actorName).toBe('Mara');
+    expect(view.recipientCharacterName).toBe('Angelo');
+    expect(view.summary).toBe('Mara sent Angelo a message');
+    expect(view.target).toEqual({ kind: 'conversation', conversationId: 12 });
+    expect(notificationDestination(view.target)).toBe('/messages/12');
+  });
+
+  it('a grouped row counts its messages', () => {
+    expect(describeNotification({ type: 'message_received', payload: messaged(3) }).summary)
+      .toBe('Mara sent Angelo 3 messages');
+    // A missing or invalid count reads as one message.
+    expect(describeNotification({ type: 'message_received', payload: messaged() }).summary)
+      .toBe('Mara sent Angelo a message');
+  });
+
+  it('never shows message text, even if a payload carried some', () => {
+    const leaky = JSON.stringify({
+      conversation_id: 12, sender_character_name: 'Mara', recipient_character_name: 'Angelo',
+      message_count: 1, body: 'secret', preview: 'secret', comment_preview: 'secret', post_preview: 'secret',
+    });
+    const view = describeNotification({ type: 'message_received', payload: leaky });
+    expect(view.preview).toBeNull();
+    expect(view.realmName).toBeNull();
+    expect(JSON.stringify(view)).not.toContain('secret');
+  });
+
+  it('missing names fall back neutrally and never to an account name', () => {
+    const sparse = JSON.stringify({ conversation_id: 12, sender_username: 'mara_acct' });
+    const view = describeNotification({ type: 'message_received', payload: sparse });
+    expect(view.summary).toBe('Someone sent one of your characters a message');
+    expect(view.summary).not.toContain('mara_acct');
+  });
+
+  it('a malformed row has nowhere to go', () => {
+    const view = describeNotification({ type: 'message_received', payload: '{bad' });
+    expect(view.target).toBeNull();
+    expect(notificationDestination(view.target)).toBeNull();
+  });
+});
+
+describe('notificationDestination — conversation', () => {
+  it('routes a conversation target to its thread', () => {
+    expect(notificationDestination({ kind: 'conversation', conversationId: 5 })).toBe('/messages/5');
+  });
+});

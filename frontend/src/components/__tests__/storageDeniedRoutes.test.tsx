@@ -7,9 +7,11 @@
 // each proves:
 //
 //   Layout    — the only one whose failure was app-wide rather than route-local.
-//               It wraps every authenticated page, so its `messages_seen` read
-//               (a `useState` initializer) and its write (an effect) meant a
-//               denied browser blanked the entire signed-in product.
+//               It wraps every authenticated page, so its old `messages_seen`
+//               read (a `useState` initializer) and write (an effect) meant a
+//               denied browser blanked the entire signed-in product. Phase 7.2B
+//               replaced that flag with server unread state; the case stays as
+//               the app-wide regression guard.
 //   Home      — a `useState` initializer AND a removal in an effect.
 //   Workspace — the heaviest persistence surface: six reads at first render and
 //               a batch of writes in effects (WriteSpace autosave).
@@ -88,9 +90,9 @@ async function renderRoute(importer: () => Promise<{ default: React.ComponentTyp
 
 describe('routes under denied localStorage', () => {
   it('Layout renders — the app-wide case', async () => {
-    // Its `messages_seen` read runs in a useState initializer and its write in
-    // an effect, so before the hardening a denied browser blanked every
-    // authenticated page in the product, not one route.
+    // Layout once read and wrote `messages_seen` here, so before the hardening
+    // a denied browser blanked every authenticated page in the product. The
+    // flag is gone (Phase 7.2B); Layout must still render under denial.
     const { container } = await renderRoute(() => import('@/components/Layout'));
     expect(container.textContent).toBeTruthy();
   });

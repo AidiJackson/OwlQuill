@@ -46,19 +46,23 @@ def list_notifications(
 
 @router.get("/unread-count")
 def get_unread_count(
+    type: Optional[str] = Query(None, max_length=64),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Return the number of unread notifications for the current user."""
-    count = (
-        db.query(Notification)
-        .filter(
-            Notification.user_id == current_user.id,
-            Notification.is_read == False,  # noqa: E712
-        )
-        .count()
+    """Return the number of unread notifications for the current user.
+
+    ``type`` narrows the count to one notification type (the Messages
+    indicator asks for ``message_received``). It only ever narrows the
+    caller's own rows; an unknown type counts zero.
+    """
+    query = db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,  # noqa: E712
     )
-    return {"count": count}
+    if type is not None:
+        query = query.filter(Notification.type == type)
+    return {"count": query.count()}
 
 
 @router.patch("/{notification_id}/read", response_model=NotificationRead)

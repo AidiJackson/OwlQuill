@@ -118,6 +118,27 @@ describe('Notifications page — rendering', () => {
     expect(api.markNotificationRead).toHaveBeenCalledWith(1);
   });
 
+  it('message_received (7.2B) says who messaged which character, shows no text, and opens the conversation', async () => {
+    const messaged = JSON.stringify({
+      conversation_id: 12, sender_character_id: 4, sender_character_name: 'Mara',
+      recipient_character_id: 9, recipient_character_name: 'Angelo', message_count: 3,
+    });
+    api.getNotifications.mockResolvedValue([row({ type: 'message_received', payload: messaged })]);
+    render(
+      <MemoryRouter initialEntries={['/notifications']}>
+        <Routes>
+          <Route path="/notifications" element={<Notifications />} />
+          <Route path="/messages/:id" element={<p>THREAD PAGE</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const link = await screen.findByRole('link', { name: /Mara sent Angelo 3 messages/ });
+    expect(link.getAttribute('href')).toBe('/messages/12');
+    fireEvent.click(link);
+    expect(await screen.findByText('THREAD PAGE')).toBeTruthy();
+    expect(api.markNotificationRead).toHaveBeenCalledWith(1);
+  });
+
   it('mention renders character-first copy with the recipient character and realm', async () => {
     api.getNotifications.mockResolvedValue([row({ payload: V71 })]);
     renderNotifications();

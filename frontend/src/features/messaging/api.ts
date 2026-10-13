@@ -47,6 +47,11 @@ export function listMessages(conversationId: number): Promise<MessageRead[]> {
   return request(`/messages/conversations/${conversationId}/messages`);
 }
 
+/** Mark the caller's message notifications for this conversation read. */
+export function markConversationRead(conversationId: number): Promise<{ marked: number }> {
+  return request(`/messages/conversations/${conversationId}/read`, { method: 'POST' });
+}
+
 export function sendMessage(
   conversationId: number,
   senderCharacterId: number,

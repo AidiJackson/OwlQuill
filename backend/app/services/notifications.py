@@ -1,9 +1,10 @@
 """Notification creation — the one place a ``Notification`` row is built.
 
 Polish Phase 7.1 centralised row creation here. Every producer (W-10A's
-character tags; Phase 7.2: comments, Story Space invites, direct messages) goes
-through :func:`create_notification` so the account-owned row and its
-JSON-as-text payload are written the same way everywhere.
+character tags; Phase 7.2A comments; Phase 7.2B direct messages) goes through
+:func:`create_notification` — or, for the one row that is updated in place,
+:func:`_encode_payload` — so the account-owned row and its JSON-as-text
+payload are written the same way everywhere.
 
 W-10A: typed ``@mentions`` NO LONGER NOTIFY. The legacy parser addresses by
 ASCII name prefix, so ``@Leo Vance`` reached whoever owned "Leo" and ``@Zoë``
@@ -28,6 +29,7 @@ channels, no preferences. The helpers ``db.add`` and return; the CALLER owns
 the transaction, exactly as the inline code did.
 """
 import json
+from datetime import datetime
 from typing import Any, Mapping, Optional
 
 from sqlalchemy.orm import Session
@@ -62,6 +64,17 @@ POST_NOTIFICATION_TYPES = frozenset({
 #: Characters of post body a post notification may carry as its preview.
 POST_PREVIEW_CHARS = 120
 
+#: Phase 7.2B. Another account's character messaged one of the recipient's
+#: characters. Points at a CONVERSATION, never a post, so it is deliberately
+#: NOT in :data:`POST_NOTIFICATION_TYPES`. Carries no message text.
+NOTIFICATION_TYPE_MESSAGE_RECEIVED = "message_received"
+
+
+def _encode_payload(payload: Mapping[str, Any]) -> str:
+    """The one payload encoding: compact JSON, ``None`` values dropped."""
+    compact = {k: v for k, v in payload.items() if v is not None}
+    return json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+
 
 def create_notification(
     db: Session,
@@ -79,12 +92,7 @@ def create_notification(
     and omitting is what lets "preview withheld" be indistinguishable from
     "legacy row with no preview" — there is nothing to leak in either.
     """
-    compact = {k: v for k, v in payload.items() if v is not None}
-    notif = Notification(
-        user_id=user_id,
-        type=type,
-        payload=json.dumps(compact, ensure_ascii=False, separators=(",", ":")),
-    )
+    notif = Notification(user_id=user_id, type=type, payload=_encode_payload(payload))
     db.add(notif)
     return notif
 
@@ -269,3 +277,103 @@ def delete_comment_notifications(db: Session, comment_id: int) -> int:
         db.delete(row)
         deleted += 1
     return deleted
+
+
+# ── Phase 7.2B: direct messages ──────────────────────────────────────────────
+
+def _unread_message_rows(db: Session, user_id: int, conversation_id: int) -> list[Notification]:
+    """The account's UNREAD ``message_received`` rows for one conversation.
+
+    Matched by parsing each payload and comparing ids as integers, as every
+    other cleanup here does. Oldest first.
+    """
+    rows = (
+        db.query(Notification)
+        .filter(
+            Notification.user_id == user_id,
+            Notification.type == NOTIFICATION_TYPE_MESSAGE_RECEIVED,
+            Notification.is_read == False,  # noqa: E712
+        )
+        .order_by(Notification.id)
+        .all()
+    )
+    out = []
+    for row in rows:
+        try:
+            payload = json.loads(row.payload or "")
+        except (TypeError, ValueError):
+            continue
+        if _payload_int(payload, "conversation_id") == conversation_id:
+            out.append(row)
+    return out
+
+
+def notify_message_received(
+    db: Session,
+    *,
+    recipient_user_id: int,
+    conversation_id: int,
+    sender_character: Character,
+    recipient_character: Character,
+) -> Notification:
+    """Record one new message for its recipient. Does NOT commit.
+
+    The caller has stored the message and decided the recipient should hear
+    about it: a different account, in a conversation the sender may write to
+    (which already excludes blocks). Called once per sent message, in the
+    message's own transaction.
+
+    **Grouped while unread.** A recipient has at most one UNREAD row per
+    conversation: a further message UPDATES it — newest sender snapshot,
+    ``message_count`` + 1, ``created_at`` moved to now so it sorts to the top —
+    rather than adding a row. Once that row is read, the next message starts a
+    new one. (This groups notifications; it does not de-duplicate messages: a
+    retried send is still two messages, counted as two.)
+
+    Payload contract (stable keys; the frontend renders from these):
+
+      conversation_id                  — the target. An id only.
+      sender_character_id/_name        — WHO wrote, as a character. Snapshot.
+      recipient_character_id/_name     — WHICH of the recipient's characters
+                                         was written to. Snapshot.
+      message_count                    — messages grouped in this row, >= 1.
+
+    No message text, and no account username or id, is ever written: the row
+    can outlive the conversation (a later block, a deleted character), and then
+    it must say nothing the conversation itself would no longer show.
+    """
+    payload: dict[str, Any] = {
+        "conversation_id": conversation_id,
+        "sender_character_id": sender_character.id,
+        "sender_character_name": sender_character.name,
+        "recipient_character_id": recipient_character.id,
+        "recipient_character_name": recipient_character.name,
+    }
+    existing = _unread_message_rows(db, recipient_user_id, conversation_id)
+    if existing:
+        row = existing[-1]
+        try:
+            previous = json.loads(row.payload or "")
+        except (TypeError, ValueError):
+            previous = {}
+        count = _payload_int(previous, "message_count") or 1
+        payload["message_count"] = count + 1
+        row.payload = _encode_payload(payload)
+        row.created_at = datetime.utcnow()
+        return row
+    payload["message_count"] = 1
+    return create_notification(
+        db, user_id=recipient_user_id, type=NOTIFICATION_TYPE_MESSAGE_RECEIVED, payload=payload
+    )
+
+
+def mark_conversation_notifications_read(db: Session, *, user_id: int, conversation_id: int) -> int:
+    """Mark the account's unread ``message_received`` rows for one conversation
+    read. Does NOT commit. Touches no other type, conversation or account.
+
+    Returns the number of rows marked.
+    """
+    rows = _unread_message_rows(db, user_id, conversation_id)
+    for row in rows:
+        row.is_read = True
+    return len(rows)

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Send, Feather } from 'lucide-react';
-import { listConversations, listMessages, sendMessage } from './api';
+import { listConversations, listMessages, markConversationRead, sendMessage } from './api';
 import type { ConversationRead, MessageRead, CharacterSummary } from './types';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
+import { announceUnreadChanged } from '@/lib/unreadEvents';
 
 const CAP_PX = 160;
 
@@ -30,6 +31,9 @@ export default function ConversationThread() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isFirstLoadRef = useRef(true);
+  // The conversation whose notifications this mount already marked read, so a
+  // re-render never repeats the request.
+  const markedReadRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -45,6 +49,15 @@ export default function ConversationThread() {
         setConversation(conv);
         setMessages(msgs);
         setMyCharacters(chars);
+        // Opening the thread reads its messages: clear this conversation's
+        // message notifications. Fire-and-forget — a failure leaves the
+        // indicator lit but never stands in the way of the thread.
+        if (markedReadRef.current !== convId) {
+          markedReadRef.current = convId;
+          markConversationRead(convId)
+            .then(() => announceUnreadChanged())
+            .catch(() => {});
+        }
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false));

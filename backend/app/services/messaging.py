@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 from app.models.character import Character
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.services.notifications import (
+    mark_conversation_notifications_read,
+    notify_message_received,
+)
 from app.services.safety import blocked_user_ids
 
 
@@ -220,9 +224,42 @@ def send_message(
     # Touch conversation updated_at
     conv.updated_at = datetime.utcnow()
 
+    # Phase 7.2B: tell the other character's owner, in the SAME transaction as
+    # the message. Never the sender's own account — which also covers a
+    # conversation between two characters the sender owns. Blocks need no
+    # second check: they were refused above, before anything was written.
+    recipient_character = (
+        conv.character_b if sender_character_id == conv.character_a_id else conv.character_a
+    )
+    sender_character = (
+        conv.character_a if sender_character_id == conv.character_a_id else conv.character_b
+    )
+    if recipient_character is not None and recipient_character.owner_id != user_id:
+        notify_message_received(
+            db,
+            recipient_user_id=recipient_character.owner_id,
+            conversation_id=conv.id,
+            sender_character=sender_character,
+            recipient_character=recipient_character,
+        )
+
     db.commit()
     db.refresh(msg)
     return msg
+
+
+def mark_conversation_read(db: Session, conversation_id: int, user_id: int) -> int:
+    """Mark the caller's message notifications for one conversation read.
+
+    Admitted exactly as reading the conversation is (:func:`get_conversation`):
+    a missing or blocked conversation is 404, a non-participant 403 — so a
+    notification that outlived its conversation's access opens nothing here
+    either. Only the CALLER's rows, only for this conversation, are touched.
+    """
+    conv = get_conversation(db, conversation_id, user_id)
+    marked = mark_conversation_notifications_read(db, user_id=user_id, conversation_id=conv.id)
+    db.commit()
+    return marked
 
 
 def get_last_message(db: Session, conversation_id: int) -> Optional[Message]:

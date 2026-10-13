@@ -18,6 +18,11 @@
  * Wanderer, who is never named by account) and the post's character; realm
  * name + comment preview only when the recipient may see the post.
  *
+ * `message_received` (7.2B) — another account's character messaged one of the
+ * recipient's characters. Grouped while unread: one row per conversation with
+ * a `message_count`. Ids + name snapshots for both characters; NEVER message
+ * text. Goes to the conversation, whose own access rule still decides.
+ *
  * `mention` is LEGACY — typed @mentions stopped notifying in W-10A — but
  * historical rows still render. Three generations of its payload:
  *   • 7.1  — author + mentioned character ids/names, realm id (+ name and
@@ -27,16 +32,18 @@
  */
 import type { Notification } from '@/lib/types';
 
-/** What a notification points at. Only posts today; 7.2 adds more. */
-export type NotificationTarget = { kind: 'post'; postId: number };
+/** What a notification points at. */
+export type NotificationTarget =
+  | { kind: 'post'; postId: number }
+  | { kind: 'conversation'; conversationId: number };
 
 export interface NotificationView {
   /** The producer's type, or 'unknown' for anything this build cannot read. */
-  kind: 'character_tagged' | 'post_commented' | 'mention' | 'unknown';
+  kind: 'character_tagged' | 'post_commented' | 'message_received' | 'mention' | 'unknown';
   /** The acting character, or a neutral stand-in — never an account name. */
   actorName: string;
-  /** The recipient's character that was tagged, wrote the commented post, or
-   *  (legacy) was addressed. */
+  /** The recipient's character that was tagged, wrote the commented post, was
+   *  messaged, or (legacy) was addressed. */
   recipientCharacterName: string | null;
   /** "in <Realm>" context, only when the server chose to include it. */
   realmName: string | null;
@@ -130,6 +137,26 @@ export function describeNotification(notif: Pick<Notification, 'type' | 'payload
     };
   }
 
+  if (notif.type === 'message_received') {
+    const actorName = str(payload, 'sender_character_name') ?? UNKNOWN_ACTOR;
+    const recipientCharacterName = str(payload, 'recipient_character_name');
+    const conversationId = int(payload, 'conversation_id');
+    const count = int(payload, 'message_count') ?? 1;
+
+    const who = recipientCharacterName ?? 'one of your characters';
+    const what = count > 1 ? `${count} messages` : 'a message';
+    return {
+      kind: 'message_received',
+      actorName,
+      recipientCharacterName,
+      realmName: null,
+      summary: `${actorName} sent ${who} ${what}`,
+      // Never message text — there is none in the payload, and none is read.
+      preview: null,
+      target: conversationId ? { kind: 'conversation', conversationId } : null,
+    };
+  }
+
   if (notif.type === 'mention') {
     const actorName = str(payload, 'author_character_name') ?? UNKNOWN_ACTOR;
     // 7.1 rows name the character; Sprint 33 rows carry only the literal
@@ -171,6 +198,8 @@ export function notificationDestination(target: NotificationTarget | null): stri
   switch (target.kind) {
     case 'post':
       return `/posts/${target.postId}`;
+    case 'conversation':
+      return `/messages/${target.conversationId}`;
     default:
       return null;
   }

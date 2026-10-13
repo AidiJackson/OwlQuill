@@ -23,7 +23,7 @@ import { useThemeStore, GEMS } from '@/lib/theme';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
 import { canUseCreatorTools } from '@/lib/entitlements';
-import { safeGet, safeSet } from '@/lib/safeStorage';
+import { UNREAD_CHANGED_EVENT } from '@/lib/unreadEvents';
 
 export default function Layout() {
   const { user, logout, setActiveCharacter } = useAuthStore();
@@ -31,10 +31,10 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [messagesSeen, setMessagesSeen] = useState(
-    () => safeGet('ficshon.messages_seen') === 'true'
-  );
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  // Unread message_received notifications — the Messages indicator. Server
+  // state, so it is the same in every browser session.
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
 
   // Character switcher (founders only — admins/seeders own several characters)
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -81,21 +81,22 @@ export default function Layout() {
     }
   };
 
-  useEffect(() => {
-    if (location.pathname.startsWith('/messages')) {
-      safeSet('ficshon.messages_seen', 'true');
-      setMessagesSeen(true);
-    } else if (safeGet('ficshon.messages_seen') === 'true') {
-      setMessagesSeen(true);
-    }
-  }, [location.pathname]);
-
-  // Fetch unread notification count on mount and when navigating away from /notifications
+  // Fetch the unread counts on mount, on every navigation, and when a page
+  // announces it changed unread state (the conversation thread marking its
+  // messages read). No polling.
   useEffect(() => {
     if (!user) return;
-    apiClient.getUnreadCount()
-      .then(({ count }) => setUnreadNotifCount(count))
-      .catch(() => setUnreadNotifCount(0));
+    const refresh = () => {
+      apiClient.getUnreadCount()
+        .then(({ count }) => setUnreadNotifCount(count))
+        .catch(() => setUnreadNotifCount(0));
+      apiClient.getUnreadCount('message_received')
+        .then(({ count }) => setUnreadMessageCount(count))
+        .catch(() => setUnreadMessageCount(0));
+    };
+    refresh();
+    window.addEventListener(UNREAD_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(UNREAD_CHANGED_EVENT, refresh);
   }, [user, location.pathname]);
 
   const handleLogout = () => {
@@ -298,9 +299,10 @@ export default function Layout() {
             >
               <MessageCircle className={iconCls} strokeWidth={1.6} />
               Messages
-              {!messagesSeen && (
-                <span className="w-1.5 h-1.5 rounded-full bg-gem flex-shrink-0" />
+              {unreadMessageCount > 0 && (
+                <span className="w-1.5 h-1.5 rounded-full bg-gem flex-shrink-0" aria-hidden="true" />
               )}
+              {unreadMessageCount > 0 && <span className="sr-only">(unread messages)</span>}
             </Link>
           </>
         )}
@@ -569,10 +571,14 @@ export default function Layout() {
           )}
 
           {isCreator && (
-            <Link to="/messages" className={topIconCls} aria-label="Messages">
+            <Link
+              to="/messages"
+              className={topIconCls}
+              aria-label={unreadMessageCount > 0 ? 'Messages (unread messages)' : 'Messages'}
+            >
               <MessageCircle className="w-5 h-5" strokeWidth={1.6} />
-              {!messagesSeen && (
-                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-gem" />
+              {unreadMessageCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-gem" aria-hidden="true" />
               )}
             </Link>
           )}

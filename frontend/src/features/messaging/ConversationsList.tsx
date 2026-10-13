@@ -5,7 +5,6 @@ import { listConversations } from './api';
 import type { ConversationRead } from './types';
 import { apiClient } from '@/lib/apiClient';
 import type { Character } from '@/lib/types';
-import { safeSet } from '@/lib/safeStorage';
 
 export default function ConversationsList() {
   const [conversations, setConversations] = useState<ConversationRead[]>([]);
@@ -14,7 +13,6 @@ export default function ConversationsList() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    safeSet('ficshon.messages_seen', 'true');
     Promise.all([listConversations(), apiClient.getCharacters()])
       .then(([convs, chars]) => {
         setConversations(convs);
