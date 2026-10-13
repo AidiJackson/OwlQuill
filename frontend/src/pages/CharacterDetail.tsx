@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Feather,
   RefreshCw,
@@ -1240,8 +1240,21 @@ function PostCard({
   const authorAvatar = post.character_avatar_url ?? (post.character_name ? null : character?.avatar_url) ?? null;
 
   return (
-    <article className="py-6 border-b border-edge">
-      <div className="flex items-start gap-2.5 mb-3">
+    <article className="relative py-6 border-b border-edge">
+      {/* W-01: the whole card opens the post's own page. One link, laid UNDER
+          the card's own controls rather than wrapped around them, so nothing
+          interactive is nested in it: the header (Featuring links, Remove
+          from Featured, the post menu) and any mention link sit above it and
+          keep their own behaviour. */}
+      {postId !== undefined && (
+        <Link
+          to={`/posts/${postId}`}
+          aria-label={post.title ? `Open post: ${post.title}` : `Open post by ${authorName}`}
+          data-testid="post-card-link"
+          className="absolute inset-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gem"
+        />
+      )}
+      <div className="relative z-10 flex items-start gap-2.5 mb-3">
         <div className="w-8 h-8 rounded-full overflow-hidden bg-gem-soft flex items-center justify-center flex-shrink-0 border border-edge-md">
           {authorAvatar ? (
             <img src={authorAvatar} alt={authorName} className="w-full h-full object-cover" />
@@ -1277,7 +1290,7 @@ function PostCard({
       {post.title && (
         <h3 className="fic-title text-lg font-medium mb-1.5">{post.title}</h3>
       )}
-      <p className="fic-read whitespace-pre-wrap">
+      <p className="fic-read whitespace-pre-wrap [&_a]:relative [&_a]:z-10">
         <MentionText text={post.content ?? ''} mentions={post.mentions} />
       </p>
       {post.image_url && (
